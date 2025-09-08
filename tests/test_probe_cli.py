@@ -36,3 +36,12 @@ def test_probe_cli_prints_snapshot_json(tmp_path):
 
     # Order should be ascending, newest last. The last event should be commitment_close
     assert events[-1]["kind"] == "commitment_close"
+
+
+def test_env_loader_prefers_openai_model(monkeypatch, tmp_path):
+    from pmm.config import load_runtime_env
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
+    monkeypatch.setenv("PMM_MODEL", "ignored-if-openai-model-set")
+    monkeypatch.setenv("PMM_DB", str(tmp_path / "chat.db"))
+    env = load_runtime_env()
+    assert env.model == "gpt-4o-mini"
