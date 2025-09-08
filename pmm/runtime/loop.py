@@ -13,6 +13,7 @@ from pmm.llm.factory import LLMFactory, LLMConfig
 from pmm.bridge.manager import BridgeManager
 from pmm.runtime.cooldown import ReflectionCooldown
 from pmm.runtime.metrics import compute_ias_gas
+from pmm.commitments.tracker import CommitmentTracker
 
 
 class Runtime:
@@ -23,6 +24,8 @@ class Runtime:
         self.chat = bundle.chat
         self.bridge = BridgeManager(model_family=cfg.provider)
         self.cooldown = ReflectionCooldown()
+        # Commitments tracker (uses default detector)
+        self.tracker = CommitmentTracker(self.eventlog)
 
     def handle_user(self, user_text: str) -> str:
         msgs = [{"role": "user", "content": user_text}]
@@ -31,6 +34,13 @@ class Runtime:
         self.eventlog.append(kind="response", content=reply, meta={"source": "handle_user"})
         # Note user turn for reflection cooldown
         self.cooldown.note_user_turn()
+        # Open commitments and detect evidence closures from the assistant reply
+        try:
+            self.tracker.process_assistant_reply(reply)
+            self.tracker.process_evidence(reply)
+        except Exception:
+            # Keep runtime resilient if detector/tracker raises
+            pass
         return reply
 
     def reflect(self, context: str) -> str:
