@@ -40,10 +40,13 @@ class Runtime:
         ]
         styled = self.bridge.format_messages(msgs, intent="reflection")
         note = self.chat.generate(styled, temperature=0.2, max_tokens=256)
-        self.eventlog.append(kind="reflection", content=note, meta={"source": "reflect"})
-        # Emit telemetry after reflection
+        # Compute telemetry and embed into reflection meta
         ias, gas = compute_ias_gas(self.eventlog.read_all())
-        self.eventlog.append(kind="telemetry", content="", meta={"IAS": ias, "GAS": gas})
+        self.eventlog.append(
+            kind="reflection",
+            content=note,
+            meta={"source": "reflect", "telemetry": {"IAS": ias, "GAS": gas}},
+        )
         # Reset cooldown on successful reflection
         self.cooldown.reset()
         return note
@@ -59,10 +62,13 @@ def evaluate_reflection(cooldown: ReflectionCooldown, *, now: float | None = Non
 
 def emit_reflection(eventlog: EventLog, content: str = "") -> None:
     """Emit a simple reflection event (used where real chat isn't wired)."""
-    eventlog.append(kind="reflection", content=content or "(reflection)", meta={"source": "emit_reflection"})
-    # After reflection, emit telemetry snapshot
+    # Compute telemetry first so we can embed in the reflection meta
     ias, gas = compute_ias_gas(eventlog.read_all())
-    eventlog.append(kind="telemetry", content="", meta={"IAS": ias, "GAS": gas})
+    eventlog.append(
+        kind="reflection",
+        content=content or "(reflection)",
+        meta={"source": "emit_reflection", "telemetry": {"IAS": ias, "GAS": gas}},
+    )
 
 
 def maybe_reflect(eventlog: EventLog, cooldown: ReflectionCooldown, *, now: float | None = None, novelty: float = 1.0) -> tuple[bool, str]:

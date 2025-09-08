@@ -34,9 +34,13 @@ def test_reflection_emits_telemetry(tmp_path):
     # Emit reflection via helper, ensure telemetry appended
     emit_reflection(log, content="note")
     events = log.read_all()
-    kinds = [e["kind"] for e in events]
-    assert "reflection" in kinds
-    assert "telemetry" in kinds
+    # Find the reflection event and assert embedded telemetry fields
+    refl = [e for e in events if e["kind"] == "reflection"]
+    assert refl, "no reflection event emitted"
+    meta = refl[-1].get("meta") or {}
+    tel = meta.get("telemetry") or {}
+    assert 0.0 <= tel.get("IAS", 0.0) <= 1.0
+    assert 0.0 <= tel.get("GAS", 0.0) <= 1.0
 
 
 def test_no_reflect_emits_skip_breadcrumb(tmp_path):
