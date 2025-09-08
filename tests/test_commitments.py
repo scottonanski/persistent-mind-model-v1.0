@@ -56,3 +56,54 @@ def test_reclosing_returns_false(tmp_path):
     ok2 = ct.close_with_evidence(cid, evidence_type="done", description="again", artifact="evidence.txt")
     assert ok2 is False
 
+
+# --- New detector DI and evidence tests ---
+import pytest
+from pmm.commitments.detectors import RegexCommitmentDetector, SemanticCommitmentDetector
+
+
+@pytest.mark.parametrize("detector_cls", [RegexCommitmentDetector, SemanticCommitmentDetector])
+def test_detector_interface_finds_plans(tmp_path, detector_cls, monkeypatch):
+    # Ensure semantic path is selectable but stub defers to regex until embeddings are wired
+    if detector_cls is SemanticCommitmentDetector:
+        monkeypatch.setenv("PMM_DETECTOR", "semantic")
+
+    db = tmp_path / "det.db"
+    log = EventLog(str(db))
+    t = CommitmentTracker(log, detector=detector_cls())
+
+    added = t.process_assistant_reply("Okay, I will prepare the summary and send it later today.")
+    assert isinstance(added, list)
+    assert len(added) >= 1
+
+
+def test_done_evidence_closes_most_recent_when_ambiguous(tmp_path, monkeypatch):
+    # Allow text-only evidence for tests
+    monkeypatch.setenv("TEST_ALLOW_TEXT_ONLY_EVIDENCE", "1")
+
+    db = tmp_path / "ev_done.db"
+    log = EventLog(str(db))
+    t = CommitmentTracker(log, detector=RegexCommitmentDetector())
+
+    h1 = t.add_commitment("I will prepare the summary.")
+    h2 = t.add_commitment("I will write probe docs.")
+
+    closed = t.process_evidence("Done: wrote the docs")
+    assert isinstance(closed, list)
+    assert closed and closed[0] == h2  # most recent open when ambiguous favors latest
+
+
+def test_done_evidence_closes_by_detail_substring(tmp_path, monkeypatch):
+    monkeypatch.setenv("TEST_ALLOW_TEXT_ONLY_EVIDENCE", "1")
+
+    db = tmp_path / "ev_done2.db"
+    log = EventLog(str(db))
+    t = CommitmentTracker(log, detector=RegexCommitmentDetector())
+
+    h1 = t.add_commitment("I will prepare the summary.")
+    h2 = t.add_commitment("I will write probe docs.")
+
+    closed = t.process_evidence("Completed: summary")
+    assert isinstance(closed, list)
+    assert closed and closed[0] == h1
+
