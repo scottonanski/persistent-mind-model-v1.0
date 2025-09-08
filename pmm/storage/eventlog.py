@@ -124,3 +124,99 @@ class EventLog:
             )
         return result
 
+    def read_after_id(self, *, after_id: int, limit: int) -> List[Dict]:
+        """Return up to `limit` events where id > after_id, ordered by ascending id.
+
+        Parameters
+        ----------
+        after_id : int
+            Exclusive lower bound for the id.
+        limit : int
+            Maximum number of rows to return.
+        """
+        cur = self._conn.execute(
+            "SELECT id, ts, kind, content, meta FROM events WHERE id > ? ORDER BY id ASC LIMIT ?",
+            (int(after_id), int(limit)),
+        )
+        rows = cur.fetchall()
+        result: List[Dict] = []
+        for rid, ts, kind, content, meta_json in rows:
+            try:
+                meta_obj = _json.loads(meta_json) if meta_json else {}
+            except Exception:
+                meta_obj = {}
+            result.append(
+                {
+                    "id": int(rid),
+                    "ts": str(ts),
+                    "kind": str(kind),
+                    "content": str(content),
+                    "meta": meta_obj,
+                }
+            )
+        return result
+
+    def read_after_ts(self, *, after_ts: str, limit: int) -> List[Dict]:
+        """Return up to `limit` events where ts > after_ts, ordered by ascending id.
+
+        Parameters
+        ----------
+        after_ts : str
+            ISO-8601 UTC timestamp string (exclusive lower bound on ts).
+        limit : int
+            Maximum number of rows to return.
+        """
+        cur = self._conn.execute(
+            "SELECT id, ts, kind, content, meta FROM events WHERE ts > ? ORDER BY id ASC LIMIT ?",
+            (str(after_ts), int(limit)),
+        )
+        rows = cur.fetchall()
+        result: List[Dict] = []
+        for rid, ts, kind, content, meta_json in rows:
+            try:
+                meta_obj = _json.loads(meta_json) if meta_json else {}
+            except Exception:
+                meta_obj = {}
+            result.append(
+                {
+                    "id": int(rid),
+                    "ts": str(ts),
+                    "kind": str(kind),
+                    "content": str(content),
+                    "meta": meta_obj,
+                }
+            )
+        return result
+
+    def read_tail(self, *, limit: int) -> List[Dict]:
+        """Return the most recent <= limit events, ordered ascending by id.
+
+        Parameters
+        ----------
+        limit : int
+            Maximum number of rows to return.
+        """
+        cur = self._conn.execute(
+            "SELECT id, ts, kind, content, meta FROM events ORDER BY id DESC LIMIT ?",
+            (int(limit),),
+        )
+        rows = cur.fetchall()
+        # rows are newest-first; reverse to ascending by id (newest last)
+        rows.reverse()
+        result: List[Dict] = []
+        for rid, ts, kind, content, meta_json in rows:
+            try:
+                meta_obj = _json.loads(meta_json) if meta_json else {}
+            except Exception:
+                meta_obj = {}
+            result.append(
+                {
+                    "id": int(rid),
+                    "ts": str(ts),
+                    "kind": str(kind),
+                    "content": str(content),
+                    "meta": meta_obj,
+                }
+            )
+        return result
+
