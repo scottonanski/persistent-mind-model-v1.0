@@ -11,6 +11,7 @@ from __future__ import annotations
 from pmm.storage.eventlog import EventLog
 from pmm.llm.factory import LLMFactory, LLMConfig
 from pmm.bridge.manager import BridgeManager
+from pmm.runtime.cooldown import ReflectionCooldown
 
 
 class Runtime:
@@ -37,4 +38,12 @@ class Runtime:
         note = self.chat.generate(styled, temperature=0.2, max_tokens=256)
         self.eventlog.append(kind="reflection", content=note, meta={"source": "reflect"})
         return note
+
+
+def evaluate_reflection(cooldown: ReflectionCooldown, *, now: float | None = None, novelty: float = 1.0) -> tuple[bool, str]:
+    """Tiny helper to evaluate reflection cooldown without wiring full loop.
+
+    Returns (should_reflect, reason).
+    """
+    return cooldown.should_reflect(now=now, novelty=novelty)
 
