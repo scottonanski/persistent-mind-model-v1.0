@@ -13,6 +13,9 @@ __pycache__/
 venv/
 .env
 
+# Local data (SQLite DB, artifacts)
+.data/
+
 # Pytest
 .pytest_cache/
 .coverage*
