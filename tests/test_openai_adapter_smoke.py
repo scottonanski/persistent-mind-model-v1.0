@@ -5,27 +5,28 @@ from pmm.llm.adapters.openai_chat import OpenAIChat
 
 
 class _DummyResp:
-    def __init__(self, json_obj, status=200):
-        self._json = json_obj
-        self.status_code = status
-        self.text = json.dumps(json_obj)
+    def __init__(self, obj):
+        self._bytes = json.dumps(obj).encode("utf-8")
 
-    def json(self):
-        return self._json
+    def read(self):
+        return self._bytes
 
-    def raise_for_status(self):
-        if self.status_code >= 400:
-            raise Exception("HTTP error")
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
 
 def test_openai_adapter_generate_monkeypatched(monkeypatch):
     os.environ["OPENAI_API_KEY"] = "sk-test"
     dummy = {"choices": [{"message": {"content": "ok1"}}]}
 
-    def fake_post(url, headers=None, data=None, timeout=None):
-        return _DummyResp(dummy, status=200)
+    def fake_urlopen(req, timeout=None):
+        return _DummyResp(dummy)
 
-    monkeypatch.setattr("pmm.llm.adapters.openai_chat.requests.post", fake_post)
+    # Patch where it's used
+    monkeypatch.setattr("pmm.llm.adapters.openai_chat.urlopen", fake_urlopen)
 
     adapter = OpenAIChat("gpt-4o-mini")
     out = adapter.generate([{"role": "user", "content": "hi"}], temperature=0.2, max_tokens=16)
