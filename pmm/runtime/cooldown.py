@@ -11,6 +11,7 @@ class ReflectionCooldown:
     min_seconds: float = 60.0
     last_ts: float = 0.0
     turns_since: int = 0
+    novelty_threshold: float = 0.2
 
     def note_user_turn(self) -> None:
         self.turns_since += 1
@@ -27,6 +28,6 @@ class ReflectionCooldown:
             return (False, "min_turns")
         if (now - self.last_ts) < self.min_seconds:
             return (False, "min_time")
-        if novelty < 0.2:
+        if novelty < float(self.novelty_threshold):
             return (False, "low_novelty")
         return (True, "ok")
