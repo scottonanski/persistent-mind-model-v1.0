@@ -9,7 +9,9 @@ def test_probe_snapshot_redaction_applies_to_events(tmp_path):
     # 1) identity_change
     log.append(kind="identity_change", content="", meta={"name": "Ava"})
     # 2) commitment_open c1
-    log.append(kind="commitment_open", content="", meta={"cid": "c1", "text": "Ship skeleton"})
+    log.append(
+        kind="commitment_open", content="", meta={"cid": "c1", "text": "Ship skeleton"}
+    )
     # 3) large reflection
     big_content = "R" * 5000
     big_blob = "X" * 5000
@@ -45,7 +47,9 @@ def test_probe_snapshot_paged_redaction_and_cursor(tmp_path):
 
     # events: 1) identity_change, 2) open c1, 3) large reflection
     log.append(kind="identity_change", content="", meta={"name": "Ava"})
-    log.append(kind="commitment_open", content="", meta={"cid": "c1", "text": "Ship skeleton"})
+    log.append(
+        kind="commitment_open", content="", meta={"cid": "c1", "text": "Ship skeleton"}
+    )
     big_content = "R" * 5000
     big_blob = "X" * 5000
     log.append(kind="reflection", content=big_content, meta={"blob": big_blob})

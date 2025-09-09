@@ -29,5 +29,7 @@ def test_openai_adapter_generate_monkeypatched(monkeypatch):
     monkeypatch.setattr("pmm.llm.adapters.openai_chat.urlopen", fake_urlopen)
 
     adapter = OpenAIChat("gpt-4o-mini")
-    out = adapter.generate([{"role": "user", "content": "hi"}], temperature=0.2, max_tokens=16)
+    out = adapter.generate(
+        [{"role": "user", "content": "hi"}], temperature=0.2, max_tokens=16
+    )
     assert out == "ok1"

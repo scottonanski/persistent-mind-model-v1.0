@@ -11,11 +11,14 @@ from typing import Protocol, List, Dict
 
 
 class ChatAdapter(Protocol):
-    def generate(self, messages: List[Dict], **kwargs) -> str:  # pragma: no cover - interface only
+    def generate(
+        self, messages: List[Dict], **kwargs
+    ) -> str:  # pragma: no cover - interface only
         ...
 
 
 class EmbeddingAdapter(Protocol):
-    def embed(self, texts: List[str]) -> List[List[float]]:  # pragma: no cover - interface only
+    def embed(
+        self, texts: List[str]
+    ) -> List[List[float]]:  # pragma: no cover - interface only
         ...
-

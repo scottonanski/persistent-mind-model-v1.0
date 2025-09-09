@@ -29,10 +29,12 @@ def test_auto_close_from_reflection_not_on_tracker():
     # If commitments.tracker exists (it does), make sure the AttributeError is raised
     with pytest.raises(AttributeError):
         from pmm.commitments.tracker import CommitmentTracker  # import OK
+
         getattr(CommitmentTracker, "auto_close_from_reflection")
 
 
 def test_archive_legacy_commitments_not_on_tracker():
     with pytest.raises(AttributeError):
         from pmm.commitments.tracker import CommitmentTracker
+
         getattr(CommitmentTracker, "archive_legacy_commitments")

@@ -19,7 +19,9 @@ class ReflectionCooldown:
         self.last_ts = time.time()
         self.turns_since = 0
 
-    def should_reflect(self, now: float | None = None, novelty: float = 1.0) -> Tuple[bool, str]:
+    def should_reflect(
+        self, now: float | None = None, novelty: float = 1.0
+    ) -> Tuple[bool, str]:
         now = now or time.time()
         if self.turns_since < self.min_turns:
             return (False, "min_turns")

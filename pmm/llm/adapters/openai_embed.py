@@ -16,6 +16,7 @@ class OpenAIEmbed:
         self.model = model
         self.kw = kw
 
-    def embed(self, texts: List[str]) -> List[List[float]]:  # pragma: no cover - not invoked here
+    def embed(
+        self, texts: List[str]
+    ) -> List[List[float]]:  # pragma: no cover - not invoked here
         raise NotImplementedError("OpenAIEmbed.embed not wired in Step 5")
-

@@ -22,4 +22,3 @@ class BridgeManager:
         mutation side-effects.
         """
         return [dict(m) for m in messages]
-

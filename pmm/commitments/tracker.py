@@ -29,7 +29,9 @@ class CommitmentTracker:
         Optional detector used to extract commitments from assistant text.
     """
 
-    def __init__(self, eventlog: EventLog, detector: Optional[CommitmentDetector] = None) -> None:
+    def __init__(
+        self, eventlog: EventLog, detector: Optional[CommitmentDetector] = None
+    ) -> None:
         self.eventlog = eventlog
         self.detector = detector or get_default_detector()
 
@@ -60,7 +62,9 @@ class CommitmentTracker:
         if not text:
             return []
 
-        done_re = _re.compile(r"\b(?:done|completed|finished)\s*:?\s*(.*)$", _re.IGNORECASE)
+        done_re = _re.compile(
+            r"\b(?:done|completed|finished)\s*:?\s*(.*)$", _re.IGNORECASE
+        )
         m = done_re.search(text)
         if not m:
             return []
@@ -81,7 +85,9 @@ class CommitmentTracker:
             if ev.get("kind") == "commitment_open":
                 cid = (ev.get("meta") or {}).get("cid")
                 if cid in open_cids:
-                    last_open_event_id[cid] = ev.get("id") or last_open_event_id.get(cid, -1)
+                    last_open_event_id[cid] = ev.get("id") or last_open_event_id.get(
+                        cid, -1
+                    )
 
         # Candidates filtered by substring detail (if provided)
         candidates = list(open_cids)
@@ -124,7 +130,11 @@ class CommitmentTracker:
         return cid
 
     def close_with_evidence(
-        self, cid: str, evidence_type: str, description: str, artifact: str | None = None
+        self,
+        cid: str,
+        evidence_type: str,
+        description: str,
+        artifact: str | None = None,
     ) -> bool:
         """Attempt to close a commitment with evidence.
 
@@ -163,4 +173,3 @@ class CommitmentTracker:
         """Return mapping of cid -> meta for open commitments via projection."""
         model = build_self_model(self.eventlog.read_all())
         return model.get("commitments", {}).get("open", {})
-

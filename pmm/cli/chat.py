@@ -19,10 +19,15 @@ def main() -> None:
         sys.exit(2)
 
     log = EventLog(env.db_path)
-    cfg = LLMConfig(provider=env.provider, model=env.model, embed_provider=None, embed_model=None)
+    cfg = LLMConfig(
+        provider=env.provider, model=env.model, embed_provider=None, embed_model=None
+    )
     rt = Runtime(cfg, log)
 
-    print(f"PMM ready ({env.provider}/{env.model}) — DB: {env.db_path}. Ctrl+C to exit.", flush=True)
+    print(
+        f"PMM ready ({env.provider}/{env.model}) — DB: {env.db_path}. Ctrl+C to exit.",
+        flush=True,
+    )
     try:
         while True:
             user = input("> ").strip()

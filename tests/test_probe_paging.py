@@ -6,9 +6,13 @@ def _populate_db(log: EventLog):
     # 1) identity_change
     log.append(kind="identity_change", content="", meta={"name": "Ava"})
     # 2) commitment_open c1
-    log.append(kind="commitment_open", content="", meta={"cid": "c1", "text": "Ship skeleton"})
+    log.append(
+        kind="commitment_open", content="", meta={"cid": "c1", "text": "Ship skeleton"}
+    )
     # 3) commitment_open c2
-    log.append(kind="commitment_open", content="", meta={"cid": "c2", "text": "Write tests"})
+    log.append(
+        kind="commitment_open", content="", meta={"cid": "c2", "text": "Write tests"}
+    )
     # 4) reflection (arbitrary extra kind)
     log.append(kind="reflection", content="Thinking...", meta={})
     # 5) commitment_close c1

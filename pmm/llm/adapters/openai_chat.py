@@ -54,7 +54,9 @@ class OpenAIChat:
                 err_body = e.read().decode("utf-8")[:500]
             except Exception:
                 err_body = ""
-            raise RuntimeError(f"OpenAI HTTP error: {e.code} {e.reason}; body={err_body}") from e
+            raise RuntimeError(
+                f"OpenAI HTTP error: {e.code} {e.reason}; body={err_body}"
+            ) from e
         except URLError as e:
             raise RuntimeError(f"OpenAI network error: {e.reason}") from e
         except Exception as e:  # pragma: no cover - defensive path

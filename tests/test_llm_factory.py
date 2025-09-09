@@ -23,7 +23,12 @@ def test_openai_bundle_shapes():
 
 
 def test_ollama_bundle_shapes():
-    cfg = LLMConfig(provider="ollama", model="llama3:instruct", embed_provider=None, embed_model=None)
+    cfg = LLMConfig(
+        provider="ollama",
+        model="llama3:instruct",
+        embed_provider=None,
+        embed_model=None,
+    )
     bundle = LLMFactory.from_config(cfg)
 
     assert hasattr(bundle.chat, "generate")
@@ -41,7 +46,8 @@ def test_unknown_provider_raises():
 
 
 def test_unknown_embed_provider_raises():
-    cfg = LLMConfig(provider="openai", model="gpt-4o", embed_provider="weird", embed_model="x")
+    cfg = LLMConfig(
+        provider="openai", model="gpt-4o", embed_provider="weird", embed_model="x"
+    )
     with raises(ValueError):
         LLMFactory.from_config(cfg)
-

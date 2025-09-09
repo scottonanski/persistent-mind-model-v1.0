@@ -7,7 +7,9 @@ from pmm.runtime.loop import Runtime
 def _mk_rt(tmp_path):
     db = tmp_path / "rt.db"
     log = EventLog(str(db))
-    cfg = LLMConfig(provider="openai", model="gpt-4o", embed_provider=None, embed_model=None)
+    cfg = LLMConfig(
+        provider="openai", model="gpt-4o", embed_provider=None, embed_model=None
+    )
     return Runtime(cfg, log), log
 
 

@@ -16,6 +16,7 @@ class OllamaChat:
         self.model = model
         self.kw = kw
 
-    def generate(self, messages: List[Dict], **kwargs) -> str:  # pragma: no cover - not invoked here
+    def generate(
+        self, messages: List[Dict], **kwargs
+    ) -> str:  # pragma: no cover - not invoked here
         raise NotImplementedError("OllamaChat.generate not wired in Step 5")
-

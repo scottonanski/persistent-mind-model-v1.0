@@ -65,4 +65,3 @@ def build_self_model(events: List[Dict]) -> Dict:
                 model["commitments"]["open"].pop(cid, None)
 
     return model
-

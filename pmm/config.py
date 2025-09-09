@@ -32,4 +32,6 @@ def load_runtime_env(dotenv_path: str = ".env") -> RuntimeEnv:
     model = os.getenv("OPENAI_MODEL", os.getenv("PMM_MODEL", "gpt-4o-mini"))
     db_path = os.getenv("PMM_DB", ".data/pmm.db")
     reflect_enabled = os.getenv("PMM_REFLECT", "1") not in {"0", "false", "False"}
-    return RuntimeEnv(provider=provider, model=model, db_path=db_path, reflect_enabled=reflect_enabled)
+    return RuntimeEnv(
+        provider=provider, model=model, db_path=db_path, reflect_enabled=reflect_enabled
+    )

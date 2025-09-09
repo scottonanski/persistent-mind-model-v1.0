@@ -10,8 +10,12 @@ def test_projection_reconstructs_state_from_events_only(tmp_path):
 
     # Append events: identity_change -> open c1 -> open c2 -> close c1
     log.append(kind="identity_change", content="", meta={"name": "Ava"})
-    log.append(kind="commitment_open", content="", meta={"cid": "c1", "text": "Ship skeleton"})
-    log.append(kind="commitment_open", content="", meta={"cid": "c2", "text": "Write tests"})
+    log.append(
+        kind="commitment_open", content="", meta={"cid": "c1", "text": "Ship skeleton"}
+    )
+    log.append(
+        kind="commitment_open", content="", meta={"cid": "c2", "text": "Write tests"}
+    )
     log.append(kind="commitment_close", content="", meta={"cid": "c1"})
 
     # Rebuild model solely from events

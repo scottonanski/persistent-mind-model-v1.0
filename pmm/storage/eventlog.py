@@ -278,7 +278,15 @@ class EventLog:
         if not rows:
             return True
         prev_h = None
-        for idx, (rid, ts, kind, content, meta_json, prev_hash, stored_hash) in enumerate(rows):
+        for idx, (
+            rid,
+            ts,
+            kind,
+            content,
+            meta_json,
+            prev_hash,
+            stored_hash,
+        ) in enumerate(rows):
             # Genesis rule
             if idx == 0:
                 if prev_hash is not None:
@@ -305,4 +313,3 @@ class EventLog:
                 return False
             prev_h = stored_hash
         return True
-

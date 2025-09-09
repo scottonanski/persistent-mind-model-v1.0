@@ -54,5 +54,9 @@ def test_no_reflect_emits_skip_breadcrumb(tmp_path):
     assert did is False and reason == "min_turns"
 
     evs = log.read_all()
-    skip = [e for e in evs if e["kind"] == "debug" and (e.get("meta") or {}).get("reflect_skip")]
+    skip = [
+        e
+        for e in evs
+        if e["kind"] == "debug" and (e.get("meta") or {}).get("reflect_skip")
+    ]
     assert skip and skip[-1]["meta"]["reflect_skip"] in ("min_turns", "min_time")

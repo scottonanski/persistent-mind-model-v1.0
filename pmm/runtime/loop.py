@@ -31,7 +31,9 @@ class Runtime:
         msgs = [{"role": "user", "content": user_text}]
         styled = self.bridge.format_messages(msgs, intent="chat")
         reply = self.chat.generate(styled, temperature=1.0)
-        self.eventlog.append(kind="response", content=reply, meta={"source": "handle_user"})
+        self.eventlog.append(
+            kind="response", content=reply, meta={"source": "handle_user"}
+        )
         # Note user turn for reflection cooldown
         self.cooldown.note_user_turn()
         # Open commitments and detect evidence closures from the assistant reply
@@ -62,7 +64,9 @@ class Runtime:
         return note
 
 
-def evaluate_reflection(cooldown: ReflectionCooldown, *, now: float | None = None, novelty: float = 1.0) -> tuple[bool, str]:
+def evaluate_reflection(
+    cooldown: ReflectionCooldown, *, now: float | None = None, novelty: float = 1.0
+) -> tuple[bool, str]:
     """Tiny helper to evaluate reflection cooldown without wiring full loop.
 
     Returns (should_reflect, reason).
@@ -81,7 +85,13 @@ def emit_reflection(eventlog: EventLog, content: str = "") -> None:
     )
 
 
-def maybe_reflect(eventlog: EventLog, cooldown: ReflectionCooldown, *, now: float | None = None, novelty: float = 1.0) -> tuple[bool, str]:
+def maybe_reflect(
+    eventlog: EventLog,
+    cooldown: ReflectionCooldown,
+    *,
+    now: float | None = None,
+    novelty: float = 1.0,
+) -> tuple[bool, str]:
     """Check cooldown gates; emit reflection or breadcrumb debug event.
 
     Returns (did_reflect, reason). If skipped, reason is the gate name.
@@ -93,4 +103,3 @@ def maybe_reflect(eventlog: EventLog, cooldown: ReflectionCooldown, *, now: floa
     emit_reflection(eventlog)
     cooldown.reset()
     return (True, "ok")
-

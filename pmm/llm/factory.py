@@ -50,4 +50,3 @@ class LLMFactory:
             raise ValueError(f"Unknown embed provider: {cfg.embed_provider}")
 
         return LLMBundle(chat=chat, embed=embed)
-

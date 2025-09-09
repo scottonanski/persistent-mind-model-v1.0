@@ -6,7 +6,9 @@ from pmm.runtime.loop import Runtime
 def test_runtime_uses_same_chat_for_both_paths(monkeypatch, tmp_path):
     db = tmp_path / "db.sqlite"
     log = EventLog(str(db))
-    cfg = LLMConfig(provider="openai", model="gpt-4o", embed_provider=None, embed_model=None)
+    cfg = LLMConfig(
+        provider="openai", model="gpt-4o", embed_provider=None, embed_model=None
+    )
     rt = Runtime(cfg, log)
 
     counters = {"calls": 0}
@@ -29,7 +31,9 @@ def test_runtime_uses_same_chat_for_both_paths(monkeypatch, tmp_path):
 def test_bridge_pass_through(monkeypatch, tmp_path):
     db = tmp_path / "db.sqlite"
     log = EventLog(str(db))
-    cfg = LLMConfig(provider="openai", model="gpt-4o", embed_provider=None, embed_model=None)
+    cfg = LLMConfig(
+        provider="openai", model="gpt-4o", embed_provider=None, embed_model=None
+    )
     rt = Runtime(cfg, log)
 
     seen = {}
@@ -43,4 +47,3 @@ def test_bridge_pass_through(monkeypatch, tmp_path):
 
     assert isinstance(seen["msgs"], list)
     assert seen["msgs"][0]["content"] == "hello"
-

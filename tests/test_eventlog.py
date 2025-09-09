@@ -1,4 +1,3 @@
-import json
 from pmm.storage.eventlog import EventLog
 
 

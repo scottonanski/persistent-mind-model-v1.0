@@ -11,8 +11,12 @@ def test_probe_cli_prints_snapshot_json(tmp_path):
     # Prepare a temp database with a few events
     log = EventLog(str(db_path))
     log.append(kind="identity_change", content="", meta={"name": "Ava"})
-    log.append(kind="commitment_open", content="", meta={"cid": "c1", "text": "Ship skeleton"})
-    log.append(kind="commitment_open", content="", meta={"cid": "c2", "text": "Write tests"})
+    log.append(
+        kind="commitment_open", content="", meta={"cid": "c1", "text": "Ship skeleton"}
+    )
+    log.append(
+        kind="commitment_open", content="", meta={"cid": "c2", "text": "Write tests"}
+    )
     log.append(kind="commitment_close", content="", meta={"cid": "c1"})
 
     # Run the CLI with limit=2 using the module path
@@ -40,6 +44,7 @@ def test_probe_cli_prints_snapshot_json(tmp_path):
 
 def test_env_loader_prefers_openai_model(monkeypatch, tmp_path):
     from pmm.config import load_runtime_env
+
     monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
     monkeypatch.setenv("PMM_MODEL", "ignored-if-openai-model-set")
     monkeypatch.setenv("PMM_DB", str(tmp_path / "chat.db"))
