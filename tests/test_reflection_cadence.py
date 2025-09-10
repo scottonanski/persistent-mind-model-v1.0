@@ -1,4 +1,3 @@
-
 import pytest
 
 from pmm.storage.eventlog import EventLog

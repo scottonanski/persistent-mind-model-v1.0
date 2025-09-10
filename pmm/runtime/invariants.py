@@ -262,4 +262,197 @@ def check_invariants(events: List[Dict]) -> List[str]:
         elif len(consumed) > 1:
             violations.append("insight:over_consumed")
 
+    # 8) Evidence/commitment invariants (Phase 3 Step 1)
+    # (a) Every commitment_close must have a prior evidence_candidate with same cid after its open
+    # Build map: cid -> list of open ids
+    open_ids_by_cid: Dict[str, List[int]] = {}
+    for ev in events:
+        if ev.get("kind") == "commitment_open":
+            m = ev.get("meta") or {}
+            cid = str(m.get("cid") or "")
+            if cid:
+                open_ids_by_cid.setdefault(cid, []).append(int(ev.get("id") or 0))
+    # Collect candidate ids by cid
+    cand_ids_by_cid: Dict[str, List[int]] = {}
+    for ev in events:
+        if ev.get("kind") == "evidence_candidate":
+            m = ev.get("meta") or {}
+            cid = str(m.get("cid") or "")
+            if cid:
+                cand_ids_by_cid.setdefault(cid, []).append(int(ev.get("id") or 0))
+    for ev in events:
+        if ev.get("kind") != "commitment_close":
+            continue
+        cm = ev.get("meta") or {}
+        cid = str(cm.get("cid") or "")
+        close_id = int(ev.get("id") or 0)
+        # find the last open id for this cid before close
+        opens = open_ids_by_cid.get(cid, [])
+        last_open_before_close = 0
+        for oid in opens:
+            if oid < close_id and oid > last_open_before_close:
+                last_open_before_close = oid
+        # ensure a candidate exists between last_open_before_close and close_id
+        cands = cand_ids_by_cid.get(cid, [])
+        ok = any(last_open_before_close < cid_ <= close_id for cid_ in cands)
+        if not ok:
+            violations.append("evidence:close_without_candidate")
+
+    # (b) No adjacent duplicate evidence_candidate with identical {cid, snippet}
+    prev_ev = None
+    for ev in events:
+        if prev_ev and prev_ev.get("kind") == ev.get("kind") == "evidence_candidate":
+            m1 = prev_ev.get("meta") or {}
+            m2 = ev.get("meta") or {}
+            if str(m1.get("cid") or "") == str(m2.get("cid") or "") and str(
+                m1.get("snippet") or ""
+            ) == str(m2.get("snippet") or ""):
+                violations.append("evidence:duplicate_adjacent_candidate")
+                break
+        prev_ev = ev
+
+    # 9) recall_suggest invariants
+    # For each recall_suggest: eids exist, are earlier than this event id, unique, and <=3 items
+    id_set = {int(ev.get("id") or 0) for ev in events}
+    for ev in events:
+        if ev.get("kind") != "recall_suggest":
+            continue
+        rid = int(ev.get("id") or 0)
+        m = ev.get("meta") or {}
+        suggestions = m.get("suggestions") or []
+        if not isinstance(suggestions, list):
+            violations.append("recall:invalid_schema")
+            continue
+        if len(suggestions) > 3:
+            violations.append("recall:too_many_suggestions")
+        seen_eids = set()
+        for s in suggestions:
+            try:
+                eid = int((s or {}).get("eid") or 0)
+            except Exception:
+                eid = 0
+            if eid <= 0 or eid not in id_set:
+                violations.append("recall:missing_eid")
+                break
+            if eid >= rid:
+                violations.append("recall:eid_not_prior")
+                break
+            if eid in seen_eids:
+                violations.append("recall:duplicate_eid")
+                break
+            seen_eids.add(eid)
+
+    # 10) scene_compact invariants
+    id_set = {int(ev.get("id") or 0) for ev in events}
+    # Track seen windows to prevent duplicate exact-window compacts
+    seen_windows = set()
+    for ev in events:
+        if ev.get("kind") != "scene_compact":
+            continue
+        cid = int(ev.get("id") or 0)
+        m = ev.get("meta") or {}
+        src = m.get("source_ids") or []
+        win = m.get("window") or {}
+        try:
+            start = int(win.get("start") or 0)
+            end = int(win.get("end") or 0)
+        except Exception:
+            start, end = 0, 0
+        # Content length bound
+        content = str(ev.get("content") or "")
+        if len(content) > 500:
+            violations.append("scene:content_too_long")
+        # source_ids validation
+        try:
+            ids = [int(x) for x in src]
+        except Exception:
+            violations.append("scene:invalid_source_ids")
+            continue
+        if not ids:
+            violations.append("scene:missing_source_ids")
+            continue
+        if any(i not in id_set or i >= cid for i in ids):
+            violations.append("scene:source_id_invalid_or_not_prior")
+        # strictly increasing
+        if any(ids[i] >= ids[i + 1] for i in range(len(ids) - 1)):
+            violations.append("scene:source_ids_not_increasing")
+        # window matches
+        if start != ids[0] or end != ids[-1]:
+            violations.append("scene:window_mismatch")
+        # duplicate exact window check
+        key = (start, end)
+        if key in seen_windows:
+            violations.append("scene:duplicate_window")
+        seen_windows.add(key)
+
+    # 11) reflection bandit invariants
+    # Map last chosen arm position
+    for idx, ev in enumerate(events):
+        if ev.get("kind") == "bandit_arm_chosen":
+            m = ev.get("meta") or {}
+        if ev.get("kind") == "bandit_reward":
+            m = ev.get("meta") or {}
+            arm = str(m.get("arm") or "")
+            try:
+                r = float(m.get("reward") or 0.0)
+            except Exception:
+                r = -1.0
+            if r < 0.0 or r > 1.0:
+                violations.append("bandit:reward_out_of_bounds")
+            # ensure there was a prior chosen arm
+            prior = any(
+                e.get("kind") == "bandit_arm_chosen"
+                and (e.get("meta") or {}).get("arm") == arm
+                for e in events[:idx]
+            )
+            if not prior:
+                violations.append("bandit:reward_without_prior_arm")
+
+    # 12) commitment TTL invariants
+    # A commitment_expire must reference a commitment that was open at that point
+    # and there should be no duplicate expire after a single open without a re-open.
+    open_since: dict[str, int] = {}
+    for idx, ev in enumerate(events):
+        k = ev.get("kind")
+        m = ev.get("meta") or {}
+        if k == "commitment_open":
+            cid = str(m.get("cid") or "")
+            if cid:
+                open_since[cid] = idx
+        elif k == "commitment_close":
+            cid = str(m.get("cid") or "")
+            if cid in open_since:
+                open_since.pop(cid, None)
+        elif k == "commitment_expire":
+            cid = str(m.get("cid") or "")
+            # Must be open
+            if cid not in open_since:
+                violations.append("ttl:expire_without_open")
+
+    # 13) Embedding invariants
+    id_set_all = {int(ev.get("id") or 0) for ev in events}
+    seen_digest_by_eid: Dict[int, str] = {}
+    for ev in events:
+        k = ev.get("kind")
+        m = ev.get("meta") or {}
+        if k == "embedding_indexed":
+            try:
+                eid = int(m.get("eid") or 0)
+            except Exception:
+                eid = 0
+            digest = str(m.get("digest") or "")
+            rid = int(ev.get("id") or 0)
+            if eid <= 0 or eid not in id_set_all or eid >= rid:
+                violations.append("embedding:eid_not_prior")
+            if not digest:
+                violations.append("embedding:missing_digest")
+            prev = seen_digest_by_eid.get(eid)
+            if prev is not None and prev == digest:
+                violations.append("embedding:duplicate_digest_for_eid")
+            else:
+                seen_digest_by_eid[eid] = digest
+        elif k == "embedding_skipped":
+            if m:
+                violations.append("embedding:skipped_has_meta")
+
     return violations

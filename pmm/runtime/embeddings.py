@@ -1,0 +1,98 @@
+from __future__ import annotations
+
+from typing import List, Optional
+import os as _os
+from openai import OpenAI
+import hashlib as _hashlib
+import math as _math
+
+
+def _load_env_if_missing() -> None:
+    """If OPENAI_API_KEY is missing, attempt to load it from the nearest .env file.
+
+    This avoids requiring users to `source .env` before running tests or code.
+    """
+    if _os.environ.get("OPENAI_API_KEY"):
+        return
+    # Search up from this file for a .env
+    cur = _os.path.abspath(_os.path.dirname(__file__))
+    for _ in range(6):  # search up to 6 levels
+        candidate = _os.path.join(cur, ".env")
+        if _os.path.isfile(candidate):
+            try:
+                with open(candidate, "r", encoding="utf-8") as fh:
+                    for line in fh:
+                        ln = line.strip()
+                        if not ln or ln.startswith("#"):
+                            continue
+                        if "=" not in ln:
+                            continue
+                        k, v = ln.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip('"').strip("'")
+                        if k and v and k not in _os.environ:
+                            _os.environ[k] = v
+            except Exception:
+                pass
+            break
+        parent = _os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+
+
+def compute_embedding(
+    text: str, model: str = "text-embedding-3-small"
+) -> Optional[List[float]]:
+    """Compute a real embedding for text using OpenAI.
+
+    Returns the vector on success, or None if the API call fails.
+    """
+    try:
+        _load_env_if_missing()
+        client = OpenAI()
+        resp = client.embeddings.create(model=model, input=text)
+        return resp.data[0].embedding
+    except Exception:
+        return None
+
+
+def cosine_similarity(a: List[float], b: List[float]) -> float:
+    """Stable cosine similarity between two vectors."""
+    if not a or not b:
+        return 0.0
+    n = min(len(a), len(b))
+    if n == 0:
+        return 0.0
+    dot = sum(float(a[i]) * float(b[i]) for i in range(n))
+    na = _math.sqrt(sum(float(a[i]) * float(a[i]) for i in range(n)))
+    nb = _math.sqrt(sum(float(b[i]) * float(b[i]) for i in range(n)))
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return float(dot / (na * nb))
+
+
+def digest_vector(vec: List[float]) -> str:
+    """Short reproducible SHA1[:8] digest of the vector values for logging."""
+    as_bytes = str(list(vec)).encode("utf-8")
+    return _hashlib.sha1(as_bytes).hexdigest()[:8]
+
+
+def index_and_log(eventlog, eid: int, text: str) -> None:
+    """Compute an embedding and append embedding_indexed or embedding_skipped for the given event id."""
+    vec = compute_embedding(text)
+    if vec is None:
+        eventlog.append(kind="embedding_skipped", content="", meta={})
+        return
+    try:
+        eid_int = int(eid)
+    except Exception:
+        eid_int = 0
+    if eid_int <= 0:
+        eventlog.append(kind="embedding_skipped", content="", meta={})
+        return
+    eventlog.append(
+        kind="embedding_indexed",
+        content="",
+        meta={"eid": eid_int, "digest": digest_vector(vec)},
+    )

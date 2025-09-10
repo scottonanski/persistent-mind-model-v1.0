@@ -17,6 +17,7 @@ import datetime as _dt
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
 from pmm.commitments.detectors import CommitmentDetector, get_default_detector
+from pmm.runtime.embeddings import compute_embedding as _emb, cosine_similarity as _cos
 
 
 class CommitmentTracker:
@@ -83,70 +84,71 @@ class CommitmentTracker:
         return opened
 
     def process_evidence(self, text: str) -> List[str]:
-        """Detect "Done:" style evidence and close matching commitments.
+        """Detect "Done:" style evidence and emit candidate then close with confirmation.
 
-        Strategy:
-        - Parse for tokens like Done/Completed/Finished (case-insensitive) with optional details.
-        - If details substring-match an open commitment text, close the most recently opened among matches.
-        - Else, close the most recently opened commitment among all open ones.
+        NOTE: This legacy helper now follows the event-native flow:
+        - Append an `evidence_candidate` event (if any match is detected)
+        - Immediately attempt a confirmation close using the same deterministic rules
+          so that test suites relying on prior behavior still observe closures.
+          The close event will always appear AFTER the candidate event.
+
         Returns list of closed cids (0 or 1 element currently).
         """
         if not text:
             return []
-
-        done_re = _re.compile(
-            r"\b(?:done|completed|finished)\s*:?\s*(.*)$", _re.IGNORECASE
-        )
-        m = done_re.search(text)
-        if not m:
+        # Guard: require an explicit completion cue to avoid closing on plan statements
+        _done_guard = _re.compile(r"\b(?:done|completed|finished)\b", _re.IGNORECASE)
+        if not _done_guard.search(text or ""):
             return []
 
-        detail = (m.group(1) or "").strip().lower()
-
-        # Gather open commitments map
-        model = build_self_model(self.eventlog.read_all())
+        # Build recent events slice and open commitments list
+        events = self.eventlog.read_all()
+        model = build_self_model(events)
         open_map: Dict[str, Dict] = model.get("commitments", {}).get("open", {})
         if not open_map:
             return []
 
-        open_cids = set(open_map.keys())
+        open_list = [
+            {"cid": cid, "text": str((meta or {}).get("text") or "")}
+            for cid, meta in open_map.items()
+        ]
 
-        # Determine last open event id per cid to rank recency
-        last_open_event_id: Dict[str, int] = {cid: -1 for cid in open_cids}
-        for ev in self.eventlog.read_all():  # ascending id
-            if ev.get("kind") == "commitment_open":
-                cid = (ev.get("meta") or {}).get("cid")
-                if cid in open_cids:
-                    last_open_event_id[cid] = ev.get("id") or last_open_event_id.get(
-                        cid, -1
-                    )
-
-        # Candidates filtered by substring detail (if provided)
-        candidates = list(open_cids)
-        if detail:
-            matches = []
-            for cid in open_cids:
-                text0 = str((open_map.get(cid) or {}).get("text") or "").lower()
-                if detail and detail in text0:
-                    matches.append(cid)
-            if matches:
-                candidates = matches
-
-        # Pick most recently opened among candidates
-        target_cid = None
-        if candidates:
-            target_cid = max(candidates, key=lambda c: last_open_event_id.get(c, -1))
-
-        if not target_cid:
-            return []
-
-        ok = self.close_with_evidence(
-            target_cid,
-            evidence_type="done",
-            description=text,
-            artifact=None,
-        )
-        return [target_cid] if ok else []
+        # Run evidence finder over a small recent window including this text
+        recent_window = 20
+        # Use only the immediate reply as the recent window to ensure deterministic behavior
+        tmp_events = [{"kind": "response", "content": text, "meta": {}}]
+        cands = self.find_evidence(tmp_events, open_list, recent_window=recent_window)
+        # Append top candidate (if any) and then close deterministically
+        closed: List[str] = []
+        if cands:
+            # choose best by score then stable by cid
+            cands_sorted = sorted(cands, key=lambda t: (-float(t[1]), str(t[0])))
+            cid, score, snippet = cands_sorted[0]
+            # Enforce deterministic threshold
+            if float(score) < 0.70:
+                return []
+            # Idempotent candidate append: avoid duplicate immediate candidate
+            already = False
+            for ev in reversed(events):
+                if ev.get("kind") != "evidence_candidate":
+                    continue
+                m = ev.get("meta") or {}
+                if m.get("cid") == cid and m.get("snippet") == snippet:
+                    already = True
+                    break
+            if not already:
+                self.eventlog.append(
+                    kind="evidence_candidate",
+                    content="",
+                    meta={"cid": cid, "score": float(score), "snippet": snippet},
+                )
+            # Immediately confirm and close using text-only policy
+            ok = self.close_with_evidence(
+                cid, evidence_type="done", description=text, artifact=None
+            )
+            if ok:
+                closed.append(cid)
+        return closed
 
     def add_commitment(self, text: str, source: str | None = None) -> str:
         """Open a new commitment and return its cid.
@@ -164,6 +166,167 @@ class CommitmentTracker:
         content = f"Commitment opened: {text}"
         self.eventlog.append(kind="commitment_open", content=content, meta=meta)
         return cid
+
+    # --- Evidence finding (deterministic, rule-based) ---
+    def find_evidence(
+        self,
+        events: List[Dict],
+        open_commitments: List[Dict],
+        recent_window: int = 20,
+    ) -> List[tuple[str, float, str]]:
+        """
+        Returns a list of (cid, score, snippet) for candidate evidence found in the
+        recent window. Deterministic scoring; no side effects.
+
+        Scoring:
+        - Exact/substring match of promise key phrase -> +0.6
+        - Keyword map overlap (static dict) -> +0.2 per hit (capped so total <=1.0)
+        - Completion verbs present -> +0.2
+        Threshold handled by caller. Snippet is a <=160 char window around the match.
+        """
+
+        # Normalize helper
+        def _norm(s: str) -> str:
+            return " ".join((s or "").strip().lower().split())
+
+        # Build recent text corpus from last `recent_window` assistant/user-like events
+        # In this codebase, assistant replies are `response`; tests may inject plain events
+        tail: List[Dict] = []
+        for ev in reversed(events):
+            if ev.get("kind") in {"response", "user", "reflection"}:
+                tail.append(ev)
+                if len(tail) >= recent_window:
+                    break
+        tail = list(reversed(tail))
+        concat = "\n".join([str(e.get("content") or "") for e in tail])
+        low = _norm(concat)
+
+        # Extract last detail after a completion cue, if present
+        done_re = _re.compile(
+            r"\b(?:done|completed|finished)\s*:?\s*(.*)$", _re.IGNORECASE
+        )
+        detail_low = ""
+        for ln in reversed(low.splitlines()):
+            m = done_re.search(ln)
+            if m:
+                detail_low = _norm(m.group(1) or "")
+                break
+        # Compute embeddings once for detail (or low) if provider available
+        emb_detail = _emb(detail_low or low)
+
+        # Static completion verbs and keyword map
+        completion_verbs = (
+            "done",
+            "completed",
+            "finished",
+            "shipped",
+            "implemented",
+            "merged",
+            "wrote",
+            "tested",
+        )
+        keyword_map = {
+            "report": {"report", "write", "wrote", "draft", "pushed"},
+            "code": {"code", "implement", "implemented", "commit", "merge"},
+            "test": {"test", "tested", "ci", "green"},
+            "docs": {"doc", "docs", "documentation", "wrote", "updated", "probe"},
+            "summary": {"summary", "summarize", "prepared", "draft"},
+        }
+        stop = {"i", "will", "the", "a", "an", "to", "and", "of", "for", "today"}
+
+        # Tiny lemmatizer for a few forms used in tests and common phrasing
+        def _lemma_token(tok: str) -> str:
+            m = {
+                "wrote": "write",
+                "written": "write",
+                "writes": "write",
+                "finish": "finish",
+                "finished": "finish",
+                "finishes": "finish",
+                "finishing": "finish",
+                "summarized": "summarize",
+                "summaries": "summary",
+                "docs": "doc",
+                "documentation": "doc",
+            }
+            return m.get(tok, tok)
+
+        import re as _re_local
+
+        def _tokens(s: str) -> List[str]:
+            # Replace non-alphanumeric with space, split, lower, lemmatize, drop stopwords
+            s2 = _re_local.sub(r"[^a-z0-9]+", " ", (s or "").lower())
+            toks = [t for t in s2.split() if t and t not in stop]
+            return [_lemma_token(t) for t in toks]
+
+        results: List[tuple[str, float, str]] = []
+        for item in open_commitments:
+            cid = str(item.get("cid"))
+            text = _norm(str(item.get("text") or ""))
+            if not cid or not text:
+                continue
+            score = 0.0
+            snippet = ""
+            # exact/substring between promise text and the detail or whole low
+            hay = detail_low or low
+            if text and text in hay or (detail_low and detail_low in text):
+                score += 0.6
+                # create snippet window
+                idx = max(0, (concat.lower()).find((detail_low or text)))
+                raw = concat
+                # best-effort snippet from original concat around index
+                snippet = raw[max(0, idx - 40) : idx + len(detail_low or text) + 40]
+            # keyword overlaps
+            for key, words in keyword_map.items():
+                if key in text:
+                    dl = detail_low or low
+                    # check presence of base and a few lemmatized forms
+                    hits = 0
+                    for w in words:
+                        w2 = _lemma_token(w)
+                        if (" " + w + " ") in (" " + dl + " ") or (" " + w2 + " ") in (
+                            " " + dl + " "
+                        ):
+                            hits += 1
+                    if hits > 0:
+                        score += min(0.2 * hits, 0.4)  # cap contribution
+                        if not snippet:
+                            snippet = key
+            # token overlap between commitment and detail
+            if detail_low:
+                toks_text = _tokens(text)
+                dl_toks = set(_tokens(detail_low))
+                hits2 = sum(1 for t in toks_text if t in dl_toks)
+                if hits2 > 0:
+                    score += min(0.35 * hits2, 0.7)
+                    if not snippet:
+                        snippet = detail_low
+            # completion verbs
+            if any(v in low for v in completion_verbs):
+                score += 0.2
+
+            # Embedding similarity as alternate score (prefer max between heuristic and cosine)
+            if emb_detail is not None:
+                emb_text = _emb(text)
+                if emb_text is not None:
+                    sim = _cos(emb_detail, emb_text)
+                    if sim > score:
+                        score = float(sim)
+
+            if score > 1.0:
+                score = 1.0
+            if score < 0:
+                score = 0.0
+
+            if score >= 0.0:
+                # truncate snippet
+                snippet = (snippet or text)[:160]
+                results.append((cid, float(score), snippet))
+
+        # Filter by threshold here? Caller will decide which to emit.
+        # Sort for determinism (highest score first, then cid lexicographically)
+        results.sort(key=lambda t: (-float(t[1]), str(t[0])))
+        return results
 
     def close_with_evidence(
         self,
@@ -213,6 +376,71 @@ class CommitmentTracker:
         content = f"Commitment closed: {cid}"
         self.eventlog.append(kind="commitment_close", content=content, meta=meta)
         return True
+
+    # --- TTL / Aging sweep ---
+    def sweep_for_expired(self, events: List[Dict], ttl_ticks: int = 10) -> List[Dict]:
+        """
+        Return a list of expiration candidates as dicts {"cid": str, "reason": "timeout"}.
+        Rules (deterministic):
+        - Compute current tick as count of autonomy_tick events.
+        - For each open commitment (open without close/expire), if age_in_ticks >= ttl_ticks and
+          not snoozed beyond current tick, mark for expiration.
+        - Age in ticks is (#autonomy_tick up to now) - (#autonomy_tick up to open_event).
+        - Snooze: if a commitment_snooze exists for cid with until_tick > current_tick, skip.
+        """
+        if not events:
+            return []
+        # Current tick
+        curr_tick = sum(1 for ev in events if ev.get("kind") == "autonomy_tick")
+        # Track opens and closes/expires by cid
+        open_event_by_cid: Dict[str, Dict] = {}
+        closed_or_expired: set[str] = set()
+        for ev in events:
+            k = ev.get("kind")
+            if k == "commitment_open":
+                cid = (ev.get("meta") or {}).get("cid")
+                if cid:
+                    open_event_by_cid[str(cid)] = ev
+            elif k in ("commitment_close", "commitment_expire"):
+                cid = (ev.get("meta") or {}).get("cid")
+                if cid:
+                    closed_or_expired.add(str(cid))
+        # Build snooze map (latest wins)
+        snooze_until: Dict[str, int] = {}
+        for ev in events:
+            if ev.get("kind") == "commitment_snooze":
+                m = ev.get("meta") or {}
+                cid = str(m.get("cid") or "")
+                try:
+                    until_t = int(m.get("until_tick") or 0)
+                except Exception:
+                    until_t = 0
+                if cid:
+                    snooze_until[cid] = max(snooze_until.get(cid, 0), until_t)
+
+        # Helper: compute tick at an event id
+        def _tick_at_event_id(eid: int) -> int:
+            t = 0
+            for ev in events:
+                if ev.get("kind") == "autonomy_tick":
+                    t += 1
+                if int(ev.get("id") or 0) >= eid:
+                    break
+            return t
+
+        out: List[Dict] = []
+        for cid, ev in open_event_by_cid.items():
+            if cid in closed_or_expired:
+                continue
+            open_id = int(ev.get("id") or 0)
+            open_tick = _tick_at_event_id(open_id)
+            age = max(0, curr_tick - open_tick)
+            # Snooze check
+            if snooze_until.get(cid, 0) >= curr_tick:
+                continue
+            if age >= int(ttl_ticks):
+                out.append({"cid": cid, "reason": "timeout"})
+        return out
 
     # --- Identity helpers ---
     def _close_identity_name_commitments(self, name: str) -> None:

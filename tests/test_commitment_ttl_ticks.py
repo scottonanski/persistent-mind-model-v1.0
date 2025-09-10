@@ -1,0 +1,109 @@
+from pmm.storage.eventlog import EventLog
+from pmm.storage.projection import build_self_model
+from pmm.llm.factory import LLMConfig
+from pmm.runtime.loop import Runtime, AutonomyLoop
+
+
+def _mk_rt(tmp_path):
+    db = tmp_path / "ttl_ticks.db"
+    log = EventLog(str(db))
+    rt = Runtime(
+        LLMConfig(
+            provider="openai", model="gpt-4o", embed_provider=None, embed_model=None
+        ),
+        log,
+    )
+    return rt, log
+
+
+def _run_ticks(log: EventLog, rt: Runtime, n: int):
+    loop = AutonomyLoop(eventlog=log, cooldown=rt.cooldown, interval_seconds=0.001)
+    for _ in range(n):
+        loop.tick()
+
+
+def test_expire_after_ttl(tmp_path, monkeypatch):
+    rt, log = _mk_rt(tmp_path)
+    # Open a commitment
+    monkeypatch.setattr(
+        rt.chat, "generate", lambda msgs, **kw: "I will write the report."
+    )
+    rt.handle_user("hi")
+    # Advance > TTL (default 10 ticks)
+    _run_ticks(log, rt, 11)
+
+    evs = log.read_all()
+    kinds = [e.get("kind") for e in evs]
+    assert "commitment_expire" in kinds
+    model = build_self_model(evs)
+    assert len(model.get("commitments", {}).get("open", {})) == 0
+    assert len(model.get("commitments", {}).get("expired", {})) >= 1
+
+
+def test_no_expire_if_recent_activity(tmp_path, monkeypatch):
+    rt, log = _mk_rt(tmp_path)
+    # Open a commitment
+    monkeypatch.setattr(
+        rt.chat, "generate", lambda msgs, **kw: "I will draft the design doc."
+    )
+    rt.handle_user("hi")
+    # Fewer than TTL ticks
+    _run_ticks(log, rt, 5)
+
+    evs = log.read_all()
+    kinds = [e.get("kind") for e in evs]
+    assert "commitment_expire" not in kinds
+    model = build_self_model(evs)
+    assert len(model.get("commitments", {}).get("open", {})) >= 1
+
+
+def test_snooze_delays_expire(tmp_path, monkeypatch):
+    rt, log = _mk_rt(tmp_path)
+    # Open
+    monkeypatch.setattr(
+        rt.chat, "generate", lambda msgs, **kw: "I will update the docs."
+    )
+    rt.handle_user("hi")
+    # Add snooze until tick 15
+    log.append(
+        kind="commitment_snooze",
+        content="",
+        meta={
+            "cid": list(build_self_model(log.read_all())["commitments"]["open"].keys())[
+                0
+            ],
+            "until_tick": 15,
+        },
+    )
+    _run_ticks(log, rt, 12)  # now tick ~12
+    kinds = [e.get("kind") for e in log.read_all()]
+    assert "commitment_expire" not in kinds
+    # Advance beyond snooze
+    _run_ticks(log, rt, 5)
+    kinds2 = [e.get("kind") for e in log.read_all()]
+    assert "commitment_expire" in kinds2
+
+
+def test_no_premature_expire_if_evidence_within_ttl(tmp_path, monkeypatch):
+    rt, log = _mk_rt(tmp_path)
+    # Fake reply opens a commitment
+    monkeypatch.setattr(
+        rt.chat, "generate", lambda msgs, **kw: "I will finish the report."
+    )
+    rt.handle_user("hi")
+
+    # Later reply provides evidence of completion
+    monkeypatch.setattr(
+        rt.chat, "generate", lambda msgs, **kw: "Done: finished the report."
+    )
+    rt.handle_user("update")
+
+    # Run ticks fewer than TTL (default 10)
+    _run_ticks(log, rt, 5)
+
+    evs = log.read_all()
+    kinds = [e["kind"] for e in evs]
+
+    # Commitment should close via evidence, not expire
+    assert "commitment_close" in kinds
+    assert "commitment_expire" not in kinds

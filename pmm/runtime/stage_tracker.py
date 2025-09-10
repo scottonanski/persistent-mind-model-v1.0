@@ -14,6 +14,19 @@ STAGES = {
     "S4": (0.85, 0.75),
 }
 
+# Stage-aware policy hints (static, deterministic). Values are component -> params dict.
+# These are consumed by the runtime loop to emit policy_update events on stage transitions.
+POLICY_HINTS_BY_STAGE = {
+    "S0": {"reflection_style": {"arm": "succinct"}, "recall": {"recall_budget": 1}},
+    "S1": {
+        "reflection_style": {"arm": "question_form"},
+        "recall": {"recall_budget": 2},
+    },
+    "S2": {"reflection_style": {"arm": "analytical"}, "recall": {"recall_budget": 3}},
+    "S3": {"reflection_style": {"arm": "narrative"}, "recall": {"recall_budget": 3}},
+    "S4": {"reflection_style": {"arm": "checklist"}, "recall": {"recall_budget": 3}},
+}
+
 
 def _telemetry_from_event(ev: Dict) -> Optional[Tuple[float, float]]:
     if ev.get("kind") == "autonomy_tick":

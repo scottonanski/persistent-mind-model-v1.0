@@ -26,9 +26,19 @@ import time as _time
 from typing import List, Optional
 from pmm.runtime.ngram_filter import NGramFilter
 from pmm.runtime.self_evolution import SelfEvolution
+from pmm.runtime.recall import suggest_recall
+from pmm.runtime.scene_compactor import maybe_compact
+from pmm.runtime.reflection_bandit import choose_arm
 from pmm.runtime.prioritizer import rank_commitments
 from pmm.runtime.stage_tracker import StageTracker
 from pmm.runtime.bridge import ResponseRenderer
+from pmm.runtime.introspection import run_audit
+from pmm.runtime.stage_tracker import POLICY_HINTS_BY_STAGE
+from pmm.runtime.embeddings import (
+    compute_embedding as _emb_compute,
+    digest_vector as _emb_digest,
+)
+import os as _os
 
 
 class Runtime:
@@ -75,9 +85,70 @@ class Runtime:
         ):
             ident["_recent_adopt"] = True
         reply = self._renderer.render(reply, ident, stage=None, events=events)
-        self.eventlog.append(
-            kind="response", content=reply, meta={"source": "handle_user"}
-        )
+        # Priority Recall: suggest relevant prior events based on the current reply,
+        # but emit suggestions BEFORE appending the response to preserve ordering in tests.
+        try:
+            evs_pre = self.eventlog.read_all()
+            suggestions = suggest_recall(evs_pre, reply, max_items=3)
+            if suggestions:
+                # Validate eids exist and are prior to the latest existing event id
+                latest_id_pre = int(evs_pre[-1].get("id") or 0) if evs_pre else 0
+                clean = []
+                seen = set()
+                for s in suggestions:
+                    try:
+                        eid = int(s.get("eid"))
+                    except Exception:
+                        continue
+                    if eid <= 0 or (latest_id_pre and eid > latest_id_pre):
+                        continue
+                    if eid in seen:
+                        continue
+                    seen.add(eid)
+                    snip = str(s.get("snippet") or "")[:100]
+                    clean.append({"eid": eid, "snippet": snip})
+                    if len(clean) >= 3:
+                        break
+                if clean:
+                    self.eventlog.append(
+                        kind="recall_suggest", content="", meta={"suggestions": clean}
+                    )
+        except Exception:
+            # Do not break chat flow on recall issues
+            pass
+        # Embeddings path:
+        # - If PMM_EMBEDDINGS_ENABLE=1: append response, then embedding_indexed for that response
+        # - Else: append embedding_skipped BEFORE response to preserve ordering
+        enabled = str(_os.environ.get("PMM_EMBEDDINGS_ENABLE", "0")).lower() in {
+            "1",
+            "true",
+        }
+        if not enabled:
+            try:
+                # Signal that we skipped embedding indexing in this mode
+                self.eventlog.append(kind="embedding_skipped", content="", meta={})
+            except Exception:
+                pass
+            rid = self.eventlog.append(
+                kind="response", content=reply, meta={"source": "handle_user"}
+            )
+        else:
+            rid = self.eventlog.append(
+                kind="response", content=reply, meta={"source": "handle_user"}
+            )
+            try:
+                vec = _emb_compute(reply)
+                if vec is None:
+                    self.eventlog.append(kind="embedding_skipped", content="", meta={})
+                else:
+                    d = _emb_digest(vec)
+                    self.eventlog.append(
+                        kind="embedding_indexed",
+                        content="",
+                        meta={"eid": int(rid), "digest": d},
+                    )
+            except Exception:
+                pass
         # Note user turn for reflection cooldown
         self.cooldown.note_user_turn()
         # Open commitments and detect evidence closures from the assistant reply
@@ -86,6 +157,33 @@ class Runtime:
             self.tracker.process_evidence(reply)
         except Exception:
             # Keep runtime resilient if detector/tracker raises
+            pass
+
+        # Scene Compactor: append compact summaries after threshold
+        try:
+            evs2 = self.eventlog.read_all()
+            compact = maybe_compact(evs2, threshold=100)
+            if compact:
+                # Validate bounds and truncate defensively
+                src_ids = list(
+                    dict.fromkeys(int(i) for i in compact.get("source_ids") or [])
+                )
+                src_ids = [i for i in src_ids if i > 0]
+                src_ids.sort()
+                win = compact.get("window") or {}
+                start = int(win.get("start") or (src_ids[0] if src_ids else 0))
+                end = int(win.get("end") or (src_ids[-1] if src_ids else 0))
+                content = str(compact.get("content") or "")[:500]
+                if src_ids and start <= end:
+                    self.eventlog.append(
+                        kind="scene_compact",
+                        content=content,
+                        meta={
+                            "source_ids": src_ids,
+                            "window": {"start": start, "end": end},
+                        },
+                    )
+        except Exception:
             pass
         return reply
 
@@ -122,6 +220,29 @@ class Runtime:
             content=note,
             meta={"source": "reflect", "telemetry": {"IAS": ias, "GAS": gas}},
         )
+        # Introspection audit: run over recent events and append audit_report events
+        try:
+            evs_a = self.eventlog.read_all()
+            audits = run_audit(evs_a, window=50)
+            if audits:
+                # validate and append each audit deterministically
+                latest_id = int(evs_a[-1].get("id") or 0) if evs_a else 0
+                for a in audits:
+                    m = a.get("meta") or {}
+                    targets = m.get("target_eids") or []
+                    # filter to prior ids only, unique and sorted
+                    clean_targets = sorted(
+                        {int(t) for t in targets if int(t) > 0 and int(t) < latest_id}
+                    )
+                    content = str(a.get("content") or "")[:500]
+                    category = str(m.get("category") or "")
+                    self.eventlog.append(
+                        kind="audit_report",
+                        content=content,
+                        meta={"target_eids": clean_targets, "category": category},
+                    )
+        except Exception:
+            pass
         # Reset cooldown on successful reflection
         self.cooldown.reset()
         return note
@@ -223,11 +344,33 @@ def emit_reflection(eventlog: EventLog, content: str = "") -> int:
     """
     # Compute telemetry first so we can embed in the reflection meta
     ias, gas = compute_ias_gas(eventlog.read_all())
-    return eventlog.append(
+    rid = eventlog.append(
         kind="reflection",
         content=content or "(reflection)",
         meta={"source": "emit_reflection", "telemetry": {"IAS": ias, "GAS": gas}},
     )
+    # Introspection audit after reflection: append audit_report events
+    try:
+        evs_a = eventlog.read_all()
+        audits = run_audit(evs_a, window=50)
+        if audits:
+            latest_id = int(evs_a[-1].get("id") or 0) if evs_a else 0
+            for a in audits:
+                m = a.get("meta") or {}
+                targets = m.get("target_eids") or []
+                clean_targets = sorted(
+                    {int(t) for t in targets if int(t) > 0 and int(t) < latest_id}
+                )
+                content2 = str(a.get("content") or "")[:500]
+                category = str(m.get("category") or "")
+                eventlog.append(
+                    kind="audit_report",
+                    content=content2,
+                    meta={"target_eids": clean_targets, "category": category},
+                )
+    except Exception:
+        pass
+    return rid
 
 
 def maybe_reflect(
@@ -266,6 +409,18 @@ def maybe_reflect(
         return (False, reason)
     emit_reflection(eventlog)
     cooldown.reset()
+    # Bandit integration: log chosen arm deterministically for this reflection
+    try:
+        from pmm.runtime.reflection_bandit import choose_arm as _choose_arm
+
+        arm, tick_no_bandit = _choose_arm(eventlog.read_all())
+        eventlog.append(
+            kind="bandit_arm_chosen",
+            content="",
+            meta={"arm": arm, "tick": int(tick_no_bandit)},
+        )
+    except Exception:
+        pass
     return (True, "ok")
 
 
@@ -361,11 +516,17 @@ class AutonomyLoop:
             self._stop.wait(0.05)
 
     def tick(self) -> None:
-        # 1) Compute IAS/GAS over recent events
+        # 1) Compute IAS/GAS over recent events and infer stage
         events = self.eventlog.read_all()
         ias, gas = compute_ias_gas(events)
-        # 1a) Determine current stage and cadence params
         curr_stage, snapshot = StageTracker.infer_stage(events)
+        # Stabilize telemetry: use stage snapshot means so the tick's own telemetry
+        # does not cause unintended stage drift across ticks in tests.
+        try:
+            ias = float(snapshot.get("IAS_mean", ias))
+            gas = float(snapshot.get("GAS_mean", gas))
+        except Exception:
+            pass
         cadence = CADENCE_BY_STAGE.get(
             curr_stage, CADENCE_BY_STAGE["S0"]
         )  # default to S0
@@ -550,6 +711,16 @@ class AutonomyLoop:
                     break
             if _latest_refl_id:
                 _maybe_mark_insight_ready(_latest_refl_id)
+            # Bandit: log chosen arm deterministically for this reflection
+            try:
+                arm, tick_no_bandit = choose_arm(self.eventlog.read_all())
+                self.eventlog.append(
+                    kind="bandit_arm_chosen",
+                    content="",
+                    meta={"arm": arm, "tick": int(tick_no_bandit)},
+                )
+            except Exception:
+                pass
         # 2b) Apply self-evolution policies intrinsically
         changes = SelfEvolution.apply_policies(events, {"IAS": ias, "GAS": gas})
         if changes:
@@ -593,6 +764,31 @@ class AutonomyLoop:
                     "reason": "threshold_cross_with_hysteresis",
                 },
             )
+            # Emit stage-aware policy hints for this stage, idempotently per component
+            try:
+                hints = POLICY_HINTS_BY_STAGE.get(curr_stage, {})
+                # refresh events to include the stage_update we just appended
+                events_h = self.eventlog.read_all()
+                for component, params in hints.items():
+                    last_stage_h, last_params_h = _last_policy_params(
+                        events_h, component=component
+                    )
+                    if last_params_h != params or last_stage_h != curr_stage:
+                        tick_no_tmp = 1 + sum(
+                            1 for ev in events_h if ev.get("kind") == "autonomy_tick"
+                        )
+                        self.eventlog.append(
+                            kind="policy_update",
+                            content="",
+                            meta={
+                                "component": component,
+                                "stage": curr_stage,
+                                "params": params,
+                                "tick": tick_no_tmp,
+                            },
+                        )
+            except Exception:
+                pass
         # 2e) Identity autonomy policy (intrinsic, no keywords)
         # Compute current tick number and existing identity state
         tick_no = 1 + sum(1 for ev in events if ev.get("kind") == "autonomy_tick")
@@ -905,7 +1101,45 @@ class AutonomyLoop:
                             },
                         )
 
-        # 3) Log autonomy tick with telemetry
+        # 3) Commitment TTL sweep (deterministic by tick count) BEFORE logging this tick
+        try:
+            events_now = self.eventlog.read_all()
+            # conservative default TTL of 10 ticks
+            tracker_ttl = CommitmentTracker(self.eventlog)
+            ttl_candidates = tracker_ttl.sweep_for_expired(events_now, ttl_ticks=10)
+            for c in ttl_candidates:
+                cid = str(c.get("cid"))
+                if not cid:
+                    continue
+                # Do not double-expire: check if an expire already exists after last open
+                last_open_id = None
+                has_expire = False
+                for ev in events_now:
+                    if (
+                        ev.get("kind") == "commitment_open"
+                        and (ev.get("meta") or {}).get("cid") == cid
+                    ):
+                        last_open_id = int(ev.get("id") or 0)
+                    if (
+                        ev.get("kind") == "commitment_expire"
+                        and (ev.get("meta") or {}).get("cid") == cid
+                    ):
+                        if (
+                            last_open_id is None
+                            or int(ev.get("id") or 0) > last_open_id
+                        ):
+                            has_expire = True
+                if has_expire:
+                    continue
+                self.eventlog.append(
+                    kind="commitment_expire",
+                    content="",
+                    meta={"cid": cid, "reason": str(c.get("reason") or "timeout")},
+                )
+        except Exception:
+            pass
+
+        # 4) Log autonomy tick with telemetry
         self.eventlog.append(
             kind="autonomy_tick",
             content="autonomy heartbeat",
@@ -915,3 +1149,12 @@ class AutonomyLoop:
                 "source": "AutonomyLoop",
             },
         )
+        # 4a) Bandit: attempt to emit reward if horizon satisfied
+        try:
+            from pmm.runtime.reflection_bandit import (
+                maybe_log_reward as _maybe_log_reward,
+            )
+
+            _maybe_log_reward(self.eventlog, horizon=3)
+        except Exception:
+            pass

@@ -46,7 +46,7 @@ def build_self_model(events: List[Dict]) -> Dict:
                 "neuroticism": 0.5,
             },
         },
-        "commitments": {"open": {}},
+        "commitments": {"open": {}, "expired": {}},
     }
 
     name_pattern = _re.compile(r"Name\s+changed\s+to:\s*(?P<name>.+)", _re.IGNORECASE)
@@ -109,7 +109,22 @@ def build_self_model(events: List[Dict]) -> Dict:
         elif kind in ("commitment_close", "commitment_expire"):
             cid = meta.get("cid")
             if cid and cid in model["commitments"]["open"]:
+                # If expire, record in expired section
+                if kind == "commitment_expire":
+                    model["commitments"]["expired"][cid] = {
+                        "text": model["commitments"]["open"][cid].get("text"),
+                        "expired_at": int(ev.get("id") or 0),
+                        "reason": (meta or {}).get("reason") or "timeout",
+                    }
                 model["commitments"]["open"].pop(cid, None)
+        elif kind == "commitment_snooze":
+            cid = meta.get("cid")
+            if cid and cid in model["commitments"]["open"]:
+                try:
+                    until_t = int(meta.get("until_tick") or 0)
+                except Exception:
+                    until_t = 0
+                model["commitments"]["open"][cid]["snoozed_until"] = until_t
 
     return model
 
