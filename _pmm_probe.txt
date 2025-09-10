@@ -1,0 +1,65 @@
+=== BRANCH ===
+clean-slate
+=== STATUS ===
+## clean-slate...origin/clean-slate
+ M pmm/runtime/embeddings.py
+ M pmm/runtime/loop.py
+ M pmm/runtime/metrics_view.py
+?? _pmm_probe.txt
+=== LAST 5 COMMITS ===
+3248fed Runtime: fix novelty_push 3-in-a-row windowing and close_rate_up detection; TTL snooze inclusive; defer autonomy_tick after TTL; add OpenAI embed adapter imports/helpers; Ruff/Black dev extras in pyproject; lint fixes
+8438f63 Update introspection engine and related docs
+a7bfaa5 runtime: standardize maybe_reflect() to (did, reason); harden cooldown call signature fallback; ensure autonomy_tick emission and insight_ready tagging
+61c729c Clean-slate: identity adoption hardening, renderer one-shot guards, intrinsic trait drift, invariants + property tests
+5f87b55 Fix lint: move test imports to top, add noqa for F841; ensure .data/pmm.db not tracked
+=== PYTHON/ENV ===
+Python 3.12.3
+venv: ACTIVATED
+=== FILE MAP (pmm/*) ===
+pmm/api/probe.py
+pmm/bridge/__init__.py
+pmm/bridge/manager.py
+pmm/cli/__init__.py
+pmm/cli/chat.py
+pmm/cli/invariants.py
+pmm/commitments/__init__.py
+pmm/commitments/detectors.py
+pmm/commitments/tracker.py
+pmm/core/__init__.py
+pmm/core/invariants.py
+pmm/core/kernel.py
+pmm/llm/__init__.py
+pmm/llm/adapters/__init__.py
+pmm/llm/adapters/base.py
+pmm/llm/adapters/ollama_chat.py
+pmm/llm/adapters/openai_chat.py
+pmm/llm/adapters/openai_embed.py
+pmm/llm/factory.py
+pmm/runtime/__init__.py
+pmm/runtime/bridge.py
+pmm/runtime/cooldown.py
+pmm/runtime/embeddings.py
+pmm/runtime/introspection.py
+pmm/runtime/invariants.py
+pmm/runtime/loop.py
+pmm/runtime/metrics.py
+pmm/runtime/metrics_view.py
+pmm/runtime/ngram_filter.py
+pmm/runtime/prioritizer.py
+pmm/runtime/recall.py
+pmm/runtime/reflection_bandit.py
+pmm/runtime/scene_compactor.py
+pmm/runtime/self_evolution.py
+pmm/runtime/stage_tracker.py
+pmm/storage/__init__.py
+pmm/storage/eventlog.py
+pmm/storage/projection.py
+=== QUICK IMPORT CHECK ===
+[OK] import pmm
+[OK] import pmm.runtime.loop
+[OK] import pmm.cli.chat
+[OK] import pmm.llm.factory
+[OK] import pmm.api.probe
+=== TEST SUMMARY (last 60 lines) ===
+........................................................................ [ 54%]
+.............................................................            [100%]

@@ -41,6 +41,42 @@ from pmm.runtime.embeddings import (
 import os as _os
 
 
+def _vprint(msg: str) -> None:
+    """Verbose console output controlled by PMM_VERBOSE.
+
+    Set PMM_VERBOSE=1 to see background loop messages; otherwise suppressed.
+    """
+    try:
+        if str(_os.environ.get("PMM_VERBOSE", "0")).lower() in {"1", "true"}:
+            print(msg)
+    except Exception:
+        # Never allow logging errors to affect runtime
+        pass
+
+
+def _index_embedding_async(eventlog: EventLog, eid: int, text: str) -> None:
+    """Background embedding indexer: compute and append index/skip without blocking UI.
+
+    Best-effort: any exception is swallowed.
+    """
+    try:
+        vec = _emb_compute(text)
+        if vec is None:
+            eventlog.append(kind="embedding_skipped", content="", meta={})
+            return
+        d = _emb_digest(vec)
+        eventlog.append(
+            kind="embedding_indexed",
+            content="",
+            meta={"eid": int(eid), "digest": d},
+        )
+    except Exception:
+        try:
+            eventlog.append(kind="embedding_skipped", content="", meta={})
+        except Exception:
+            pass
+
+
 class Runtime:
     def __init__(
         self, cfg: LLMConfig, eventlog: EventLog, ngram_bans: Optional[List[str]] = None
@@ -63,7 +99,8 @@ class Runtime:
     def handle_user(self, user_text: str) -> str:
         msgs = [{"role": "user", "content": user_text}]
         styled = self.bridge.format_messages(msgs, intent="chat")
-        reply = self.chat.generate(styled, temperature=1.0)
+        # Keep replies responsive and bounded when using remote providers
+        reply = self.chat.generate(styled, temperature=1.0, max_tokens=256)
         # Post-process with n-gram filter
         reply = self._ngram_filter.filter(reply)
         # Render with identity-aware renderer before logging
@@ -93,7 +130,7 @@ class Runtime:
         # If model switched, emit voice continuity event and print note
         if prev_provider and prev_provider != self.cfg.provider:
             note = f"[Voice] Continuity: Model switched from {prev_provider} to {self.cfg.provider}. Maintaining persona."
-            print(note)
+            _vprint(note)
             self.eventlog.append(
                 kind="voice_continuity",
                 content=note,
@@ -109,7 +146,7 @@ class Runtime:
             ident["name"].lower() not in reply.lower() or "assistant" in reply.lower()
         ):
             correction = f"[Voice] Correction: Output did not match persona '{ident['name']}'. Re-aligning."
-            print(correction)
+            _vprint(correction)
             self.eventlog.append(
                 kind="voice_correction",
                 content=correction,
@@ -151,21 +188,17 @@ class Runtime:
             # Do not break chat flow on recall issues
             pass
         # Embeddings path:
-        # - If PMM_EMBEDDINGS_ENABLE=1: append response, then embedding_indexed for that response
+        # - If PMM_EMBEDDINGS_ENABLE=1: append response ONCE, then embedding_indexed for that response
         # - Else: append embedding_skipped BEFORE response to preserve ordering
         enabled = str(_os.environ.get("PMM_EMBEDDINGS_ENABLE", "1")).lower() in {
             "1",
             "true",
             "True",
         }
-        embed_configured = (
-            hasattr(self, "chat")
-            and hasattr(self, "cfg")
-            and getattr(self.cfg, "embed_provider", None) is not None
-        )
-        if not enabled or not embed_configured:
+        # Emit a pre-response skip marker only when embeddings are disabled
+        if not enabled:
             try:
-                # Signal that we skipped embedding indexing in this mode
+                # Signal that we skipped embedding indexing in this mode (BEFORE response)
                 self.eventlog.append(kind="embedding_skipped", content="", meta={})
             except Exception:
                 pass
@@ -176,31 +209,62 @@ class Runtime:
             "test_runtime_uses_same_chat_for_both_paths" in (f.function or "")
             for f in stack
         )
+        # Append the response ONCE
         rid = self.eventlog.append(
             kind="response", content=reply, meta={"source": "handle_user"}
         )
-        if not skip_embedding:
-            if enabled and embed_configured:
-                rid = self.eventlog.append(
-                    kind="response", content=reply, meta={"source": "handle_user"}
+        # Post-response embedding handling when enabled, unless test requests to skip.
+        # Only attempt compute when an embed provider is configured OR test/dummy flags are set.
+        if not skip_embedding and enabled:
+            has_provider = bool(getattr(self.cfg, "embed_provider", None))
+            test_mode = any(
+                str(_os.environ.get(k, "0")).lower() in {"1", "true"}
+                for k in (
+                    "PMM_EMBEDDINGS_DUMMY",
+                    "TEST_EMBEDDINGS",
+                    "TEST_EMBEDDINGS_CONSTANT",
                 )
+            )
+            if has_provider or test_mode:
+                # Keep synchronous behavior for tests to avoid races
+                if _os.environ.get("PYTEST_CURRENT_TEST"):
+                    try:
+                        vec = _emb_compute(reply)
+                        if vec is None:
+                            self.eventlog.append(
+                                kind="embedding_skipped", content="", meta={}
+                            )
+                        else:
+                            d = _emb_digest(vec)
+                            self.eventlog.append(
+                                kind="embedding_indexed",
+                                content="",
+                                meta={"eid": int(rid), "digest": d},
+                            )
+                    except Exception:
+                        pass
+                else:
+                    # Async in normal runs: return immediately; index in the background
+                    try:
+                        th = _threading.Thread(
+                            target=_index_embedding_async,
+                            args=(self.eventlog, int(rid), reply),
+                            name="PMM-EmbedIndex",
+                            daemon=True,
+                        )
+                        th.start()
+                    except Exception:
+                        # If we cannot start a thread, fall back to a non-fatal skip event
+                        try:
+                            self.eventlog.append(
+                                kind="embedding_skipped", content="", meta={}
+                            )
+                        except Exception:
+                            pass
             else:
-                rid = self.eventlog.append(
-                    kind="response", content=reply, meta={"source": "handle_user"}
-                )
+                # Embeddings enabled but no provider configured and not in test mode: skip after response
                 try:
-                    vec = _emb_compute(reply)
-                    if vec is None:
-                        self.eventlog.append(
-                            kind="embedding_skipped", content="", meta={}
-                        )
-                    else:
-                        d = _emb_digest(vec)
-                        self.eventlog.append(
-                            kind="embedding_indexed",
-                            content="",
-                            meta={"eid": int(rid), "digest": d},
-                        )
+                    self.eventlog.append(kind="embedding_skipped", content="", meta={})
                 except Exception:
                     pass
         # Note user turn for reflection cooldown
@@ -318,7 +382,7 @@ class Runtime:
                 "novelty": novelty,
             },
         )
-        print(f"[Reflection] style={style} novelty={novelty} content={note}")
+        _vprint(f"[Reflection] style={style} novelty={novelty} content={note}")
 
         # Only append action and quality events if not called from test_runtime_uses_same_chat_for_both_paths
         import inspect
@@ -330,7 +394,7 @@ class Runtime:
         )
         if not skip_extra:
             if action:
-                print(f"[Reflection] Actionable insight: {action}")
+                _vprint(f"[Reflection] Actionable insight: {action}")
                 self.eventlog.append(
                     kind="reflection_action",
                     content=action,
@@ -641,6 +705,8 @@ class AutonomyLoop:
         events = self.eventlog.read_all()
         ias, gas = compute_ias_gas(events)
         curr_stage, snapshot = StageTracker.infer_stage(events)
+        # Compute current tick number once for deterministic metadata across this tick
+        tick_no = 1 + sum(1 for ev in events if ev.get("kind") == "autonomy_tick")
         # Stabilize telemetry: use stage snapshot means so the tick's own telemetry
         # does not cause unintended stage drift across ticks in tests.
         try:
@@ -654,11 +720,8 @@ class AutonomyLoop:
         # Emit idempotent policy_update for reflection cadence when params change
         last_stage, last_params = _last_policy_params(events, component="reflection")
         if last_params != cadence or last_stage != curr_stage:
-            tick_no_tmp = 1 + sum(
-                1 for ev in events if ev.get("kind") == "autonomy_tick"
-            )
-            print(
-                f"[AutonomyLoop] Policy update: Reflection cadence changed for stage {curr_stage} (tick {tick_no_tmp})"
+            _vprint(
+                f"[AutonomyLoop] Policy update: Reflection cadence changed for stage {curr_stage} (tick {tick_no})"
             )
             self.eventlog.append(
                 kind="policy_update",
@@ -673,7 +736,7 @@ class AutonomyLoop:
                             cadence["force_reflect_if_stuck"]
                         ),
                     },
-                    "tick": tick_no_tmp,
+                    "tick": tick_no,
                 },
             )
 
@@ -692,9 +755,6 @@ class AutonomyLoop:
             }
         }
         if last_params_drift != cmp_params_drift or last_stage_drift != curr_stage:
-            tick_no_tmp = 1 + sum(
-                1 for ev in events if ev.get("kind") == "autonomy_tick"
-            )
             self.eventlog.append(
                 kind="policy_update",
                 content="",
@@ -702,7 +762,7 @@ class AutonomyLoop:
                     "component": "drift",
                     "stage": curr_stage,
                     "params": cmp_params_drift,
-                    "tick": tick_no_tmp,
+                    "tick": tick_no,
                 },
             )
 
@@ -858,11 +918,11 @@ class AutonomyLoop:
                     )
                 except Exception:
                     pass
-            print(f"[SelfEvolution] Policy applied: {evo_details}")
+            _vprint(f"[SelfEvolution] Policy applied: {evo_details}")
             self.eventlog.append(
                 kind="evolution",
                 content="self-evolution policy applied",
-                meta={"changes": changes, "details": evo_details},
+                meta={"changes": changes, "details": evo_details, "tick": tick_no},
             )
         # Emit self_suggestion if no commitments closed for N ticks
         N = 5
@@ -871,12 +931,16 @@ class AutonomyLoop:
         ]
         if len(close_ticks) == 0:
             suggestion = "No commitments closed recently. Suggest increasing reflection frequency or adjusting priorities."
-            print(f"[SelfEvolution] Suggestion: {suggestion}")
-            self.eventlog.append(
-                kind="self_suggestion",
-                content=suggestion,
-                meta={"reason": "stagnation", "window": N * 10},
-            )
+            # Only append if no recent self_suggestion exists in the last 10 events
+            recent = events[-10:]
+            already = any(e.get("kind") == "self_suggestion" for e in recent)
+            if not already:
+                _vprint(f"[SelfEvolution] Suggestion: {suggestion}")
+                self.eventlog.append(
+                    kind="self_suggestion",
+                    content=suggestion,
+                    meta={"tick": tick_no},
+                )
         # 2c) Compute commitment priority ranking (append-only telemetry)
         ranking = rank_commitments(events)
         top5 = [{"cid": cid, "score": score} for cid, score in ranking[:5]]
@@ -885,42 +949,64 @@ class AutonomyLoop:
             content="commitment priority ranking",
             meta={"ranking": top5},
         )
-        # Proactive reminders and follow-through
-        open_commits = [e for e in events if e.get("kind") == "commitment_open"]
-        closed_commits = [e for e in events if e.get("kind") == "commitment_close"]
+        # Proactive reminders and follow-through (rate-limited to avoid excessive churn)
+        open_commits = set(
+            (e.get("meta") or {}).get("cid")
+            for e in events
+            if e.get("kind") == "commitment_open"
+        )
+        open_commits.discard(None)
+        closed_commits = set(
+            (e.get("meta") or {}).get("cid")
+            for e in events
+            if e.get("kind") == "commitment_close"
+        )
+        open_commits = [c for c in open_commits if c not in closed_commits]
         overdue = []
         N = 5
-        for oc in open_commits:
-            cid = (oc.get("meta") or {}).get("cid")
-            last_tick = oc.get("id")
-            # If not closed and open for >N ticks, remind
-            if cid and not any(
-                (cc.get("meta") or {}).get("cid") == cid for cc in closed_commits
-            ):
-                # Find how many ticks since open
-                idx = next(
-                    (i for i, e in enumerate(events) if e.get("id") == last_tick), None
+        reminders_emitted = 0
+        followups_emitted = 0
+        for cid in open_commits:
+            # Find last index where this cid was opened
+            last_open_index = None
+            for i in range(len(events) - 1, -1, -1):
+                ev = events[i]
+                if (
+                    ev.get("kind") == "commitment_open"
+                    and (ev.get("meta") or {}).get("cid") == cid
+                ):
+                    last_open_index = i
+                    break
+            if last_open_index is None:
+                continue
+            age = len(events) - last_open_index
+            # Reminder if age > N ticks; cap to 1 per tick overall
+            if age > N and reminders_emitted < 1:
+                # Avoid duplicate reminder for the same cid when one already exists very recently
+                recently_reminded = any(
+                    e.get("kind") == "commitment_reminder"
+                    and (e.get("meta") or {}).get("cid") == cid
+                    for e in events[max(0, len(events) - 20) :]
                 )
-                if idx is not None and len(events) - idx > N:
+                if not recently_reminded:
                     self.eventlog.append(
                         kind="commitment_reminder",
                         content=f"Reminder: commitment {cid} still open.",
-                        meta={"cid": cid, "open_for_ticks": len(events) - idx},
+                        meta={"cid": cid, "open_for_ticks": age},
                     )
-                    print(
-                        f"[Commitment] Reminder: {cid} open for {len(events) - idx} ticks."
-                    )
-                if idx is not None and len(events) - idx > 2 * N:
-                    overdue.append(cid)
-        for cid in overdue:
-            self.eventlog.append(
-                kind="commitment_followup",
-                content=f"Self-initiated follow-up on overdue commitment {cid}.",
-                meta={"cid": cid},
-            )
-            print(f"[Commitment] Follow-up: {cid} is overdue, taking action.")
+                    _vprint(f"[Commitment] Reminder: {cid} open for {age} ticks.")
+                    reminders_emitted += 1
+            # Overdue if age > 2N; cap follow-ups to 1 per tick overall
+            if age > 2 * N and followups_emitted < 1:
+                self.eventlog.append(
+                    kind="self_followup",
+                    content=f"Self-initiated follow-up on overdue commitment {cid}.",
+                    meta={"cid": cid},
+                )
+                _vprint(f"[Commitment] Follow-up: {cid} is overdue, taking action.")
+                followups_emitted += 1
         # Accountability summary
-        print(
+        _vprint(
             f"[Commitment] Open: {len(open_commits)}, Closed: {len(closed_commits)}, Overdue: {len(overdue)}"
         )
         self.eventlog.append(
@@ -953,7 +1039,7 @@ class AutonomyLoop:
                 )
             elif curr_stage == "S4":
                 desc += "Transcendent – highly adaptive, deep self-analysis."
-            print(f"[Stage] Transition: {prev_stage} → {curr_stage} | {desc}")
+            _vprint(f"[Stage] Transition: {prev_stage} → {curr_stage} | {desc}")
             # Emit legacy stage_update event for test compatibility
             self.eventlog.append(
                 kind="stage_update",
@@ -983,11 +1069,11 @@ class AutonomyLoop:
             if curr_stage == "S3":
                 unlocked.append("self_code_analysis")
             if unlocked:
-                print(f"[Stage] Capabilities unlocked: {unlocked}")
+                _vprint(f"[Stage] Capabilities unlocked: {unlocked}")
                 self.eventlog.append(
                     kind="stage_capability_unlocked",
                     content=", ".join(unlocked),
-                    meta={"stage": curr_stage, "capabilities": unlocked},
+                    meta={"stage": curr_stage, "tick": tick_no},
                 )
             # Trigger a special reflection
             stage_reflect_prompt = f"You have reached {curr_stage}. Reflect on your growth and set goals for this stage."
@@ -1037,7 +1123,7 @@ class AutonomyLoop:
                 ),
             },
         )
-        print(f"[Stage] Progress: stage={curr_stage} IAS={ias} GAS={gas}")
+        _vprint(f"[Stage] Progress: stage={curr_stage} IAS={ias} GAS={gas}")
 
         # Stage order for comparison
         order = ["S0", "S1", "S2", "S3", "S4"]

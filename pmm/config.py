@@ -37,10 +37,11 @@ def load_runtime_env(dotenv_path: str = ".env") -> RuntimeEnv:
     model = os.getenv("OPENAI_MODEL", os.getenv("PMM_MODEL", "gpt-4o-mini"))
     db_path = os.getenv("PMM_DB", ".data/pmm.db")
     reflect_enabled = os.getenv("PMM_REFLECT", "1") not in {"0", "false", "False"}
+    # Default ON: background autonomy ticks every 10 seconds unless explicitly disabled (PMM_AUTONOMY_INTERVAL=0)
     try:
-        autonomy_interval = float(os.getenv("PMM_AUTONOMY_INTERVAL", "0"))
+        autonomy_interval = float(os.getenv("PMM_AUTONOMY_INTERVAL", "10"))
     except ValueError:
-        autonomy_interval = 0.0
+        autonomy_interval = 10.0
     require_artifact_evidence = os.getenv("PMM_REQUIRE_ARTIFACT_EVIDENCE", "0") in {
         "1",
         "true",

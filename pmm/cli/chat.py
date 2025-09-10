@@ -79,6 +79,31 @@ def main() -> None:
         f"PMM ready ({env.provider}/{env.model}) — DB: {env.db_path}. Ctrl+C to exit.",
         flush=True,
     )
+    # Startup info banner for evolution mechanisms
+    try:
+        if env.autonomy_interval and env.autonomy_interval > 0:
+            print(
+                f"[INFO] Autonomy: ON — ticks every {int(env.autonomy_interval)}s (set PMM_AUTONOMY_INTERVAL=0 to disable).",
+                flush=True,
+            )
+        else:
+            print(
+                "[INFO] Autonomy: OFF (set PMM_AUTONOMY_INTERVAL>0 to enable).",
+                flush=True,
+            )
+        if env.reflect_enabled:
+            print(
+                "[INFO] Reflection: ON — will attempt when cooldown gates are met (set PMM_REFLECT=0 to disable).",
+                flush=True,
+            )
+        else:
+            print(
+                "[INFO] Reflection: OFF (set PMM_REFLECT=1 to enable).",
+                flush=True,
+            )
+    except Exception:
+        # Banner is best-effort; never block REPL
+        pass
     try:
         while True:
             user = input("> ").strip()

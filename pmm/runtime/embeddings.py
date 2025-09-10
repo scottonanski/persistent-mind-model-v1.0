@@ -5,6 +5,7 @@ import os as _os
 from openai import OpenAI
 import hashlib as _hashlib
 import math as _math
+import re as _re
 
 
 def _load_env_if_missing() -> None:
@@ -41,13 +42,51 @@ def _load_env_if_missing() -> None:
         cur = parent
 
 
+def _dummy_vec(text: str, dim: int = 32) -> List[float]:
+    """Deterministic hash-based vector for tests: PMM_EMBEDDINGS_DUMMY=1."""
+    h = _hashlib.sha1((text or "").encode("utf-8")).digest()
+    vals = [h[i % len(h)] for i in range(dim)]
+    # center and scale to [0,1]
+    return [float(v) / 255.0 for v in vals]
+
+
+def _bow_vec(text: str, dim: int = 64) -> List[float]:
+    """Simple bag-of-words hashed vector for tests: TEST_EMBEDDINGS=1.
+
+    Overlapping tokens produce correlated vectors, making cosine similarity meaningful.
+    """
+    s = (text or "").lower()
+    toks = [t for t in _re.split(r"[^a-z0-9]+", s) if t]
+    vec = [0.0] * dim
+    for t in toks:
+        hv = int(_hashlib.sha1(t.encode("utf-8")).hexdigest()[:8], 16)
+        idx = hv % dim
+        vec[idx] += 1.0
+    # L2 normalize
+    norm = _math.sqrt(sum(v * v for v in vec)) or 1.0
+    return [v / norm for v in vec]
+
+
 def compute_embedding(
     text: str, model: str = "text-embedding-3-small"
 ) -> Optional[List[float]]:
-    """Compute a real embedding for text using OpenAI.
+    """Compute an embedding for text.
 
-    Returns the vector on success, or None if the API call fails.
+    Modes:
+    - PMM_EMBEDDINGS_DUMMY=1 -> deterministic hash vector via _dummy_vec
+    - TEST_EMBEDDINGS=1 -> bag-of-words hashed vector via _bow_vec
+    - TEST_EMBEDDINGS_CONSTANT=1 -> constant vector (useful for invariants)
+    - Else -> OpenAI embeddings; returns None on failure
     """
+    # Test/dummy modes first
+    if str(_os.environ.get("TEST_EMBEDDINGS_CONSTANT", "0")).lower() in {"1", "true"}:
+        return [1.0] * 16
+    if str(_os.environ.get("PMM_EMBEDDINGS_DUMMY", "0")).lower() in {"1", "true"}:
+        return _dummy_vec(text)
+    if str(_os.environ.get("TEST_EMBEDDINGS", "0")).lower() in {"1", "true"}:
+        return _bow_vec(text)
+
+    # Real provider path (OpenAI)
     try:
         _load_env_if_missing()
         client = OpenAI()

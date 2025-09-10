@@ -87,6 +87,9 @@ class MetricsView:
             stage_now = stage_now or "S0"
         except Exception:
             stage_now = "S0"
+        # If no explicit stage_update was seen, override with inferred stage for display
+        if stage == "none":
+            stage = stage_now
 
         # Traits two-decimal vector with safe defaults
         def _two(v: float) -> str:
