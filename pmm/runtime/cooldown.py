@@ -21,12 +21,28 @@ class ReflectionCooldown:
         self.turns_since = 0
 
     def should_reflect(
-        self, now: float | None = None, novelty: float = 1.0
+        self,
+        now: float | None = None,
+        novelty: float = 1.0,
+        *,
+        override_min_turns: int | None = None,
+        override_min_seconds: int | None = None,
     ) -> Tuple[bool, str]:
         now = now or time.time()
-        if self.turns_since < self.min_turns:
+        # Use one-shot overrides for this call only (no persisted changes)
+        min_turns = (
+            int(override_min_turns)
+            if override_min_turns is not None
+            else self.min_turns
+        )
+        min_seconds = (
+            float(override_min_seconds)
+            if override_min_seconds is not None
+            else self.min_seconds
+        )
+        if self.turns_since < min_turns:
             return (False, "min_turns")
-        if (now - self.last_ts) < self.min_seconds:
+        if (now - self.last_ts) < min_seconds:
             return (False, "min_time")
         if novelty < float(self.novelty_threshold):
             return (False, "low_novelty")

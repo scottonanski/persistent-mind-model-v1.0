@@ -170,4 +170,96 @@ def check_invariants(events: List[Dict]) -> List[str]:
                     break
                 last_tick_by_reason[reason] = t
 
+    # 6) Policy update invariants (reflection cadence + drift multipliers)
+    # Helper: stage inference using runtime's tracker without introducing side-effects
+    try:
+        from pmm.runtime.stage_tracker import StageTracker as _ST
+    except Exception:
+        _ST = None  # degrade checks if unavailable
+
+    last_pol = None  # (component, params) of the last policy_update
+    for idx, ev in enumerate(events):
+        if ev.get("kind") != "policy_update":
+            continue
+        m = ev.get("meta") or {}
+        comp = str(m.get("component") or "")
+        params = m.get("params") or {}
+        st = m.get("stage")
+
+        # (a) No-op duplication forbidden: consecutive duplicates
+        key = (comp, params)
+        if last_pol == key:
+            violations.append("policy:duplicate_policy_update")
+            break
+        last_pol = key
+
+        # (b) Stage coherence: stage must equal contemporaneous inferred stage
+        if _ST is not None:
+            try:
+                # infer using history strictly before this policy_update
+                hist = events[:idx]
+                inferred, _snap = _ST.infer_stage(hist)
+                inferred = inferred or "S0"
+            except Exception:
+                inferred = "S0"
+            if str(st) != str(inferred):
+                violations.append("policy:stage_mismatch")
+                # don't break; allow collecting more
+
+        # (c) Component schema
+        if comp == "reflection":
+            try:
+                mt = int(params.get("min_turns"))
+                ms = int(params.get("min_time_s"))
+                fr = params.get("force_reflect_if_stuck")
+                if not isinstance(fr, bool):
+                    raise ValueError
+                _ = (mt, ms)
+            except Exception:
+                violations.append("policy:reflection_schema_invalid")
+        elif comp == "drift":
+            mult = params.get("mult") or {}
+            try:
+                _ = float(mult["openness"])  # noqa
+                _ = float(mult["conscientiousness"])  # noqa
+                _ = float(mult["neuroticism"])  # noqa
+            except Exception:
+                violations.append("policy:drift_schema_invalid")
+
+    # 7) insight_ready one-shot invariants
+    # Build id->kind map for quick lookups
+    id_kind = {int(ev.get("id") or 0): ev.get("kind") for ev in events}
+    # Collect ids by kind for ordering checks
+    resp_ids = [int(ev.get("id") or 0) for ev in events if ev.get("kind") == "response"]
+    ir_ids = [
+        int(ev.get("id") or 0) for ev in events if ev.get("kind") == "insight_ready"
+    ]
+
+    for i, ir_id in enumerate(ir_ids):
+        # (a) Must reference a prior reflection
+        src = None
+        for ev in events:
+            if int(ev.get("id") or 0) == ir_id:
+                src = (ev.get("meta") or {}).get("from_event")
+                break
+        try:
+            src_id = int(src)
+        except Exception:
+            src_id = -1
+        if src_id <= 0 or id_kind.get(src_id) != "reflection" or src_id >= ir_id:
+            violations.append("insight:without_preceding_reflection")
+            continue
+
+        # (b) Consumed exactly once: count responses after ir_id up to next ir (or EOF)
+        next_ir = ir_ids[i + 1] if (i + 1) < len(ir_ids) else None
+        consumed = [
+            rid
+            for rid in resp_ids
+            if rid > ir_id and (next_ir is None or rid < next_ir)
+        ]
+        if len(consumed) == 0:
+            violations.append("insight:unconsumed")
+        elif len(consumed) > 1:
+            violations.append("insight:over_consumed")
+
     return violations

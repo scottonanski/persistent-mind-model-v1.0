@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 from pmm.storage.projection import build_self_model, build_identity
+from pmm.runtime.stage_tracker import StageTracker
+from pmm.runtime.loop import CADENCE_BY_STAGE, DRIFT_MULT_BY_STAGE
 
 
 class MetricsView:
@@ -78,6 +80,51 @@ class MetricsView:
         if latest_ias is None:
             latest_ias, latest_gas = 0.0, 0.0
 
+        # --- Self-model + stage policy peek lines (Step H) ---
+        # Stage via inference (default to S0 on error)
+        try:
+            stage_now, _snap = StageTracker.infer_stage(events)
+            stage_now = stage_now or "S0"
+        except Exception:
+            stage_now = "S0"
+
+        # Traits two-decimal vector with safe defaults
+        def _two(v: float) -> str:
+            try:
+                return f"{float(v):.2f}"
+            except Exception:
+                return "0.00"
+
+        tv = {
+            "O": _two(traits.get("openness", 0.0)),
+            "C": _two(traits.get("conscientiousness", 0.0)),
+            "E": _two(traits.get("extraversion", 0.0)),
+            "A": _two(traits.get("agreeableness", 0.0)),
+            "N": _two(traits.get("neuroticism", 0.0)),
+        }
+        line1 = (
+            f"identity={name} | stage={stage_now} | "
+            f"traits=[O:{tv['O']} C:{tv['C']} E:{tv['E']} A:{tv['A']} N:{tv['N']}]"
+        )
+
+        cad = CADENCE_BY_STAGE.get(stage_now, CADENCE_BY_STAGE.get("S0", {}))
+        dmult = DRIFT_MULT_BY_STAGE.get(stage_now, DRIFT_MULT_BY_STAGE.get("S0", {}))
+
+        def _fmt_float(x) -> str:
+            try:
+                # consistent minimal format (strip trailing zeros) but stable
+                s = "%g" % float(x)
+                return s
+            except Exception:
+                return "0"
+
+        line2 = (
+            f"reflect[minT={int(cad.get('min_turns', 0))}, minS={int(cad.get('min_time_s', 0))}] "
+            f"drift_mult={{O:{_fmt_float(dmult.get('openness', 1.0))}, "
+            f"C:{_fmt_float(dmult.get('conscientiousness', 1.0))}, "
+            f"N:{_fmt_float(dmult.get('neuroticism', 1.0))}}}"
+        )
+
         return {
             "telemetry": {"IAS": latest_ias, "GAS": latest_gas},
             "reflect_skip": reflect_skip,
@@ -85,6 +132,7 @@ class MetricsView:
             "open_commitments": {"count": open_count, "top3": top3},
             "priority_top5": priority_top5,
             "identity": {"name": name, "top_traits": top_traits},
+            "self_model_lines": [line1, line2],
         }
 
     @staticmethod
@@ -99,6 +147,11 @@ class MetricsView:
         parts = [
             f"[METRICS] IAS={ias:.2f} GAS={gas:.2f} | stage={stage} | open={ocn} | reflect_skip={rs}"
         ]
+        # Append Step H lines right after the main metrics line
+        sm_lines = snap.get("self_model_lines") or []
+        for ln in sm_lines:
+            if isinstance(ln, str) and ln:
+                parts.append(ln)
         ident = snap.get("identity", {})
         nm = ident.get("name", "none")
         t3 = ident.get("top_traits", [])

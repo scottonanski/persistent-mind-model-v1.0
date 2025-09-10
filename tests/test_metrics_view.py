@@ -56,3 +56,80 @@ def test_no_side_effects(tmp_path):
     _ = mv.snapshot(log)
     after = len(log.read_all())
     assert before == after, "snapshot must not append any events"
+
+
+def test_full_self_model_line_appears_when_metrics_on(tmp_path):
+    log = EventLog(str(tmp_path / "m4.db"))
+    # Seed identity adopt
+    log.append(kind="identity_adopt", content="Casey", meta={"name": "Casey"})
+    from pmm.runtime.metrics_view import MetricsView
+
+    mv = MetricsView()
+    mv.on()
+    snap = mv.snapshot(log)
+    out = MetricsView.render(snap)
+    # identity line with traits vector two decimals
+    import re
+
+    assert re.search(
+        r"identity=Casey \| stage=S\d \| traits=\[O:\d+\.\d{2} C:\d+\.\d{2} E:\d+\.\d{2} A:\d+\.\d{2} N:\d+\.\d{2}\]",
+        out,
+    )
+    # second line begins with reflect[...] and includes drift_mult
+    assert "reflect[minT=" in out and "drift_mult={" in out
+
+
+def test_stage_policy_values_match_tables(tmp_path, monkeypatch):
+    log = EventLog(str(tmp_path / "m5.db"))
+    mv = MetricsView()
+    mv.on()
+
+    from pmm.runtime.stage_tracker import StageTracker
+
+    # S1
+    monkeypatch.setattr(
+        StageTracker, "infer_stage", staticmethod(lambda evs: ("S1", {}))
+    )
+    out1 = MetricsView.render(mv.snapshot(log))
+    assert "reflect[minT=3, minS=35]" in out1
+    assert (
+        "drift_mult={O:1.25, C:1.1, N:1}" in out1
+        or "drift_mult={O:1.25, C:1.1, N:1.0}" in out1
+    )
+
+    # S3
+    monkeypatch.setattr(
+        StageTracker, "infer_stage", staticmethod(lambda evs: ("S3", {}))
+    )
+    out3 = MetricsView.render(mv.snapshot(log))
+    assert "reflect[minT=5, minS=70]" in out3
+    assert (
+        "drift_mult={O:1, C:1.2, N:0.8}" in out3
+        or "drift_mult={O:1.0, C:1.2, N:0.8}" in out3
+    )
+
+
+def test_traits_render_two_decimals_and_defaults(tmp_path):
+    log = EventLog(str(tmp_path / "m6.db"))
+    # Seed identity with partial traits via direct trait_update for O only
+    log.append(kind="identity_adopt", content="Ava", meta={"name": "Ava"})
+    log.append(
+        kind="trait_update", content="", meta={"trait": "openness", "delta": 0.13}
+    )
+
+    from pmm.runtime.metrics_view import MetricsView
+
+    mv = MetricsView()
+    snap = mv.snapshot(log)
+    out = MetricsView.render(snap)
+    # Ensure two-decimal formatting and defaults for missing traits
+    import re
+
+    m = re.search(
+        r"traits=\[O:(\d+\.\d{2}) C:(\d+\.\d{2}) E:(\d+\.\d{2}) A:(\d+\.\d{2}) N:(\d+\.\d{2})\]",
+        out,
+    )
+    assert m is not None
+    # All have exactly two decimals
+    for i in range(1, 6):
+        assert re.match(r"^\d+\.\d{2}$", m.group(i))
