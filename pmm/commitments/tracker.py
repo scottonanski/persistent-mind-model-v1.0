@@ -435,9 +435,11 @@ class CommitmentTracker:
             open_id = int(ev.get("id") or 0)
             open_tick = _tick_at_event_id(open_id)
             age = max(0, curr_tick - open_tick)
-            # Snooze check
-            if snooze_until.get(cid, 0) >= curr_tick:
-                continue
+            # Snooze check: skip if snooze_until is not yet passed (inclusive)
+            snooze_until_val = snooze_until.get(cid, None)
+            if snooze_until_val is not None:
+                if curr_tick <= snooze_until_val:
+                    continue
             if age >= int(ttl_ticks):
                 out.append({"cid": cid, "reason": "timeout"})
         return out

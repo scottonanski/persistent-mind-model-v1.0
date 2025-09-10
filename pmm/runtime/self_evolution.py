@@ -116,13 +116,45 @@ class SelfEvolution:
     @classmethod
     def apply_policies(
         cls, events: List[Dict], metrics: Dict[str, float]
-    ) -> Dict[str, Any]:
+    ) -> tuple[Dict[str, Any], str]:
         """Apply self-evolution rules based on recent events and metrics.
-        Return a dict of changes applied, or {} if none.
+        Return (dict of changes applied, details string for telemetry).
         """
         changes: Dict[str, Any] = {}
+        details = []
         # Adaptive reflection cooldown
-        changes.update(cls._adaptive_cooldown(events))
+        cooldown_changes = cls._adaptive_cooldown(events)
+        if cooldown_changes:
+            changes.update(cooldown_changes)
+            details.append(f"Cooldown: {cooldown_changes}")
         # Personality drift stub
-        changes.update(cls._commitment_drift(events))
-        return changes
+        drift_changes = cls._commitment_drift(events)
+        if drift_changes:
+            changes.update(drift_changes)
+            details.append(f"Drift: {drift_changes}")
+        # Commitment completion rate
+        recent_commits = [e for e in events[-20:] if e.get("kind") == "commitment_open"]
+        recent_closes = [e for e in events[-20:] if e.get("kind") == "commitment_close"]
+        if recent_commits and not recent_closes:
+            changes["reflection_cadence"] = "increase"
+            details.append(
+                "No commitments closed in last 20 events, suggest increasing reflection cadence."
+            )
+        # Reflection novelty
+        recent_reflections = [e for e in events[-20:] if e.get("kind") == "reflection"]
+        if recent_reflections:
+            novel = any(
+                "novelty" in (e.get("meta") or {}) and (e["meta"]["novelty"] > 0.5)
+                for e in recent_reflections
+            )
+            if not novel:
+                changes["reflection_prompt"] = "make more novel"
+                details.append(
+                    "Recent reflections lack novelty, suggest more creative prompt."
+                )
+        # User feedback
+        feedback = [e for e in events[-20:] if e.get("kind") == "user_feedback"]
+        if feedback:
+            changes["user_feedback"] = feedback[-1].get("content")
+            details.append(f"User feedback: {feedback[-1].get('content')}")
+        return changes, "; ".join(details)

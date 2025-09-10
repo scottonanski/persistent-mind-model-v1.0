@@ -15,7 +15,7 @@ def test_adaptive_cooldown_decrease_on_consecutive_novelty_low(tmp_path):
     # Seed 4 consecutive reflection_skip events
     for _ in range(4):
         log.append(kind="reflection_skip", content="skip:novelty_low", meta={})
-    changes = SelfEvolution.apply_policies(log.read_all(), {"IAS": 0.0, "GAS": 0.0})
+    changes, _ = SelfEvolution.apply_policies(log.read_all(), {"IAS": 0.0, "GAS": 0.0})
     assert round(float(changes.get("cooldown.novelty_threshold")), 2) == 0.15
 
 
@@ -24,7 +24,7 @@ def test_adaptive_cooldown_increase_on_consecutive_success(tmp_path):
     log = EventLog(str(tmp_path / "evo2.db"))
     for _ in range(4):
         log.append(kind="reflection", content="(reflection)", meta={})
-    changes = SelfEvolution.apply_policies(log.read_all(), {"IAS": 0.0, "GAS": 0.0})
+    changes, _ = SelfEvolution.apply_policies(log.read_all(), {"IAS": 0.0, "GAS": 0.0})
     assert changes.get("cooldown.novelty_threshold") == 0.25
 
 
@@ -46,7 +46,7 @@ def test_commitment_drift_high_close_rate(tmp_path):
             content=f"Commitment closed {cid}",
             meta={"cid": cid},
         )
-    changes = SelfEvolution.apply_policies(log.read_all(), {"IAS": 0.0, "GAS": 0.0})
+    changes, _ = SelfEvolution.apply_policies(log.read_all(), {"IAS": 0.0, "GAS": 0.0})
     assert changes.get("traits.Conscientiousness") == 0.51
 
 
@@ -68,7 +68,7 @@ def test_commitment_drift_low_close_rate(tmp_path):
             content=f"Commitment closed {cid}",
             meta={"cid": cid},
         )
-    changes = SelfEvolution.apply_policies(log.read_all(), {"IAS": 0.0, "GAS": 0.0})
+    changes, _ = SelfEvolution.apply_policies(log.read_all(), {"IAS": 0.0, "GAS": 0.0})
     assert round(float(changes.get("traits.Conscientiousness")), 2) == 0.49
 
 

@@ -32,21 +32,14 @@ class LLMFactory:
         prov = (cfg.provider or "").lower()
         if prov == "openai":
             chat: ChatAdapter = OpenAIChat(model=cfg.model)
+            if cfg.embed_provider is None or cfg.embed_provider == "openai":
+                embed: Optional[EmbeddingAdapter] = OpenAIEmbed(model=cfg.embed_model)
+            else:
+                raise ValueError(f"Unknown embed provider: {cfg.embed_provider}")
         elif prov == "ollama":
             chat = OllamaChat(model=cfg.model)
-        else:
-            raise ValueError(f"Unknown provider: {cfg.provider}")
-
-        # Choose embedding adapter; may be None
-        # Only honor explicit embed_provider; if not provided, no embed adapter.
-        eprov = (cfg.embed_provider or "").lower()
-        if eprov == "openai":
-            if not cfg.embed_model:
-                cfg.embed_model = "text-embedding-3-small"
-            embed: Optional[EmbeddingAdapter] = OpenAIEmbed(model=cfg.embed_model)
-        elif eprov in ("", None):
             embed = None
         else:
-            raise ValueError(f"Unknown embed provider: {cfg.embed_provider}")
+            raise ValueError(f"Unknown provider: {prov}")
 
         return LLMBundle(chat=chat, embed=embed)

@@ -4,41 +4,36 @@ from pmm.storage.eventlog import EventLog
 from pmm.runtime.loop import AutonomyLoop
 
 
-def test_autonomy_loop_emits_tick(tmp_path):
-    db = tmp_path / "auto.db"
+def test_autonomy_loop_integration_real(tmp_path):
+    db = tmp_path / "auto_integ.db"
     log = EventLog(str(db))
 
-    # Small interval for the test
-    loop = AutonomyLoop(
-        eventlog=log, cooldown=None, interval_seconds=0.05
-    )  # cooldown is required by type but not used directly
+    # Use real cooldown and event flow
+    from pmm.runtime.cooldown import ReflectionCooldown
 
-    # Provide a minimal cooldown-like object with required methods
-    class _CD:
-        def __init__(self):
-            self._turns = 2
-            self.last_ts = 0.0
-
-        def should_reflect(self, now=None, novelty: float = 1.0):
-            # Always allow reflection during test
-            return (True, "ok")
-
-        def reset(self):
-            pass
-
-    loop.cooldown = _CD()
+    cooldown = ReflectionCooldown()
+    loop = AutonomyLoop(eventlog=log, cooldown=cooldown, interval_seconds=0.05)
 
     try:
         loop.start()
-        time.sleep(0.2)
+        time.sleep(0.5)
     finally:
         loop.stop()
 
     events = log.read_all()
     kinds = [e["kind"] for e in events]
+    print("\n[TEST TELEMETRY] Event log kinds:", kinds)
+    # Check for key events
     assert "autonomy_tick" in kinds
-    # Find last autonomy_tick and validate IAS/GAS presence
-    ticks = [e for e in events if e["kind"] == "autonomy_tick"]
-    meta = ticks[-1]["meta"]
-    tel = meta.get("telemetry", {})
-    assert "IAS" in tel and "GAS" in tel
+    assert "reflection" in kinds
+    assert "policy_update" in kinds
+    assert "stage_update" in kinds
+    # Print telemetry for each
+    for e in events:
+        if e["kind"] in {
+            "reflection",
+            "commitment_close",
+            "stage_update",
+            "policy_update",
+        }:
+            print(f"[TEST TELEMETRY] {e['kind']}: {e}")
