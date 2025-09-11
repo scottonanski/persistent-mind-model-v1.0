@@ -40,6 +40,23 @@ from pmm.runtime.embeddings import (
 )
 import os as _os
 import datetime as _dt
+import uuid as _uuid
+
+
+def _compute_reflection_due_epoch() -> int:
+    """Compute a soft due timestamp for reflection-driven commitments.
+
+    Env: PMM_REFLECTION_COMMIT_DUE_HOURS (int, default 24). Negatives clamp to 0.
+    Returns epoch seconds as int.
+    """
+    hours_str = str(_os.environ.get("PMM_REFLECTION_COMMIT_DUE_HOURS", "24"))
+    try:
+        hours = int(hours_str)
+    except Exception:
+        hours = 24
+    if hours < 0:
+        hours = 0
+    return int(_time.time()) + hours * 3600
 
 
 def _vprint(msg: str) -> None:
@@ -399,6 +416,32 @@ class Runtime:
                 _append_reflection_check(self.eventlog, int(rid_reflection), note)
             except Exception:
                 pass
+            # Append a commitment_open if the reflection_check passed (deterministic, minimal)
+            try:
+                evs_tmp = self.eventlog.read_all()
+                last_ref = evs_tmp[-2] if len(evs_tmp) >= 2 else None
+                last_check = evs_tmp[-1] if len(evs_tmp) >= 1 else None
+                if (
+                    last_ref
+                    and last_check
+                    and last_ref.get("kind") == "reflection"
+                    and last_check.get("kind") == "reflection_check"
+                    and (last_check.get("meta") or {}).get("ok") is True
+                ):
+                    self.eventlog.append(
+                        kind="commitment_open",
+                        content="",
+                        meta={
+                            "cid": _uuid.uuid4().hex,
+                            "reason": "reflection",
+                            "text": (last_ref.get("content") or "").strip(),
+                            "ref": last_ref.get("id"),
+                            "due": _compute_reflection_due_epoch(),
+                        },
+                    )
+            except Exception:
+                # Never block reflection flow if commitment logic fails
+                pass
             if action:
                 _vprint(f"[Reflection] Actionable insight: {action}")
                 self.eventlog.append(
@@ -573,6 +616,32 @@ def emit_reflection(eventlog: EventLog, content: str = "") -> int:
         # Important: evaluate the original text for the check (not the placeholder)
         _append_reflection_check(eventlog, int(rid), content)
     except Exception:
+        pass
+    # Append a commitment_open if the reflection_check passed (deterministic, minimal)
+    try:
+        evs_tmp = eventlog.read_all()
+        last_ref = evs_tmp[-2] if len(evs_tmp) >= 2 else None
+        last_check = evs_tmp[-1] if len(evs_tmp) >= 1 else None
+        if (
+            last_ref
+            and last_check
+            and last_ref.get("kind") == "reflection"
+            and last_check.get("kind") == "reflection_check"
+            and (last_check.get("meta") or {}).get("ok") is True
+        ):
+            eventlog.append(
+                kind="commitment_open",
+                content="",
+                meta={
+                    "cid": _uuid.uuid4().hex,
+                    "reason": "reflection",
+                    "text": (last_ref.get("content") or "").strip(),
+                    "ref": last_ref.get("id"),
+                    "due": _compute_reflection_due_epoch(),
+                },
+            )
+    except Exception:
+        # Never block emit_reflection flow if commitment logic fails
         pass
     # Introspection audit after reflection: append audit_report events
     try:

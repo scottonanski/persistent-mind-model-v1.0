@@ -183,6 +183,23 @@ def main() -> None:
             except Exception:
                 # Never crash REPL on notices
                 pass
+            # Optional: print when a reflection-driven commitment opens
+            try:
+                evs = rt.eventlog.read_all()
+                last_ev = evs[-1] if evs else None
+                if last_ev and last_ev.get("kind") == "commitment_open":
+                    meta = last_ev.get("meta") or {}
+                    if meta.get("reason") == "reflection":
+                        # Track last seen to avoid duplicates
+                        if not hasattr(main, "_last_commitment_id"):
+                            setattr(main, "_last_commitment_id", None)
+                        prev_cid = getattr(main, "_last_commitment_id")
+                        if last_ev.get("id") != prev_cid:
+                            print("[commitment] opened from reflection", flush=True)
+                            setattr(main, "_last_commitment_id", last_ev.get("id"))
+            except Exception:
+                # Never crash REPL on notice
+                pass
             # Optional reminder notices for commitments due
             try:
                 if os.getenv("PMM_CLI_REMINDER_NOTICE", "0").lower() in {"1", "true"}:
