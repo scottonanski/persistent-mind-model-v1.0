@@ -111,9 +111,9 @@ class EventLog:
         meta : dict | None
             Optional metadata; will be JSON-serialized. Defaults to `{}`.
         """
-
         ts = _dt.datetime.now(_dt.UTC).isoformat()
-        meta_json = _json.dumps(meta or {})
+        meta_obj: Dict = meta or {}
+        meta_json = _json.dumps(meta_obj)
         prev = self._get_last_hash()
         with self._conn:
             # 1) Insert without hash to obtain id (store prev_hash now)
@@ -128,7 +128,7 @@ class EventLog:
                 "ts": ts,
                 "kind": kind,
                 "content": content,
-                "meta": meta or {},
+                "meta": meta_obj,
                 "prev_hash": prev,
             }
             digest = _hashlib.sha256(self._canonical_json(payload)).hexdigest()

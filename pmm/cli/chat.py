@@ -128,6 +128,61 @@ def main() -> None:
                 return
             reply = rt.handle_user(user)
             print(reply, flush=True)
+            # Optional stage/policy notices for UX clarity
+            try:
+                if os.getenv("PMM_CLI_STAGE_NOTICE", "0").lower() in {"1", "true"}:
+                    evs = rt.eventlog.read_all()
+                    # Track last printed stage and cooldown threshold in function locals via nonlocal closure pattern
+                    if not hasattr(main, "_last_stage_label"):
+                        setattr(main, "_last_stage_label", None)
+                    if not hasattr(main, "_last_cooldown_thr"):
+                        setattr(main, "_last_cooldown_thr", None)
+
+                    # Resolve most recent stage label from stage_update or policy_update(component="reflection")
+                    stage_label = None
+                    for e in reversed(evs):
+                        if e.get("kind") == "stage_update":
+                            stage_label = (e.get("meta") or {}).get("to")
+                            break
+                        if e.get("kind") == "policy_update":
+                            m = e.get("meta") or {}
+                            if str(m.get("component")) == "reflection":
+                                stage_label = m.get("stage") or stage_label
+                                if stage_label:
+                                    break
+                    prev_stage_label = getattr(main, "_last_stage_label")
+                    if stage_label and stage_label != prev_stage_label:
+                        print(
+                            f"[stage] {prev_stage_label or '—'} → {stage_label} (cadence updated)",
+                            flush=True,
+                        )
+                        setattr(main, "_last_stage_label", stage_label)
+
+                    # Resolve most recent cooldown novelty threshold from policy_update(component="cooldown")
+                    cooldown_thr = None
+                    for e in reversed(evs):
+                        if e.get("kind") != "policy_update":
+                            continue
+                        m = e.get("meta") or {}
+                        if str(m.get("component")) != "cooldown":
+                            continue
+                        params = m.get("params") or {}
+                        if "novelty_threshold" in params:
+                            try:
+                                cooldown_thr = float(params.get("novelty_threshold"))
+                            except Exception:
+                                cooldown_thr = None
+                            break
+                    prev_thr = getattr(main, "_last_cooldown_thr")
+                    if cooldown_thr is not None and cooldown_thr != prev_thr:
+                        print(
+                            f"[policy] cooldown.novelty_threshold → {cooldown_thr:.2f}",
+                            flush=True,
+                        )
+                        setattr(main, "_last_cooldown_thr", cooldown_thr)
+            except Exception:
+                # Never crash REPL on notices
+                pass
             # One-shot continuity notice after first reply following identity_adopt (strict ordering)
             try:
                 events = rt.eventlog.read_all()

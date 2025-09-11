@@ -581,11 +581,14 @@ def maybe_reflect(
             novelty=novelty,
             override_min_turns=override_min_turns,
             override_min_seconds=override_min_seconds,
+            events=eventlog.read_all(),
         )
     except TypeError:
         # Fallback: some stubs accept only (now, novelty)
         try:
-            ok, reason = cooldown.should_reflect(now=now, novelty=novelty)
+            ok, reason = cooldown.should_reflect(
+                now=now, novelty=novelty, events=eventlog.read_all()
+            )
         except TypeError:
             # Final fallback: no-arg call
             ok, reason = cooldown.should_reflect()
@@ -912,13 +915,81 @@ class AutonomyLoop:
         if changes:
             # Apply runtime-affecting changes: cooldown novelty threshold
             if "cooldown.novelty_threshold" in changes:
+                new_thr = None
                 try:
-                    self.cooldown.novelty_threshold = float(
-                        changes["cooldown.novelty_threshold"]
+                    new_thr = float(changes["cooldown.novelty_threshold"])
+                    self.cooldown.novelty_threshold = new_thr
+                except Exception:
+                    new_thr = None
+                # Emit idempotent policy_update for cooldown params if different from last
+                try:
+                    evs_now = self.eventlog.read_all()
+                    last_stage, last_params = _last_policy_params(
+                        evs_now, component="cooldown"
                     )
+                    params_obj = (
+                        {"novelty_threshold": float(new_thr)}
+                        if new_thr is not None
+                        else {}
+                    )
+                    if last_params != params_obj:
+                        self.eventlog.append(
+                            kind="policy_update",
+                            content="",
+                            meta={
+                                "component": "cooldown",
+                                "stage": curr_stage,
+                                "params": params_obj,
+                                "tick": tick_no,
+                            },
+                        )
                 except Exception:
                     pass
             _vprint(f"[SelfEvolution] Policy applied: {evo_details}")
+            # Emit trait_update for any trait targets in changes (absolute target -> delta)
+            try:
+                from pmm.storage.projection import build_identity as _build_identity
+
+                ident_now = _build_identity(self.eventlog.read_all())
+                traits_now = ident_now.get("traits") or {}
+                for k, v in changes.items():
+                    if not str(k).startswith("traits."):
+                        continue
+                    try:
+                        trait_name_src = str(k).split(".", 1)[1]
+                        trait_key = trait_name_src.strip().lower()
+                        target = float(v)
+                        current = float(traits_now.get(trait_key, 0.5))
+                        delta = round(target - current, 3)
+                    except Exception:
+                        continue
+                    if delta == 0.0:
+                        continue
+                    # Avoid duplicate emission within the same tick for same trait
+                    already = False
+                    evs_now2 = self.eventlog.read_all()
+                    for e in reversed(evs_now2):
+                        if e.get("kind") != "trait_update":
+                            continue
+                        m = e.get("meta") or {}
+                        if str(m.get("trait")).lower() == trait_key and (
+                            m.get("tick") == tick_no
+                        ):
+                            already = True
+                            break
+                    if not already:
+                        self.eventlog.append(
+                            kind="trait_update",
+                            content="",
+                            meta={
+                                "trait": trait_key,
+                                "delta": delta,
+                                "reason": "self_evolution",
+                                "tick": tick_no,
+                            },
+                        )
+            except Exception:
+                pass
             self.eventlog.append(
                 kind="evolution",
                 content="self-evolution policy applied",
@@ -1142,7 +1213,7 @@ class AutonomyLoop:
         novelty_ok = last_reflect_skip != "low_novelty"
         # Defer autonomy_tick append until after TTL sweep below to ensure ordering
         tick_no = 1 + sum(1 for ev in events if ev.get("kind") == "autonomy_tick")
-        print(
+        _vprint(
             f"[AutonomyLoop] autonomy_tick: tick={tick_no}, stage={curr_stage}, IAS={ias}, GAS={gas}"
         )
         #  Propose: stage>=S1, no name yet, >=5 ticks, novelty not low, and not already proposed

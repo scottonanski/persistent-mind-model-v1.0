@@ -9,10 +9,25 @@ Intent:
 from __future__ import annotations
 
 import re as _re
-from typing import Dict, List
+from typing import Dict, List, Optional, Callable
+
+# Fold-time guardrail parameters (tunable)
+MAX_TRAIT_DELTA = 0.05  # maximum absolute delta applied per trait_update
 
 
-def build_self_model(events: List[Dict]) -> Dict:
+class ProjectionInvariantError(ValueError):
+    """Raised when strict projection invariants are violated."""
+
+    pass
+
+
+def build_self_model(
+    events: List[Dict],
+    *,
+    strict: bool = False,
+    max_trait_delta: float = MAX_TRAIT_DELTA,
+    on_warn: Optional[Callable[[Dict], None]] = None,
+) -> Dict:
     """Build a minimal self-model from an ordered list of events.
 
     Parameters
@@ -51,10 +66,20 @@ def build_self_model(events: List[Dict]) -> Dict:
 
     name_pattern = _re.compile(r"Name\s+changed\s+to:\s*(?P<name>.+)", _re.IGNORECASE)
 
+    # Track seen evidence to enforce close-after-evidence ordering
+    _evidence_seen: set[tuple] = set()  # (cid, evidence_type)
+    # Track whether an identity was ever adopted to prevent silent reversion
+    _identity_adopted = False
+    _last_eid: int = 0
+
     for ev in events:
         kind = ev.get("kind")
         content = ev.get("content", "")
         meta = ev.get("meta") or {}
+        try:
+            _last_eid = int(ev.get("id") or 0)
+        except Exception:
+            _last_eid = 0
 
         if kind == "identity_change":
             # Prefer explicit meta name
@@ -70,16 +95,27 @@ def build_self_model(events: List[Dict]) -> Dict:
             # Last writer wins for name
             new_name = meta.get("name") or content or None
             if isinstance(new_name, str):
-                model["identity"]["name"] = new_name.strip() or None
+                nm = new_name.strip()
+                model["identity"]["name"] = nm or None
+                if nm:
+                    _identity_adopted = True
+
+        elif kind == "identity_clear":
+            # Explicit identity clear (used to avoid strict revert error)
+            model["identity"]["name"] = None
+            _identity_adopted = False
 
         elif kind == "trait_update":
-            # Cumulative delta with clamp [0,1]
+            # Cumulative delta with per-event bound and clamp [0,1]
             trait = str(meta.get("trait") or "").strip().lower()
             delta = meta.get("delta")
             try:
                 delta_f = float(delta)
             except Exception:
                 delta_f = 0.0
+            # Enforce per-event absolute delta bound only in strict mode
+            if strict and abs(delta_f) > max_trait_delta:
+                delta_f = max_trait_delta if delta_f > 0 else -max_trait_delta
             key_map = {
                 "o": "openness",
                 "openness": "openness",
@@ -106,9 +142,39 @@ def build_self_model(events: List[Dict]) -> Dict:
                 entry = {k: v for k, v in meta.items()}
                 model["commitments"]["open"][cid] = entry
 
+        elif kind == "evidence_candidate":
+            cid = meta.get("cid")
+            et = (meta.get("evidence_type") or "done").strip().lower()
+            if cid:
+                _evidence_seen.add((cid, et))
+
         elif kind in ("commitment_close", "commitment_expire"):
             cid = meta.get("cid")
             if cid and cid in model["commitments"]["open"]:
+                if kind == "commitment_close":
+                    # strict ordering: require evidence first
+                    if (cid, "done") not in _evidence_seen:
+                        if strict:
+                            raise ProjectionInvariantError(
+                                f"commitment_close without prior evidence_candidate (cid={cid}, eid={_last_eid})"
+                            )
+                        # Non-strict: proceed with close but optionally emit telemetry hook
+                        if callable(on_warn):
+                            try:
+                                on_warn(
+                                    {
+                                        "kind": "projection_warn",
+                                        "content": "commitment_close without evidence",
+                                        "meta": {
+                                            "cid": cid,
+                                            "eid": _last_eid,
+                                            "reason": "close_without_evidence",
+                                        },
+                                    }
+                                )
+                            except Exception:
+                                # Never allow telemetry hook to break projection
+                                pass
                 # If expire, record in expired section
                 if kind == "commitment_expire":
                     model["commitments"]["expired"][cid] = {
@@ -125,6 +191,12 @@ def build_self_model(events: List[Dict]) -> Dict:
                 except Exception:
                     until_t = 0
                 model["commitments"]["open"][cid]["snoozed_until"] = until_t
+
+    # Final identity invariant (strict mode): if identity was adopted, it must not end as None
+    if strict and _identity_adopted and (model["identity"].get("name") is None):
+        raise ProjectionInvariantError(
+            f"identity reverted to None without identity_clear (last_eid={_last_eid})"
+        )
 
     return model
 
