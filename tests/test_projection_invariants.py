@@ -1,5 +1,7 @@
 import pytest
 from pmm.storage.projection import build_self_model, ProjectionInvariantError
+from pmm.storage.eventlog import EventLog
+from pmm.runtime.loop import emit_reflection
 
 
 def _ev(kind, **meta):
@@ -57,3 +59,23 @@ def test_identity_cannot_silently_revert_to_none():
     ]
     state2 = build_self_model(cleared, strict=True)
     assert state2["identity"]["name"] is None
+
+
+def test_reflection_check_references_prior_reflection(tmp_path):
+    # Use real EventLog to ensure proper ID ordering and linkage
+    db_path = tmp_path / "proj_inv.db"
+    log = EventLog(str(db_path))
+    emit_reflection(log, "I learned X.\nNext, I will try Y.")
+    events = log.read_all()
+    # Find the reflection_check and verify it points to an existing prior reflection
+    checks = [e for e in events if e.get("kind") == "reflection_check"]
+    assert checks, "reflection_check event should exist"
+    rc = checks[0]
+    meta = rc.get("meta") or {}
+    ref_id = int(meta.get("ref") or 0)
+    assert ref_id > 0
+    ref_ev = next(e for e in events if e.get("id") == ref_id)
+    assert ref_ev.get("kind") == "reflection"
+    assert ref_ev.get("id") < rc.get(
+        "id"
+    ), "reflection_check must reference a prior reflection"

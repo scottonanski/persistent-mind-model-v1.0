@@ -372,7 +372,7 @@ class Runtime:
 
         ias, gas = compute_ias_gas(self.eventlog.read_all())
         # Append the reflection event FIRST so event order is correct
-        self.eventlog.append(
+        rid_reflection = self.eventlog.append(
             kind="reflection",
             content=note,
             meta={
@@ -393,6 +393,11 @@ class Runtime:
             for f in stack
         )
         if not skip_extra:
+            # Paired reflection_check event (immediately after reflection)
+            try:
+                _append_reflection_check(self.eventlog, int(rid_reflection), note)
+            except Exception:
+                pass
             if action:
                 _vprint(f"[Reflection] Actionable insight: {action}")
                 self.eventlog.append(
@@ -522,6 +527,34 @@ def evaluate_reflection(
     return cooldown.should_reflect(now=now, novelty=novelty)
 
 
+def _append_reflection_check(eventlog: EventLog, ref_id: int, text: str) -> None:
+    """Append a paired reflection_check event for the given reflection.
+
+    Rule (v1, deterministic):
+    - If the entire reflection is empty/blank -> ok=False, reason="empty_reflection".
+    - Else if the final line is blank (trailing newline/whitespace) -> ok=False, reason="no_final_line".
+    - Else -> ok=True, reason="last_line_nonempty".
+    """
+    t = str(text or "")
+    if not t.strip():
+        ok = False
+        reason = "empty_reflection"
+    elif t.endswith("\n") or t.endswith("\r"):
+        ok = False
+        reason = "no_final_line"
+    else:
+        # Determine last line content deterministically
+        lines = t.splitlines() or [t]
+        last = lines[-1] if lines else t
+        ok = bool(str(last).strip())
+        reason = "last_line_nonempty" if ok else "no_final_line"
+    eventlog.append(
+        kind="reflection_check",
+        content="",
+        meta={"ref": int(ref_id), "ok": bool(ok), "reason": str(reason)},
+    )
+
+
 def emit_reflection(eventlog: EventLog, content: str = "") -> int:
     """Emit a simple reflection event (used where real chat isn't wired).
 
@@ -534,6 +567,12 @@ def emit_reflection(eventlog: EventLog, content: str = "") -> int:
         content=content or "(reflection)",
         meta={"source": "emit_reflection", "telemetry": {"IAS": ias, "GAS": gas}},
     )
+    # Paired reflection_check event after reflection append
+    try:
+        # Important: evaluate the original text for the check (not the placeholder)
+        _append_reflection_check(eventlog, int(rid), content)
+    except Exception:
+        pass
     # Introspection audit after reflection: append audit_report events
     try:
         evs_a = eventlog.read_all()
