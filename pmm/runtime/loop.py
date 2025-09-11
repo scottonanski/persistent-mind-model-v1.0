@@ -39,6 +39,7 @@ from pmm.runtime.embeddings import (
     digest_vector as _emb_digest,
 )
 import os as _os
+import datetime as _dt
 
 
 def _vprint(msg: str) -> None:
@@ -1055,79 +1056,17 @@ class AutonomyLoop:
         ranking = rank_commitments(events)
         top5 = [{"cid": cid, "score": score} for cid, score in ranking[:5]]
         self.eventlog.append(
-            kind="priority_update",
+            kind="commitment_priority",
             content="commitment priority ranking",
             meta={"ranking": top5},
         )
-        # Proactive reminders and follow-through (rate-limited to avoid excessive churn)
-        open_commits = set(
-            (e.get("meta") or {}).get("cid")
-            for e in events
-            if e.get("kind") == "commitment_open"
-        )
-        open_commits.discard(None)
-        closed_commits = set(
-            (e.get("meta") or {}).get("cid")
-            for e in events
-            if e.get("kind") == "commitment_close"
-        )
-        open_commits = [c for c in open_commits if c not in closed_commits]
-        overdue = []
-        N = 5
-        reminders_emitted = 0
-        followups_emitted = 0
-        for cid in open_commits:
-            # Find last index where this cid was opened
-            last_open_index = None
-            for i in range(len(events) - 1, -1, -1):
-                ev = events[i]
-                if (
-                    ev.get("kind") == "commitment_open"
-                    and (ev.get("meta") or {}).get("cid") == cid
-                ):
-                    last_open_index = i
-                    break
-            if last_open_index is None:
-                continue
-            age = len(events) - last_open_index
-            # Reminder if age > N ticks; cap to 1 per tick overall
-            if age > N and reminders_emitted < 1:
-                # Avoid duplicate reminder for the same cid when one already exists very recently
-                recently_reminded = any(
-                    e.get("kind") == "commitment_reminder"
-                    and (e.get("meta") or {}).get("cid") == cid
-                    for e in events[max(0, len(events) - 20) :]
-                )
-                if not recently_reminded:
-                    self.eventlog.append(
-                        kind="commitment_reminder",
-                        content=f"Reminder: commitment {cid} still open.",
-                        meta={"cid": cid, "open_for_ticks": age},
-                    )
-                    _vprint(f"[Commitment] Reminder: {cid} open for {age} ticks.")
-                    reminders_emitted += 1
-            # Overdue if age > 2N; cap follow-ups to 1 per tick overall
-            if age > 2 * N and followups_emitted < 1:
-                self.eventlog.append(
-                    kind="self_followup",
-                    content=f"Self-initiated follow-up on overdue commitment {cid}.",
-                    meta={"cid": cid},
-                )
-                _vprint(f"[Commitment] Follow-up: {cid} is overdue, taking action.")
-                followups_emitted += 1
-        # Accountability summary
-        _vprint(
-            f"[Commitment] Open: {len(open_commits)}, Closed: {len(closed_commits)}, Overdue: {len(overdue)}"
-        )
+        # Back-compat: emit priority_update event used by tests/metrics
         self.eventlog.append(
-            kind="commitment_accountability",
+            kind="priority_update",
             content="",
-            meta={
-                "open": len(open_commits),
-                "closed": len(closed_commits),
-                "overdue": len(overdue),
-            },
+            meta={"ranking": top5},
         )
+        # Legacy age-based reminders removed: rely on due-based reminders below
         # 2d) Stage tracking (append-only). Infer current stage and emit update on transition.
         # Find last known stage from stage_update events
         prev_stage = None
@@ -1600,6 +1539,71 @@ class AutonomyLoop:
                                 "tick": tick_no,
                             },
                         )
+
+        # 2e) Commitment due reminders: emit commitment_reminder when due is passed
+        try:
+            # Use projection to obtain open commitments and their metadata (including due)
+            evs_for_due = self.eventlog.read_all()
+            model_due = build_self_model(evs_for_due)
+            open_map_due = (model_due.get("commitments") or {}).get("open") or {}
+            now_s = _time.time()
+
+            # Build a quick lookup: for each cid, the last open event id
+            last_open_id_by_cid: dict[str, int] = {}
+            for e in evs_for_due:
+                if e.get("kind") == "commitment_open":
+                    m = e.get("meta") or {}
+                    c = str(m.get("cid") or "")
+                    if c:
+                        last_open_id_by_cid[c] = int(e.get("id") or 0)
+
+            for cid, meta0 in open_map_due.items():
+                # Accept UNIX epoch (int/float) or ISO-8601 string for due
+                due_raw = (meta0 or {}).get("due")
+                if due_raw is None:
+                    continue
+                due_ts: float | None = None
+                # Try numeric epoch first
+                try:
+                    due_ts = float(due_raw)
+                except Exception:
+                    # Try ISO format
+                    try:
+                        dt = _dt.datetime.fromisoformat(
+                            str(due_raw).replace("Z", "+00:00")
+                        )
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=_dt.timezone.utc)
+                        due_ts = dt.timestamp()
+                    except Exception:
+                        due_ts = None
+                if due_ts is None:
+                    continue
+                if now_s < float(due_ts):
+                    continue
+                # Idempotency: if a commitment_reminder for this cid already exists AFTER its last open, skip
+                last_open_eid = int(last_open_id_by_cid.get(str(cid), 0))
+                already = False
+                for e in reversed(evs_for_due):
+                    if int(e.get("id") or 0) <= last_open_eid:
+                        break
+                    if (
+                        e.get("kind") == "commitment_reminder"
+                        and (e.get("meta") or {}).get("cid") == cid
+                    ):
+                        already = True
+                        break
+                if already:
+                    continue
+                # Append reminder
+                self.eventlog.append(
+                    kind="commitment_reminder",
+                    content=f"Reminder: commitment {cid} is due.",
+                    meta={"cid": cid, "due": int(due_ts), "status": "overdue"},
+                )
+        except Exception:
+            # Never break tick on reminder logic
+            pass
 
         # 3) Commitment TTL sweep (deterministic by tick count) BEFORE logging this tick
         try:

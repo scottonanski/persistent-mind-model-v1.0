@@ -183,6 +183,26 @@ def main() -> None:
             except Exception:
                 # Never crash REPL on notices
                 pass
+            # Optional reminder notices for commitments due
+            try:
+                if os.getenv("PMM_CLI_REMINDER_NOTICE", "0").lower() in {"1", "true"}:
+                    evs2 = rt.eventlog.read_all()
+                    if not hasattr(main, "_printed_reminder_ids"):
+                        setattr(main, "_printed_reminder_ids", set())
+                    printed = getattr(main, "_printed_reminder_ids")
+                    # Print any new commitment_reminder since last check
+                    for e in evs2:
+                        if e.get("kind") != "commitment_reminder":
+                            continue
+                        eid = int(e.get("id") or 0)
+                        if eid in printed:
+                            continue
+                        cid = (e.get("meta") or {}).get("cid")
+                        if cid:
+                            print(f"[reminder] Commitment #{cid} is due!", flush=True)
+                            printed.add(eid)
+            except Exception:
+                pass
             # One-shot continuity notice after first reply following identity_adopt (strict ordering)
             try:
                 events = rt.eventlog.read_all()
