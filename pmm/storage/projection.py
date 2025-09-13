@@ -9,7 +9,7 @@ Intent:
 from __future__ import annotations
 
 import re as _re
-from typing import Dict, List, Optional, Callable
+from typing import Dict, List, Optional, Callable, Any
 
 # Fold-time guardrail parameters (tunable)
 MAX_TRAIT_DELTA = 0.05  # maximum absolute delta applied per trait_update
@@ -219,3 +219,138 @@ def build_identity(events: List[Dict]) -> Dict:
     ]:
         traits[k] = float(traits.get(k, 0.5))
     return {"name": ident.get("name"), "traits": traits}
+
+
+def _normalize_directive_text(s: str) -> str:
+    """Normalize directive content deterministically (trim + collapse spaces)."""
+    t = str(s or "").strip()
+    t = _re.sub(r"\s+", " ", t)
+    return t
+
+
+def build_directives(events: List[Dict]) -> List[Dict]:
+    """Build a deterministic directives view from autonomy_directive events.
+
+    Returns a list of dicts, each with:
+      - content: normalized directive text
+      - first_seen_ts: str (ISO timestamp from the first occurrence)
+      - last_seen_ts: str (ISO timestamp from the last occurrence)
+      - first_seen_id: int (event id of first occurrence)
+      - last_seen_id: int (event id of last occurrence)
+      - seen_count: int
+      - sources: sorted unique list of sources (e.g. ["reflection", "reply"]) from meta.source
+      - last_origin_eid: int|None (last non-null origin_eid from meta)
+    Sorted by (first_seen_ts, first_seen_id) for stability.
+    """
+    by_content: Dict[str, Dict] = {}
+    for ev in events:
+        if ev.get("kind") != "autonomy_directive":
+            continue
+        _pay = ev.get("payload") or {}
+        raw_content = ev.get("content") or _pay.get("content") or ""
+        content = _normalize_directive_text(raw_content)
+        meta = (ev.get("meta") or {}) or (_pay.get("meta") or {})
+        src = str(meta.get("source") or "").strip().lower()
+        try:
+            origin_eid = (
+                int(meta.get("origin_eid"))
+                if meta.get("origin_eid") is not None
+                else None
+            )
+        except Exception:
+            origin_eid = None
+        ts = ev.get("ts")
+        try:
+            eid = int(ev.get("id") or 0)
+        except Exception:
+            eid = 0
+
+        rec = by_content.get(content)
+        if rec is None:
+            rec = {
+                "content": content,
+                "first_seen_ts": ts,
+                "last_seen_ts": ts,
+                "first_seen_id": eid,
+                "last_seen_id": eid,
+                "seen_count": 1,
+                "sources": [src] if src else [],
+                "last_origin_eid": origin_eid,
+            }
+            by_content[content] = rec
+        else:
+            rec["last_seen_ts"] = ts
+            rec["last_seen_id"] = eid
+            rec["seen_count"] = int(rec.get("seen_count", 0)) + 1
+            if src and src not in rec["sources"]:
+                rec["sources"].append(src)
+            if origin_eid is not None:
+                rec["last_origin_eid"] = origin_eid
+
+    # Finalize: sort sources deterministically and return a stable list
+    out: List[Dict] = []
+    for rec in by_content.values():
+        rec["sources"] = sorted([s for s in rec.get("sources", []) if s])
+        out.append(rec)
+    out.sort(
+        key=lambda r: (
+            str(r.get("first_seen_ts") or ""),
+            int(r.get("first_seen_id") or 0),
+        )
+    )
+    return out
+
+
+# ---------------- Directive reinforcement (deterministic active set) ----------------
+# constants (flag-less)
+ACTIVE_TOP_K = 7
+RECENT_WEIGHT = 2.0  # recent sightings get a small boost
+RECENT_WINDOW = 200  # last-N events considered "recent" for the boost
+
+
+def build_directives_active_set(events: List[dict]) -> List[Dict[str, Any]]:
+    """
+    Deterministic 'active set' of directives.
+    Score = seen_count + RECENT_WEIGHT * recent_hits, then stable-tie-break by (first_seen_id).
+    Returns top-K rows with: content, seen_count, recent_hits, score, first_seen_id, last_seen_id, sources.
+    """
+    base = build_directives(events)
+
+    # index last-N autonomy_directive events for recent_hits
+    recent_pool = [e for e in events if e.get("kind") == "autonomy_directive"][
+        -RECENT_WINDOW:
+    ]
+    recent_norms: List[str] = []
+    for e in recent_pool:
+        # Accept either content or payload.content
+        txt = e.get("content")
+        if not txt:
+            pay = e.get("payload") or {}
+            txt = pay.get("content") or ""
+        recent_norms.append(_normalize_directive_text(txt))
+
+    from collections import Counter
+
+    c_recent = Counter(recent_norms)
+
+    active: List[Dict[str, Any]] = []
+    for row in base:
+        n = row["content"]  # already normalized by build_directives
+        seen = int(row.get("seen_count", 0))
+        r_hits = int(c_recent.get(n, 0))
+        score = float(seen + RECENT_WEIGHT * r_hits)
+        active.append(
+            {
+                "content": n,
+                "seen_count": seen,
+                "recent_hits": r_hits,
+                "score": score,
+                "first_seen_id": row.get("first_seen_id"),
+                "last_seen_id": row.get("last_seen_id"),
+                "sources": row.get("sources", []),
+            }
+        )
+
+    # stable ordering: score desc, then first_seen_id asc
+    active.sort(key=lambda r: (-float(r["score"]), int(r.get("first_seen_id") or 0)))
+    return active[:ACTIVE_TOP_K]

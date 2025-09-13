@@ -37,7 +37,9 @@ class CommitmentTracker:
         self.eventlog = eventlog
         self.detector = detector or get_default_detector()
 
-    def process_assistant_reply(self, text: str) -> List[str]:
+    def process_assistant_reply(
+        self, text: str, reply_event_id: Optional[int] = None
+    ) -> List[str]:
         """Detect commitments in assistant replies and open them.
 
         Returns list of newly opened commitment ids (cids).
@@ -64,10 +66,18 @@ class CommitmentTracker:
             # Normalize and dedup quickly via projection view
             if kind not in {"plan", "followup"}:
                 kind = "plan"
-            # Trim to sentence and normalize spacing
-            norm = self._normalize_text(ctext)
+            # Trim to sentence and normalize spacing; preserve canonical identity tokens
+            if str(ctext).strip().lower().startswith("identity:name:"):
+                norm = str(ctext).strip()
+            else:
+                norm = self._normalize_text(ctext)
             source = f"detector:{kind}" if kind else "detector"
-            cid = self.add_commitment(norm, source=source)
+            extra_meta = (
+                {"origin_eid": int(reply_event_id)}
+                if reply_event_id is not None
+                else None
+            )
+            cid = self.add_commitment(norm, source=source, extra_meta=extra_meta)
             if cid:
                 opened.append(cid)
         # Identity-name commitment: "I will use the name <X>"
@@ -306,7 +316,9 @@ class CommitmentTracker:
             return 0
             # else: end
 
-    def add_commitment(self, text: str, source: str | None = None) -> str:
+    def add_commitment(
+        self, text: str, source: str | None = None, extra_meta: Optional[Dict] = None
+    ) -> str:
         """Open a new commitment and return its cid.
 
         Logs: kind="commitment_open" with meta {"cid", "text", "source"}.
@@ -319,6 +331,11 @@ class CommitmentTracker:
         meta: Dict = {"cid": cid, "text": text}
         if source is not None:
             meta["source"] = source
+        if isinstance(extra_meta, dict):
+            # Shallow merge; do not overwrite cid/text/source
+            for k, v in extra_meta.items():
+                if k not in meta:
+                    meta[k] = v
         content = f"Commitment opened: {text}"
         self.eventlog.append(kind="commitment_open", content=content, meta=meta)
         return cid

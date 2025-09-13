@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Protocol, List, Dict
 import os
 import re
+from dataclasses import dataclass
 
 
 class CommitmentDetector(Protocol):
@@ -10,31 +11,81 @@ class CommitmentDetector(Protocol):
         ...
 
 
-_PLAN_RE = re.compile(
-    r"\b(?:I|We)\s+(?:will|shall|plan\s+to|intend\s+to|aim\s+to|can|could|should)\b[^.!\n]*",
-    flags=re.IGNORECASE,
-)
-_FOLLOWUP_RE = re.compile(
-    r"\b(?:Next|Then|After\s+that|I\s+can\s+next|We\s+can\s+next)\b[^.!\n]*",
-    flags=re.IGNORECASE,
-)
+@dataclass(frozen=True)
+class CommitmentCandidate:
+    text: str
+    source: str
+    start: int
+    end: int
+
+
+# Table-driven baseline patterns (deterministic order)
+_PATTERNS: List[re.Pattern] = [
+    re.compile(r"\b(I will|I'll|I shall)\s+([^\.!\n]+)", re.IGNORECASE),
+    re.compile(r"\bI can\s+(?:do|handle|set up|create)\s+([^\.!\n]+)", re.IGNORECASE),
+    re.compile(r"\bLet's\s+(?!not)\s*([^\.!\n]+)", re.IGNORECASE),
+    re.compile(r"\bTODO:\s*([^\n]+)", re.IGNORECASE),
+    re.compile(r"\bI commit to\s+([^\.!\n]+)", re.IGNORECASE),
+]
+
+
+def _normalize(s: str) -> str:
+    s = re.sub(r"\s+", " ", (s or "").strip())
+    s = s.rstrip(" ;,")
+    return s
+
+
+def detect_commitments(
+    text: str, *, source: str = "reply"
+) -> List[CommitmentCandidate]:
+    """Deterministic extraction; de-dup by normalized text while preserving pattern order."""
+    if not text:
+        return []
+    out: List[CommitmentCandidate] = []
+    seen: set[str] = set()
+    for pat in _PATTERNS:
+        for m in pat.finditer(text):
+            frag = m.group(2) if (m.lastindex and m.lastindex >= 2) else m.group(1)
+            norm = _normalize(frag)
+            # Canonicalize identity-intent phrases to a stable key
+            try:
+                m_id = re.search(
+                    r"\buse\s+the\s+name\s+([A-Za-z][A-Za-z0-9_-]{0,11})\b",
+                    norm,
+                    flags=re.IGNORECASE,
+                )
+                if m_id:
+                    nm = m_id.group(1)
+                    norm = f"identity:name:{nm}"
+            except Exception:
+                pass
+            if not norm or norm in seen:
+                continue
+            seen.add(norm)
+            out.append(
+                CommitmentCandidate(
+                    text=norm, source=source, start=m.start(), end=m.end()
+                )
+            )
+    return out
 
 
 class RegexCommitmentDetector:
     """Brittle but simple baseline; good for smoke. Upgrade path is SemanticCommitmentDetector."""
 
     def find(self, text: str) -> List[Dict]:
+        # Delegate to table-driven baseline to keep a single deterministic source of truth
+        cands = detect_commitments(text or "", source="reply")
         results: List[Dict] = []
-        for kind, pat in (("plan", _PLAN_RE), ("followup", _FOLLOWUP_RE)):
-            for m in pat.finditer(text):
-                results.append(
-                    {
-                        "text": m.group(0).strip(),
-                        "span": (m.start(), m.end()),
-                        "kind": kind,
-                        "confidence": 0.55 if kind == "plan" else 0.50,
-                    }
-                )
+        for c in cands:
+            results.append(
+                {
+                    "text": c.text,
+                    "span": (c.start, c.end),
+                    "kind": "plan",
+                    "confidence": 0.55,
+                }
+            )
         return results
 
 

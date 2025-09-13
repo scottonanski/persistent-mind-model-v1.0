@@ -3,12 +3,14 @@
 Intent:
 - Provide a hook for family-aware style handling (e.g., GPT/LLaMA) for a
   consistent voice across chat and reflection.
-- For now, `format_messages` is a pass-through and returns a shallow-copied list.
+- Add a deterministic, table-driven sanitizer to remove provider boilerplate
+  and identity claims before logging events.
 """
 
 from __future__ import annotations
 
-from typing import List, Dict
+from typing import List, Dict, Optional
+import re
 
 
 class BridgeManager:
@@ -22,3 +24,76 @@ class BridgeManager:
         mutation side-effects.
         """
         return [dict(m) for m in messages]
+
+
+# ---- Deterministic sanitizer (flag-less, table-driven) ----
+_WS = re.compile(r"\s+")
+
+
+def _collapse_ws(s: str) -> str:
+    return _WS.sub(" ", (s or "").strip())
+
+
+_STRIP_PREFIXES = (
+    # e.g., "As an AI language model, ..." or "As a language model, ..."
+    r"^\s*as\s+(?:an?|the)\s+(?:ai\s+language\s+model|language\s+model|ai|assistant)\b[:,]?\s*",
+    # e.g., "I am ChatGPT, ..." / "I am a large language model, ..."
+    r"^\s*i\s*am\s+(?:chatgpt|an\s+ai|a\s+large\s+language\s+model)\b[:,]?\s*",
+)
+
+_STRIP_LINES_CONTAINS = (
+    r"^\s*system\s*:\s*.*$",
+    r"^\s*assistant\s*:\s*.*$",
+    r"^\s*(?:note|disclaimer)\s*:\s*.*$",
+)
+
+_IDENTITY_PHRASES = (
+    r"\bmy\s+name\s+is\s+[^\.\!\?]+[\.\!\?]?",
+    r"\bi(?:'|\s*a)m\s+(?:chatgpt|an\s+ai|a\s+large\s+language\s+model)\b[\.\!\?]?",
+)
+
+
+def sanitize(text: str, *, family: Optional[str] = None) -> str:
+    """Deterministically sanitize raw model output.
+
+    - Strip provider boilerplate/preambles/prefixes.
+    - Remove mechanical identity claims.
+    - Collapse whitespace.
+    No randomness. No I/O. No state.
+    """
+    if not text:
+        return text
+
+    s = str(text)
+
+    # 1) Strip known provider prefaces at the start
+    for pat in _STRIP_PREFIXES:
+        s = re.sub(pat, "", s, flags=re.IGNORECASE)
+
+    # 2) Drop entire lines of role/boilerplate markers
+    kept: List[str] = []
+    for line in s.splitlines():
+        drop = False
+        for pat in _STRIP_LINES_CONTAINS:
+            if re.search(pat, line, flags=re.IGNORECASE):
+                drop = True
+                break
+        if not drop:
+            kept.append(line)
+    s = "\n".join(kept)
+
+    # 3) Remove identity-claim phrases anywhere
+    for pat in _IDENTITY_PHRASES:
+        s = re.sub(pat, "", s, flags=re.IGNORECASE)
+
+    # 4) Family-specific small trims
+    fam = (family or "").lower()
+    if fam:
+        if "openai" in fam:
+            s = re.sub(r"^\s*assistant:\s*", "", s, flags=re.IGNORECASE)
+        if ("anthropic" in fam) or ("claude" in fam):
+            s = re.sub(r"^\s*helpful\s+assistant[:,]?\s*", "", s, flags=re.IGNORECASE)
+
+    # 5) Collapse whitespace at the end deterministically
+    s = _collapse_ws(s)
+    return s

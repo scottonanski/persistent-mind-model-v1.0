@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import Dict, List, Tuple
+from dataclasses import dataclass
+from typing import Callable, Protocol, Any
 
 # Deterministic, append-only audit that inspects recent events and proposes
 # annotation-only audit_report events. No mutations, no hidden state.
@@ -260,3 +262,63 @@ def run_audit(events: List[Dict], window: int = 50) -> List[Dict]:
         pass
 
     return audits
+
+
+# ---------------- Log-only introspection (prompted summary) -----------------
+
+
+class LLMCall(Protocol):
+    def __call__(self, prompt: str) -> str: ...
+
+
+_INTROSPECTION_PROMPT_TEMPLATE = (
+    "[INTROSPECTION]\n"
+    "Topic: {topic}\n"
+    "Scope: {scope}\n"
+    "Task: Provide a concise, factual summary based only on the PMM code, events, and projections.\n"
+    "Rules:\n"
+    "  - Do not propose actions.\n"
+    "  - Do not open/close commitments.\n"
+    "  - Do not modify identity/traits.\n"
+    "  - Output a short paragraph; no lists.\n"
+)
+
+
+def build_prompt(topic: str, scope: str) -> str:
+    return _INTROSPECTION_PROMPT_TEMPLATE.format(
+        topic=str(topic).strip(), scope=str(scope).strip()
+    )
+
+
+@dataclass(frozen=True)
+class IntrospectionResult:
+    prompt: str
+    summary: str
+
+
+def run_introspection(
+    *,
+    topic: str,
+    scope: str,
+    llm: LLMCall,
+    append_event: Callable[[Dict[str, Any]], Any],
+) -> IntrospectionResult:
+    """
+    Log-only introspection:
+      - Builds a deterministic prompt
+      - Calls LLM (injected)
+      - Appends an `introspection_report` event with {topic, scope, summary}
+      - Returns the prompt + summary for inspection
+    No side effects beyond the single event append.
+    """
+    prompt = build_prompt(topic, scope)
+    summary = llm(prompt)
+
+    append_event(
+        {
+            "kind": "introspection_report",
+            "payload": {"topic": topic, "scope": scope, "summary": summary},
+        }
+    )
+
+    return IntrospectionResult(prompt=prompt, summary=summary)

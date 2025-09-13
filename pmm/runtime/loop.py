@@ -37,6 +37,16 @@ from pmm.runtime.embeddings import (
     compute_embedding as _emb_compute,
     digest_vector as _emb_digest,
 )
+from pmm.directives.detector import (
+    extract as _extract_directives,
+)
+from pmm.bridge.manager import sanitize as _bridge_sanitize
+from pmm.runtime.invariants_rt import run_invariants_tick as _run_invariants_tick
+from pmm.runtime.cadence import CadenceState as _CadenceState
+from pmm.runtime.cadence import should_reflect as _cadence_should_reflect
+from pmm.runtime.reflection_guidance import (
+    build_reflection_guidance as _build_reflection_guidance,
+)
 import os as _os
 import datetime as _dt
 import uuid as _uuid
@@ -332,6 +342,11 @@ class Runtime:
         styled = self.bridge.format_messages(msgs, intent="chat")
         # Keep replies responsive and bounded when using remote providers
         reply = self.chat.generate(styled, temperature=1.0, max_tokens=256)
+        # Sanitize raw model output deterministically before any event emission
+        try:
+            reply = _bridge_sanitize(reply, family=self.bridge.model_family)
+        except Exception:
+            pass
         # Post-process with n-gram filter
         reply = self._ngram_filter.filter(reply)
         # Render with identity-aware renderer before logging
@@ -581,6 +596,18 @@ class Runtime:
         try:
             self.tracker.close_reflection_on_next(reply)
         except Exception:
+            pass
+        # After recording the response and processing evidence hooks, emit autonomy_directive events
+        # derived from the assistant reply deterministically.
+        try:
+            for _d in _extract_directives(reply, source="reply", origin_eid=int(rid)):
+                self.eventlog.append(
+                    kind="autonomy_directive",
+                    content=str(_d.content),
+                    meta={"source": str(_d.source), "origin_eid": _d.origin_eid},
+                )
+        except Exception:
+            # Never block the chat path on directive extraction
             pass
         # Post-response embedding handling when enabled, unless test requests to skip.
         # Only attempt compute when an embed provider is configured OR test/dummy flags are set.
@@ -1096,9 +1123,7 @@ def emit_reflection(
     }
     tmpl_label, tmpl_instr = _TEMPLATES.get(int(stage_level), _TEMPLATES[0])
     if forced and not (content or "").strip():
-        synth = (
-            f"Observation: I need to improve clarity and focus.\n" f"Next: {tmpl_instr}"
-        )
+        synth = f"Observation: I need to improve clarity and focus.\nNext: {tmpl_instr}"
     # Build deterministic refs for reflection
     try:
         K = 6
@@ -1118,6 +1143,16 @@ def emit_reflection(
         sel = []
     # Preserve content verbatim (including trailing newlines) for reflection_check; avoid .strip()
     final_text = content if (content or "").strip() or not synth else synth
+    raw_text_for_check = (
+        final_text  # keep a copy BEFORE sanitization for reflection_check
+    )
+    # Sanitize reflection text deterministically before appending (storage only)
+    try:
+        from pmm.bridge.manager import sanitize as _san
+
+        sanitized_text = _san(final_text, family=None)
+    except Exception:
+        sanitized_text = final_text
 
     # Acceptance gate (audit-only here). For forced reflections, run acceptance on the
     # final text and suppress the debug reject breadcrumb since we will emit the fallback.
@@ -1148,7 +1183,7 @@ def emit_reflection(
             pass
     rid = eventlog.append(
         kind="reflection",
-        content=final_text,
+        content=sanitized_text,
         meta={
             "source": "emit_reflection",
             "telemetry": {"IAS": ias, "GAS": gas},
@@ -1159,8 +1194,8 @@ def emit_reflection(
     )
     # Paired reflection_check event after reflection append
     try:
-        # Evaluate the final text that was actually recorded (ensures non-empty forced reflections pass)
-        _append_reflection_check(eventlog, int(rid), final_text)
+        # Evaluate the original (unsanitized) text to correctly detect trailing blank lines
+        _append_reflection_check(eventlog, int(rid), raw_text_for_check)
     except Exception:
         pass
     # Append a commitment_open if the reflection_check passed (deterministic, minimal)
@@ -1199,6 +1234,19 @@ def emit_reflection(
                 )
     except Exception:
         # Never block emit_reflection flow if commitment logic fails
+        pass
+    # Emit autonomy_directive events derived from the reflection content (final_text)
+    try:
+        for _d in _extract_directives(
+            final_text, source="reflection", origin_eid=int(rid)
+        ):
+            eventlog.append(
+                kind="autonomy_directive",
+                content=str(_d.content),
+                meta={"source": str(_d.source), "origin_eid": _d.origin_eid},
+            )
+    except Exception:
+        # Do not disrupt reflection path if directive extraction fails
         pass
     # Introspection audit after reflection: append audit_report events
     try:
@@ -1290,7 +1338,7 @@ CADENCE_BY_STAGE = {
     "S4": {"min_turns": 6, "min_time_s": 90, "force_reflect_if_stuck": False},
 }
 
-_STUCK_REASONS = {"min_turns", "min_time", "low_novelty"}
+_STUCK_REASONS = {"min_turns", "min_time", "low_novelty", "cadence"}
 
 # --- Phase 2 Step F: Stage-aware drift multiplier policy (module-level) ---
 DRIFT_MULT_BY_STAGE = {
@@ -1473,13 +1521,137 @@ class AutonomyLoop:
                 except Exception:
                     pass
 
-        # 2) Attempt reflection (gated by cooldown; with per-tick overrides)
-        did, reason = maybe_reflect(
-            self.eventlog,
-            self.cooldown,
-            override_min_turns=int(cadence["min_turns"]),
-            override_min_seconds=int(cadence["min_time_s"]),
+        # 2) Attempt reflection (gated by cadence + cooldown; cadence gate is deterministic, flag-less)
+        # Build cadence state from ledger events
+        def _iso_to_epoch(ts: str | None) -> float | None:
+            if not ts:
+                return None
+            try:
+                dt = _dt.datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=_dt.timezone.utc)
+                return float(dt.timestamp())
+            except Exception:
+                return None
+
+        last_reflect_ts = None
+        last_ref_id = None
+        for ev in reversed(events):
+            if ev.get("kind") == "reflection":
+                last_ref_id = int(ev.get("id") or 0)
+                last_reflect_ts = _iso_to_epoch(ev.get("ts"))
+                break
+        turns_since = 0
+        if last_ref_id is not None:
+            for e in events:
+                try:
+                    if (
+                        int(e.get("id") or 0) > int(last_ref_id)
+                        and e.get("kind") == "response"
+                    ):
+                        turns_since += 1
+                except Exception:
+                    continue
+        else:
+            turns_since = sum(1 for e in events if e.get("kind") == "response")
+        # Last GAS from last autonomy_tick telemetry
+        last_gas_val = 0.0
+        for ev in reversed(events):
+            if ev.get("kind") == "autonomy_tick":
+                try:
+                    last_gas_val = float(
+                        ((ev.get("meta") or {}).get("telemetry") or {}).get("GAS", 0.0)
+                    )
+                except Exception:
+                    last_gas_val = 0.0
+                break
+        state = _CadenceState(
+            last_reflect_ts=last_reflect_ts,
+            turns_since_reflect=int(turns_since),
+            last_gas=float(last_gas_val),
+            current_gas=float(gas),
         )
+        now_ts = None
+        try:
+            import time as _time2
+
+            now_ts = float(_time2.time())
+        except Exception:
+            now_ts = None
+        if _cadence_should_reflect(state, now_ts=now_ts):
+            # Build deterministic guidance from active directives and log it for audit
+            try:
+                try:
+                    evs_for_guidance = self.eventlog.read_tail(5000)
+                except TypeError:
+                    evs_for_guidance = self.eventlog.read_tail(limit=5000)
+            except AttributeError:
+                evs_for_guidance = self.eventlog.read_all()
+                g = _build_reflection_guidance(evs_for_guidance)
+                if g.get("items") or []:
+                    self.eventlog.append(
+                        kind="reflection_guidance",
+                        content="",
+                        meta={"items": g.get("items")},
+                    )
+            except Exception:
+                g = {"text": "", "items": []}
+            # Emit reflection normally; prompt injection occurs inside emit_reflection via stage template
+            # For minimal intrusion, we prepend guidance text to the content only when using the simple helper path
+            did, reason = maybe_reflect(
+                self.eventlog,
+                self.cooldown,
+                override_min_turns=int(cadence["min_turns"]),
+                override_min_seconds=int(cadence["min_time_s"]),
+            )
+        else:
+            self.eventlog.append(
+                kind="debug", content="", meta={"reflect_skip": "cadence"}
+            )
+            did, reason = (False, "cadence")
+            # Emit bandit breadcrumb even when skipping reflection for observability
+            try:
+                # Only emit if none exists since the last autonomy_tick
+                evs_now_bt = self.eventlog.read_all()
+                last_auto_id_bt = None
+                for be in reversed(evs_now_bt):
+                    if be.get("kind") == "autonomy_tick":
+                        last_auto_id_bt = int(be.get("id") or 0)
+                        break
+                already_bt = False
+                for be in reversed(evs_now_bt):
+                    if (
+                        last_auto_id_bt is not None
+                        and int(be.get("id") or 0) <= last_auto_id_bt
+                    ):
+                        break
+                    if be.get("kind") == "bandit_arm_chosen":
+                        already_bt = True
+                        break
+                if not already_bt:
+                    try:
+                        from pmm.runtime.reflection_bandit import (
+                            choose_arm as _choose_arm,
+                        )
+
+                        arm, tick_c = _choose_arm(evs_now_bt)
+                    except Exception:
+                        arm, tick_c = (
+                            "succinct",
+                            1
+                            + sum(
+                                1
+                                for ev in evs_now_bt
+                                if ev.get("kind") == "autonomy_tick"
+                            ),
+                        )
+                    self.eventlog.append(
+                        kind="bandit_arm_chosen",
+                        content="",
+                        meta={"arm": str(arm or "succinct"), "tick": int(tick_c)},
+                    )
+            except Exception:
+                pass
 
         # Helper: compute current tick number for insight_ready tagging
         def _current_tick_no(evts: list[dict]) -> int:
@@ -2182,7 +2354,8 @@ class AutonomyLoop:
                         continue
                     if ev.get("kind") == "debug":
                         rs = (ev.get("meta") or {}).get("reflect_skip")
-                        if str(rs) == "low_novelty":
+                        # Treat cadence gating as effectively a novelty-related skip for Rule 2 purposes
+                        if str(rs) in {"low_novelty", "cadence"}:
                             return True
                 return False
 
@@ -2198,7 +2371,8 @@ class AutonomyLoop:
                 # Current window (since A): treat as low if either maybe_reflect skipped for low_novelty
                 # OR any debug reflect_skip=low_novelty already appeared since A this tick.
                 low_curr = (
-                    (not reflect_success) and (str(reason) == "low_novelty")
+                    (not reflect_success)
+                    and (str(reason) in {"low_novelty", "cadence"})
                 ) or _had_low_between(A, None)
                 if low_curr:
                     low_prev1 = _had_low_between(B, A)
@@ -2371,4 +2545,21 @@ class AutonomyLoop:
 
             _maybe_log_reward(self.eventlog, horizon=3)
         except Exception:
+            pass
+        # 5) Always-on invariants (non-blocking): run a bounded set of checks and append violations
+        try:
+            from pmm.storage.projection import build_directives as _build_directives
+
+            _viols = _run_invariants_tick(
+                evlog=self.eventlog, build_directives=_build_directives
+            )
+            for _v in _viols:
+                if isinstance(_v, dict) and _v.get("kind") == "invariant_violation":
+                    self.eventlog.append(
+                        kind="invariant_violation",
+                        content="",
+                        meta=dict(_v.get("payload") or {}),
+                    )
+        except Exception:
+            # Never block the loop on invariant checks
             pass
