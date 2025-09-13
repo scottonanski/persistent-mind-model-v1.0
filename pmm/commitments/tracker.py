@@ -53,8 +53,21 @@ class CommitmentTracker:
         for item in found:
             ctext = item.get("text") or ""
             kind = (item.get("kind") or "plan").strip()
+            # Heuristic filter: skip meta-communication about reply formatting or immediate-next reply
+            low = ctext.lower()
+            if (
+                "next reply" in low
+                or ("ensure" in low and ("reply" in low or "response" in low))
+                or ("brevity" in low or "concise" in low)
+            ):
+                continue
+            # Normalize and dedup quickly via projection view
+            if kind not in {"plan", "followup"}:
+                kind = "plan"
+            # Trim to sentence and normalize spacing
+            norm = self._normalize_text(ctext)
             source = f"detector:{kind}" if kind else "detector"
-            cid = self.add_commitment(ctext, source=source)
+            cid = self.add_commitment(norm, source=source)
             if cid:
                 opened.append(cid)
         # Identity-name commitment: "I will use the name <X>"
@@ -125,30 +138,173 @@ class CommitmentTracker:
             cands_sorted = sorted(cands, key=lambda t: (-float(t[1]), str(t[0])))
             cid, score, snippet = cands_sorted[0]
             # Enforce deterministic threshold
-            if float(score) < 0.70:
-                return []
-            # Idempotent candidate append: avoid duplicate immediate candidate
+            if float(score) >= 0.70:
+                # Idempotent candidate append: avoid duplicate immediate candidate
+                already = False
+                for ev in reversed(events):
+                    if ev.get("kind") != "evidence_candidate":
+                        continue
+                    m = ev.get("meta") or {}
+                    if m.get("cid") == cid and m.get("snippet") == snippet:
+                        already = True
+                        break
+                if not already:
+                    self.eventlog.append(
+                        kind="evidence_candidate",
+                        content="",
+                        meta={"cid": cid, "score": float(score), "snippet": snippet},
+                    )
+                # Immediately confirm and close using text-only policy
+                ok = self.close_with_evidence(
+                    cid, evidence_type="done", description=text, artifact=None
+                )
+                if ok:
+                    closed.append(cid)
+                return closed
+
+    # --- Reflection-driven lifecycle helpers ---
+    def close_reflection_on_next(self, response_text: str) -> bool:
+        """Close the oldest still-open reflection-driven commitment using the given reply.
+
+        Emits an `evidence_candidate` followed by `commitment_close` (evidence_type="done").
+        Returns True if a commitment was closed.
+        """
+        try:
+            events = self.eventlog.read_all()
+            model = build_self_model(events)
+            open_map = (model.get("commitments") or {}).get("open") or {}
+            # Determine which open cids are reflection-driven by scanning their last open event
+            open_reflection: List[tuple[str, int]] = []  # (cid, open_event_id)
+            # Build map of latest close/expire per cid
+            closed_or_expired: set[str] = set()
+            for ev in events:
+                if ev.get("kind") in {"commitment_close", "commitment_expire"}:
+                    m = ev.get("meta") or {}
+                    c = str(m.get("cid") or "")
+                    if c:
+                        closed_or_expired.add(c)
+            for ev in events:  # ascending id
+                if ev.get("kind") != "commitment_open":
+                    continue
+                m = ev.get("meta") or {}
+                c = str(m.get("cid") or "")
+                if not c or c not in open_map or c in closed_or_expired:
+                    continue
+                reason = (m.get("reason") or "").strip()
+                if reason == "reflection":
+                    try:
+                        eid = int(ev.get("id") or 0)
+                    except Exception:
+                        eid = 0
+                    open_reflection.append((c, eid))
+            if not open_reflection:
+                return False
+            # Oldest by smallest open event id still open
+            open_reflection.sort(key=lambda t: t[1])
+            cid_oldest, _eid = open_reflection[0]
+            snippet = (response_text or "")[:160]
+            # Append candidate idempotently
             already = False
             for ev in reversed(events):
                 if ev.get("kind") != "evidence_candidate":
                     continue
                 m = ev.get("meta") or {}
-                if m.get("cid") == cid and m.get("snippet") == snippet:
+                if m.get("cid") == cid_oldest and m.get("snippet") == snippet:
                     already = True
                     break
             if not already:
                 self.eventlog.append(
                     kind="evidence_candidate",
                     content="",
-                    meta={"cid": cid, "score": float(score), "snippet": snippet},
+                    meta={"cid": cid_oldest, "score": 1.0, "snippet": snippet},
                 )
-            # Immediately confirm and close using text-only policy
-            ok = self.close_with_evidence(
-                cid, evidence_type="done", description=text, artifact=None
+            return self.close_with_evidence(
+                cid_oldest,
+                evidence_type="done",
+                description=response_text,
+                artifact=None,
             )
-            if ok:
-                closed.append(cid)
-        return closed
+        except Exception:
+            return False
+
+    def supersede_reflection_commitments(
+        self, *, by_reflection_id: int | None = None
+    ) -> int:
+        """Close all currently open reflection-driven commitments as superseded.
+
+        Returns the number of commitments closed.
+        """
+        try:
+            events = self.eventlog.read_all()
+            model = build_self_model(events)
+            open_map = (model.get("commitments") or {}).get("open") or {}
+            # Track open reflection commitments via their open events
+            open_reflection: List[str] = []
+            closed_or_expired: set[str] = set()
+            for ev in events:
+                if ev.get("kind") in {"commitment_close", "commitment_expire"}:
+                    m = ev.get("meta") or {}
+                    c = str(m.get("cid") or "")
+                    if c:
+                        closed_or_expired.add(c)
+            for ev in events:
+                if ev.get("kind") != "commitment_open":
+                    continue
+                m = ev.get("meta") or {}
+                c = str(m.get("cid") or "")
+                if not c or c not in open_map or c in closed_or_expired:
+                    continue
+                if (m.get("reason") or "").strip() == "reflection":
+                    open_reflection.append(c)
+            # Build a snippet from the new reflection content if available
+            snippet = ""
+            if by_reflection_id is not None:
+                try:
+                    rid = int(by_reflection_id)
+                except Exception:
+                    rid = 0
+                if rid > 0:
+                    for ev in reversed(events):
+                        try:
+                            if (
+                                int(ev.get("id") or 0) == rid
+                                and ev.get("kind") == "reflection"
+                            ):
+                                txt = str(ev.get("content") or "")
+                                snippet = (txt.splitlines()[0] if txt else "")[:240]
+                                break
+                        except Exception:
+                            continue
+            count = 0
+            desc = (
+                f"superseded_by_reflection#{int(by_reflection_id)}"
+                if by_reflection_id is not None
+                else "superseded_by_reflection"
+            )
+            for cid in open_reflection:
+                # Append evidence candidate before close to satisfy audit ordering
+                try:
+                    sc = 0.9 if snippet else 0.75
+                    self.eventlog.append(
+                        kind="evidence_candidate",
+                        content="",
+                        meta={
+                            "cid": cid,
+                            "score": float(sc),
+                            "snippet": snippet or "superseded by newer reflection",
+                        },
+                    )
+                except Exception:
+                    pass
+                ok = self.close_with_evidence(
+                    cid, evidence_type="done", description=desc, artifact=None
+                )
+                if ok:
+                    count += 1
+            return count
+        except Exception:
+            return 0
+            # else: end
 
     def add_commitment(self, text: str, source: str | None = None) -> str:
         """Open a new commitment and return its cid.

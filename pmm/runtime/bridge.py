@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re as _re
 from typing import Dict, Optional
+import os as _os
 
 
 class ResponseRenderer:
@@ -56,6 +57,13 @@ class ResponseRenderer:
         if events is None:
             return text
 
+        # If overlay is disabled via env, return early
+        enabled = str(_os.environ.get("PMM_INSIGHT_OVERLAY", "1")).lower() in {
+            "1",
+            "true",
+        }
+        if not enabled:
+            return text
         # Find most recent insight_ready
         ir = None
         for ev in reversed(events):
@@ -105,7 +113,9 @@ class ResponseRenderer:
         if len(paraphrase) > 140:
             paraphrase = paraphrase[:140].rstrip()
 
-        if paraphrase:
+        # Guard: if an insight overlay already exists in the text (e.g., due to a prior
+        # render and a subsequent re-render like voice correction), do not append again.
+        if paraphrase and ("_Insight:" not in text):
             if text and not text.endswith("\n"):
                 text = text + "\n"
             text = text + f"_Insight:_ {paraphrase}"

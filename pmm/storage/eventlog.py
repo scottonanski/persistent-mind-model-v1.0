@@ -52,6 +52,11 @@ class EventLog:
         self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute("PRAGMA synchronous=NORMAL;")
         self._create_tables()
+        # Opportunistically create embeddings side table (feature-detected capability)
+        try:
+            self._embeddings_index_available = self._ensure_embeddings_side_table()
+        except Exception:
+            self._embeddings_index_available = False
 
     def _create_tables(self) -> None:
         with self._conn:  # implicit transaction
@@ -81,6 +86,67 @@ class EventLog:
             if "hash" not in cols:
                 # Store SHA-256 hex digest; allow NULL temporarily for migration, but appends always set it
                 self._conn.execute("ALTER TABLE events ADD COLUMN hash TEXT")
+
+    # --------- Embeddings Side Table (optional, feature-detected) ----------
+    def _ensure_embeddings_side_table(self) -> bool:
+        """Create side table for semantic embeddings if not exists. Returns True on success.
+
+        Never raises; returns False to keep runtime resilient.
+        """
+        try:
+            with self._conn:
+                self._conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS event_embeddings (
+                        eid INTEGER PRIMARY KEY,
+                        digest TEXT,
+                        embedding BLOB,
+                        summary TEXT,
+                        keywords TEXT,
+                        created_at INTEGER
+                    );
+                    """
+                )
+            return True
+        except Exception:
+            return False
+
+    @property
+    def has_embeddings_index(self) -> bool:
+        return bool(getattr(self, "_embeddings_index_available", False))
+
+    def insert_embedding_row(
+        self,
+        *,
+        eid: int,
+        digest: str | None,
+        embedding_blob: bytes | None,
+        summary: str | None = None,
+        keywords: str | None = None,
+        created_at: int | None = None,
+    ) -> bool:
+        """Insert a row into event_embeddings. No-op if side table unavailable.
+
+        Returns True if a row was written, False otherwise.
+        """
+        if not self.has_embeddings_index:
+            return False
+        try:
+            import time as _time
+
+            ts = int(_time.time()) if created_at is None else int(created_at)
+            with self._conn:
+                self._conn.execute(
+                    """
+                    INSERT OR REPLACE INTO event_embeddings
+                        (eid, digest, embedding, summary, keywords, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (int(eid), digest, embedding_blob, summary, keywords, ts),
+                )
+            return True
+        except Exception:
+            return False
 
     def _get_columns(self) -> List[str]:
         cur = self._conn.execute("PRAGMA table_info('events')")

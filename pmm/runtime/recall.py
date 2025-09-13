@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional, Set
 import re as _re
-from pmm.runtime.embeddings import compute_embedding, cosine_similarity
-import os as _os
 
 _STOP = {
     "i",
@@ -46,7 +44,11 @@ def _score_overlap(src_toks: List[str], tgt_toks: List[str]) -> int:
 
 
 def suggest_recall(
-    events: List[Dict], current_text: str, *, max_items: int = 3
+    events: List[Dict],
+    current_text: str,
+    *,
+    max_items: int = 3,
+    semantic_seeds: Optional[List[int]] = None,
 ) -> List[Dict]:
     """
     Deterministic recall suggestions based on token overlap.
@@ -57,27 +59,6 @@ def suggest_recall(
     - Return up to `max_items` items as dicts: {"eid": int, "snippet": str}.
     """
     curr = _tokens(current_text)
-    # Determine if we should use embeddings: require enable flag AND either test/dummy mode or OPENAI_API_KEY present
-    enabled = str(_os.environ.get("PMM_EMBEDDINGS_ENABLE", "1")).lower() in {
-        "1",
-        "true",
-        "True",
-    }
-    test_mode = any(
-        str(_os.environ.get(k, "0")).lower() in {"1", "true"}
-        for k in ("PMM_EMBEDDINGS_DUMMY", "TEST_EMBEDDINGS", "TEST_EMBEDDINGS_CONSTANT")
-    )
-    has_key = bool(_os.environ.get("OPENAI_API_KEY"))
-    use_embeddings = enabled and (test_mode or has_key)
-    # Compute embedding for current_text once (if allowed)
-    emb_curr = compute_embedding(current_text) if use_embeddings else None
-    # Tiny per-call cache to avoid duplicate compute cost for repeated texts
-    _emb_cache: Dict[str, List[float] | None] = {}
-
-    def _emb(text: str):
-        if text not in _emb_cache:
-            _emb_cache[text] = compute_embedding(text)
-        return _emb_cache[text]
 
     # First pass: build quick candidates scored by token overlap only
     quick_candidates: List[Tuple[float, int, str, str]] = (
@@ -115,6 +96,15 @@ def suggest_recall(
             if isinstance(txt, str) and txt:
                 tgt_text = f"{content}\n{txt}"
         tgt_toks = _tokens(tgt_text)
+        # If semantic seeds provided, restrict to those eids
+        if semantic_seeds is not None:
+            try:
+                seed_set: Set[int] = set(int(x) for x in semantic_seeds)
+            except Exception:
+                seed_set = set()
+            if eid not in seed_set:
+                # skip non-seeded items in semantic mode
+                continue
         # Fast token-overlap score
         ov = float(_score_overlap(curr, tgt_toks))
         if ov <= 0.0:
@@ -128,22 +118,10 @@ def suggest_recall(
     quick_candidates.sort(key=lambda t: (-float(t[0]), t[1]))
     prefiltered = quick_candidates[:TOP_K]
 
-    # Second pass (optional): refine scores with embeddings for prefiltered items
+    # Second pass (optional legacy): refine scores with embeddings for prefiltered items if available
     scored: List[Tuple[float, int, str]] = []  # (score, eid, snippet)
-    if emb_curr is not None and use_embeddings:
-        for ov, eid, snippet, tgt_text in prefiltered:
-            emb_tgt = _emb(tgt_text)
-            if emb_tgt is not None:
-                sc = cosine_similarity(emb_curr, emb_tgt)
-                # Combine: prefer cosine; ensure we never do worse than overlap
-                sc = max(sc, ov)
-            else:
-                sc = ov
-            scored.append((sc, eid, snippet))
-    else:
-        # No embeddings: use the overlap-only prefiltered set
-        for ov, eid, snippet, _t in prefiltered:
-            scored.append((ov, eid, snippet))
+    for ov, eid, snippet, _t in prefiltered:
+        scored.append((ov, eid, snippet))
 
     # Sort by score desc, then eid asc, then truncate to max_items
     out: List[Dict] = []

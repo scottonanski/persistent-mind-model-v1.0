@@ -174,4 +174,89 @@ def run_audit(events: List[Dict], window: int = 50) -> List[Dict]:
                     "fact-check",
                 )
                 # One audit per reflection per cid match is sufficient; continue to next cid
+    # --- Rule: novelty_trend over recent reflections (deterministic) ---
+    try:
+        # Collect last M reflections across the available window
+        M = 10
+        R = 3  # recent pairs
+        P = 3  # prior pairs
+        refs_all = [ev for ev in events if ev.get("kind") == "reflection"]
+        if len(refs_all) >= 3:
+            refs_tail = refs_all[-M:]
+
+            def _tokset(s: str) -> set:
+                s2 = (s or "").lower()
+                import re as _re
+
+                s2 = _re.sub(r"[^a-z0-9]+", " ", s2)
+                toks = [t for t in s2.split() if len(t) > 2]
+                return set(toks)
+
+            # Adjacent-pair Jaccard similarities with event ids
+            pairs: List[Tuple[Tuple[int, int], float]] = []
+            for i in range(1, len(refs_tail)):
+                a = refs_tail[i - 1]
+                b = refs_tail[i]
+                A = _tokset(a.get("content") or "")
+                B = _tokset(b.get("content") or "")
+                if not A and not B:
+                    j = 1.0
+                else:
+                    denom = len(A.union(B)) or 1
+                    j = float(len(A.intersection(B))) / float(denom)
+                pairs.append(((int(a.get("id") or 0), int(b.get("id") or 0)), j))
+
+            # Compute recent/prior means (handle short tails)
+            n_pairs = len(pairs)
+            if n_pairs >= 1:
+                r_n = min(R, n_pairs)
+                recent_vals = [pairs[-k][1] for k in range(1, r_n + 1)]
+                prior_count = min(P, max(0, n_pairs - r_n))
+                prior_vals = (
+                    [pairs[-(r_n + k)][1] for k in range(1, prior_count + 1)]
+                    if prior_count > 0
+                    else []
+                )
+                import statistics as _stats
+
+                dup_recent = float(_stats.mean(recent_vals)) if recent_vals else 0.0
+                dup_prior = float(_stats.mean(prior_vals)) if prior_vals else dup_recent
+                delta = dup_recent - dup_prior
+                if delta >= 0.10:
+                    trend = "falling"  # novelty worse (dup ↑)
+                elif delta <= -0.10:
+                    trend = "rising"  # novelty better (dup ↓)
+                else:
+                    trend = "same"
+
+                # Top pairs by similarity (highest duplication) for quick inspection
+                pairs_sorted = sorted(pairs, key=lambda t: float(t[1]), reverse=True)
+                top_pairs = [
+                    [int(a), int(b), float(sc)] for (a, b), sc in pairs_sorted[:3]
+                ]
+
+                audits.append(
+                    {
+                        "kind": "audit_report",
+                        "content": "",
+                        "meta": {
+                            "category": "novelty_trend",
+                            "value": trend,
+                            "stats": {
+                                "recent": float(dup_recent),
+                                "prior": float(dup_prior),
+                                "window": int(M),
+                                "recent_pairs": int(r_n),
+                                "prior_pairs": int(prior_count),
+                            },
+                            "top_pairs": top_pairs,
+                            # Keep target_eids empty for this category; not bound to specific prior ids
+                            "target_eids": [],
+                        },
+                    }
+                )
+    except Exception:
+        # Never let novelty audit break other audits
+        pass
+
     return audits

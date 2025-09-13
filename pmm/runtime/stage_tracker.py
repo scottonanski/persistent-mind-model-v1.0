@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Dict, List, Tuple, Optional
+from enum import IntEnum
 
 N_WINDOW = 10
 HYST = 0.03
@@ -13,6 +14,40 @@ STAGES = {
     "S3": (0.70, 0.55),
     "S4": (0.85, 0.75),
 }
+
+
+class StageLevel(IntEnum):
+    S0 = 0
+    S1 = 1
+    S2 = 2
+    S3 = 3
+    S4 = 4
+    UNKNOWN = -1
+
+
+_STR_TO_LEVEL: Dict[str, StageLevel] = {
+    "S0": StageLevel.S0,
+    "S1": StageLevel.S1,
+    "S2": StageLevel.S2,
+    "S3": StageLevel.S3,
+    "S4": StageLevel.S4,
+}
+
+
+def stage_str_to_level(stage_str: Optional[str]) -> int:
+    """Map 'S0'..'S4' to 0..4; anything else => -1. Safe for None inputs."""
+    if not stage_str:
+        return int(StageLevel.UNKNOWN)
+    return int(_STR_TO_LEVEL.get(stage_str.strip().upper(), StageLevel.UNKNOWN))
+
+
+def stage_level_to_str(level: int) -> str:
+    """Map 0..4 back to 'S#'; UNKNOWN/-1 => 'S?'. For display only."""
+    for k, v in _STR_TO_LEVEL.items():
+        if int(v) == int(level):
+            return k
+    return "S?"
+
 
 # Stage-aware policy hints (static, deterministic). Values are component -> params dict.
 # These are consumed by the runtime loop to emit policy_update events on stage transitions.
