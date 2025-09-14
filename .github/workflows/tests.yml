@@ -16,5 +16,15 @@ jobs:
         run: ruff check .
       - name: Black (format check)
         run: black --check .
+      - name: Start API server
+        run: |
+          python -m uvicorn pmm.api.server:app --port 8000 &
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:8000/snapshot?db=:memory: >/dev/null; then
+              echo "API is ready"; break; fi
+            sleep 1;
+          done
+          # Ensure it's up before proceeding
+          curl -s http://127.0.0.1:8000/snapshot?db=:memory: >/dev/null
       - name: Run tests
         run: pytest -q
