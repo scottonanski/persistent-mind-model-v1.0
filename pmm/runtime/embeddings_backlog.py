@@ -25,18 +25,24 @@ def _response_events(events: List[Dict]) -> List[Tuple[int, str]]:
     return out
 
 
-def _indexed_eids(events: List[Dict]) -> set[int]:
-    seen: set[int] = set()
+def _processed_eids(events: List[Dict]) -> set[int]:
+    """Return eids that have been handled by the backlog already.
+
+    This includes both "embedding_indexed" and "embedding_skipped" events. Using
+    "skipped" as a terminal marker ensures idempotence: re-runs won't double-write
+    new skip events when a response has already been marked as skipped.
+    """
+    have: set[int] = set()
     for ev in events:
-        if ev.get("kind") != "embedding_indexed":
+        k = ev.get("kind")
+        if k not in ("embedding_indexed", "embedding_skipped"):
             continue
         try:
-            eid = int((ev.get("meta") or {}).get("eid") or 0)
+            eid = int((ev.get("meta") or {}).get("eid"))
+            have.add(eid)
         except Exception:
-            eid = 0
-        if eid > 0:
-            seen.add(eid)
-    return seen
+            continue
+    return have
 
 
 def find_missing_response_eids(eventlog: EventLog) -> List[int]:
@@ -46,7 +52,7 @@ def find_missing_response_eids(eventlog: EventLog) -> List[int]:
     """
     events = eventlog.read_all()
     resp = _response_events(events)
-    have = _indexed_eids(events)
+    have = _processed_eids(events)
     missing = [eid for (eid, _text) in resp if eid not in have]
     missing.sort()
     return missing
@@ -83,7 +89,11 @@ def process_backlog(
             vec = None
         if vec is None:
             try:
-                eventlog.append(kind="embedding_skipped", content="", meta={})
+                eventlog.append(
+                    kind="embedding_skipped",
+                    content="",
+                    meta={"eid": int(eid)},
+                )
                 counts["skipped"] += 1
             except Exception:
                 # Swallow errors to keep backlog resilient
@@ -115,7 +125,11 @@ def process_backlog(
         except Exception:
             # Fall back to skipped on any failure in append path
             try:
-                eventlog.append(kind="embedding_skipped", content="", meta={})
+                eventlog.append(
+                    kind="embedding_skipped",
+                    content="",
+                    meta={"eid": int(eid)},
+                )
                 counts["skipped"] += 1
             except Exception:
                 pass
