@@ -52,3 +52,156 @@ This guide documents PMM's runtime observability around LLM usage: deterministic
 - Keep background loops stable and bounded.
 - Provide actionable breadcrumbs for performance and capacity tuning.
 - Preserve test‑sensitive ordering by allowing targeted suppression of latency logging.
+
+---
+
+## SQL examples (SQLite / json_extract)
+
+These examples use SQLite JSON1 functions to project fields out of `meta`.
+
+List the last 20 latency records (op, provider, model, ms, ok):
+
+```sql
+SELECT
+  id,
+  ts,
+  json_extract(meta, '$.op')       AS op,
+  json_extract(meta, '$.provider') AS provider,
+  json_extract(meta, '$.model')    AS model,
+  CAST(json_extract(meta, '$.ms') AS REAL) AS ms,
+  CAST(json_extract(meta, '$.ok') AS INT)  AS ok
+FROM events
+WHERE kind = 'llm_latency'
+ORDER BY id DESC
+LIMIT 20;
+```
+
+Average latency by provider+model:
+
+```sql
+WITH t AS (
+  SELECT
+    json_extract(meta, '$.provider') AS provider,
+    json_extract(meta, '$.model')    AS model,
+    CAST(json_extract(meta, '$.ms') AS REAL) AS ms
+  FROM events
+  WHERE kind = 'llm_latency'
+)
+SELECT provider, model, ROUND(AVG(ms), 1) AS avg_ms, COUNT(*) AS n
+FROM t
+GROUP BY provider, model
+ORDER BY avg_ms DESC;
+```
+
+Approximate p95 latency per provider+model (order-statistic):
+
+```sql
+WITH t AS (
+  SELECT
+    json_extract(meta, '$.provider') AS provider,
+    json_extract(meta, '$.model')    AS model,
+    CAST(json_extract(meta, '$.ms') AS REAL) AS ms
+  FROM events
+  WHERE kind = 'llm_latency'
+), ranked AS (
+  SELECT
+    provider, model, ms,
+    ROW_NUMBER() OVER (PARTITION BY provider, model ORDER BY ms) AS rn,
+    COUNT(*)    OVER (PARTITION BY provider, model)               AS total
+  FROM t
+)
+SELECT provider, model,
+       (SELECT ms FROM ranked r2
+        WHERE r2.provider = ranked.provider AND r2.model = ranked.model
+        ORDER BY ms
+        LIMIT 1 OFFSET CAST(0.95 * (ranked.total - 1) AS INT)) AS p95_ms,
+       total AS samples
+FROM ranked
+GROUP BY provider, model
+ORDER BY p95_ms DESC;
+```
+
+Recent rate-limit skips by op (chat/embed):
+
+```sql
+SELECT op, COUNT(*) AS skips
+FROM (
+  SELECT json_extract(meta, '$.op') AS op
+  FROM events
+  WHERE kind = 'rate_limit_skip'
+  ORDER BY id DESC
+  LIMIT 1000
+)
+GROUP BY op
+ORDER BY skips DESC;
+```
+
+Per-tick chat call counts (from latency breadcrumbs):
+
+```sql
+SELECT tick, COUNT(*) AS chat_calls
+FROM (
+  SELECT CAST(json_extract(meta, '$.tick') AS INT) AS tick
+  FROM events
+  WHERE kind = 'llm_latency' AND json_extract(meta, '$.op') = 'chat'
+)
+GROUP BY tick
+ORDER BY tick DESC
+LIMIT 50;
+```
+
+Per-tick budget skips (when ceilings were exceeded):
+
+```sql
+SELECT tick, COUNT(*) AS skips
+FROM (
+  SELECT CAST(json_extract(meta, '$.tick') AS INT) AS tick
+  FROM events
+  WHERE kind = 'rate_limit_skip'
+)
+GROUP BY tick
+ORDER BY tick DESC
+LIMIT 50;
+```
+
+Using the sqlite3 CLI against the default database path:
+
+```bash
+sqlite3 .data/pmm.db \
+  -cmd ".mode column" -cmd ".headers on" \
+  "SELECT id, ts, json_extract(meta, '$.op') op, json_extract(meta, '$.ms') ms FROM events WHERE kind='llm_latency' ORDER BY id DESC LIMIT 10;"
+```
+
+## Without JSON1: Python projection
+
+If your SQLite build lacks JSON1, you can project meta fields in Python and run numeric analyses there:
+
+```python
+import json
+import sqlite3
+
+conn = sqlite3.connect('.data/pmm.db')
+cur = conn.execute("SELECT id, ts, kind, meta FROM events WHERE kind IN ('llm_latency','rate_limit_skip') ORDER BY id DESC LIMIT 1000")
+rows = []
+for rid, ts, kind, meta_json in cur.fetchall():
+    try:
+        m = json.loads(meta_json) if meta_json else {}
+    except Exception:
+        m = {}
+    rows.append({
+        'id': rid,
+        'ts': ts,
+        'kind': kind,
+        'op': m.get('op'),
+        'provider': m.get('provider'),
+        'model': m.get('model'),
+        'ms': float(m.get('ms') or 0.0),
+        'ok': bool(m.get('ok')),
+        'tick': m.get('tick')
+    })
+
+# Example: average chat latency
+chat = [r['ms'] for r in rows if r['kind']=='llm_latency' and r['op']=='chat']
+avg = sum(chat)/len(chat) if chat else 0.0
+print(f"avg chat ms: {avg:.1f} over {len(chat)} samples")
+```
