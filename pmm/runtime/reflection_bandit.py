@@ -16,6 +16,18 @@ ARMS: Tuple[str, ...] = (
 _EPSILON = 0.10
 _rng = _random.Random(42)  # deterministic RNG
 
+# Small deterministic clamp for guidance bias influence (per-arm cap)
+EPS_BIAS: float = 0.03
+
+# Structured mapping from guidance type -> arm label
+ARM_FROM_GUIDANCE_TYPE: Dict[str, str] = {
+    "checklist": "checklist",
+    "succinct": "succinct",
+    "narrative": "narrative",
+    "question": "question_form",
+    "analytical": "analytical",
+}
+
 
 def _current_tick(events: List[Dict]) -> int:
     return 1 + sum(1 for ev in events if ev.get("kind") == "autonomy_tick")
@@ -63,6 +75,78 @@ def choose_arm(events: List[Dict]) -> Tuple[str, int]:
     rewards = _arm_rewards(events)
     arm = _best_arm_by_mean(rewards)
     return (arm, tick)
+
+
+# ---------------- Directive-guided bias (deterministic, bounded) ----------------
+
+
+def _arm_means_from_rewards(rew: Dict[str, List[float]]) -> Dict[str, float]:
+    means: Dict[str, float] = {}
+    for arm in ARMS:
+        vals = rew.get(arm) or []
+        means[arm] = (sum(vals) / len(vals)) if vals else 0.0
+    return means
+
+
+def apply_guidance_bias(
+    arm_means: Dict[str, float], guidance_items: List[Dict], eps_bias: float = EPS_BIAS
+) -> Tuple[Dict[str, float], Dict[str, float]]:
+    """Apply a small, clamped bias to arm means using only structured fields.
+
+    Inputs: guidance_items = [{"type": str, "score": float}, ...]
+    For each item, map type -> arm via ARM_FROM_GUIDANCE_TYPE and add score*eps_bias
+    to that arm's delta. Clamp each arm's cumulative delta in [-eps_bias, eps_bias].
+
+    Returns (biased_means, delta_by_arm).
+    Missing/unknown type or score -> ignored.
+    """
+    delta: Dict[str, float] = {a: 0.0 for a in ARMS}
+    for it in guidance_items or []:
+        arm = ARM_FROM_GUIDANCE_TYPE.get(str(it.get("type") or ""))
+        if not arm:
+            continue
+        try:
+            s = float(it.get("score"))
+        except Exception:
+            continue
+        if s <= 0.0:
+            continue
+        new_d = float(delta.get(arm, 0.0)) + s * float(eps_bias)
+        # clamp per-arm to ±eps_bias
+        delta[arm] = max(-float(eps_bias), min(float(eps_bias), new_d))
+
+    biased: Dict[str, float] = {
+        a: float(arm_means.get(a, 0.0)) + float(delta[a]) for a in ARMS
+    }
+    return biased, delta
+
+
+def _best_arm_from_means(means: Dict[str, float]) -> str:
+    best = None
+    best_v = -1.0
+    for arm in ARMS:
+        v = float(means.get(arm, 0.0))
+        if v > best_v:
+            best = arm
+            best_v = v
+    return best or ARMS[0]
+
+
+def choose_arm_biased(
+    arm_means: Dict[str, float],
+    guidance_items: List[Dict],
+    *,
+    eps_bias: float = EPS_BIAS,
+) -> Tuple[str, Dict[str, float]]:
+    """Deterministic selection using biased means (no exploration in this helper).
+
+    Returns (arm, delta_by_arm).
+    """
+    biased_means, delta = apply_guidance_bias(
+        arm_means, guidance_items, eps_bias=eps_bias
+    )
+    arm = _best_arm_from_means(biased_means)
+    return arm, delta
 
 
 # Reward computation helpers

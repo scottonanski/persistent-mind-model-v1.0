@@ -27,3 +27,20 @@ Current features:
 - **ReflectionCooldownManager:** gates self-reflection by turns, time, and novelty to avoid loops.
 - **IAS/GAS telemetry:** simple metrics of alignment and growth, embedded in reflection events.
 - **CI green on GitHub Actions:** full test suite passing upstream for reproducibility.
+
+## Guides
+
+- **API (read-only):** see [`docs/guide/api_server.md`](docs/guide/api_server.md)
+- **Bandit bias (schema-driven):** see [`docs/guide/bandit_bias.md`](docs/guide/bandit_bias.md)
+- **Embeddings backlog (CLI):** see [`docs/guide/embeddings_backlog.md`](docs/guide/embeddings_backlog.md)
+
+### Pre-commit hooks (optional)
+
+Install and enable hooks locally to keep formatting and linting consistent:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+This repo ships with `.pre-commit-config.yaml` to run `ruff --fix` and `black` on staged files.

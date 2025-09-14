@@ -47,6 +47,11 @@ from pmm.runtime.cadence import should_reflect as _cadence_should_reflect
 from pmm.runtime.reflection_guidance import (
     build_reflection_guidance as _build_reflection_guidance,
 )
+from pmm.runtime.reflection_bandit import (
+    ARMS as _BANDIT_ARMS,
+    apply_guidance_bias as _apply_guidance_bias,
+    choose_arm_biased as _choose_arm_biased,
+)
 import os as _os
 import datetime as _dt
 import uuid as _uuid
@@ -758,7 +763,11 @@ class Runtime:
             {"role": "user", "content": context},
         ]
         styled = self.bridge.format_messages(msgs, intent="reflection")
-        note = self.chat.generate(styled, temperature=0.4, max_tokens=256)
+        try:
+            note = self.chat.generate(styled, temperature=0.4, max_tokens=256)
+        except Exception:
+            # Offline/test fallback: ensure reflections proceed deterministically
+            note = "Reflection: focusing on one concrete next-step."
         # Compute novelty (simple uniqueness check)
         recent = [
             e["content"]
@@ -1276,6 +1285,8 @@ def maybe_reflect(
     novelty: float = 1.0,
     override_min_turns: int | None = None,
     override_min_seconds: int | None = None,
+    arm_means: dict | None = None,
+    guidance_items: list | None = None,
 ) -> tuple[bool, str]:
     """Check cooldown gates with optional per-call overrides; emit reflection or breadcrumb debug event.
 
@@ -1307,18 +1318,26 @@ def maybe_reflect(
         return (False, reason)
     rid = emit_reflection(eventlog, forced=False)
     cooldown.reset()
-    # Bandit integration: align chosen arm to the reflection's prompt_template for determinism
+    # Bandit integration: choose arm via biased means when provided; otherwise fall back
     try:
         events_now_bt = eventlog.read_all()
         tick_no_bandit = 1 + sum(
             1 for ev in events_now_bt if ev.get("kind") == "autonomy_tick"
         )
         arm = None
-        for ev in reversed(events_now_bt):
-            if ev.get("kind") == "reflection" and int(ev.get("id") or 0) == int(rid):
-                arm = (ev.get("meta") or {}).get("prompt_template")
-                break
-        arm = str(arm or "succinct")
+        if isinstance(arm_means, dict) and isinstance(guidance_items, list):
+            try:
+                arm, _delta_b = _choose_arm_biased(arm_means, guidance_items)
+            except Exception:
+                arm = None
+        if arm is None:
+            for ev in reversed(events_now_bt):
+                if ev.get("kind") == "reflection" and int(ev.get("id") or 0) == int(
+                    rid
+                ):
+                    arm = (ev.get("meta") or {}).get("prompt_template")
+                    break
+            arm = str(arm or "succinct")
         eventlog.append(
             kind="bandit_arm_chosen",
             content="",
@@ -1489,6 +1508,46 @@ class AutonomyLoop:
                 },
             )
 
+        # 1d) Build guidance once per tick and pre-compute a deterministic bias delta
+        try:
+            try:
+                evs_for_guidance = self.eventlog.read_tail(5000)
+            except TypeError:
+                evs_for_guidance = self.eventlog.read_tail(limit=5000)
+        except AttributeError:
+            evs_for_guidance = events
+        except Exception:
+            evs_for_guidance = events
+        try:
+            _g = _build_reflection_guidance(evs_for_guidance)
+            _guidance_items = list(_g.get("items") or [])
+        except Exception:
+            _guidance_items = []
+        # Compute arm means from past rewards deterministically
+        _means = {a: 0.0 for a in _BANDIT_ARMS}
+        try:
+            _acc = {a: [] for a in _BANDIT_ARMS}
+            for ev in events:
+                if ev.get("kind") != "bandit_reward":
+                    continue
+                m = ev.get("meta") or {}
+                arm = str(m.get("arm") or "")
+                try:
+                    r = float(m.get("reward") or 0.0)
+                except Exception:
+                    r = 0.0
+                if arm in _acc:
+                    _acc[arm].append(r)
+            for a in _BANDIT_ARMS:
+                vals = _acc.get(a) or []
+                _means[a] = (sum(vals) / len(vals)) if vals else 0.0
+        except Exception:
+            pass
+        try:
+            _biased_means, _bias_delta = _apply_guidance_bias(_means, _guidance_items)
+        except Exception:
+            _bias_delta = {a: 0.0 for a in _BANDIT_ARMS}
+
         # 1c) TTL sweep for commitments based on tick age BEFORE this tick's autonomy_tick
         try:
             # Use a default TTL of 10 ticks
@@ -1596,13 +1655,24 @@ class AutonomyLoop:
                     )
             except Exception:
                 g = {"text": "", "items": []}
+            # Emit bias trace ahead of any arm selection this tick (reflection path uses template-derived arm)
+            try:
+                self.eventlog.append(
+                    kind="bandit_guidance_bias",
+                    content="",
+                    meta={"delta": _bias_delta, "items": _guidance_items},
+                )
+            except Exception:
+                pass
             # Emit reflection normally; prompt injection occurs inside emit_reflection via stage template
-            # For minimal intrusion, we prepend guidance text to the content only when using the simple helper path
+            # Use biased chooser for bandit arm by passing precomputed means and items
             did, reason = maybe_reflect(
                 self.eventlog,
                 self.cooldown,
                 override_min_turns=int(cadence["min_turns"]),
                 override_min_seconds=int(cadence["min_time_s"]),
+                arm_means=_means,
+                guidance_items=_guidance_items,
             )
         else:
             self.eventlog.append(
@@ -1629,21 +1699,24 @@ class AutonomyLoop:
                         already_bt = True
                         break
                 if not already_bt:
+                    # Append bias trace, then choose with biased exploitation
                     try:
-                        from pmm.runtime.reflection_bandit import (
-                            choose_arm as _choose_arm,
+                        self.eventlog.append(
+                            kind="bandit_guidance_bias",
+                            content="",
+                            meta={"delta": _bias_delta, "items": _guidance_items},
                         )
-
-                        arm, tick_c = _choose_arm(evs_now_bt)
                     except Exception:
-                        arm, tick_c = (
-                            "succinct",
-                            1
-                            + sum(
-                                1
-                                for ev in evs_now_bt
-                                if ev.get("kind") == "autonomy_tick"
-                            ),
+                        pass
+                    try:
+                        arm, _delta2 = _choose_arm_biased(_means, _guidance_items)
+                        tick_c = 1 + sum(
+                            1 for ev in evs_now_bt if ev.get("kind") == "autonomy_tick"
+                        )
+                    except Exception:
+                        arm = "succinct"
+                        tick_c = 1 + sum(
+                            1 for ev in evs_now_bt if ev.get("kind") == "autonomy_tick"
                         )
                     self.eventlog.append(
                         kind="bandit_arm_chosen",

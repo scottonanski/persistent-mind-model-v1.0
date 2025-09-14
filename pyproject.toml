@@ -5,6 +5,12 @@ description = "PMM refactor scaffold: persistent, model-agnostic AI mind (skelet
 readme = "README.md"
 requires-python = ">=3.10"
 
+# Runtime dependencies
+dependencies = [
+  "fastapi>=0.110.0",
+  "httpx>=0.24.0",
+]
+
 [project.optional-dependencies]
 dev = [
   "ruff>=0.5.0",
