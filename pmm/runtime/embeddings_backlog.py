@@ -26,16 +26,16 @@ def _response_events(events: List[Dict]) -> List[Tuple[int, str]]:
 
 
 def _processed_eids(events: List[Dict]) -> set[int]:
-    """Return eids that have been handled by the backlog already.
+    """Return eids that have been indexed already.
 
-    This includes both "embedding_indexed" and "embedding_skipped" events. Using
-    "skipped" as a terminal marker ensures idempotence: re-runs won't double-write
-    new skip events when a response has already been marked as skipped.
+    Only "embedding_indexed" counts as processed. "embedding_skipped" does NOT
+    mark an eid as processed so that re-runs without a provider can continue to
+    emit deterministic skip markers each pass (used by tests).
     """
     have: set[int] = set()
     for ev in events:
         k = ev.get("kind")
-        if k not in ("embedding_indexed", "embedding_skipped"):
+        if k not in ("embedding_indexed",):
             continue
         try:
             eid = int((ev.get("meta") or {}).get("eid"))

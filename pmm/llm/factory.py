@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import NamedTuple, Optional, Dict
+from typing import NamedTuple, Optional, Dict, Callable
+from pmm.llm.limits import RATE_LIMITED, TickBudget, timed_call
 
 from .adapters.base import ChatAdapter, EmbeddingAdapter
 from .adapters.openai_chat import OpenAIChat
@@ -43,3 +44,121 @@ class LLMFactory:
             raise ValueError(f"Unknown provider: {prov}")
 
         return LLMBundle(chat=chat, embed=embed)
+
+
+def build_chat(cfg: LLMConfig) -> Callable[[str], str]:
+    """Return a simple chat callable f(prompt:str)->str using the configured adapter.
+
+    Deterministic defaults (temperature=0.0, small max_tokens).
+    """
+    bundle = LLMFactory.from_config(cfg)
+    adapter = bundle.chat
+
+    def _call(prompt: str) -> str:
+        msgs = [{"role": "user", "content": str(prompt or "")}]
+        return adapter.generate(msgs, temperature=0.0, max_tokens=64)
+
+    return _call
+
+
+def chat_with_budget(
+    chat_fn: Callable[[], str],
+    *,
+    budget: TickBudget,
+    tick_id: int | None,
+    evlog,
+    provider: str,
+    model: str,
+    log_latency: bool = True,
+):
+    """Budgeted wrapper for a single chat call.
+
+    Expects chat_fn with no args (bind your prompt at call site).
+    Returns RATE_LIMITED sentinel if over budget, else returns the chat output.
+    Latency logging should be done at the call site where prompt context is known.
+    """
+    budget.start_tick(tick_id)
+    if not budget.allow_chat():
+        try:
+            evlog.append(
+                kind="rate_limit_skip",
+                content="",
+                meta={
+                    "op": "chat",
+                    "provider": str(provider),
+                    "model": str(model),
+                    "tick": tick_id,
+                },
+            )
+        except Exception:
+            pass
+        return RATE_LIMITED
+    ok, _ms, out = timed_call(lambda: chat_fn())
+    # Emit latency only when requested to avoid disturbing event ordering in sensitive paths
+    if log_latency:
+        try:
+            evlog.append(
+                kind="llm_latency",
+                content="",
+                meta={
+                    "op": "chat",
+                    "provider": str(provider),
+                    "model": str(model),
+                    "ms": float(_ms),
+                    "ok": bool(ok),
+                    "tick": tick_id,
+                },
+            )
+        except Exception:
+            pass
+    if ok:
+        return out
+    # Propagate exception object for caller to handle deterministically
+    return out
+
+
+def embed_with_budget(
+    embed_fn: Callable[[], object],
+    *,
+    budget: TickBudget,
+    tick_id: int | None,
+    evlog,
+    provider: str,
+    model: str,
+    log_latency: bool = True,
+):
+    """Budgeted wrapper for an embed call. Same contract as chat_with_budget."""
+    budget.start_tick(tick_id)
+    if not budget.allow_embed():
+        try:
+            evlog.append(
+                kind="rate_limit_skip",
+                content="",
+                meta={
+                    "op": "embed",
+                    "provider": str(provider),
+                    "model": str(model),
+                    "tick": tick_id,
+                },
+            )
+        except Exception:
+            pass
+        return RATE_LIMITED
+    ok, _ms, out = timed_call(lambda: embed_fn())
+    if log_latency:
+        try:
+            evlog.append(
+                kind="llm_latency",
+                content="",
+                meta={
+                    "op": "embed",
+                    "provider": str(provider),
+                    "model": str(model),
+                    "ms": float(_ms),
+                    "ok": bool(ok),
+                    "tick": tick_id,
+                },
+            )
+        except Exception:
+            pass
+    return out

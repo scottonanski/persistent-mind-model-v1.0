@@ -743,3 +743,92 @@ class CommitmentTracker:
                 )
                 expired.append(cid)
         return expired
+
+
+# --- Step 19: Invariant breach self-triage (log-only, idempotent) ---
+TRIAGE_WINDOW_EIDS: int = 500
+TRIAGE_PRIORITY: str = "low"
+TRIAGE_TEXT_TMPL: str = "Investigate invariant violation CODE={code}"
+
+
+def open_violation_triage(
+    events_tail: List[Dict],
+    evlog: EventLog,
+    window_eids: int = TRIAGE_WINDOW_EIDS,
+) -> Dict[str, List[str]]:
+    """
+    Idempotently open at most one low-priority triage commitment per unique
+    invariant_violation 'code' visible in the tail window.
+
+    Returns: {"opened": [codes], "skipped": [codes]}
+    Deterministic, no exceptions.
+    """
+    try:
+        # 1) Collect violation codes present in the tail
+        codes: List[str] = []
+        for e in events_tail or []:
+            if e.get("kind") == "invariant_violation":
+                m = e.get("meta") or {}
+                c = m.get("code")
+                if c:
+                    codes.append(str(c))
+        if not codes:
+            return {"opened": [], "skipped": []}
+        recent_codes = set(codes)
+
+        # 2) Detect triages already open/closed within the tail
+        triage_prefix = "Investigate invariant violation CODE="
+        open_by_code: set[str] = set()
+        triage_cid_by_code: Dict[str, str] = {}
+        closed_cids: set[str] = set()
+        for e in events_tail:
+            k = e.get("kind")
+            if k == "commitment_open":
+                meta = e.get("meta") or {}
+                text = str(meta.get("text") or "")
+                reason = (meta.get("reason") or "").strip()
+                code_meta = meta.get("code")
+                if (reason == "invariant_violation" and code_meta) or text.startswith(
+                    triage_prefix
+                ):
+                    code = str(code_meta) if code_meta else text.split("CODE=", 1)[1]
+                    open_by_code.add(code)
+                    c = str(meta.get("cid") or "")
+                    if c:
+                        triage_cid_by_code[code] = c
+            elif k == "commitment_close":
+                m = e.get("meta") or {}
+                c = m.get("cid")
+                if c:
+                    closed_cids.add(str(c))
+        closed_by_code: set[str] = set()
+        for code, cid in triage_cid_by_code.items():
+            if cid in closed_cids:
+                closed_by_code.add(code)
+
+        # 3) Open for codes with violations but no open/closed triage in-window
+        opened: List[str] = []
+        skipped: List[str] = []
+        tracker = CommitmentTracker(evlog)
+        for code in sorted(recent_codes):
+            if code in open_by_code or code in closed_by_code:
+                skipped.append(code)
+                continue
+            text = TRIAGE_TEXT_TMPL.format(code=code)
+            cid = tracker.add_commitment(
+                text,
+                source="triage",
+                extra_meta={
+                    "priority": TRIAGE_PRIORITY,
+                    "reason": "invariant_violation",
+                    "code": code,
+                },
+            )
+            if cid:
+                opened.append(code)
+            else:
+                skipped.append(code)
+        return {"opened": opened, "skipped": skipped}
+    except Exception:
+        # Never raise from triage path
+        return {"opened": [], "skipped": []}

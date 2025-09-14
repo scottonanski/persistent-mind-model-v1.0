@@ -68,3 +68,14 @@ The following tests rely on this ordering:
 - `tests/test_reflection_runtime.py`
 
 No changes should be made that reorder these event sequences without updating the tests accordingly.
+
+## Observability Hooks
+
+Reflection invokes the LLM via budgeted wrappers that emit diagnostic breadcrumbs:
+
+- `llm_latency` — per-call latency with `{ op, provider, model, ms, ok, tick }`.
+- `rate_limit_skip` — emitted when a per-tick ceiling would be exceeded; runtime falls back deterministically.
+
+For details on budgets, event fields, and where they are wired, see:
+
+- [Observability: LLM Budgets and Latency Events](../guide/observability.md)
