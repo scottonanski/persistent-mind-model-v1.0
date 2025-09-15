@@ -2,6 +2,15 @@
 Version 1.1 — August 2025
 Author: Scott Onanski
 
+## Scope and Exclusions
+
+This license covers the source code, CLI, scripts, documentation, and tests in this repository (including `pmm/`, `scripts/`, `docs/`, and `tests/`).
+
+**Exclusions:**
+
+* Third-party dependencies remain under their own licenses.
+* User content written to the PMM event log is not licensed by the PMM author.
+
 ## Dual License Structure
 This software is available under two options:
 
@@ -24,15 +33,15 @@ Restrictions:
 
 ### Commercial License (Paid)
 
-Required for any use that generates revenue, including but not limited to:
+Required for **any** use that generates revenue or provides business advantage, including but not limited to:
 
-Integration into commercial products or services
-Enterprise deployments
-SaaS platforms utilizing PMM
-Consulting services, demos, or deliverables using PMM
+* Integration into commercial products or services
+* Enterprise or internal business use
+* SaaS platforms, hosted dashboards, or APIs (public or private)
+* Consulting services, client demos, or deliverables
+* Ad-supported or freemium applications
 
-📩 Contact for Licensing: s.onanski@gmail.com
-Subject: “PMM Commercial License Inquiry”
+📩 Contact for Licensing: **[s.onanski@gmail.com](mailto:s.onanski@gmail.com)**
 
 ## Grant of Rights
 Under the Non-Commercial License, you are granted:
