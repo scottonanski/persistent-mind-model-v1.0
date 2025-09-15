@@ -31,3 +31,5 @@ Thumbs.db
 # Logs
 logs/
 *.log
+.logs/
+.logs_run*/
