@@ -317,7 +317,11 @@ class CommitmentTracker:
             # else: end
 
     def add_commitment(
-        self, text: str, source: str | None = None, extra_meta: Optional[Dict] = None
+        self,
+        text: str,
+        source: str | None = None,
+        extra_meta: Optional[Dict] = None,
+        project: Optional[str] = None,
     ) -> str:
         """Open a new commitment and return its cid.
 
@@ -336,9 +340,186 @@ class CommitmentTracker:
             for k, v in extra_meta.items():
                 if k not in meta:
                     meta[k] = v
+        # Optional project grouping: explicit or auto-detected
+        # 1) Explicit project argument or meta.project_id
+        explicit_pid: Optional[str] = None
+        if project and isinstance(project, str):
+            explicit_pid = str(project).strip()
+        elif isinstance(meta.get("project_id"), str):
+            explicit_pid = str(meta.get("project_id")).strip()
+
+        # 2) Auto-detect project tag if not explicitly provided
+        auto_pid: Optional[str] = None
+        if not explicit_pid:
+            auto_pid = self._auto_project_id(text)
+            # Only promote to active project if at least one other OPEN commitment shares the same tag
+            if auto_pid:
+                try:
+                    evs = self.eventlog.read_all()
+                    model0 = build_self_model(evs)
+                    open_map0: Dict[str, Dict] = (model0.get("commitments") or {}).get(
+                        "open", {}
+                    )
+                    # Find already-open cids with same auto tag
+                    siblings: list[str] = []
+                    for ocid, ometa in open_map0.items():
+                        txt0 = str((ometa or {}).get("text") or "")
+                        if self._auto_project_id(txt0) == auto_pid:
+                            siblings.append(str(ocid))
+                    # If any sibling exists, adopt auto project id
+                    if siblings:
+                        explicit_pid = auto_pid
+                        # Attach siblings idempotently to this project
+                        for sib in siblings:
+                            self._assign_project_if_needed(sib, explicit_pid)
+                except Exception:
+                    pass
+        if explicit_pid:
+            meta["project_id"] = explicit_pid
+            self._ensure_project_open(explicit_pid)
         content = f"Commitment opened: {text}"
         self.eventlog.append(kind="commitment_open", content=content, meta=meta)
         return cid
+
+    # --- Projects: idempotent project lifecycle helpers ---
+    def _ensure_project_open(self, project_id: str) -> None:
+        try:
+            if not project_id:
+                return
+            # Idempotent: only one project_open per project_id
+            for e in self.eventlog.read_all():
+                if (
+                    e.get("kind") == "project_open"
+                    and (e.get("meta") or {}).get("project_id") == project_id
+                ):
+                    return
+            self.eventlog.append(
+                kind="project_open",
+                content=f"Project: {project_id}",
+                meta={"project_id": project_id},
+            )
+        except Exception:
+            # Never allow project bookkeeping to break flow
+            return
+
+    def _assign_project_if_needed(self, cid: str, project_id: str) -> None:
+        """Idempotently attach an open commitment to a project via project_assign event.
+
+        No-op if the commitment already carries meta.project_id or an existing assignment for this project.
+        """
+        try:
+            if not cid or not project_id:
+                return
+            # If already tagged in projection, skip
+            model = build_self_model(self.eventlog.read_all())
+            open_map = (model.get("commitments") or {}).get("open") or {}
+            if cid not in open_map:
+                return
+            if (open_map.get(cid) or {}).get("project_id") == project_id:
+                return
+            # If an assignment exists already, skip
+            for e in reversed(self.eventlog.read_all()):
+                if e.get("kind") != "project_assign":
+                    continue
+                m = e.get("meta") or {}
+                if (
+                    str(m.get("cid")) == str(cid)
+                    and str(m.get("project_id")) == project_id
+                ):
+                    return
+            # Emit assignment and ensure project open
+            self._ensure_project_open(project_id)
+            self.eventlog.append(
+                kind="project_assign",
+                content="",
+                meta={"cid": str(cid), "project_id": project_id},
+            )
+        except Exception:
+            # Best-effort; never raise
+            return
+
+    # --- Auto-project tag extraction ---
+    def _auto_project_id(self, text: str) -> Optional[str]:
+        """Derive a stable, short project id from commitment text.
+
+        Heuristic: tokenize, drop stopwords and common verbs, take first 1–2 tokens, join with '-'.
+        Returns None if insufficient signal.
+        """
+        try:
+            import re as _re_local
+
+            stop = {
+                "i",
+                "will",
+                "the",
+                "a",
+                "an",
+                "to",
+                "for",
+                "of",
+                "on",
+                "and",
+                "or",
+                "with",
+                "my",
+                "your",
+                "our",
+                "this",
+                "that",
+                "is",
+                "are",
+                "be",
+                "it",
+            }
+            verbs = {
+                "write",
+                "document",
+                "doc",
+                "prepare",
+                "summarize",
+                "summarise",
+                "refactor",
+                "ship",
+                "finish",
+                "finalize",
+                "improve",
+                "help",
+                "assist",
+                "investigate",
+                "research",
+                "explore",
+                "review",
+                "add",
+                "create",
+                "make",
+                "do",
+                "update",
+            }
+            s = (text or "").lower()
+            toks = [t for t in _re_local.findall(r"[a-z0-9]+", s) if t]
+
+            # crude singularization for plural nouns
+            def _sing(w: str) -> str:
+                if len(w) > 3 and w.endswith("s"):
+                    return w[:-1]
+                return w
+
+            filt = [
+                _sing(t)
+                for t in toks
+                if t not in stop and t not in verbs and not t.isdigit()
+            ]
+            if not filt:
+                return None
+            # prefer tokens that are descriptive; cap length
+            base = filt[0]
+            second = filt[1] if len(filt) > 1 else None
+            pid = base if not second else f"{base}-{second}"
+            pid = pid[:24]
+            # ensure starts with alnum
+            return pid if pid and pid[0].isalnum() else None
+        except Exception:
+            return None
 
     # --- Evidence finding (deterministic, rule-based) ---
     def find_evidence(
@@ -546,9 +727,84 @@ class CommitmentTracker:
         if artifact is not None:
             meta["artifact"] = artifact
 
+        # If the commitment belongs to a project (explicit or assigned), propagate project_id on close
+        try:
+            proj_id = self._resolve_project_for_cid(cid)
+            if proj_id:
+                meta["project_id"] = proj_id
+        except Exception:
+            proj_id = None
+
         content = f"Commitment closed: {cid}"
         self.eventlog.append(kind="commitment_close", content=content, meta=meta)
+        # If this was the last open commitment in its project, close the project idempotently
+        try:
+            if proj_id:
+                # Recompute open view after closing this cid
+                evs_after = self.eventlog.read_all()
+                model_after = build_self_model(evs_after)
+                open_map_after: Dict[str, Dict] = (
+                    model_after.get("commitments", {}) or {}
+                ).get("open", {})
+                # Build assignment map for open cids
+                assign: Dict[str, str] = {}
+                for e in reversed(evs_after):
+                    if e.get("kind") != "project_assign":
+                        continue
+                    m = e.get("meta") or {}
+                    cc = str(m.get("cid") or "")
+                    pid = str(m.get("project_id") or "")
+                    if cc and cc in open_map_after and cc not in assign:
+                        assign[cc] = pid
+                any_remaining = False
+                for _cid, _m in open_map_after.items():
+                    pid0 = (_m or {}).get("project_id") or assign.get(_cid)
+                    if pid0 == proj_id:
+                        any_remaining = True
+                        break
+                if not any_remaining:
+                    # Idempotent guard for project_close
+                    already = False
+                    for e in reversed(evs_after):
+                        if e.get("kind") != "project_close":
+                            continue
+                        if (e.get("meta") or {}).get("project_id") == proj_id:
+                            already = True
+                            break
+                    if not already:
+                        self.eventlog.append(
+                            kind="project_close",
+                            content=f"Project: {proj_id}",
+                            meta={"project_id": proj_id},
+                        )
+        except Exception:
+            pass
         return True
+
+    def _resolve_project_for_cid(self, cid: str) -> Optional[str]:
+        """Return project_id for an open or recently-closed cid via meta or assignment events."""
+        try:
+            evs = self.eventlog.read_all()
+            model = build_self_model(evs)
+            open_map: Dict[str, Dict] = (model.get("commitments") or {}).get(
+                "open"
+            ) or {}
+            if cid in open_map:
+                pid = (open_map.get(cid) or {}).get("project_id")
+                if isinstance(pid, str) and pid:
+                    return pid
+            # Find latest project_assign for this cid
+            for e in reversed(evs):
+                if e.get("kind") != "project_assign":
+                    continue
+                m = e.get("meta") or {}
+                if str(m.get("cid")) == str(cid):
+                    pid = m.get("project_id")
+                    if isinstance(pid, str) and pid:
+                        return pid
+            return None
+        except Exception:
+            return None
 
     # --- TTL / Aging sweep ---
     def sweep_for_expired(self, events: List[Dict], ttl_ticks: int = 10) -> List[Dict]:

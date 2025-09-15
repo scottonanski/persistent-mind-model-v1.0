@@ -107,15 +107,6 @@ def build_self_model(
 
         elif kind == "trait_update":
             # Cumulative delta with per-event bound and clamp [0,1]
-            trait = str(meta.get("trait") or "").strip().lower()
-            delta = meta.get("delta")
-            try:
-                delta_f = float(delta)
-            except Exception:
-                delta_f = 0.0
-            # Enforce per-event absolute delta bound only in strict mode
-            if strict and abs(delta_f) > max_trait_delta:
-                delta_f = max_trait_delta if delta_f > 0 else -max_trait_delta
             key_map = {
                 "o": "openness",
                 "openness": "openness",
@@ -128,11 +119,37 @@ def build_self_model(
                 "n": "neuroticism",
                 "neuroticism": "neuroticism",
             }
-            tkey = key_map.get(trait)
-            if tkey:
-                cur = float(model["identity"]["traits"].get(tkey, 0.5))
-                newv = max(0.0, min(1.0, cur + delta_f))
-                model["identity"]["traits"][tkey] = newv
+            # Support both legacy single-trait schema and S4(E) multi-delta schema
+            delta_field = meta.get("delta")
+            trait = str(meta.get("trait") or "").strip().lower()
+            if isinstance(delta_field, dict) and not trait:
+                # Multi-delta: apply each trait delta individually
+                for k, v in delta_field.items():
+                    tkey = key_map.get(str(k).lower())
+                    if not tkey:
+                        continue
+                    try:
+                        delta_f = float(v)
+                    except Exception:
+                        delta_f = 0.0
+                    if strict and abs(delta_f) > max_trait_delta:
+                        delta_f = max_trait_delta if delta_f > 0 else -max_trait_delta
+                    cur = float(model["identity"]["traits"].get(tkey, 0.5))
+                    newv = max(0.0, min(1.0, cur + delta_f))
+                    model["identity"]["traits"][tkey] = newv
+            else:
+                # Single-trait legacy path
+                try:
+                    delta_f = float(delta_field)
+                except Exception:
+                    delta_f = 0.0
+                if strict and abs(delta_f) > max_trait_delta:
+                    delta_f = max_trait_delta if delta_f > 0 else -max_trait_delta
+                tkey = key_map.get(trait)
+                if tkey:
+                    cur = float(model["identity"]["traits"].get(tkey, 0.5))
+                    newv = max(0.0, min(1.0, cur + delta_f))
+                    model["identity"]["traits"][tkey] = newv
 
         elif kind == "commitment_open":
             cid = meta.get("cid")

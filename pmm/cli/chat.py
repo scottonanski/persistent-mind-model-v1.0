@@ -9,7 +9,8 @@ from pmm.storage.eventlog import EventLog
 from pmm.llm.factory import LLMConfig
 from pmm.runtime.loop import Runtime, maybe_reflect as runtime_maybe_reflect
 from pmm.runtime.metrics_view import MetricsView
-from pmm.storage.projection import build_identity
+from pmm.storage.projection import build_identity, build_self_model
+from pmm.runtime.prioritizer import rank_commitments
 
 
 def should_print_identity_notice(events: list[dict]) -> bool:
@@ -127,6 +128,153 @@ def main() -> None:
                     pass
                 return
             reply = rt.handle_user(user)
+            # Print deterministic header (identity + top commitments + recent trait drift)
+            try:
+
+                def _c(s: str, code: str) -> str:
+                    try:
+                        if os.getenv("PMM_COLOR", "1").lower() in {"0", "false"}:
+                            return s
+                    except Exception:
+                        pass
+                    return f"\033[{code}m{s}\033[0m"
+
+                evs_all = rt.eventlog.read_all()
+                ident0 = build_identity(evs_all)
+                name0 = str(ident0.get("name") or "").strip()
+                header_lines: list[str] = []
+                if name0:
+                    header_lines.append(
+                        _c(f"You are {name0}. Speak in first person.", "96")
+                    )
+                try:
+                    model0 = build_self_model(evs_all)
+                    open_map = (model0.get("commitments") or {}).get("open") or {}
+                    ranking = rank_commitments(evs_all)
+                    top_cids = [cid for cid, _ in ranking[:2] if cid in open_map]
+                    top_texts: list[str] = []
+
+                    def _short_commit_text(txt: str, limit: int = 80) -> str:
+                        import re
+
+                        t = str(txt or "")
+                        t = re.sub(r"[`*_#>]+", " ", t)
+                        t = re.sub(
+                            r"^\s*(?:[-*•]+|\(?[A-Za-z]\)|\(?\d+\)|\d+\.)\s*", "", t
+                        )
+                        t = re.sub(r"\s+", " ", t).strip()
+                        parts = re.split(r"(?<=[\.!?])\s+", t, maxsplit=1)
+                        s = (parts[0] or t).strip()
+                        if len(s) <= limit:
+                            return s
+                        cut = s[: limit - 1]
+                        if " " in cut:
+                            cut = cut.rsplit(" ", 1)[0]
+                        return cut.rstrip() + "…"
+
+                    for cid in top_cids:
+                        txt = str((open_map.get(cid) or {}).get("text") or "").strip()
+                        if not txt:
+                            continue
+                        line = _short_commit_text(txt, limit=80)
+                        if line:
+                            top_texts.append(line)
+                    if top_texts:
+                        header_lines.append(_c("Open commitments:", "33"))
+                        for t in top_texts:
+                            header_lines.append(f"- {t}")
+                    # Projects: show most populous open project deterministically (includes assignments)
+                    try:
+                        assign: dict[str, str] = {}
+                        for e in reversed(evs_all):
+                            if e.get("kind") != "project_assign":
+                                continue
+                            m = e.get("meta") or {}
+                            cc = str(m.get("cid") or "")
+                            pid = str(m.get("project_id") or "")
+                            if cc and cc in open_map and cc not in assign and pid:
+                                assign[cc] = pid
+                        proj_counts: dict[str, int] = {}
+                        for _cid, meta_c in open_map.items():
+                            pid0 = (meta_c or {}).get("project_id") or assign.get(_cid)
+                            if isinstance(pid0, str) and pid0:
+                                proj_counts[pid0] = proj_counts.get(pid0, 0) + 1
+                        if proj_counts:
+                            max_n = max(proj_counts.values())
+                            cands = sorted(
+                                [p for p, n in proj_counts.items() if n == max_n]
+                            )
+                            top_proj = cands[0]
+                            header_lines.append(
+                                _c(
+                                    f"[PROJECT] {top_proj} — {proj_counts[top_proj]} open",
+                                    "35",
+                                )
+                            )
+                    except Exception:
+                        pass
+                    # Recent trait drift sign-only (+O -C) from most recent trait_update
+                    try:
+                        last_trait = None
+                        for e in reversed(evs_all):
+                            if e.get("kind") == "trait_update":
+                                last_trait = e
+                                break
+                        if last_trait:
+                            m = last_trait.get("meta") or {}
+                            abbr = {
+                                "openness": "O",
+                                "conscientiousness": "C",
+                                "extraversion": "E",
+                                "agreeableness": "A",
+                                "neuroticism": "N",
+                                "o": "O",
+                                "c": "C",
+                                "e": "E",
+                                "a": "A",
+                                "n": "N",
+                            }
+                            tokens: list[str] = []
+                            d = m.get("delta")
+                            if isinstance(d, dict):
+                                for k, v in d.items():
+                                    key = abbr.get(str(k).lower())
+                                    if not key:
+                                        continue
+                                    try:
+                                        dv = float(v)
+                                    except Exception:
+                                        continue
+                                    if dv > 0:
+                                        tokens.append(f"+{key}")
+                                    elif dv < 0:
+                                        tokens.append(f"-{key}")
+                                    if len(tokens) >= 3:
+                                        break
+                            else:
+                                key = abbr.get(str(m.get("trait") or "").lower())
+                                try:
+                                    dv = (
+                                        float(m.get("delta"))
+                                        if m.get("delta") is not None
+                                        else 0.0
+                                    )
+                                except Exception:
+                                    dv = 0.0
+                                if key and dv:
+                                    tokens.append(("+" if dv > 0 else "-") + key)
+                            if tokens:
+                                header_lines.append(
+                                    _c("Recent trait drift: " + " ".join(tokens), "36")
+                                )
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+                if header_lines:
+                    print("\n".join(header_lines), flush=True)
+            except Exception:
+                pass
             print(reply, flush=True)
             # Optional stage/policy notices for UX clarity
             try:
@@ -152,10 +300,12 @@ def main() -> None:
                                     break
                     prev_stage_label = getattr(main, "_last_stage_label")
                     if stage_label and stage_label != prev_stage_label:
-                        print(
-                            f"[stage] {prev_stage_label or '—'} → {stage_label} (cadence updated)",
-                            flush=True,
-                        )
+                        msg = f"[stage] {prev_stage_label or '—'} → {stage_label} (cadence updated)"
+                        try:
+                            msg = _c(msg, "34")
+                        except Exception:
+                            pass
+                        print(msg, flush=True)
                         setattr(main, "_last_stage_label", stage_label)
 
                     # Resolve most recent cooldown novelty threshold from policy_update(component="cooldown")
@@ -175,10 +325,14 @@ def main() -> None:
                             break
                     prev_thr = getattr(main, "_last_cooldown_thr")
                     if cooldown_thr is not None and cooldown_thr != prev_thr:
-                        print(
-                            f"[policy] cooldown.novelty_threshold → {cooldown_thr:.2f}",
-                            flush=True,
+                        msg2 = (
+                            f"[policy] cooldown.novelty_threshold → {cooldown_thr:.2f}"
                         )
+                        try:
+                            msg2 = _c(msg2, "33")
+                        except Exception:
+                            pass
+                        print(msg2, flush=True)
                         setattr(main, "_last_cooldown_thr", cooldown_thr)
             except Exception:
                 # Never crash REPL on notices
@@ -200,6 +354,74 @@ def main() -> None:
             except Exception:
                 # Never crash REPL on notice
                 pass
+            # Identity lifecycle breadcrumbs: proposal and adoption (new)
+            try:
+                evs_i = rt.eventlog.read_all()
+                # Track last printed ids
+                if not hasattr(main, "_last_identity_prop_id"):
+                    setattr(main, "_last_identity_prop_id", None)
+                if not hasattr(main, "_last_identity_adopt_id"):
+                    setattr(main, "_last_identity_adopt_id", None)
+                last_prop_printed = getattr(main, "_last_identity_prop_id")
+                last_adopt_printed = getattr(main, "_last_identity_adopt_id")
+                # Print most recent proposal once
+                for e in reversed(evs_i):
+                    if e.get("kind") == "identity_propose":
+                        eid = int(e.get("id") or 0)
+                        if eid and eid != last_prop_printed:
+                            tno = (e.get("meta") or {}).get("tick")
+                            msg = f"[IDENTITY] proposed: {e.get('content') or ''} (tick {tno})"
+                            try:
+                                msg = _c(msg, "36")
+                            except Exception:
+                                pass
+                            print(msg, flush=True)
+                            setattr(main, "_last_identity_prop_id", eid)
+                        break
+                # Print most recent adoption once (already a one-shot banner after first reply too)
+                for e in reversed(evs_i):
+                    if e.get("kind") == "identity_adopt":
+                        eid = int(e.get("id") or 0)
+                        if eid and eid != last_adopt_printed:
+                            tno = (e.get("meta") or {}).get("tick")
+                            nm = (e.get("meta") or {}).get("name") or (
+                                e.get("content") or ""
+                            )
+                            msg = f"[IDENTITY] adopted: {nm} (tick {tno})"
+                            try:
+                                msg = _c(msg, "36")
+                            except Exception:
+                                pass
+                            print(msg, flush=True)
+                            setattr(main, "_last_identity_adopt_id", eid)
+                        break
+            except Exception:
+                pass
+            # Bridge observability: print CurriculumUpdate→PolicyUpdate linkage (src_id)
+            try:
+                evs_b = rt.eventlog.read_all()
+                if not hasattr(main, "_last_bridge_policy_id"):
+                    setattr(main, "_last_bridge_policy_id", None)
+                last_bridge_printed = getattr(main, "_last_bridge_policy_id")
+                for e in reversed(evs_b):
+                    if e.get("kind") != "policy_update":
+                        continue
+                    m = e.get("meta") or {}
+                    src = m.get("src_id")
+                    if src is None:
+                        continue
+                    eid = int(e.get("id") or 0)
+                    if eid and eid != last_bridge_printed:
+                        msg = f"[BRIDGE] CurriculumUpdate→PolicyUpdate (pu_id={eid}, src_id={src})"
+                        try:
+                            msg = _c(msg, "35")
+                        except Exception:
+                            pass
+                        print(msg, flush=True)
+                        setattr(main, "_last_bridge_policy_id", eid)
+                    break
+            except Exception:
+                pass
             # Optional reminder notices for commitments due
             try:
                 if os.getenv("PMM_CLI_REMINDER_NOTICE", "0").lower() in {"1", "true"}:
@@ -216,7 +438,11 @@ def main() -> None:
                             continue
                         cid = (e.get("meta") or {}).get("cid")
                         if cid:
-                            print(f"[reminder] Commitment #{cid} is due!", flush=True)
+                            try:
+                                msg = _c(f"[reminder] Commitment #{cid} is due!", "31")
+                            except Exception:
+                                msg = f"[reminder] Commitment #{cid} is due!"
+                            print(msg, flush=True)
                             printed.add(eid)
             except Exception:
                 pass
@@ -227,7 +453,12 @@ def main() -> None:
                     ident = build_identity(events)
                     nm = ident.get("name")
                     if nm:
-                        print(f"[identity] adopted name: {nm}", flush=True)
+                        msg = f"[IDENTITY] adopted name: {nm}"
+                        try:
+                            msg = _c(msg, "36")
+                        except Exception:
+                            pass
+                        print(msg, flush=True)
             except Exception:
                 pass
             # When metrics view is enabled, print a concise snapshot after reply

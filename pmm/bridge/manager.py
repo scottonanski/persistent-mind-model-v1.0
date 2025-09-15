@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import List, Dict, Optional
 import re
+import os
 
 
 class BridgeManager:
@@ -27,11 +28,37 @@ class BridgeManager:
 
 
 # ---- Deterministic sanitizer (flag-less, table-driven) ----
+
 _WS = re.compile(r"\s+")
 
 
 def _collapse_ws(s: str) -> str:
     return _WS.sub(" ", (s or "").strip())
+
+
+def _normalize_ws_preserve_lines(s: str) -> str:
+    """Normalize whitespace but preserve line breaks.
+
+    - Trim leading/trailing whitespace
+    - Collapse inner runs of spaces/tabs per line
+    - Collapse multiple blank lines to a single blank line
+    """
+    if not s:
+        return s
+    txt = str(s).strip()
+    lines = txt.splitlines()
+    norm_lines = [re.sub(r"[ \t]+", " ", ln.strip()) for ln in lines]
+    out: list[str] = []
+    prev_blank = False
+    for ln in norm_lines:
+        if ln == "":
+            if not prev_blank:
+                out.append("")
+            prev_blank = True
+        else:
+            out.append(ln)
+            prev_blank = False
+    return "\n".join(out).strip()
 
 
 _STRIP_PREFIXES = (
@@ -45,6 +72,9 @@ _STRIP_LINES_CONTAINS = (
     r"^\s*system\s*:\s*.*$",
     r"^\s*assistant\s*:\s*.*$",
     r"^\s*(?:note|disclaimer)\s*:\s*.*$",
+    # Common self-awareness disclaimers that harm persona/continuity
+    r"^\s*i\s+don'?t\s+(?:have|possess)\s+(?:self[- ]awareness|consciousness|personal\s+experiences|subjective\s+experience)\b.*$",
+    r"^\s*i\s+do\s+not\s+(?:have|possess)\s+(?:self[- ]awareness|consciousness|personal\s+experiences|subjective\s+experience)\b.*$",
 )
 
 _IDENTITY_PHRASES = (
@@ -94,6 +124,13 @@ def sanitize(text: str, *, family: Optional[str] = None) -> str:
         if ("anthropic" in fam) or ("claude" in fam):
             s = re.sub(r"^\s*helpful\s+assistant[:,]?\s*", "", s, flags=re.IGNORECASE)
 
-    # 5) Collapse whitespace at the end deterministically
-    s = _collapse_ws(s)
+    # 5) Whitespace normalization strategy (default: single-line collapse for deterministic tests)
+    preserve = str(os.environ.get("PMM_SANITIZE_PRESERVE_LINES", "0")).lower() in {
+        "1",
+        "true",
+    }
+    if preserve:
+        s = _normalize_ws_preserve_lines(s)
+    else:
+        s = _collapse_ws(s)
     return s

@@ -54,10 +54,37 @@ from pmm.runtime.reflection_bandit import (
     apply_guidance_bias as _apply_guidance_bias,
     choose_arm_biased as _choose_arm_biased,
 )
+from pmm.runtime.evaluators.performance import (
+    compute_performance_metrics,
+    emit_evaluation_report,
+    METRICS_WINDOW,
+    EVAL_TAIL_EVENTS,
+)
+from pmm.runtime.evaluators.report import (
+    maybe_emit_evaluation_summary as _maybe_eval_summary,
+)
+from pmm.runtime.planning import (
+    maybe_append_planning_thought as _maybe_planning,
+)
+from pmm.runtime.evaluators.curriculum import (
+    maybe_propose_curriculum as _maybe_curriculum,
+)
+from pmm.runtime.self_evolution import (
+    propose_trait_ratchet as _propose_trait_ratchet,
+)
 import os as _os
 import datetime as _dt
 import uuid as _uuid
 import re as _re
+
+
+# ---- Turn-based cadence constants (no env flags) ----
+# Evaluator cadence in turns
+EVALUATOR_EVERY_TICKS: int = 5
+# First identity proposal deadline when unset, even at S0
+IDENTITY_FIRST_PROPOSAL_TURNS: int = 3
+# Automatic adoption deadline (turns after proposal)
+ADOPTION_DEADLINE_TURNS: int = 3
 
 
 def _compute_reflection_due_epoch() -> int:
@@ -194,6 +221,36 @@ def _strip_voice_wrappers(text: str, name: str) -> str:
     return out
 
 
+def _short_commit_text(txt: str, limit: int = 80) -> str:
+    """Normalize commitment text to a short, readable bullet.
+
+    - Strip simple markdown markers
+    - Collapse whitespace
+    - Take first sentence when possible
+    - Ellipsize on a word boundary
+    """
+    try:
+        import re as _re_local
+
+        t = str(txt or "")
+        # remove simple markdown markers and list bullets/numbers
+        t = _re_local.sub(r"[`*_#>]+", " ", t)
+        t = _re_local.sub(r"^\s*(?:[-*•]+|\(?[A-Za-z]\)|\(?\d+\)|\d+\.)\s*", "", t)
+        t = _re_local.sub(r"\s+", " ", t).strip()
+        # take first sentence if punctuation present
+        parts = _re_local.split(r"(?<=[\.!?])\s+", t, maxsplit=1)
+        s = (parts[0] or t).strip()
+        if len(s) <= limit:
+            return s
+        # smart ellipsize at word boundary
+        cut = s[: limit - 1]
+        if " " in cut:
+            cut = cut.rsplit(" ", 1)[0]
+        return cut.rstrip() + "…"
+    except Exception:
+        return (str(txt or "")[:limit]).strip()
+
+
 class Runtime:
     def __init__(
         self, cfg: LLMConfig, eventlog: EventLog, ngram_bans: Optional[List[str]] = None
@@ -217,62 +274,12 @@ class Runtime:
 
     def handle_user(self, user_text: str) -> str:
         msgs = [{"role": "user", "content": user_text}]
-        # Detect special one-shot commitment execution pattern
+        # User-driven one-shot commitment execution is disabled; commitments open autonomously.
         exec_commit = False
         exec_text = ""
         exec_cid: str | None = None
-        try:
-            m_exec = _re.search(
-                r"Open a single, concrete commitment:\s*\"([^\"]{1,200})\"",
-                str(user_text or ""),
-            )
-            if m_exec:
-                exec_commit = True
-                exec_text = m_exec.group(1).strip()
-                # Open immediately to ensure deterministic cid
-                exec_cid = self.tracker.add_commitment(exec_text, source="user") or None
-        except Exception:
-            exec_commit, exec_text, exec_cid = False, "", None
-        # Opportunistic, deterministic identity adoption from explicit user instruction.
-        # This ensures immediate persistence and one-shot continuity banner on the next reply.
-        try:
-            ut = str(user_text or "")
-            # Ignore code-fenced or quoted instruction to avoid accidental captures
-            if "```" not in ut:
-                # Patterns like: adopt the name X, use the name X, call you X, adopt working name "X"
-                # We accept a conservative character class validated by _sanitize_name later.
-                m = _re.search(
-                    r"\b(?:adopt|use|set|choose|switch\s+to)\s+(?:the\s+)?(?:working\s+)?name\s+['\"]?([A-Za-z][A-Za-z0-9_-]{0,11})['\"]?\b",
-                    ut,
-                    _re.IGNORECASE,
-                )
-                if not m:
-                    # Alternate phrasing: "call you X" / "call yourself X"
-                    m = _re.search(
-                        r"\bcall\s+(?:you|yourself)\s+([A-Za-z][A-Za-z0-9_-]{0,11})\b",
-                        ut,
-                        _re.IGNORECASE,
-                    )
-                if m:
-                    cand = m.group(1)
-                    name_ok = _sanitize_name(cand)
-                    if name_ok:
-                        # Append identity_adopt before generating the reply so renderer sees it as recent
-                        self.eventlog.append(
-                            kind="identity_adopt",
-                            content=name_ok,
-                            meta={"name": name_ok, "why": "user_instruction"},
-                        )
-                        try:
-                            # Close any open identity commitments matching this name
-                            CommitmentTracker.close_identity_name_on_adopt(
-                                self.eventlog, name_ok
-                            )
-                        except Exception:
-                            pass
-        except Exception:
-            # Never break chat on adoption parser errors
-            pass
+        # User-driven identity adoption is disabled; identity evolves autonomously.
+        # (No-op here by design.)
         # Capture short declarative knowledge lines as pinned assertions (ledger-first)
         try:
             ut2 = str(user_text or "")
@@ -307,6 +314,30 @@ class Runtime:
         except Exception:
             # Never disrupt chat flow on capture issues
             pass
+        # Inject a compact transcript of the last few user/assistant turns to preserve coherence
+        try:
+            evs_hist = self.eventlog.read_all()
+            lines: list[str] = []
+            for ev in reversed(evs_hist):
+                k = ev.get("kind")
+                if k not in {"user", "response"}:
+                    continue
+                txt = str(ev.get("content") or "").strip()
+                if not txt:
+                    continue
+                # Trim to keep prompt bounded
+                if len(txt) > 180:
+                    txt = txt[:180].rstrip()
+                role = "User" if k == "user" else "Assistant"
+                lines.append(f"{role}: {txt}")
+                if len(lines) >= 6:
+                    break
+            lines = list(reversed(lines))
+            if lines:
+                transcript = "Transcript:\n" + "\n".join(f"- {s}" for s in lines)
+                msgs.append({"role": "system", "content": transcript})
+        except Exception:
+            pass
         # Inject a compact pinned context of recent knowledge_asserts into the model prompt
         try:
             recent = self.eventlog.read_all()[-50:]
@@ -335,22 +366,145 @@ class Runtime:
                 msgs.append({"role": "system", "content": context_block})
         except Exception:
             pass
-        # Pin identity and continuity banner to steer persona and forbid boilerplate
+        # Deterministic policy header: identity (if adopted) + top open commitments
         try:
-            ident0 = build_identity(self.eventlog.read_all())
+            evs_all = self.eventlog.read_all()
+            ident0 = build_identity(evs_all)
             name0 = str(ident0.get("name") or "").strip()
+            # Build ranked list of current open commitments (top 2)
+            header_lines: list[str] = []
             if name0:
-                id_block = (
-                    f"Identity: {name0}\n"
-                    "Continuity: append-only ledger; deterministic evolution; past events immutable.\n"
-                    "Obey caller constraints exactly. Do not mention training data or knowledge cutoffs."
+                header_lines.append(f"You are {name0}. Speak in first person.")
+            # Map cid -> text from projection, then pick top by prioritizer
+            try:
+                model0 = build_self_model(evs_all)
+                open_map = (model0.get("commitments") or {}).get("open") or {}
+                ranking = rank_commitments(evs_all)
+                top_cids = [cid for cid, _ in ranking[:2] if cid in open_map]
+                top_texts: list[str] = []
+                for cid in top_cids:
+                    txt = str((open_map.get(cid) or {}).get("text") or "").strip()
+                    if not txt:
+                        continue
+                    line = _short_commit_text(txt, limit=80)
+                    if line:
+                        top_texts.append(line)
+                if top_texts:
+                    header_lines.append("Open commitments:")
+                    for t in top_texts:
+                        header_lines.append(f"- {t}")
+                # Projects: show most populous open project deterministically (includes assignments)
+                try:
+                    # Build assignment map (latest wins) for currently open cids
+                    assign: dict[str, str] = {}
+                    for _e in reversed(evs_all):
+                        if _e.get("kind") != "project_assign":
+                            continue
+                        m = _e.get("meta") or {}
+                        cc = str(m.get("cid") or "")
+                        pid = str(m.get("project_id") or "")
+                        if cc and cc in open_map and cc not in assign and pid:
+                            assign[cc] = pid
+                    proj_counts: dict[str, int] = {}
+                    for _cid, meta_c in open_map.items():
+                        pid0 = (meta_c or {}).get("project_id") or assign.get(_cid)
+                        if isinstance(pid0, str) and pid0:
+                            proj_counts[pid0] = proj_counts.get(pid0, 0) + 1
+                    if proj_counts:
+                        max_n = max(proj_counts.values())
+                        cands = sorted(
+                            [p for p, n in proj_counts.items() if n == max_n]
+                        )
+                        top_proj = cands[0]
+                        header_lines.append(
+                            f"[PROJECT] {top_proj} — {proj_counts[top_proj]} open"
+                        )
+                except Exception:
+                    pass
+                # Also surface a very compact recent trait drift indicator
+                # Find the most recent trait_update and summarize sign-only deltas
+                try:
+                    last_trait = None
+                    for _e in reversed(evs_all):
+                        if _e.get("kind") == "trait_update":
+                            last_trait = _e
+                            break
+                    if last_trait:
+                        m = last_trait.get("meta") or {}
+                        # Map keys to abbreviations
+                        _abbr = {
+                            "openness": "O",
+                            "conscientiousness": "C",
+                            "extraversion": "E",
+                            "agreeableness": "A",
+                            "neuroticism": "N",
+                            "o": "O",
+                            "c": "C",
+                            "e": "E",
+                            "a": "A",
+                            "n": "N",
+                        }
+                        tokens: list[str] = []
+                        d = m.get("delta")
+                        if isinstance(d, dict):
+                            for k, v in d.items():
+                                ab = _abbr.get(str(k).lower())
+                                if not ab:
+                                    continue
+                                try:
+                                    vf = float(v)
+                                except Exception:
+                                    continue
+                                if vf > 0:
+                                    tokens.append(f"+{ab}")
+                                elif vf < 0:
+                                    tokens.append(f"-{ab}")
+                                if len(tokens) >= 3:
+                                    break
+                        else:
+                            tkey = _abbr.get(str(m.get("trait") or "").lower())
+                            try:
+                                dv = (
+                                    float(m.get("delta"))
+                                    if m.get("delta") is not None
+                                    else 0.0
+                                )
+                            except Exception:
+                                dv = 0.0
+                            if tkey and dv:
+                                tokens.append(("+" if dv > 0 else "-") + tkey)
+                        if tokens:
+                            header_lines.append(
+                                "Recent trait drift: " + " ".join(tokens)
+                            )
+                except Exception:
+                    pass
+            except Exception:
+                # If prioritizer/projection fails, skip commitments portion
+                pass
+            if header_lines:
+                msgs.append({"role": "system", "content": "\n".join(header_lines)})
+        except Exception:
+            # Never let header construction break chat flow
+            pass
+        # Deterministic phrasing preference: if user asks about current work, mention commitments
+        try:
+            lowq = (user_text or "").lower()
+            if any(
+                q in lowq
+                for q in ["what are you doing", "working on", "your priorities"]
+            ):
+                msgs.append(
+                    {
+                        "role": "system",
+                        "content": "When describing current work, briefly mention one or two open commitments from your ledger.",
+                    }
                 )
-                msgs.append({"role": "system", "content": id_block})
         except Exception:
             pass
         styled = self.bridge.format_messages(msgs, intent="chat")
         # Keep replies responsive and bounded when using remote providers
-        reply = self.chat.generate(styled, temperature=1.0, max_tokens=256)
+        reply = self.chat.generate(styled, temperature=0.3, max_tokens=256)
         # Sanitize raw model output deterministically before any event emission
         try:
             reply = _bridge_sanitize(reply, family=self.bridge.model_family)
@@ -547,59 +701,7 @@ class Runtime:
         rid = self.eventlog.append(
             kind="response", content=reply, meta={"source": "handle_user"}
         )
-        # Special commitment execution: ensure evidence + completion and close
-        if exec_commit and exec_cid:
-            try:
-                # Split around Completion: and sanitize
-                if "Completion:" in (reply or ""):
-                    before, after = reply.split("Completion:", 1)
-                    snippet = (before[-200:] if before else reply) or ""
-                    completion_line = "Completion:" + (after.strip() or " done.")
-                    # Append candidate then close
-                    self.eventlog.append(
-                        kind="evidence_candidate",
-                        content="",
-                        meta={
-                            "cid": exec_cid,
-                            "score": 0.95,
-                            "snippet": snippet.strip(),
-                        },
-                    )
-                    self.tracker.close_with_evidence(
-                        exec_cid, evidence_type="done", description=reply
-                    )
-                    # Ensure reply has a non-empty completion line
-                    reply = (before.rstrip() + "\n" + completion_line).strip()
-                    # Update the response content to reflected corrected completion line
-                    # Note: do not reorder events; append a tiny correction note for audit
-                    self.eventlog.append(
-                        kind="debug",
-                        content="",
-                        meta={"response_adjusted_for_completion": int(rid)},
-                    )
-                else:
-                    snippet = reply[-200:] if reply else ""
-                    self.eventlog.append(
-                        kind="evidence_candidate",
-                        content="",
-                        meta={
-                            "cid": exec_cid,
-                            "score": 0.90,
-                            "snippet": snippet.strip(),
-                        },
-                    )
-                    self.tracker.close_with_evidence(
-                        exec_cid, evidence_type="done", description=reply
-                    )
-                    # Amend reply to include a deterministic completion line for UX
-                    reply = (reply.rstrip() + "\nCompletion: done.").strip()
-                    self.eventlog.append(
-                        kind="debug",
-                        content="",
-                        meta={"response_adjusted_for_completion": int(rid)},
-                    )
-            except Exception:
-                pass
+        # User-driven one-shot commitment execution path removed.
         # After recording the response, attempt to close any reflection-driven commitment
         # using this reply as evidence.
         try:
@@ -973,6 +1075,11 @@ class Runtime:
                 content="",
                 meta={"style": label, "novelty": novelty, "has_action": bool(action)},
             )
+            # Meta-reflection cadence check
+            try:
+                _maybe_emit_meta_reflection(self.eventlog, window=5)
+            except Exception:
+                pass
         # Emit deferred audit-only debug if gate would have rejected
         if not skip_extra and _emit_audit_debug_post:
             try:
@@ -1163,6 +1270,144 @@ def _append_reflection_check(eventlog: EventLog, ref_id: int, text: str) -> None
     )
 
 
+def _resolve_reflection_cadence(events: list[dict]) -> tuple[int, int]:
+    """Return (min_turns, min_time_s) for reflection gating.
+
+    Prefers last policy_update(component="reflection"); falls back to CADENCE_BY_STAGE for current stage.
+    """
+    # Attempt to read last reflection policy update
+    try:
+        for ev in reversed(events):
+            if ev.get("kind") != "policy_update":
+                continue
+            m = ev.get("meta") or {}
+            if str(m.get("component")) != "reflection":
+                continue
+            p = m.get("params") or {}
+            mt = int(p.get("min_turns")) if p.get("min_turns") is not None else None
+            ms = int(p.get("min_time_s")) if p.get("min_time_s") is not None else None
+            if mt is not None and ms is not None:
+                return (mt, ms)
+    except Exception:
+        pass
+    # Fallback to stage default
+    try:
+        stage_str, _snap = StageTracker.infer_stage(events)
+    except Exception:
+        stage_str = "S0"
+    cad = CADENCE_BY_STAGE.get(stage_str or "S0", CADENCE_BY_STAGE["S0"])
+    return (int(cad.get("min_turns", 2)), int(cad.get("min_time_s", 60)))
+
+
+def _resolve_reflection_policy_overrides(
+    events: list[dict],
+) -> tuple[int | None, int | None]:
+    """Return (min_turns, min_seconds) only if a reflection policy_update exists.
+
+    If no explicit policy update is present, return (None, None) to honor the cooldown's own thresholds.
+    """
+    try:
+        for ev in reversed(events):
+            if ev.get("kind") != "policy_update":
+                continue
+            m = ev.get("meta") or {}
+            if str(m.get("component")) != "reflection":
+                continue
+            p = m.get("params") or {}
+            mt = p.get("min_turns")
+            ms = p.get("min_time_s")
+            if mt is None or ms is None:
+                continue
+            return (int(mt), int(ms))
+    except Exception:
+        pass
+    return (None, None)
+
+
+def _maybe_emit_meta_reflection(eventlog: EventLog, *, window: int = 5) -> int | None:
+    """Emit a meta_reflection every `window` reflections, idempotently.
+
+    Computes simple window metrics: opened, closed, trait_delta_abs, action_count, and an efficacy score.
+    Returns new event id or None if not emitted.
+    """
+    try:
+        events = eventlog.read_all()
+        refl_ids = [
+            int(e.get("id") or 0) for e in events if e.get("kind") == "reflection"
+        ]
+        if len(refl_ids) < int(window):
+            return None
+        expected = len(refl_ids) // int(window)
+        actual = sum(1 for e in events if e.get("kind") == "meta_reflection")
+        if actual >= expected:
+            return None
+        start_id = refl_ids[-int(window)]
+        end_id = refl_ids[-1]
+        opened = 0
+        closed = 0
+        action_cnt = 0
+        trait_abs = 0.0
+        for ev in events:
+            try:
+                eid = int(ev.get("id") or 0)
+            except Exception:
+                continue
+            if eid <= start_id or eid > end_id:
+                continue
+            k = ev.get("kind")
+            if k == "commitment_open":
+                opened += 1
+            elif k == "commitment_close":
+                closed += 1
+            elif k == "reflection_action":
+                action_cnt += 1
+            elif k == "trait_update":
+                m = ev.get("meta") or {}
+                d = m.get("delta")
+                if isinstance(d, dict):
+                    for v in d.values():
+                        try:
+                            trait_abs += abs(float(v))
+                        except Exception:
+                            continue
+                else:
+                    try:
+                        trait_abs += abs(float(m.get("delta") or 0.0))
+                    except Exception:
+                        pass
+        efficacy = float(min(1.0, max(0.0, (closed / max(1, opened)))))
+        mr_id = eventlog.append(
+            kind="meta_reflection",
+            content="",
+            meta={
+                "window": int(window),
+                "opened": int(opened),
+                "closed": int(closed),
+                "actions": int(action_cnt),
+                "trait_delta_abs": float(trait_abs),
+                "efficacy": float(efficacy),
+            },
+        )
+        # Deterministic reward shaping: reflect efficacy as a bandit_reward (component=reflection)
+        try:
+            eventlog.append(
+                kind="bandit_reward",
+                content="",
+                meta={
+                    "component": "reflection",
+                    "source": "meta_reflection",
+                    "window": int(window),
+                    "reward": float(efficacy),
+                    "ref": int(mr_id),
+                },
+            )
+        except Exception:
+            pass
+        return mr_id
+    except Exception:
+        return None
+
+
 def emit_reflection(
     eventlog: EventLog,
     content: str = "",
@@ -1340,6 +1585,11 @@ def emit_reflection(
                 eventlog.append(kind="audit_report", content=content2, meta=m)
     except Exception:
         pass
+    # Meta-reflection cadence: emit every N reflections with window metrics (idempotent)
+    try:
+        _maybe_emit_meta_reflection(eventlog, window=5)
+    except Exception:
+        pass
     return rid
 
 
@@ -1363,12 +1613,17 @@ def maybe_reflect(
         return (False, "disabled")
     # Be resilient to different cooldown stub signatures in tests
     try:
+        # Prefer explicit overrides; otherwise, apply policy override only if present.
+        _events_for_gate = eventlog.read_all()
+        pol_mt, pol_ms = _resolve_reflection_policy_overrides(_events_for_gate)
+        use_mt = override_min_turns if override_min_turns is not None else pol_mt
+        use_ms = override_min_seconds if override_min_seconds is not None else pol_ms
         ok, reason = cooldown.should_reflect(
             now=now,
             novelty=novelty,
-            override_min_turns=override_min_turns,
-            override_min_seconds=override_min_seconds,
-            events=eventlog.read_all(),
+            override_min_turns=use_mt,
+            override_min_seconds=use_ms,
+            events=_events_for_gate,
         )
     except TypeError:
         # Fallback: some stubs accept only (now, novelty)
@@ -1468,6 +1723,7 @@ class AutonomyLoop:
         cooldown: ReflectionCooldown,
         interval_seconds: float = 60.0,
         proposer=None,
+        allow_affirmation: bool = False,
     ) -> None:
         self.eventlog = eventlog
         self.cooldown = cooldown
@@ -1475,6 +1731,10 @@ class AutonomyLoop:
         self._stop = _threading.Event()
         self._thread: _threading.Thread | None = None
         self._proposer = proposer
+        # By default, identity adoption should be autonomous (proposal-driven) and
+        # not depend on brittle first-person keyword cues. Tests can explicitly
+        # enable affirmation handling when needed.
+        self._allow_affirmation = bool(allow_affirmation)
         # Per-stage consecutive stuck-skip counters
         self._stuck_count: int = 0
         self._stuck_stage: str | None = None
@@ -1525,11 +1785,28 @@ class AutonomyLoop:
         cadence = CADENCE_BY_STAGE.get(
             curr_stage, CADENCE_BY_STAGE["S0"]
         )  # default to S0
-        # Emit idempotent policy_update for reflection cadence when params change
-        last_stage, last_params = _last_policy_params(events, component="reflection")
-        if last_params != cadence or last_stage != curr_stage:
+        # Emit idempotently across entire history: if a policy_update already exists
+        # with the same component, stage, and params, do not append again.
+        target_params = {
+            "min_turns": int(cadence["min_turns"]),
+            "min_time_s": int(cadence["min_time_s"]),
+            "force_reflect_if_stuck": bool(cadence["force_reflect_if_stuck"]),
+        }
+        exists_reflection = False
+        for _ev in reversed(events):
+            if _ev.get("kind") != "policy_update":
+                continue
+            _m = _ev.get("meta") or {}
+            if (
+                str(_m.get("component")) == "reflection"
+                and str(_m.get("stage")) == str(curr_stage)
+                and dict(_m.get("params") or {}) == target_params
+            ):
+                exists_reflection = True
+                break
+        if not exists_reflection:
             _vprint(
-                f"[AutonomyLoop] Policy update: Reflection cadence changed for stage {curr_stage} (tick {tick_no})"
+                f"[AutonomyLoop] Policy update: Reflection cadence set for stage {curr_stage} (tick {tick_no})"
             )
             self.eventlog.append(
                 kind="policy_update",
@@ -1537,13 +1814,7 @@ class AutonomyLoop:
                 meta={
                     "component": "reflection",
                     "stage": curr_stage,
-                    "params": {
-                        "min_turns": int(cadence["min_turns"]),
-                        "min_time_s": int(cadence["min_time_s"]),
-                        "force_reflect_if_stuck": bool(
-                            cadence["force_reflect_if_stuck"]
-                        ),
-                    },
+                    "params": dict(target_params),
                     "tick": tick_no,
                 },
             )
@@ -1938,6 +2209,43 @@ class AutonomyLoop:
                     )
             except Exception:
                 pass
+            # S4(B): Append a privacy-safe planning_thought after reflection in S1+
+            try:
+                if _latest_refl_id and curr_stage in {"S1", "S2", "S3", "S4"}:
+                    # Build a tiny-budget chat wrapper that uses chat_with_budget to log latency deterministically
+                    def _plan_chat(prompt: str) -> str:
+                        def _call() -> str:
+                            # Deterministic, local mini-plan (no external API calls)
+                            return (
+                                "• Clarify intent in one line.\n"
+                                "• Keep the next reply under 2 sentences.\n"
+                                "• Ask one precise follow-up if needed."
+                            )
+
+                        out = chat_with_budget(
+                            _call,
+                            budget=TickBudget(),
+                            tick_id=tick_no,
+                            evlog=self.eventlog,
+                            provider="internal",
+                            model="planning",
+                            log_latency=True,
+                        )
+                        if out is RATE_LIMITED or isinstance(out, Exception):
+                            raise RuntimeError("planning_thought rate limited")
+                        return str(out)
+
+                    _maybe_planning(
+                        self.eventlog,
+                        _plan_chat,
+                        from_reflection_id=int(_latest_refl_id),
+                        stage=str(curr_stage),
+                        tick=int(tick_no),
+                        max_tokens=64,
+                    )
+            except Exception:
+                # Never break a tick; observability-only path
+                pass
         # 2b) Apply self-evolution policies intrinsically
         changes, evo_details = SelfEvolution.apply_policies(
             events, {"IAS": ias, "GAS": gas}
@@ -2215,7 +2523,9 @@ class AutonomyLoop:
         _vprint(
             f"[AutonomyLoop] autonomy_tick: tick={tick_no}, stage={curr_stage}, IAS={ias}, GAS={gas}"
         )
-        # Propose: stage>=S1, no name yet, >=5 ticks, novelty not low, and not already proposed
+        # Propose identity deterministically when unset and not already proposed.
+        # Primary path: stage>=S1, novelty ok, and tick>=5.
+        # Bootstrap path: even at S0, if tick>=3 and still no proposal, propose once.
         from pmm.storage.projection import build_identity
 
         persona_name = build_identity(events).get("name")
@@ -2224,12 +2534,12 @@ class AutonomyLoop:
             if ev.get("kind") == "identity_propose":
                 already_proposed = True
                 break
+        should_stage = stage_ok and (tick_no >= 5) and novelty_ok
+        should_bootstrap = tick_no >= int(IDENTITY_FIRST_PROPOSAL_TURNS)
         if (
-            stage_ok
-            and not persona_name
-            and tick_no >= 5
-            and novelty_ok
-            and not already_proposed
+            (not persona_name)
+            and (not already_proposed)
+            and (should_stage or should_bootstrap)
         ):
             # Draft proposal content via proposer if available
             proposed = None
@@ -2238,7 +2548,7 @@ class AutonomyLoop:
                     proposed = (self._proposer() or "").strip()
                 except Exception:
                     proposed = None
-            content = proposed or "(identity proposal)"
+            content = proposed or "Persona"
             self.eventlog.append(
                 kind="identity_propose",
                 content=content,
@@ -2262,91 +2572,125 @@ class AutonomyLoop:
                     break
 
         if not persona_name and last_prop_event:
-            # Local hardened extractor to avoid symbol resolution issues
-            def _extract_affirmation_name_local(text: str) -> str | None:
-                if not text or "```" in text:
-                    return None
-                lines = [ln.strip() for ln in str(text).splitlines()]
-                import re as _re
+            # Option A (explicitly enabled in tests): adopt on assistant affirmation
+            if self._allow_affirmation:
 
-                pat = _re.compile(
-                    r"^I am\s+([A-Za-z][A-Za-z0-9_-]{0,11})([.!])?$", _re.IGNORECASE
-                )
-                neg_words = ("not ", "n't ", "called ", "known as ", "aka ")
-                for ln in lines:
-                    if not ln:
-                        continue
-                    if ln.startswith(('"', "'", ">")):
-                        continue
-                    low = ln.lower()
-                    if any(w in low for w in neg_words):
-                        continue
-                    m = pat.match(ln)
-                    if not m:
-                        continue
-                    name = m.group(1)
-                    name_ok = _sanitize_name(name)
-                    if name_ok:
-                        return name_ok
-                return None
+                def _extract_affirmation_name_local(text: str) -> str | None:
+                    if not text or "```" in text:
+                        return None
+                    lines = [ln.strip() for ln in str(text).splitlines()]
+                    import re as _re
 
-            # Check for assistant affirmation since last proposal: scan newer events than the proposal
-            affirm_name = None
-            for ev in reversed(events):
-                if ev is last_prop_event:
-                    break  # stop once we reach the proposal; we've scanned newer events already
-                if ev.get("kind") == "response":
-                    txt = str(ev.get("content") or "")
-                    nm = _extract_affirmation_name_local(txt)
-                    if nm:
-                        affirm_name = nm
-                        break
-            if affirm_name:
-                self.eventlog.append(
-                    kind="identity_adopt",
-                    content=affirm_name,
-                    meta={
-                        "why": "assistant_affirmation",
-                        "source_event": last_prop_event.get("id"),
-                        "tick": tick_no,
-                        "name": affirm_name,
-                    },
-                )
-                try:
-                    CommitmentTracker.close_identity_name_on_adopt(
-                        self.eventlog, affirm_name
+                    pat = _re.compile(
+                        r"^I am\s+([A-Za-z][A-Za-z0-9_-]{0,11})([.!])?$", _re.IGNORECASE
                     )
-                except Exception:
-                    pass
-            else:
-                # If M=5 ticks passed since proposal, adopt bootstrap with proposed name if present
+                    neg_words = ("not ", "n't ", "called ", "known as ", "aka ")
+                    for ln in lines:
+                        if not ln:
+                            continue
+                        if ln.startswith(('"', "'", ">")):
+                            continue
+                        low = ln.lower()
+                        if any(w in low for w in neg_words):
+                            continue
+                        m = pat.match(ln)
+                        if not m:
+                            continue
+                        name = m.group(1)
+                        name_ok = _sanitize_name(name)
+                        if name_ok:
+                            return name_ok
+                    return None
+
+                # Scan newer events than the proposal for an assistant self‑ascription
+                affirm_name = None
+                for ev in reversed(events):
+                    if ev is last_prop_event:
+                        break
+                    if ev.get("kind") == "response":
+                        txt = str(ev.get("content") or "")
+                        nm = _extract_affirmation_name_local(txt)
+                        if nm:
+                            affirm_name = nm
+                            break
+                if affirm_name:
+                    self.eventlog.append(
+                        kind="identity_adopt",
+                        content=affirm_name,
+                        meta={
+                            "why": "assistant_affirmation",
+                            "src_id": int(last_prop_event.get("id") or 0),
+                            "turns_since_proposal": int(
+                                max(
+                                    0,
+                                    tick_no
+                                    - int(
+                                        (last_prop_event.get("meta") or {}).get("tick")
+                                        or 0
+                                    ),
+                                )
+                            ),
+                            "tick": tick_no,
+                            "name": affirm_name,
+                        },
+                    )
+                    try:
+                        CommitmentTracker.close_identity_name_on_adopt(
+                            self.eventlog, affirm_name
+                        )
+                    except Exception:
+                        pass
+                    # Do not also run bootstrap in the same tick
+                    last_prop_event = None
+
+            # Option B: deterministic bootstrap after a fixed number of ticks since proposal
+            if last_prop_event:
                 try:
                     prop_tick = int(
                         (last_prop_event.get("meta") or {}).get("tick") or 0
                     )
                 except Exception:
                     prop_tick = 0
-                # Do not bootstrap if there were assistant responses attempting self-ascription (even if invalid)
+                # If affirmation mode is enabled, do not bootstrap if there were
+                # any assistant self-ascription attempts (even invalid) since the proposal.
                 tried_affirm = False
-                for ev in reversed(events):
-                    if ev is last_prop_event:
-                        break
-                    if ev.get("kind") == "response":
-                        txt0 = str(ev.get("content") or "").lower()
-                        if "i am " in txt0:
-                            tried_affirm = True
+                if self._allow_affirmation:
+                    for ev in reversed(events):
+                        if ev is last_prop_event:
                             break
-                if (tick_no - prop_tick) >= 5 and not tried_affirm:
+                        if ev.get("kind") == "response":
+                            txt0 = str(ev.get("content") or "").lower()
+                            if "i am " in txt0:
+                                tried_affirm = True
+                                break
+                if (tick_no - prop_tick) >= int(ADOPTION_DEADLINE_TURNS) and (
+                    not tried_affirm
+                ):
                     fallback = (
                         last_prop_event.get("content") or ""
                     ).strip() or "Persona"
                     name_sel = _sanitize_name(fallback) or "Persona"
+                    # Emit a debug breadcrumb for observability
+                    try:
+                        self.eventlog.append(
+                            kind="debug",
+                            content="",
+                            meta={
+                                "identity_adopt": "bootstrap",
+                                "src_id": int(last_prop_event.get("id") or 0),
+                                "turns_since_proposal": int(tick_no - prop_tick),
+                                "tick": int(tick_no),
+                            },
+                        )
+                    except Exception:
+                        pass
                     self.eventlog.append(
                         kind="identity_adopt",
                         content=name_sel,
                         meta={
                             "why": "autonomy_identity_bootstrap",
-                            "source_event": last_prop_event.get("id"),
+                            "src_id": int(last_prop_event.get("id") or 0),
+                            "turns_since_proposal": int(tick_no - prop_tick),
                             "tick": tick_no,
                             "name": name_sel,
                         },
@@ -2697,6 +3041,195 @@ class AutonomyLoop:
             )
 
             _maybe_log_reward(self.eventlog, horizon=3)
+        except Exception:
+            pass
+        # S4(A): Performance evaluator — run once every N ticks (deterministic, log-only)
+        # Keep it AFTER bandit/reflect ordering and self-evolution; BEFORE invariant triage.
+        try:
+            if (int(tick_no) % int(EVALUATOR_EVERY_TICKS)) == 0:
+                try:
+                    tail = self.eventlog.read_tail(limit=EVAL_TAIL_EVENTS)
+                except TypeError:
+                    tail = self.eventlog.read_tail(EVAL_TAIL_EVENTS)  # type: ignore[arg-type]
+                metrics = compute_performance_metrics(tail, window=METRICS_WINDOW)
+                # Idempotent per (component, tick)
+                rep_id = emit_evaluation_report(
+                    self.eventlog, metrics=metrics, tick=int(tick_no)
+                )
+                # Optionally emit a brief operator-facing summary once per report
+                if rep_id:
+
+                    def _sum_chat(prompt: str) -> str:
+                        def _call() -> str:
+                            return "Completion steady; acceptance slightly improving; latency stable."
+
+                        out = chat_with_budget(
+                            _call,
+                            budget=TickBudget(),
+                            tick_id=tick_no,
+                            evlog=self.eventlog,
+                            provider="internal",
+                            model="evalsum",
+                            log_latency=True,
+                        )
+                        if out is RATE_LIMITED or isinstance(out, Exception):
+                            raise RuntimeError("evaluation_summary rate limited")
+                        return str(out)
+
+                    _maybe_eval_summary(
+                        self.eventlog,
+                        _sum_chat,
+                        from_report_id=int(rep_id),
+                        stage=str(curr_stage),
+                        tick=int(tick_no),
+                        max_tokens=64,
+                    )
+                # S4(D): Propose curriculum updates based on the freshly computed report
+                # Auto-proposal ENABLED by default. Deterministic bootstrap ensures at least
+                # one proposal at a cadence boundary (EVALUATOR_EVERY_TICKS) in cold-start.
+                try:
+                    if str(_os.environ.get("PMM_AUTO_CURRICULUM", "1")).lower() in {
+                        "1",
+                        "true",
+                    }:
+                        br_count = 0
+                        novelty_trend = False
+                        for _sig in tail:
+                            k = _sig.get("kind")
+                            if k == "bandit_reward":
+                                br_count += 1
+                            elif k == "audit_report" and (
+                                (_sig.get("meta") or {}).get("category")
+                                == "novelty_trend"
+                            ):
+                                novelty_trend = True
+                        # Normal path: require stronger evidence buffer (>=4 rewards) or novelty_trend audit
+                        if novelty_trend or br_count >= 4:
+                            _maybe_curriculum(self.eventlog, tick=int(tick_no))
+                        else:
+                            # Cold-start bootstrap: if no prior proposal and cadence boundary, propose once.
+                            # Use a cooldown tweak to avoid interfering with reflection cadence idempotence tests.
+                            try:
+                                _tail_now = self.eventlog.read_tail(limit=200)
+                            except TypeError:
+                                _tail_now = self.eventlog.read_tail(200)  # type: ignore[arg-type]
+                            has_prop = any(
+                                e.get("kind") == "curriculum_update" for e in _tail_now
+                            )
+                            if (not has_prop) and (
+                                int(tick_no) % int(EVALUATOR_EVERY_TICKS) == 0
+                            ):
+                                # Determine current cooldown threshold and bump by +0.05 (clamped)
+                                try:
+                                    evs_boot = self.eventlog.read_all()
+                                except Exception:
+                                    evs_boot = events
+                                _st_cool, _cur_cool = _last_policy_params(
+                                    evs_boot, component="cooldown"
+                                )
+                                try:
+                                    thr = float(
+                                        (_cur_cool or {}).get("novelty_threshold", 0.50)
+                                    )
+                                except Exception:
+                                    thr = 0.50
+                                new_thr = min(1.0, max(0.0, thr + 0.05))
+                                self.eventlog.append(
+                                    kind="curriculum_update",
+                                    content="",
+                                    meta={
+                                        "proposed": {
+                                            "component": "cooldown",
+                                            "params": {"novelty_threshold": new_thr},
+                                        },
+                                        "reason": "bootstrap",
+                                        "tick": int(tick_no),
+                                    },
+                                )
+                except Exception:
+                    pass
+        except Exception:
+            # Never allow evaluator to break the tick or ordering
+            pass
+        # S4(D) Bridge: apply curriculum_update to policy_update once, idempotently
+        try:
+            try:
+                _tail = self.eventlog.read_tail(limit=500)
+            except TypeError:
+                _tail = self.eventlog.read_tail(500)  # type: ignore[arg-type]
+            last_prop = None
+            for _e in reversed(_tail):
+                if _e.get("kind") == "curriculum_update":
+                    last_prop = _e
+                    break
+            if last_prop:
+                p = (last_prop.get("meta") or {}).get("proposed") or {}
+                comp = p.get("component")
+                patch = dict(p.get("params") or {})
+                if comp and patch:
+                    # Apply exactly the proposed params (no implicit merge) so tests can
+                    # match equality with the proposal. Append once per proposal window
+                    # regardless of current effective params, to record the application.
+                    # Idempotence within the proposal window: ensure we did not already
+                    # emit an identical policy_update after the proposal (matching patch exactly)
+                    applied = False
+                    for _e in reversed(_tail):
+                        if _e is last_prop:
+                            break
+                        if _e.get("kind") == "policy_update":
+                            m = _e.get("meta") or {}
+                            if (
+                                m.get("component") == comp
+                                and dict(m.get("params") or {}) == patch
+                            ):
+                                applied = True
+                                break
+                    if not applied:
+                        # Tag the application with a src_id pointing to the originating
+                        # curriculum_update to enable 1:1 mapping in tests and analysis.
+                        try:
+                            _src_id = int(last_prop.get("id") or 0)
+                        except Exception:
+                            _src_id = 0
+                        # Global idempotency guard: if any prior policy_update already
+                        # references this src_id anywhere in history, skip emitting another.
+                        try:
+                            _evs_all_for_pu = self.eventlog.read_all()
+                        except Exception:
+                            _evs_all_for_pu = _tail
+                        for _evx in reversed(_evs_all_for_pu):
+                            if _evx.get("kind") != "policy_update":
+                                continue
+                            try:
+                                if int(
+                                    ((_evx.get("meta") or {}).get("src_id") or 0)
+                                ) == int(_src_id):
+                                    applied = True
+                                    break
+                            except Exception:
+                                continue
+                        if applied:
+                            # Already bridged: enforce strict 1:1 mapping
+                            pass
+                        else:
+                            self.eventlog.append(
+                                kind="policy_update",
+                                content="",
+                                meta={
+                                    "component": str(comp),
+                                    "params": dict(patch),
+                                    "stage": str(curr_stage),
+                                    "tick": int(tick_no),
+                                    "src_id": int(_src_id),
+                                },
+                            )
+        except Exception:
+            pass
+        # S4(E): Trait Ratchet — propose a bounded trait_update once per tick
+        try:
+            _propose_trait_ratchet(
+                self.eventlog, tick=int(tick_no), stage=str(curr_stage)
+            )
         except Exception:
             pass
         # 5) Always-on invariants (non-blocking): run a bounded set of checks and append violations

@@ -90,6 +90,7 @@ def test_autonomy_proposes_identity_once_at_S1_with_novelty(tmp_path, monkeypatc
         cooldown=rt.cooldown,
         interval_seconds=0.1,
         proposer=rt._propose_identity_name,
+        allow_affirmation=True,
     )
     aloop.tick()
 
@@ -114,6 +115,7 @@ def test_autonomy_adopts_on_affirmation_or_bootstrap(tmp_path, monkeypatch):
         cooldown=rt.cooldown,
         interval_seconds=0.1,
         proposer=rt._propose_identity_name,
+        allow_affirmation=True,
     )
     aloop.tick()  # emits identity_propose
 
@@ -200,7 +202,9 @@ def test_persistence_and_renderer_use_identity(tmp_path, monkeypatch):
     assert not out2.rstrip().endswith("— Ada")
 
 
-def _mk_autonomy(tmp_path, cooldown, proposer=lambda: "Ada"):
+def _mk_autonomy(
+    tmp_path, cooldown, proposer=lambda: "Ada", allow_affirmation: bool = True
+):
     db = tmp_path / "auto.db"
     log = EventLog(str(db))
     # prime S1 (IAS/GAS)
@@ -212,7 +216,11 @@ def _mk_autonomy(tmp_path, cooldown, proposer=lambda: "Ada"):
         )
     log.append(kind="debug", content="", meta={"reflect_skip": "time"})
     loop = AutonomyLoop(
-        eventlog=log, cooldown=cooldown, interval_seconds=0.1, proposer=proposer
+        eventlog=log,
+        cooldown=cooldown,
+        interval_seconds=0.1,
+        proposer=proposer,
+        allow_affirmation=allow_affirmation,
     )
     return loop, log
 

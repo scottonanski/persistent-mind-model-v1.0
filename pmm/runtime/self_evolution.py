@@ -158,3 +158,208 @@ class SelfEvolution:
             changes["user_feedback"] = feedback[-1].get("content")
             details.append(f"User feedback: {feedback[-1].get('content')}")
         return changes, "; ".join(details)
+
+
+# -------------------- S4(E): Trait Ratchet (deterministic, monotonic) --------------------
+# No env flags; all constants here
+RATCHET_MIN_REFLECTIONS = 3
+RATCHET_MIN_TICK_GAP = 5
+RATCHET_STEP = 0.01
+
+RATCHET_BOUNDS = {
+    "S0": {
+        "openness": (0.40, 0.60),
+        "conscientiousness": (0.45, 0.55),
+        "extraversion": (0.45, 0.55),
+    },
+    "S1": {
+        "openness": (0.40, 0.65),
+        "conscientiousness": (0.45, 0.60),
+        "extraversion": (0.45, 0.60),
+    },
+    "S2": {
+        "openness": (0.40, 0.70),
+        "conscientiousness": (0.45, 0.65),
+        "extraversion": (0.45, 0.65),
+    },
+    "S3": {
+        "openness": (0.40, 0.75),
+        "conscientiousness": (0.45, 0.70),
+        "extraversion": (0.45, 0.70),
+    },
+    "S4": {
+        "openness": (0.40, 0.80),
+        "conscientiousness": (0.45, 0.75),
+        "extraversion": (0.45, 0.75),
+    },
+}
+
+
+def _read_tail(evlog, n: int = 600) -> List[dict]:
+    try:
+        return evlog.read_tail(limit=n)
+    except TypeError:  # legacy signature fallback
+        return evlog.read_tail(n)  # type: ignore[arg-type]
+
+
+def _latest_perf_report(tail: List[dict]) -> dict | None:
+    for e in reversed(tail):
+        if e.get("kind") != "evaluation_report":
+            continue
+        m = e.get("meta") or {}
+        if m.get("component") == "performance":
+            return e
+    return None
+
+
+def _last_trait_update_tick(tail: List[dict]) -> int:
+    for e in reversed(tail):
+        if e.get("kind") == "trait_update":
+            try:
+                return int((e.get("meta") or {}).get("tick") or 0)
+            except Exception:
+                return 0
+    return 0
+
+
+def _last_autonomy_tick_id(tail: List[dict]) -> int:
+    for e in reversed(tail):
+        if e.get("kind") == "autonomy_tick":
+            try:
+                return int(e.get("id") or 0)
+            except Exception:
+                return 0
+    return 0
+
+
+def _ratchet_emitted_this_tick(tail: List[dict]) -> bool:
+    last_auto_id = _last_autonomy_tick_id(tail)
+    for e in reversed(tail):
+        try:
+            eid = int(e.get("id") or 0)
+        except Exception:
+            continue
+        if last_auto_id and eid <= last_auto_id:
+            break
+        if (
+            e.get("kind") == "trait_update"
+            and (e.get("meta") or {}).get("reason") == "ratchet"
+        ):
+            return True
+    return False
+
+
+def propose_trait_ratchet(eventlog, *, tick: int, stage: str) -> int | None:
+    """Propose a monotonic trait ratchet as a single combined trait_update.
+
+    Gates:
+    - At least RATCHET_MIN_REFLECTIONS since last ratchet
+    - Last trait_update at least RATCHET_MIN_TICK_GAP ticks ago
+    - At most once per tick (skip if a ratchet already emitted since last autonomy_tick)
+    """
+    tail = _read_tail(eventlog, n=1000)
+    # Single-emission per tick
+    if _ratchet_emitted_this_tick(tail):
+        return None
+
+    # Reflections since last ratchet
+    last_ratchet_id = 0
+    for e in reversed(tail):
+        if (
+            e.get("kind") == "trait_update"
+            and (e.get("meta") or {}).get("reason") == "ratchet"
+        ):
+            try:
+                last_ratchet_id = int(e.get("id") or 0)
+            except Exception:
+                last_ratchet_id = 0
+            break
+    refl_cnt = 0
+    for e in tail:
+        try:
+            eid = int(e.get("id") or 0)
+        except Exception:
+            continue
+        if eid > last_ratchet_id and e.get("kind") == "reflection":
+            refl_cnt += 1
+    if refl_cnt < RATCHET_MIN_REFLECTIONS:
+        return None
+
+    # Tick-gap gate for any trait_update
+    last_trait_tick = _last_trait_update_tick(tail)
+    try:
+        curr_tick = int(tick)
+    except Exception:
+        curr_tick = 0
+    if last_trait_tick and (curr_tick - last_trait_tick) < int(RATCHET_MIN_TICK_GAP):
+        return None
+
+    # Current identity traits (bounded tail projection is acceptable)
+    try:
+        from pmm.storage.projection import build_identity as _build_identity
+
+        ident = _build_identity(tail)
+    except Exception:
+        ident = {
+            "traits": {"openness": 0.5, "conscientiousness": 0.5, "extraversion": 0.5}
+        }
+    traits = (ident.get("traits") or {}).copy()
+    opn = float(traits.get("openness", 0.5))
+    con = float(traits.get("conscientiousness", 0.5))
+    ext = float(traits.get("extraversion", 0.5))
+
+    # Metrics hints from latest performance report
+    rpt = _latest_perf_report(tail)
+    metrics = (rpt.get("meta") or {}).get("metrics") if rpt else {}
+    try:
+        same = float((metrics or {}).get("novelty_same_ratio", 0.0) or 0.0)
+    except Exception:
+        same = 0.0
+    try:
+        win = float((metrics or {}).get("bandit_accept_winrate", 0.0) or 0.0)
+    except Exception:
+        win = 0.0
+
+    # Proposed deltas
+    d_opn = 0.0
+    d_con = 0.0
+    d_ext = 0.0
+    if same > 0.80:
+        d_opn += RATCHET_STEP
+    if win < 0.25:
+        d_con += RATCHET_STEP
+        # If heavy reflection volume but flat acceptance, reduce verbosity proxy
+        if refl_cnt >= RATCHET_MIN_REFLECTIONS:
+            d_ext -= RATCHET_STEP
+
+    # Clamp to stage bounds
+    bounds = RATCHET_BOUNDS.get(str(stage), RATCHET_BOUNDS.get("S0"))
+
+    def _clamp(val: float, mn: float, mx: float) -> float:
+        return max(mn, min(mx, val))
+
+    new_opn = _clamp(opn + d_opn, *bounds["openness"]) if bounds else (opn + d_opn)
+    new_con = (
+        _clamp(con + d_con, *bounds["conscientiousness"]) if bounds else (con + d_con)
+    )
+    new_ext = _clamp(ext + d_ext, *bounds["extraversion"]) if bounds else (ext + d_ext)
+
+    # Final deltas after clamp
+    f_opn = round(new_opn - opn, 3)
+    f_con = round(new_con - con, 3)
+    f_ext = round(new_ext - ext, 3)
+
+    if f_opn == 0.0 and f_con == 0.0 and f_ext == 0.0:
+        return None
+
+    meta = {
+        "delta": {
+            "openness": f_opn,
+            "conscientiousness": f_con,
+            "extraversion": f_ext,
+        },
+        "tick": int(curr_tick),
+        "reason": "ratchet",
+        "stage": str(stage),
+    }
+    return eventlog.append(kind="trait_update", content="", meta=meta)

@@ -40,6 +40,112 @@ This guide documents PMM's runtime observability around LLM usage: deterministic
 - The `llm_latency` event is a diagnostics breadcrumb. For the strict invariant test path, latency logging is disabled to avoid inserting it before `reflection`. In normal operation, `llm_latency` is emitted adjacent to the model call.
 - The `rate_limit_skip` breadcrumb may appear when a budget ceiling would be exceeded. Skips are non‑fatal and the runtime falls back to deterministic, short outputs where applicable.
 
+## Stage 4 observability: Evaluators and Planning Thought
+
+Stage 4 introduces three new log-only events. All are deterministic, tail-based, and respect existing ordering invariants. No new write APIs or flags are added.
+
+- `evaluation_report` (S4(A))
+  - Emitted once every 5 ticks (idempotent per `component` + `tick`).
+  - Placement: after `autonomy_tick` and bandit reward logging, before invariant triage.
+  - Meta: `{ component: "performance", metrics: { completion_rate, bandit_accept_winrate, llm_chat_latency_mean_ms, novelty_same_ratio, window }, tick }`.
+  - Example:
+    ```json
+    {"kind": "evaluation_report", "content": "", "meta": {
+      "component": "performance",
+      "metrics": {
+        "completion_rate": 0.75,
+        "bandit_accept_winrate": 0.6,
+        "llm_chat_latency_mean_ms": 142.3,
+        "novelty_same_ratio": 0.5,
+        "window": 200
+      },
+      "tick": 510
+    }}
+    ```
+
+- `evaluation_summary` (S4(C))
+  - Optional short operator-facing summary that follows an `evaluation_report` for that tick.
+  - Placement: immediately after the corresponding `evaluation_report` and before invariant triage.
+  - Meta: `{ from_report_id, tick, stage }`.
+  - Example:
+    ```json
+    {"kind": "evaluation_summary", "content": "Completion steady; acceptance slightly improving; latency stable.", "meta": {
+      "from_report_id": 4920, "tick": 510, "stage": "S1"
+    }}
+    ```
+
+- `planning_thought` (S4(B))
+  - A privacy-safe mini plan logged once after each reflection in S1+ (no chain-of-thought; ≤3 bullets or ≤2 sentences).
+  - Placement: after `reflection_check`/`insight_ready` and the reflection-path `bandit_arm_chosen` emission.
+  - Meta: `{ from_event: <reflection_id>, tick, stage }`.
+  - Example:
+    ```json
+    {"kind": "planning_thought", "content": "• Clarify intent in one line.\n• Keep reply under 2 sentences.\n• Ask one precise follow-up.", "meta": {
+      "from_event": 4899, "tick": 509, "stage": "S2"
+    }}
+    ```
+
+- `curriculum_update` (S4(D) proposal)
+  - Derived from the latest `evaluation_report` with deterministic rules (no env flags):
+    - If `bandit_accept_winrate < 0.25` → propose `{ component: "reflection", params: { min_turns: max(1, current-1) } }`.
+    - Else if `novelty_same_ratio > 0.80` → propose `{ component: "cooldown", params: { novelty_threshold: min(1.0, current+0.05) } }`.
+    - Else → no proposal.
+  - "Current" parameters are read from the most recent `policy_update` for the component within a bounded tail; fallback defaults are `min_turns=2` and `novelty_threshold=0.50` if none found.
+  - Placement: immediately after the `evaluation_report`/`evaluation_summary` block (same tick cadence as reports).
+  - Meta: `{ proposed: { component, params }, reason, tick }`.
+  - Example:
+    ```json
+    {"kind": "curriculum_update", "content": "", "meta": {
+      "proposed": {"component": "cooldown", "params": {"novelty_threshold": 0.55}},
+      "reason": "novelty_same_ratio=0.90 > 0.8",
+      "tick": 515
+    }}
+    ```
+
+- `trait_update` (S4(E) ratchet)
+  - A monotonic, stage-aware adjustment emitted at most once per tick when gates pass.
+  - Gates: ≥3 reflections since the last ratchet; last trait_update at least 5 ticks ago; single-emit per tick.
+  - Deterministic hints from latest `evaluation_report` (component="performance"):
+    - If `novelty_same_ratio > 0.80` → openness `+0.01`.
+    - If `bandit_accept_winrate < 0.25` → conscientiousness `+0.01`; and if reflection volume is high, extraversion `-0.01`.
+  - Per-stage clamps to keep traits within:
+    - `RATCHET_BOUNDS[stage]` for `openness`, `conscientiousness`, `extraversion`.
+  - Placement: after the curriculum bridge and before invariant triage.
+  - Meta (multi-delta shape): `{ delta: { openness, conscientiousness, extraversion }, reason: "ratchet", stage, tick }`.
+  - Example:
+    ```json
+    {"kind": "trait_update", "content": "", "meta": {
+      "delta": {"openness": 0.01, "conscientiousness": 0.01, "extraversion": -0.01},
+      "reason": "ratchet", "stage": "S2", "tick": 516
+    }}
+    ```
+
+Policy bridge (idempotent)
+
+- After a `curriculum_update`, the loop checks the recent tail; if no matching `policy_update` exists with identical `component` and `params` since that proposal, it appends one `policy_update`:
+  - `{"kind":"policy_update","meta":{"component": <str>, "params": {…}, "tick": <int>}}`
+  - If already applied, it skips (no duplicates).
+
+Ordering invariants preserved
+
+- Reflect path remains ordered: `reflection` → `reflection_check` → `[commitment_open?]` → `insight_ready` → `bandit_arm_chosen` → `planning_thought` (S4(B)) → ...
+- Tick tail remains: `autonomy_tick` → `[bandit_reward if horizon]` → `evaluation_report` (every 5 ticks) → `evaluation_summary` (optional) → `curriculum_update` (proposal) → `policy_update` (if not already applied) → `trait_update(reason="ratchet")` (if gates pass) → invariant triage.
+- Existing S2/S3 invariants hold: one `bandit_arm_chosen` per tick and `bandit_guidance_bias` precedes `bandit_arm_chosen` on both reflect and skip paths.
+
+Cadence and idempotency
+
+- `evaluation_report`: every 5 ticks via a stable constant; each report is idempotent for a given `component` + `tick`.
+- `evaluation_summary`: idempotent per `from_report_id`.
+- `planning_thought`: idempotent per `from_event` (reflection id); only emitted in S1+.
+ - `curriculum_update`: runs alongside the report cadence; proposal emitted only when rules fire and differs from current params.
+ - `policy_update` bridge: emitted at most once per proposal; skipped if an identical update already exists since the proposal.
+ - `trait_update` (ratchet): at most one per tick; requires reflection and tick-gap gates; strictly clamped by stage bounds; no oscillation within the enforced tick gap.
+
+API surface
+
+- Read-only API remains unchanged; these events appear naturally in `/snapshot` responses.
+- No new POST routes; all additions are append-only observability.
+
 ## Query examples
 
 - Find all LLM latency events for chat:

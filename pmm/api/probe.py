@@ -363,6 +363,49 @@ def render_commitments_open(rows: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+# ---------- Memory summary (read-only) ----------
+
+
+def memory_summary(evlog: EventLog) -> str:
+    """Return a compact human-readable summary of persistent state.
+
+    Includes identity, a short list of open commitments, and a count of
+    reflections and directives. Purely read-only.
+    """
+    events = evlog.read_all()
+    model = build_self_model(events)
+    name = (model.get("identity") or {}).get("name") or "—"
+    # Open commitments (top 3 by recency)
+    opens = []
+    seen = set()
+    for ev in reversed(events):
+        if ev.get("kind") != "commitment_open":
+            continue
+        m = ev.get("meta") or {}
+        cid = str(m.get("cid") or "")
+        if not cid or cid in seen:
+            continue
+        seen.add(cid)
+        text = str(m.get("text") or "").strip()
+        if text:
+            # First non-empty line, truncated
+            line = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+            opens.append(line[:80])
+        if len(opens) >= 3:
+            break
+    refl_count = sum(1 for e in events if e.get("kind") == "reflection")
+    dirs = build_directives(events)
+    lines: list[str] = []
+    lines.append(f"Identity: {name}")
+    if opens:
+        lines.append("Open commitments:")
+        for t in opens:
+            lines.append(f"- {t}")
+    lines.append(f"Reflections: {refl_count}")
+    lines.append(f"Directives: {len(dirs)}")
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PMM Probe CLI (read-only)")
     # Backward-compatible flags (no subcommand): default prints snapshot JSON
@@ -428,6 +471,12 @@ if __name__ == "__main__":
         "--limit", type=int, default=20, help="Max rows to display (newest first)"
     )
 
+    # memory-summary subcommand (compact text output)
+    p_ms = sub.add_parser(
+        "memory-summary", help="Print a compact memory summary (read-only)"
+    )
+    p_ms.add_argument("--db", required=False, help="Path to SQLite event log database")
+
     args = parser.parse_args()
 
     if args.cmd == "directives":
@@ -452,6 +501,9 @@ if __name__ == "__main__":
         evlog = EventLog(args.db) if getattr(args, "db", None) else EventLog()
         rows = snapshot_commitments_open(evlog, limit=args.limit)
         print(render_commitments_open(rows))
+    elif args.cmd == "memory-summary":
+        evlog = EventLog(args.db) if getattr(args, "db", None) else EventLog()
+        print(memory_summary(evlog))
     else:
         # Backward-compatible default: behave like original CLI (print snapshot JSON)
         evlog = EventLog(args.db) if getattr(args, "db", None) else EventLog()

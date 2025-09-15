@@ -4,7 +4,11 @@ from typing import Dict, List, Optional
 
 from pmm.storage.projection import build_self_model, build_identity
 from pmm.runtime.stage_tracker import StageTracker
-from pmm.runtime.loop import CADENCE_BY_STAGE, DRIFT_MULT_BY_STAGE
+from pmm.runtime.loop import (
+    CADENCE_BY_STAGE,
+    DRIFT_MULT_BY_STAGE,
+    _resolve_reflection_cadence,
+)
 
 
 class MetricsView:
@@ -110,7 +114,12 @@ class MetricsView:
             f"traits=[O:{tv['O']} C:{tv['C']} E:{tv['E']} A:{tv['A']} N:{tv['N']}]"
         )
 
-        cad = CADENCE_BY_STAGE.get(stage_now, CADENCE_BY_STAGE.get("S0", {}))
+        # Resolve cadence from last reflection policy update if present; fallback to stage defaults
+        try:
+            mt, ms = _resolve_reflection_cadence(events)
+            cad = {"min_turns": int(mt), "min_time_s": int(ms)}
+        except Exception:
+            cad = CADENCE_BY_STAGE.get(stage_now, CADENCE_BY_STAGE.get("S0", {}))
         dmult = DRIFT_MULT_BY_STAGE.get(stage_now, DRIFT_MULT_BY_STAGE.get("S0", {}))
 
         def _fmt_float(x) -> str:
