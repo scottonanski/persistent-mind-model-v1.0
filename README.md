@@ -103,6 +103,86 @@ bash scripts/verify_pmm.sh .logs_run .data/pmm.db
 python -m pmm.api.probe snapshot --db .data/pmm.db --limit 50 | jq .
 ```
 
+## Beginner Quickstart (3 minutes)
+
+Think of PMM like a tidy “mind notebook.” It writes down everything it thinks or decides. You can start small:
+
+1) Create the notebook and start talking
+- Run: `python -m pmm.cli.chat --@metrics on`
+- You’ll see a header line (identity, open items) and a reason why it reflected or not.
+
+2) Ask simple things
+- “What are you working on?” → it mentions top open items from its notebook.
+- “Reflect on your last answer.” → it writes a short reflection (and may open a tiny task).
+
+3) Check the notebook
+- `python -m pmm.api.probe snapshot --db .data/pmm.db --limit 30 | jq .`
+- You’ll see entries like `reflection`, `commitment_open`, `policy_update` — everything is written down.
+
+That’s it. PMM is just a careful mind that writes everything to a ledger.
+
+## Concepts in Everyday Terms
+
+- Ledger (event log) = a diary. PMM never edits past pages; it only adds new entries.
+- Identity = a name and voice it sticks to, so it sounds like the same person every time.
+- Reflection = short journaling: “what changed, what I’ll adjust next.”
+- Commitments = to‑dos the mind opens and later checks off when evidence arrives.
+- Projects = folders that group related to‑dos.
+- Policy = a rule like “how often should I reflect?”
+- Self‑assessment = a periodic review: “how did the last stretch go?” It may slightly tweak a policy.
+
+## Common Tasks (Copy/Paste)
+
+- Start the read‑only API (local):
+  - `python -m uvicorn pmm.api.server:app --host 127.0.0.1 --port 8000 --reload`
+  - Browse docs: http://127.0.0.1:8000/docs
+
+- Verify a run (writes logs to `.logs_run/`):
+  - `bash scripts/verify_pmm.sh .logs_run .data/pmm.db`
+
+- Show a memory summary:
+  - `python -m pmm.api.probe memory-summary --db .data/pmm.db | jq .`
+
+- Demo self‑assessment output:
+  - `scripts/demo_self_assessment.sh .data/pmm.db`
+
+- Turn off the background loop (no autonomy):
+  - `export PMM_AUTONOMY_INTERVAL=0` (Windows PowerShell: `$env:PMM_AUTONOMY_INTERVAL=0`)
+
+- Disable colored notices (for clean logs):
+  - `export PMM_COLOR=0` (Windows PowerShell: `$env:PMM_COLOR=0`)
+
+## Troubleshooting
+
+- “OPENAI_API_KEY not set”
+  - Add your key to `.env` (or your shell env): `OPENAI_API_KEY=sk-...`
+  - Restart your shell or re‑activate the venv.
+
+- `uvicorn: command not found`
+  - Install dev extras: `pip install -e .[dev]` (or `pip install uvicorn`).
+
+- `jq: command not found`
+  - Linux: `sudo apt-get install jq`
+  - macOS: `brew install jq`
+  - Windows: use `choco install jq` or run probes without jq.
+
+- Windows PowerShell can’t run activation script
+  - Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` in an admin shell once.
+
+- Nothing shows in `.data/`
+  - PMM writes events on demand; start a chat or run a verify script to generate entries.
+
+## FAQ (Short)
+
+- Is this just prompt engineering?
+  - No. PMM’s behavior is driven by the ledger and explicit policies. Every change is recorded and can be verified later.
+
+- Can I use a provider other than OpenAI?
+  - Yes. The code includes other adapters (e.g., Ollama). Switch provider/model via env (see `pmm/llm/factory.py`).
+
+- Is the API safe to run locally?
+  - Yes. It’s read‑only: it never writes to your ledger; it only reads from the SQLite database you point it at.
+
 ## Key Ideas (Glossary)
 
 - Event log: append‑only source of truth; events like `user`, `response`, `reflection`, `commitment_open/close`, `policy_update`.
