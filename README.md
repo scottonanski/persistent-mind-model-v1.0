@@ -1,4 +1,128 @@
-# Fresh start
+# Persistent Mind Model (PMM)
+
+PMM is a small runtime that turns a language model into a steady, self-improving “mind”.
+
+It is not just a chat wrapper.
+
+PMM is **ledger-first**: every thought, decision, and change is written to an append-only, hash-chained event log. That makes behavior auditable, reproducible, and resistant to hidden prompt state or “drift”.
+
+### *Okay, great... But what does this even mean? It sounds like a bunch of nerd-speak!*
+
+You're right, it does. Here’s the plain version:
+
+* **What it does right now:** PMM runs a loop around a language model, logs every action to a tamper-resistant event chain, and reuses that log to maintain a consistent state across turns.
+* **What it’s designed for:** building a persistent “mind” that remembers, self-assesses, and steadily improves instead of resetting each session.
+* **What’s still in progress:** some of the “mind-like” behaviors (like autonomous self-assessment and self-improvement) are still being tested and tuned.
+
+Because of this, PMM can watch its own behavior and change itself over time, instead of just reacting in the moment.
+
+### Breaking down the jargon
+
+* **Append-only** means nothing gets erased or rewritten. Every step is added in order.
+* **Hash-chained** means each step is mathematically linked to the one before it, so tampering shows up immediately.
+* Together, this makes PMM’s behavior **traceable and verifiable** instead of being hidden inside a black-box prompt.
+* **Resistant to drift** means it doesn’t silently lose track of who it is or what it’s doing. Its state is anchored to the log, not to temporary chat history.
+
+
+## In One Line
+
+Self‑evolving AI mind kernel — where identity, memory, and growth are first‑class, provable system properties.
+
+## What It Does (Plain Terms)
+
+- Maintains identity: proposes and adopts a name; keeps a consistent voice and trait profile across turns.
+- Evolves autonomously: runs a background loop that reflects, self‑assesses, and adjusts its own reflection cadence (within safe bounds).
+- Tracks work: opens, assigns, and closes “commitments” (tasks), grouping related ones into projects automatically.
+- Verifies itself: ships a script that checks invariants (e.g., 1:1 policy linkage, correct self‑assessment windows, project rules).
+- Shows its reasoning: prints a header with identity, the top open commitments, and why it did or didn’t reflect this turn.
+
+## How It Works
+
+- Append‑only event log (SQLite): all events are time‑stamped and hash‑chained for integrity.
+- Autonomy loop: every few seconds, PMM looks at recent events (ledger), computes simple “health” metrics, and decides whether to reflect.
+- Reflection → commitments: reflections produce tiny next‑steps; PMM may open a matching commitment and later close it when it sees evidence.
+- Meta‑reflection (every 5 reflections): summarizes “opened vs. closed” and effectiveness for that window.
+- Self‑assessment (every 10 reflections): richer stats (e.g., average close lag, hit rate) plus a fingerprint of the exact window; may trigger a small cadence policy tweak, safely clamped and with deadband to avoid flapping.
+
+## Quick Start
+
+### 0) Install (Linux, macOS, Windows)
+
+- Prereqs: Git, Python 3.10+ (3.11 recommended), pip. For verify: `jq` (CLI JSON tool).
+
+- Linux (Ubuntu/Debian):
+  - `sudo apt-get update && sudo apt-get install -y python3 python3-venv python3-pip jq`
+  - `git clone https://github.com/USERNAME/persistent-mind-model.git && cd persistent-mind-model`
+  - `python3 -m venv .venv && source .venv/bin/activate`
+  - `pip install -U pip && pip install -e .`  # add `.[dev]` for dev tools/tests
+
+- macOS:
+  - Install Homebrew if needed, then: `brew install python jq`
+  - `git clone https://github.com/USERNAME/persistent-mind-model.git && cd persistent-mind-model`
+  - `python3 -m venv .venv && source .venv/bin/activate`
+  - `pip install -U pip && pip install -e .`
+
+- Windows (PowerShell):
+  - Install Python 3.10+ from python.org and Git for Windows.
+  - Optional: `choco install jq` (or use Git Bash and `jq` via `pacman` in MSYS2).
+  - `git clone https://github.com/USERNAME/persistent-mind-model.git` then `cd persistent-mind-model`
+  - `py -3 -m venv .venv; .\.venv\Scripts\Activate.ps1`
+  - `python -m pip install -U pip && pip install -e .`
+
+Configure your `.env` (copy then edit):
+
+```
+cp .env .env.local || true
+```
+
+Open `.env` (or `.env.local`) and set at least:
+
+```
+OPENAI_API_KEY=sk-...      # required for the default OpenAI chat adapter
+# Optional knobs
+# OPENAI_MODEL=gpt-4o-mini  # or PMM_MODEL to override
+# PMM_AUTONOMY_INTERVAL=10  # seconds between background ticks (0 disables)
+# PMM_COLOR=0               # disable colored notices in CLI
+```
+
+### 1) Start a chat (metrics view on):
+
+```bash
+python -m pmm.cli.chat --@metrics on
+```
+
+### 2) Verify what happened (scoped, deterministic checks):
+
+```bash
+bash scripts/verify_pmm.sh .logs_run .data/pmm.db
+```
+
+### 3) Inspect the event log directly:
+
+```bash
+python -m pmm.api.probe snapshot --db .data/pmm.db --limit 50 | jq .
+```
+
+## Key Ideas (Glossary)
+
+- Event log: append‑only source of truth; events like `user`, `response`, `reflection`, `commitment_open/close`, `policy_update`.
+- Identity: a proposed/adopted name and traits; used to keep voice steady and behavior consistent.
+- Reflection: short, structured self‑notes (“what changed; what to adjust next”).
+- Commitments & projects: tasks the agent opens/closes; related tasks cluster into projects with `project_open/assign/close` events.
+- Cadence & policies: explicit rules for how often to reflect; self‑assessment can adjust them slightly (within bounds).
+- Verification: a script that replays the ledger to assert invariants and catch regressions.
+
+## Where Things Live
+
+- Runtime loop and autonomy: `pmm/runtime/loop.py`
+- CLI chat: `pmm/cli/chat.py`
+- Verify script: `scripts/verify_pmm.sh`
+- Metrics header: `pmm/runtime/metrics_view.py`
+- Commitments/projects: `pmm/commitments/tracker.py`
+- Cadence rules: `pmm/runtime/cadence.py`
+- Event log (SQLite + hash chain): `pmm/storage/eventlog.py`
+
+---
 
 ## Observability: Read-only Probe
 
@@ -143,4 +267,29 @@ PMM emits `project_open` once per `project_id` and auto-emits `project_close` wh
 
 ```
 [PROJECT] docs — 1 open
+```
+
+---
+
+## Phase‑6 (Self‑Assessment & Policy Tuning)
+
+PMM emits a `self_assessment` every 10 reflections with:
+
+- Window metadata: `window=10`, `window_start_id`, `window_end_id`, and `inputs_hash` (sha256 of the 10 reflection ids) for idempotency and replay.
+- Metrics: `opened`, `closed`, `actions`, `trait_delta_abs`, `efficacy`, `avg_close_lag`, `hit_rate`, `drift_util`.
+- Actions are counted deterministically from reflection‑sourced commitment openings.
+
+After each self‑assessment, PMM may emit a small `policy_update` for the reflection cadence with:
+
+- Source tag: `meta.source="self_assessment"` (keeps bridge checks clean).
+- Deadband: ignores tiny deltas to avoid flapping.
+- Clamps: keeps cadence within safe bounds (turns: 1–6; seconds: 10–300).
+- Snapshots: includes `prev_policy` and `new_policy` for audit.
+
+Every 3 self‑assessments, PMM emits an `assessment_policy_update` with a round‑robin formula `v1 → v2 → v3` and a `rotation_index` for determinism.
+
+You can see the latest SA and policy tweaks with:
+
+```bash
+scripts/demo_self_assessment.sh .data/pmm.db
 ```
