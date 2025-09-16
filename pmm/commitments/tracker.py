@@ -705,9 +705,19 @@ class CommitmentTracker:
         if evidence_type != "done":
             return False
 
-        # Always require artifact evidence (truth-first); no env/test overrides.
-        if not artifact:
-            return False
+        # Require artifact only when configured; otherwise allow non-empty text
+        try:
+            from pmm.config import require_artifact_evidence as REQUIRE_ARTIFACT
+        except Exception:
+            REQUIRE_ARTIFACT = False
+        has_text = isinstance(description, str) and bool(description.strip())
+        has_art = isinstance(artifact, str) and bool(artifact.strip())
+        if REQUIRE_ARTIFACT:
+            if not (has_text and has_art):
+                return False
+        else:
+            if not (has_text or has_art):
+                return False
 
         # Derive open commitments from projection
         model = build_self_model(self.eventlog.read_all())
@@ -1866,14 +1876,18 @@ class LegacyCommitmentTracker:
 
         Policy:
         - Only 'done' evidence is eligible for closure (checked by caller).
-        - Require a non-empty artifact string; text-only evidence is insufficient.
+        - If config require_artifact_evidence is True: require both non-empty description and artifact.
+        - Else: allow either non-empty text OR artifact.
         """
-        if not isinstance(description, str) or not description.strip():
-            return False
-        if isinstance(artifact, str) and artifact.strip():
-            return True
-        # No artifact provided → invalid
-        return False
+        try:
+            from pmm.config import require_artifact_evidence as REQUIRE_ARTIFACT
+        except Exception:
+            REQUIRE_ARTIFACT = False
+        has_text = isinstance(description, str) and bool(description.strip())
+        has_art = isinstance(artifact, str) and bool(artifact.strip())
+        if REQUIRE_ARTIFACT:
+            return has_text and has_art
+        return has_text or has_art
 
     def expire_old_commitments(self, days_old: int = 30) -> List[str]:
         """Mark old commitments as expired. Logs expiration to EventLog."""

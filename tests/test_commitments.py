@@ -46,7 +46,7 @@ def test_open_then_valid_close_removes_from_open(tmp_path):
     assert cid not in open_map
 
 
-def test_text_only_evidence_not_allowed(tmp_path, monkeypatch):
+def test_text_only_evidence_closes_when_allowed(tmp_path, monkeypatch):
     db = tmp_path / "ev.db"
     log = EventLog(str(db))
     ct = CommitmentTracker(log)
@@ -56,7 +56,7 @@ def test_text_only_evidence_not_allowed(tmp_path, monkeypatch):
     assert cid
 
     closed = ct.close_with_evidence(cid, "done", "Project completed as promised.")
-    assert closed is False
+    assert closed is True
 
 
 def test_reclosing_returns_false(tmp_path, monkeypatch):

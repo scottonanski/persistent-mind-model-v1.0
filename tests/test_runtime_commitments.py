@@ -27,7 +27,7 @@ def test_runtime_opens_commitment_from_reply(tmp_path, monkeypatch):
     assert len(open_map) >= 1  # at least one commitment opened
 
 
-def test_runtime_does_not_close_without_artifact(tmp_path, monkeypatch):
+def test_runtime_closes_with_text_only_evidence(tmp_path, monkeypatch):
     rt, log = _mk_rt(tmp_path)
 
     # 1) open a commitment
@@ -37,7 +37,7 @@ def test_runtime_does_not_close_without_artifact(tmp_path, monkeypatch):
     monkeypatch.setattr(rt.chat, "generate", gen_open)
     rt.handle_user("hi")
 
-    # 2) emit Done: reply (text-only); should not close without artifact
+    # 2) emit Done: reply (text-only); should close when text evidence allowed
     def gen_done(msgs, **kw):
         return "Done: summarized the meeting"
 
@@ -46,4 +46,4 @@ def test_runtime_does_not_close_without_artifact(tmp_path, monkeypatch):
 
     model = build_self_model(log.read_all())
     open_map = model.get("commitments", {}).get("open", {})
-    assert len(open_map) >= 1  # remains open without artifact
+    assert len(open_map) == 0  # closed via text evidence

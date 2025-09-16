@@ -52,7 +52,7 @@ def load_runtime_env(dotenv_path: str = ".env") -> RuntimeEnv:
     # Fixed cadence: background autonomy ticks every 10 seconds (no env override)
     autonomy_interval = 10.0
     # Truth-first evidence policy: artifact required (no env override)
-    require_artifact_evidence = True
+    require_artifact_evidence = False
     # Commitment TTL and dedup knobs (constants)
     commitment_ttl_hours = 24
     commitment_dedup_window = 5
@@ -114,6 +114,11 @@ CONTINUITY_INSIGHT_CONFIDENCE_THRESHOLD = 0.70
 
 # Prioritizer Configuration (constant)
 PRIORITY_THRESHOLD = 0.70
+
+# Evidence policy (module-level constant used by tracker):
+# When False (default), text-only evidence may close commitments.
+# When True, an artifact is required alongside non-empty description.
+require_artifact_evidence: bool = False
 
 # Debug Configuration (disabled in core)
 DEBUG_MODE = False

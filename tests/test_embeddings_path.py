@@ -72,8 +72,8 @@ def test_evidence_prefers_embeddings(tmp_path, monkeypatch):
 
     # Provide a Done line that should be similar by embeddings
     ct.process_evidence("Done: finished the report yesterday.")
-    # With embeddings active, an evidence_candidate should occur (closure requires artifact)
+    # With embeddings active and text evidence allowed, candidate and close should occur
     events = log.read_all()
     kinds = [e.get("kind") for e in events]
     assert "evidence_candidate" in kinds
-    assert "commitment_close" not in kinds
+    assert "commitment_close" in kinds

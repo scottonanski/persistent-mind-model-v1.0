@@ -20,7 +20,7 @@ def test_logs_evidence_before_close(tmp_path, monkeypatch):
     _ = _open_commitment(ct, "write the report today.")
 
     closed = ct.process_evidence("Done: I wrote the report and pushed it.")
-    assert closed == []
+    assert isinstance(closed, list) and len(closed) == 1
 
     events = log.read_all()
     kinds = [e.get("kind") for e in events]
@@ -28,8 +28,8 @@ def test_logs_evidence_before_close(tmp_path, monkeypatch):
     assert "evidence_candidate" in kinds
     # Find indices
     _ = next(i for i, e in enumerate(events) if e.get("kind") == "evidence_candidate")
-    # No close without artifact
-    assert "commitment_close" not in kinds
+    # Close recorded via text evidence
+    assert "commitment_close" in kinds
 
 
 def test_no_close_without_evidence(tmp_path, monkeypatch):

@@ -4,7 +4,7 @@ from pmm.commitments.tracker import CommitmentTracker
 from pmm.commitments.detectors import RegexCommitmentDetector
 
 
-def test_text_only_evidence_never_closes_without_artifact(tmp_path, monkeypatch):
+def test_text_only_evidence_closes_without_artifact(tmp_path, monkeypatch):
     db = tmp_path / "e2e.db"
     log = EventLog(str(db))
     ct = CommitmentTracker(log, detector=RegexCommitmentDetector())
@@ -14,11 +14,11 @@ def test_text_only_evidence_never_closes_without_artifact(tmp_path, monkeypatch)
     cid = opened[0]
 
     closed = ct.process_evidence("Done: wrote the docs")
-    assert closed == []
+    assert closed == [cid]
 
     model = build_self_model(log.read_all())
-    # Still open due to artifact requirement
-    assert cid in model.get("commitments", {}).get("open", {})
+    # Closed via text evidence
+    assert cid not in model.get("commitments", {}).get("open", {})
 
 
 def test_close_requires_artifact_metadata(tmp_path, monkeypatch):
