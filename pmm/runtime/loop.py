@@ -19,6 +19,7 @@ from pmm.storage.projection import build_identity, build_self_model
 from pmm.llm.factory import LLMFactory, LLMConfig, chat_with_budget
 from pmm.llm.limits import TickBudget, RATE_LIMITED
 from pmm.bridge.manager import BridgeManager
+from pmm.directives.classifier import SemanticDirectiveClassifier
 from pmm.runtime.cooldown import ReflectionCooldown
 from pmm.runtime.metrics import compute_ias_gas
 from pmm.commitments.tracker import CommitmentTracker
@@ -42,7 +43,6 @@ from pmm.runtime.embeddings import (
 from pmm.directives.detector import (
     extract as _extract_directives,
 )
-from pmm.bridge.manager import sanitize as _bridge_sanitize
 from pmm.runtime.invariants_rt import run_invariants_tick as _run_invariants_tick
 from pmm.runtime.cadence import CadenceState as _CadenceState
 from pmm.runtime.cadence import should_reflect as _cadence_should_reflect
@@ -288,15 +288,82 @@ class Runtime:
             else None
         )
         self.prioritizer = Prioritizer(self.eventlog) if self.eventlog else None
+        self.classifier = SemanticDirectiveClassifier(self.eventlog)
+
+    def _log_recent_events(self, limit: int = 3) -> List[dict]:
+        try:
+            return self.eventlog.read_tail(limit=limit)
+        except Exception:
+            try:
+                return self.eventlog.read_all()[-limit:]
+            except Exception:
+                return []
+
+    def _record_identity_proposal(
+        self, name: str, *, source: str, intent: str, confidence: float
+    ) -> None:
+        sanitized = _sanitize_name(name)
+        if not sanitized:
+            return
+        self.eventlog.append(
+            kind="identity_propose",
+            content=sanitized,
+            meta={
+                "source": source,
+                "intent": intent,
+                "confidence": float(confidence),
+            },
+        )
+
+    def _adopt_identity(
+        self, name: str, *, source: str, intent: str, confidence: float
+    ) -> None:
+        sanitized = _sanitize_name(name)
+        if not sanitized:
+            return
+        try:
+            current = build_identity(self.eventlog.read_all()).get("name")
+        except Exception:
+            current = None
+        if current and current.lower() == sanitized.lower():
+            return
+        self.eventlog.append(
+            kind="identity_adopt",
+            content=sanitized,
+            meta={
+                "name": sanitized,
+                "source": source,
+                "intent": intent,
+                "confidence": float(confidence),
+            },
+        )
 
     def handle_user(self, user_text: str) -> str:
         msgs = [{"role": "user", "content": user_text}]
+        recent_events = self._log_recent_events(limit=5)
+
+        try:
+            intent, candidate_name, confidence = (
+                self.classifier.classify_identity_intent(
+                    user_text,
+                    speaker="user",
+                    recent_events=recent_events,
+                )
+            )
+        except Exception:
+            intent, candidate_name, confidence = ("irrelevant", None, 0.0)
+
+        if intent == "assign_assistant_name" and candidate_name and confidence >= 0.8:
+            self._adopt_identity(
+                candidate_name,
+                source="user",
+                intent=intent,
+                confidence=confidence,
+            )
         # User-driven one-shot commitment execution is disabled; commitments open autonomously.
         exec_commit = False
         exec_text = ""
         exec_cid: str | None = None
-        # User-driven identity adoption is disabled; identity evolves autonomously.
-        # (No-op here by design.)
         # Capture short declarative knowledge lines as pinned assertions (ledger-first)
         try:
             ut2 = str(user_text or "")
@@ -404,9 +471,52 @@ class Runtime:
         reply = self.chat.generate(styled, temperature=0.3, max_tokens=256)
         # Sanitize raw model output deterministically before any event emission
         try:
-            reply = _bridge_sanitize(reply, family=self.bridge.model_family)
+            reply = self.bridge.sanitize(
+                reply,
+                family=self.bridge.model_family,
+                adopted_name=build_identity(self.eventlog.read_all()).get("name"),
+            )
         except Exception:
             pass
+
+        try:
+            intent_reply, candidate_reply, confidence_reply = (
+                self.classifier.classify_identity_intent(
+                    reply,
+                    speaker="assistant",
+                    recent_events=recent_events,
+                )
+            )
+        except Exception:
+            intent_reply, candidate_reply, confidence_reply = (
+                "irrelevant",
+                None,
+                0.0,
+            )
+
+        if (
+            intent_reply == "assign_assistant_name"
+            and candidate_reply
+            and confidence_reply >= 0.8
+        ):
+            self._adopt_identity(
+                candidate_reply,
+                source="assistant",
+                intent=intent_reply,
+                confidence=confidence_reply,
+            )
+        elif (
+            intent_reply == "affirm_assistant_name"
+            and candidate_reply
+            and confidence_reply >= 0.8
+        ):
+            # Stage 1: propose identity (safer than immediate adoption)
+            self._record_identity_proposal(
+                candidate_reply,
+                source="assistant",
+                intent=intent_reply,
+                confidence=confidence_reply,
+            )
         # Post-process with n-gram filter
         reply = self._ngram_filter.filter(reply)
         # Render with identity-aware renderer before logging
@@ -1028,59 +1138,9 @@ class Runtime:
         return note
 
     # --- Identity name proposal using existing chat path ---
-    def _propose_identity_name(self) -> str:
-        """Draft a short single-tokenizable name using the current chat adapter.
-
-        Deterministic: temperature=0, max_tokens small; no quotes/punctuation.
-        """
-        msgs = [
-            {
-                "role": "system",
-                "content": (
-                    "Propose a concise, human-like first name (<=12 chars). "
-                    "Return only the name without quotes or punctuation."
-                ),
-            },
-            {"role": "user", "content": "Name:"},
-        ]
-        styled = self.bridge.format_messages(msgs, intent="chat")
-        # Budgeted identity name proposal (short call)
-        try:
-            _evs_for_tick2 = self.eventlog.read_all()
-        except Exception:
-            _evs_for_tick2 = []
-        tick_id2 = 1 + sum(
-            1 for ev in _evs_for_tick2 if ev.get("kind") == "autonomy_tick"
-        )
-
-        def _do_name():
-            return self.chat.generate(styled, temperature=0.0, max_tokens=8)
-
-        out = chat_with_budget(
-            _do_name,
-            budget=self.budget,
-            tick_id=tick_id2,
-            evlog=self.eventlog,
-            provider=self.cfg.provider,
-            model=self.cfg.model,
-        )
-        if out is RATE_LIMITED or isinstance(out, Exception):
-            out = "Persona"
-        # Attempt up to 2 passes then fallback
-        name = _sanitize_name((out or "").strip())
-        if not name:
-            out2 = chat_with_budget(
-                _do_name,
-                budget=self.budget,
-                tick_id=tick_id2,
-                evlog=self.eventlog,
-                provider=self.cfg.provider,
-                model=self.cfg.model,
-            )
-            if out2 is RATE_LIMITED or isinstance(out2, Exception):
-                out2 = "Persona"
-            name = _sanitize_name((out2 or "").strip())
-        return name or "Persona"
+    def _propose_identity_name(self) -> str | None:
+        """Bootstrap proposer disabled; identities arise semantically."""
+        return None
 
 
 # --- Module-level hardened name validation & affirmation parsing ---
@@ -1593,6 +1653,10 @@ def emit_reflection(
     *,
     forced: bool = False,
     stage_override: str | None = None,
+    forced_reason: str | None = None,
+    force_open_commitment: bool = False,
+    open_autonomy_tick: int | None = None,
+    commitment_protect_until_tick: int | None = None,
 ) -> int:
     """Emit a simple reflection event (used where real chat isn't wired).
 
@@ -1680,16 +1744,21 @@ def emit_reflection(
             )
         except Exception:
             pass
+    meta_payload = {
+        "source": "emit_reflection",
+        "telemetry": {"IAS": ias, "GAS": gas},
+        "refs": sel,
+        "stage_level": int(stage_level),
+        "prompt_template": tmpl_label,
+    }
+    if forced or forced_reason:
+        meta_payload["forced"] = True
+        if forced_reason:
+            meta_payload["forced_reason"] = str(forced_reason)
     rid = eventlog.append(
         kind="reflection",
         content=sanitized_text,
-        meta={
-            "source": "emit_reflection",
-            "telemetry": {"IAS": ias, "GAS": gas},
-            "refs": sel,
-            "stage_level": int(stage_level),
-            "prompt_template": tmpl_label,
-        },
+        meta=meta_payload,
     )
     # Paired reflection_check event after reflection append
     try:
@@ -1709,8 +1778,7 @@ def emit_reflection(
             and last_check.get("kind") == "reflection_check"
             and (last_check.get("meta") or {}).get("ok") is True
         ):
-            # For forced reflections, do not open commitments (keeps TTL tests stable)
-            if not forced:
+            if not forced or force_open_commitment:
                 # Supersede any previously open reflection-driven commitments to avoid pile-up
                 try:
                     from pmm.commitments.tracker import CommitmentTracker as _CT
@@ -1720,16 +1788,22 @@ def emit_reflection(
                     )
                 except Exception:
                     pass
+                _new_cid = _uuid.uuid4().hex
+                open_meta = {
+                    "cid": _new_cid,
+                    "reason": "reflection",
+                    "text": (last_ref.get("content") or "").strip(),
+                    "ref": last_ref.get("id"),
+                    "due": _compute_reflection_due_epoch(),
+                }
+                if commitment_protect_until_tick is not None:
+                    open_meta["protect_until_tick"] = int(commitment_protect_until_tick)
+                if open_autonomy_tick is not None:
+                    open_meta["open_autonomy_tick"] = int(open_autonomy_tick)
                 eventlog.append(
                     kind="commitment_open",
                     content="",
-                    meta={
-                        "cid": _uuid.uuid4().hex,
-                        "reason": "reflection",
-                        "text": (last_ref.get("content") or "").strip(),
-                        "ref": last_ref.get("id"),
-                        "due": _compute_reflection_due_epoch(),
-                    },
+                    meta=open_meta,
                 )
     except Exception:
         # Never block emit_reflection flow if commitment logic fails
@@ -1785,6 +1859,8 @@ def maybe_reflect(
     override_min_seconds: int | None = None,
     arm_means: dict | None = None,
     guidance_items: list | None = None,
+    commitment_protect_until: int | None = None,
+    open_autonomy_tick: int | None = None,
 ) -> tuple[bool, str]:
     """Check cooldown gates with optional per-call overrides; emit reflection or breadcrumb debug event.
 
@@ -1818,8 +1894,42 @@ def maybe_reflect(
             ok, reason = cooldown.should_reflect()
     if not ok:
         eventlog.append(kind="debug", content="", meta={"reflect_skip": reason})
+        if reason in _FORCEABLE_SKIP_REASONS:
+            streak = _consecutive_reflect_skips(eventlog, reason)
+            if streak >= _FORCED_SKIP_THRESHOLD:
+                forced_reason = f"skip_streak:{reason}"
+                rid_forced = emit_reflection(
+                    eventlog,
+                    forced=True,
+                    forced_reason=forced_reason,
+                    force_open_commitment=True,
+                    open_autonomy_tick=open_autonomy_tick,
+                    commitment_protect_until_tick=commitment_protect_until,
+                )
+                try:
+                    cooldown.reset()
+                except Exception:
+                    pass
+                eventlog.append(
+                    kind="debug",
+                    content="",
+                    meta={
+                        "forced_reflection": {
+                            "skip_reason": reason,
+                            "consecutive": streak,
+                            "forced_reflection_id": int(rid_forced),
+                            "mode": "forced_commitment_open",
+                        }
+                    },
+                )
+                return (True, f"forced_{reason}")
         return (False, reason)
-    rid = emit_reflection(eventlog, forced=False)
+    rid = emit_reflection(
+        eventlog,
+        forced=False,
+        open_autonomy_tick=open_autonomy_tick,
+        commitment_protect_until_tick=commitment_protect_until,
+    )
     cooldown.reset()
     # Bandit integration: choose arm via biased means when provided; otherwise fall back
     try:
@@ -1861,6 +1971,50 @@ CADENCE_BY_STAGE = {
 }
 
 _STUCK_REASONS = {"min_turns", "min_time", "low_novelty", "cadence"}
+_FORCEABLE_SKIP_REASONS = {"min_turns", "low_novelty"}
+_FORCED_SKIP_THRESHOLD = 2
+_COMMITMENT_PROTECT_TICKS = 3
+_IDENTITY_REEVAL_WINDOW = 6
+
+
+def _consecutive_reflect_skips(
+    eventlog: EventLog, reason: str, *, lookback: int = 8
+) -> int:
+    """Count consecutive reflection skip debug events for the same reason."""
+    try:
+        tail = eventlog.read_tail(limit=lookback)
+    except Exception:
+        try:
+            tail = eventlog.read_all()[-lookback:]
+        except Exception:
+            return 0
+    count = 0
+    for ev in reversed(tail):
+        if ev.get("kind") != "debug":
+            break
+        meta = ev.get("meta") or {}
+        if meta.get("reflect_skip") == reason:
+            count += 1
+        else:
+            break
+    return count
+
+
+def _detect_self_named(text: str) -> str | None:
+    try:
+
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        if lines:
+            last = lines[-1]
+            if last.startswith("—") or last.startswith("-"):
+                candidate = last.lstrip("—- ").split()[0]
+                nm = _sanitize_name(candidate)
+                if nm:
+                    return nm
+    except Exception:
+        return None
+    return None
+
 
 # --- Phase 2 Step F: Stage-aware drift multiplier policy (module-level) ---
 DRIFT_MULT_BY_STAGE = {
@@ -1920,6 +2074,34 @@ class AutonomyLoop:
         # Per-stage consecutive stuck-skip counters
         self._stuck_count: int = 0
         self._stuck_stage: str | None = None
+        # Forced reflection scheduling state
+        self._force_reason_next_tick: str | None = None
+        self._pending_commit_followups: set[str] = set()
+        # Identity re-evaluation cadence
+        self._next_identity_reeval_tick: int | None = None
+        self._identity_last_name: str | None = None
+        self._identity_last_adopt_tick: int | None = None
+
+        # Ensure a deterministic bootstrap identity exists
+        try:
+            events_boot = self.eventlog.read_all()
+        except Exception:
+            events_boot = []
+        identity_boot = build_identity(events_boot)
+        if not identity_boot.get("name"):
+            self.eventlog.append(
+                kind="identity_adopt",
+                content="Persistent Mind Model Alpha",
+                meta={
+                    "bootstrap": True,
+                    "reason": "default_bootstrap",
+                    "tick": 0,
+                },
+            )
+            self._identity_last_name = "Persistent Mind Model Alpha"
+            self._identity_last_adopt_tick = 0
+        else:
+            self._identity_last_name = identity_boot.get("name")
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -1953,10 +2135,29 @@ class AutonomyLoop:
     def tick(self) -> None:
         # 1) Compute IAS/GAS over recent events and infer stage
         events = self.eventlog.read_all()
+        last_auto_id: int | None = None
+        for ev in reversed(events):
+            try:
+                if ev.get("kind") == "autonomy_tick":
+                    last_auto_id = int(ev.get("id") or 0)
+                    break
+            except Exception:
+                break
         ias, gas = compute_ias_gas(events)
         curr_stage, snapshot = StageTracker.infer_stage(events)
+
+        identity_snapshot = build_identity(events)
+        persona_name = identity_snapshot.get("name")
+        # Respect StageTracker.infer_stage() and hysteresis; do not force stage overrides
+        # based on identity or early activity. This avoids unintended transitions and
+        # preserves ledger determinism across ticks.
+        forced_stage_reason: str | None = None
+
         # Compute current tick number once for deterministic metadata across this tick
         tick_no = 1 + sum(1 for ev in events if ev.get("kind") == "autonomy_tick")
+        protect_until_tick = tick_no + _COMMITMENT_PROTECT_TICKS
+        force_reason = self._force_reason_next_tick
+        self._force_reason_next_tick = None
         # Stabilize telemetry: use stage snapshot means so the tick's own telemetry
         # does not cause unintended stage drift across ticks in tests.
         try:
@@ -2185,16 +2386,49 @@ class AutonomyLoop:
                 )
             except Exception:
                 pass
-            # Emit reflection normally; prompt injection occurs inside emit_reflection via stage template
-            # Use biased chooser for bandit arm by passing precomputed means and items
-            did, reason = maybe_reflect(
-                self.eventlog,
-                self.cooldown,
-                override_min_turns=int(cadence["min_turns"]),
-                override_min_seconds=int(cadence["min_time_s"]),
-                arm_means=_means,
-                guidance_items=_guidance_items,
-            )
+            if force_reason:
+                rid_forced = emit_reflection(
+                    self.eventlog,
+                    forced=True,
+                    forced_reason=force_reason,
+                    force_open_commitment=True,
+                    open_autonomy_tick=tick_no,
+                    commitment_protect_until_tick=protect_until_tick,
+                )
+                try:
+                    self.cooldown.reset()
+                except Exception:
+                    pass
+                try:
+                    self.eventlog.append(
+                        kind="debug",
+                        content="",
+                        meta={
+                            "forced_reflection": {
+                                "skip_reason": force_reason,
+                                "forced_reflection_id": int(rid_forced),
+                                "mode": "scheduled_force",
+                            }
+                        },
+                    )
+                except Exception:
+                    pass
+                if force_reason == "commitment_followup":
+                    self._pending_commit_followups.clear()
+                did, reason = (True, force_reason)
+            else:
+                # Emit reflection normally; prompt injection occurs inside emit_reflection via stage template
+                # Use biased chooser for bandit arm by passing precomputed means and items
+                did, reason = maybe_reflect(
+                    self.eventlog,
+                    self.cooldown,
+                    override_min_turns=int(cadence["min_turns"]),
+                    override_min_seconds=int(cadence["min_time_s"]),
+                    arm_means=_means,
+                    guidance_items=_guidance_items,
+                    commitment_protect_until=protect_until_tick,
+                    open_autonomy_tick=tick_no,
+                )
         else:
             self.eventlog.append(
                 kind="debug", content="", meta={"reflect_skip": "cadence"}
@@ -2243,6 +2477,116 @@ class AutonomyLoop:
                     )
             except Exception:
                 pass
+
+        # Track new events since the prior autonomy tick to schedule follow-ups
+        try:
+            evs_all_now = self.eventlog.read_all()
+            evs_since: list[dict] = []
+            for ev in evs_all_now:
+                try:
+                    eid_int = int(ev.get("id") or 0)
+                except Exception:
+                    continue
+                if last_auto_id is None or eid_int > last_auto_id:
+                    evs_since.append(ev)
+            for ev in evs_since:
+                kind = ev.get("kind")
+                meta_ev = ev.get("meta") or {}
+                if kind == "identity_adopt":
+                    adopted_name = str(
+                        meta_ev.get("name") or ev.get("content") or ""
+                    ).strip()
+                    if adopted_name:
+                        self._identity_last_name = adopted_name
+                        self._next_identity_reeval_tick = (
+                            tick_no + _IDENTITY_REEVAL_WINDOW
+                        )
+                if (
+                    kind == "commitment_open"
+                    and str(meta_ev.get("reason") or "").lower() == "reflection"
+                ):
+                    cid_new = str(meta_ev.get("cid") or ev.get("id") or "")
+                    if cid_new and cid_new not in self._pending_commit_followups:
+                        self._pending_commit_followups.add(cid_new)
+                        if self._force_reason_next_tick is None:
+                            self._force_reason_next_tick = "commitment_followup"
+                        try:
+                            self.eventlog.append(
+                                kind="debug",
+                                content="",
+                                meta={
+                                    "commitment_followup": {
+                                        "cid": cid_new,
+                                        "open_event_id": int(ev.get("id") or 0),
+                                        "tick": tick_no,
+                                    }
+                                },
+                            )
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+        # Identity re-evaluation cadence when a stable name exists
+        try:
+            from pmm.storage.projection import build_identity as _build_identity
+
+            identity_snapshot = _build_identity(self.eventlog.read_all())
+            current_identity = identity_snapshot.get("name")
+        except Exception:
+            current_identity = None
+        if current_identity:
+            if current_identity != self._identity_last_name:
+                self._identity_last_name = current_identity
+                self._next_identity_reeval_tick = tick_no + _IDENTITY_REEVAL_WINDOW
+            elif (
+                self._next_identity_reeval_tick is not None
+                and tick_no >= self._next_identity_reeval_tick
+            ):
+                candidate_name = None
+                evs_for_identity = self.eventlog.read_all()
+                for ev in reversed(evs_for_identity):
+                    if ev.get("kind") != "response":
+                        continue
+                    cand = _detect_self_named(str(ev.get("content") or ""))
+                    if cand and cand.lower() != str(current_identity).lower():
+                        candidate_name = cand
+                        break
+                self._next_identity_reeval_tick = tick_no + _IDENTITY_REEVAL_WINDOW
+                if candidate_name:
+                    already = False
+                    for ev in reversed(evs_for_identity):
+                        if ev.get("kind") != "identity_propose":
+                            continue
+                        meta_ev = ev.get("meta") or {}
+                        if (
+                            str(meta_ev.get("reason") or "")
+                            == "autonomy_identity_reeval"
+                            and ev.get("content", "").strip().lower()
+                            == candidate_name.lower()
+                        ):
+                            already = True
+                        if (
+                            last_auto_id is not None
+                            and int(ev.get("id") or 0) <= last_auto_id
+                        ):
+                            break
+                    if not already:
+                        try:
+                            self.eventlog.append(
+                                kind="identity_propose",
+                                content=candidate_name,
+                                meta={
+                                    "reason": "autonomy_identity_reeval",
+                                    "tick": tick_no,
+                                    "reproposal": True,
+                                },
+                            )
+                        except Exception:
+                            pass
+        else:
+            self._next_identity_reeval_tick = None
+            self._identity_last_name = None
 
         # Helper: compute current tick number for insight_ready tagging
         def _current_tick_no(evts: list[dict]) -> int:
@@ -2427,6 +2771,63 @@ class AutonomyLoop:
             except Exception:
                 # Never break a tick; observability-only path
                 pass
+        # Issue reminders for reflection-driven commitments within protection window
+        try:
+            from pmm.storage.projection import build_self_model as _build_sm_now
+
+            evs_now_commit = self.eventlog.read_all()
+            model_now = _build_sm_now(evs_now_commit)
+            open_map_now = (model_now.get("commitments") or {}).get("open") or {}
+            for cid, meta_open in open_map_now.items():
+                if str(meta_open.get("reason") or "") != "reflection":
+                    continue
+                protect_until = meta_open.get("protect_until_tick")
+                if protect_until is None:
+                    continue
+                try:
+                    if tick_no > int(protect_until):
+                        continue
+                except Exception:
+                    continue
+                reminder_exists = False
+                for ev in reversed(evs_now_commit):
+                    try:
+                        if (
+                            last_auto_id is not None
+                            and int(ev.get("id") or 0) <= last_auto_id
+                        ):
+                            break
+                    except Exception:
+                        break
+                    if ev.get("kind") != "commitment_reminder":
+                        continue
+                    if (ev.get("meta") or {}).get("cid") == cid:
+                        reminder_exists = True
+                        break
+                if reminder_exists:
+                    continue
+                open_event_id = None
+                for ev in reversed(evs_now_commit):
+                    if ev.get("kind") == "commitment_open" and (
+                        (ev.get("meta") or {}).get("cid") == cid
+                    ):
+                        try:
+                            open_event_id = int(ev.get("id") or 0)
+                        except Exception:
+                            open_event_id = None
+                        break
+                self.eventlog.append(
+                    kind="commitment_reminder",
+                    content="",
+                    meta={
+                        "cid": cid,
+                        "open_event_id": open_event_id,
+                        "tick": tick_no,
+                    },
+                )
+        except Exception:
+            pass
+
         # 2b) Apply self-evolution policies intrinsically
         changes, evo_details = SelfEvolution.apply_policies(
             events, {"IAS": ias, "GAS": gas}
@@ -2584,21 +2985,36 @@ class AutonomyLoop:
             if ev.get("kind") == "stage_update":
                 prev_stage = (ev.get("meta") or {}).get("to")
                 break
-        if StageTracker.with_hysteresis(prev_stage, curr_stage, snapshot, events):
-            desc = f"Stage {curr_stage}: "
-            if curr_stage == "S0":
+
+        def _stage_description(stage: str) -> str:
+            desc = f"Stage {stage}: "
+            if stage == "S0":
                 desc += "Dormant – minimal self-awareness, mostly reactive."
-            elif curr_stage == "S1":
+            elif stage == "S1":
                 desc += "Awakening – basic self-recognition, starts to reflect."
-            elif curr_stage == "S2":
+            elif stage == "S2":
                 desc += "Developing – more autonomy, richer reflections, proactive."
-            elif curr_stage == "S3":
+            elif stage == "S3":
                 desc += (
                     "Maturing – advanced autonomy, self-improvement, code suggestions."
                 )
-            elif curr_stage == "S4":
+            elif stage == "S4":
                 desc += "Transcendent – highly adaptive, deep self-analysis."
-            _vprint(f"[Stage] Transition: {prev_stage} → {curr_stage} | {desc}")
+            return desc
+
+        stage_reason = forced_stage_reason or "threshold_cross_with_hysteresis"
+        if forced_stage_reason:
+            stage_transition = prev_stage != curr_stage
+        else:
+            stage_transition = StageTracker.with_hysteresis(
+                prev_stage, curr_stage, snapshot, events
+            )
+
+        if stage_transition:
+            desc = _stage_description(curr_stage)
+            _vprint(
+                f"[Stage] Transition: {prev_stage} → {curr_stage} | reason={stage_reason}"
+            )
             # Emit legacy stage_update event for test compatibility
             self.eventlog.append(
                 kind="stage_update",
@@ -2607,7 +3023,7 @@ class AutonomyLoop:
                     "from": prev_stage,
                     "to": curr_stage,
                     "snapshot": snapshot,
-                    "reason": "threshold_cross_with_hysteresis",
+                    "reason": stage_reason,
                 },
             )
             self.eventlog.append(
@@ -2617,6 +3033,7 @@ class AutonomyLoop:
                     "from": prev_stage,
                     "to": curr_stage,
                     "snapshot": snapshot,
+                    "reason": stage_reason,
                 },
             )
             # Unlock new capabilities at stage
@@ -2707,9 +3124,6 @@ class AutonomyLoop:
         # Propose identity deterministically when unset and not already proposed.
         # Primary path: stage>=S1, novelty ok, and tick>=5.
         # Bootstrap path: even at S0, if tick>=3 and still no proposal, propose once.
-        from pmm.storage.projection import build_identity
-
-        persona_name = build_identity(events).get("name")
         already_proposed = False
         for ev in reversed(events):
             if ev.get("kind") == "identity_propose":
@@ -2722,19 +3136,20 @@ class AutonomyLoop:
             and (not already_proposed)
             and (should_stage or should_bootstrap)
         ):
-            # Draft proposal content via proposer if available
             proposed = None
             if callable(self._proposer):
                 try:
-                    proposed = (self._proposer() or "").strip()
+                    proposed = self._proposer()
                 except Exception:
                     proposed = None
-            content = proposed or "Persona"
-            self.eventlog.append(
-                kind="identity_propose",
-                content=content,
-                meta={"tick": tick_no},
-            )
+            if proposed:
+                content = str(proposed).strip()
+                if content:
+                    self.eventlog.append(
+                        kind="identity_propose",
+                        content=content,
+                        meta={"tick": tick_no},
+                    )
         # Adopt: if we have a clear assistant self-ascription or after 5 ticks post-proposal
         # Find last proposal tick id and content
         last_prop_event = None
@@ -2752,94 +3167,95 @@ class AutonomyLoop:
                     last_prop_event = None  # disable adoption path until a new proposal
                     break
 
-        if not persona_name and last_prop_event:
-            # Deterministic bootstrap after a fixed number of ticks since proposal
-            if last_prop_event:
+        if last_prop_event:
+            try:
+                prop_tick = int((last_prop_event.get("meta") or {}).get("tick") or 0)
+            except Exception:
+                prop_tick = 0
+            try:
+                last_prop_id = int(last_prop_event.get("id") or 0)
+            except Exception:
+                last_prop_id = 0
+
+            def _self_declaration_state(
+                evs: list[dict], since_id: int
+            ) -> tuple[bool, str | None]:
+                return False, None
+
+            ambiguous, declared_name = _self_declaration_state(events, last_prop_id)
+            meta_prop = last_prop_event.get("meta") or {}
+            reason_prop = str(meta_prop.get("reason") or "")
+            proposed_content = (last_prop_event.get("content") or "").strip()
+            candidate_prop = _sanitize_name(proposed_content)
+
+            def _adopt_identity(
+                name_sel: str, why: str, extra: dict | None = None
+            ) -> None:
+                nonlocal persona_name  # type: ignore
+                if persona_name and self._identity_last_adopt_tick is not None:
+                    if (
+                        tick_no
+                        < self._identity_last_adopt_tick + _IDENTITY_REEVAL_WINDOW
+                    ):
+                        return
+                meta = {
+                    "why": why,
+                    "src_id": int(last_prop_event.get("id") or 0),
+                    "turns_since_proposal": int(max(0, tick_no - prop_tick)),
+                    "tick": tick_no,
+                    "name": name_sel,
+                }
+                if extra:
+                    meta.update(extra)
+                self.eventlog.append(
+                    kind="identity_adopt",
+                    content=name_sel,
+                    meta=meta,
+                )
                 try:
-                    prop_tick = int(
-                        (last_prop_event.get("meta") or {}).get("tick") or 0
+                    CommitmentTracker.close_identity_name_on_adopt(
+                        self.eventlog, name_sel
                     )
                 except Exception:
-                    prop_tick = 0
+                    pass
+                persona_name = name_sel
+                self._identity_last_name = name_sel
+                self._identity_last_adopt_tick = tick_no
+                self._next_identity_reeval_tick = tick_no + _IDENTITY_REEVAL_WINDOW
+
+            if declared_name:
+                _adopt_identity(
+                    declared_name,
+                    "autonomy_identity_self_declaration",
+                    {"sanitized_name": declared_name},
+                )
+            elif (
+                persona_name
+                and reason_prop == "autonomy_identity_reeval"
+                and candidate_prop
+                and candidate_prop.lower() != str(persona_name).lower()
+            ):
+                _adopt_identity(candidate_prop, "autonomy_identity_reeval")
+            elif (
+                not persona_name
+                and (tick_no - prop_tick) >= int(ADOPTION_DEADLINE_TURNS)
+                and not ambiguous
+            ):
+                fallback = candidate_prop or "Persona"
                 try:
-                    last_prop_id = int(last_prop_event.get("id") or 0)
-                except Exception:
-                    last_prop_id = 0
-
-                # Bootstrap strictly on elapsed ticks; ignore any free-text affirmations.
-                # Additionally, if any ambiguous or invalid free-text affirmation was seen
-                # since the proposal (e.g., quoted/code-fenced/negated/invalid name), defer adoption.
-                def _saw_ambiguous_or_invalid_affirmation(evs, since_id: int) -> bool:
-                    try:
-                        import re as _re_local2
-
-                        for _e in reversed(evs):
-                            try:
-                                if int(_e.get("id") or 0) <= int(since_id):
-                                    break
-                            except Exception:
-                                break
-                            if _e.get("kind") != "response":
-                                continue
-                            t = str(_e.get("content") or "")
-                            low = t.strip().lower()
-                            if "```" in low:
-                                return True
-                            if low.startswith('"') or low.endswith('"'):
-                                return True
-                            m = _re_local2.match(r"^\s*(?:i am|i'm|i’m)\s+(.+)$", low)
-                            if m:
-                                # treat any explicit self-ascription as non-adopt trigger in this mode
-                                if " not " in low:
-                                    return True
-                                # validate token as a name; if invalid, mark as ambiguous
-                                cand = m.group(1).strip().split()[0]
-                                nm = _sanitize_name(cand)
-                                return (
-                                    True if not nm else True
-                                )  # always defer in this build
-                        return False
-                    except Exception:
-                        return False
-
-                if (tick_no - prop_tick) >= int(
-                    ADOPTION_DEADLINE_TURNS
-                ) and not _saw_ambiguous_or_invalid_affirmation(events, last_prop_id):
-                    fallback = (
-                        last_prop_event.get("content") or ""
-                    ).strip() or "Persona"
-                    name_sel = _sanitize_name(fallback) or "Persona"
-                    # Emit a debug breadcrumb for observability
-                    try:
-                        self.eventlog.append(
-                            kind="debug",
-                            content="",
-                            meta={
-                                "identity_adopt": "bootstrap",
-                                "src_id": int(last_prop_event.get("id") or 0),
-                                "turns_since_proposal": int(tick_no - prop_tick),
-                                "tick": int(tick_no),
-                            },
-                        )
-                    except Exception:
-                        pass
                     self.eventlog.append(
-                        kind="identity_adopt",
-                        content=name_sel,
+                        kind="debug",
+                        content="",
                         meta={
-                            "why": "autonomy_identity_bootstrap",
+                            "identity_adopt": "bootstrap",
                             "src_id": int(last_prop_event.get("id") or 0),
                             "turns_since_proposal": int(tick_no - prop_tick),
-                            "tick": tick_no,
-                            "name": name_sel,
+                            "tick": int(tick_no),
                         },
                     )
-                    try:
-                        CommitmentTracker.close_identity_name_on_adopt(
-                            self.eventlog, name_sel
-                        )
-                    except Exception:
-                        pass
+                except Exception:
+                    pass
+                _adopt_identity(fallback, "autonomy_identity_bootstrap")
         # Passive sweep: if tests or other modules inserted a reflection directly,
         # and it is voicable with no response yet, append its insight_ready once.
         # We only check the most recent reflection without an existing insight_ready marker.
@@ -2861,9 +3277,6 @@ class AutonomyLoop:
 
         # 2f) Trait drift hooks (event-native, identity-gated)
         # Identity gate: only consider drift if identity name exists
-        from pmm.storage.projection import build_identity
-
-        persona_name = build_identity(events).get("name")
         if persona_name:
             events = self.eventlog.read_all()
             # Always define last_auto_id before use

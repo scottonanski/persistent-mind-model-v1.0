@@ -60,8 +60,15 @@ class SelfEvolution:
         def is_reflection(ev: Dict) -> bool:
             return ev.get("kind") == "reflection"
 
-        skips = cls._consecutive_tail(events, is_skip_novelty_low)
-        succ = cls._consecutive_tail(events, is_reflection)
+        # Consider only reflection-relevant events when computing consecutive tails,
+        # so unrelated trailing events do not break the streak.
+        relevant = [
+            e
+            for e in events
+            if e.get("kind") in {"reflection", "reflection_skip", "debug"}
+        ]
+        skips = cls._consecutive_tail(relevant, is_skip_novelty_low)
+        succ = cls._consecutive_tail(relevant, is_reflection)
 
         current = cls._last_setting_from_evolution(
             events, "cooldown.novelty_threshold", cls.DEFAULT_NOVELTY_THRESHOLD

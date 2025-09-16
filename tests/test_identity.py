@@ -74,17 +74,12 @@ def _append_debug_reflect_skip(log: EventLog, reason: str):
     log.append(kind="debug", content="", meta={"reflect_skip": reason})
 
 
-def test_autonomy_proposes_identity_once_at_S1_with_novelty(tmp_path, monkeypatch):
+def test_autonomy_does_not_auto_propose_identity(tmp_path):
     rt, log = _mk_rt(tmp_path)
-    # Prime stage >= S1 and 4 ticks
     for _ in range(4):
         _append_autonomy_tick(log, IAS=0.4, GAS=0.25)
-    _append_debug_reflect_skip(log, reason="time")  # novelty ok
+    _append_debug_reflect_skip(log, reason="time")
 
-    # Monkeypatch proposer to deterministic name
-    monkeypatch.setattr(rt, "_propose_identity_name", lambda: "Ada")
-
-    # Run tick to trigger proposal on 5th
     aloop = AutonomyLoop(
         eventlog=log,
         cooldown=rt.cooldown,
@@ -96,47 +91,27 @@ def test_autonomy_proposes_identity_once_at_S1_with_novelty(tmp_path, monkeypatc
 
     events = log.read_all()
     kinds = [e["kind"] for e in events]
-    assert "identity_propose" in kinds
-    # Running again should not propose again (once only until adopted)
+    assert "identity_propose" not in kinds
     aloop.tick()
     kinds2 = [e["kind"] for e in log.read_all()]
-    assert kinds2.count("identity_propose") == 1
+    assert kinds2.count("identity_propose") == 0
 
 
-def test_autonomy_adopts_on_affirmation_or_bootstrap(tmp_path, monkeypatch):
+def test_autonomy_has_bootstrap_identity(tmp_path, monkeypatch):
     rt, log = _mk_rt(tmp_path)
-    # Prepare: reach S1 with 5 ticks
-    for _ in range(5):
-        _append_autonomy_tick(log, IAS=0.4, GAS=0.25)
-    _append_debug_reflect_skip(log, reason="time")
-    monkeypatch.setattr(rt, "_propose_identity_name", lambda: "Ada")
-    aloop = AutonomyLoop(
+    AutonomyLoop(
         eventlog=log,
         cooldown=rt.cooldown,
         interval_seconds=0.1,
         proposer=rt._propose_identity_name,
         allow_affirmation=True,
     )
-    aloop.tick()  # emits identity_propose
-
-    # Bootstrap after ticks without affirmation
-    db2 = tmp_path / "rt2.db"
-    log2 = EventLog(str(db2))
-    for _ in range(5):
-        _append_autonomy_tick(log2, IAS=0.4, GAS=0.25)
-    _append_debug_reflect_skip(log2, reason="time")
-    aloop2 = AutonomyLoop(
-        eventlog=log2,
-        cooldown=rt.cooldown,
-        interval_seconds=0.1,
-        proposer=lambda: "Ada",
-    )
-    aloop2.tick()  # propose
-    # 5 more ticks without affirmation
-    for _ in range(5):
-        aloop2.tick()
-    events2 = log2.read_all()
-    assert any(e["kind"] == "identity_adopt" for e in events2)
+    events = log.read_all()
+    adopts = [e for e in events if e.get("kind") == "identity_adopt"]
+    assert adopts
+    meta = adopts[-1].get("meta") or {}
+    assert meta.get("bootstrap") is True
+    assert adopts[-1].get("content") == "Persistent Mind Model Alpha"
 
 
 def test_identity_commitment_open_and_close_on_adopt(tmp_path, monkeypatch):
@@ -217,49 +192,46 @@ def _mk_autonomy(
     return loop, log
 
 
-def test_affirmation_strict_sentence_only(tmp_path):
-    # Set up with a proposal
+def test_affirmation_does_not_trigger_adoption(tmp_path):
     rt, log = _mk_rt(tmp_path)
     aloop, elog = _mk_autonomy(tmp_path, rt.cooldown, proposer=lambda: "Ada")
     aloop.tick()  # emit identity_propose
-    # Reject quoted
-    elog.append(kind="response", content='"I am Ada."', meta={})
-    aloop.tick()
-    assert not any(e["kind"] == "identity_adopt" for e in elog.read_all())
-    # Reject code-fenced
-    elog.append(
-        kind="response",
-        content="""```
+    statements = [
+        '"I am Ada."',
+        """```
 I am Ada
 ```""",
-        meta={},
-    )
-    aloop.tick()
-    assert not any(e["kind"] == "identity_adopt" for e in elog.read_all())
-    # Reject negation
-    elog.append(kind="response", content="I am not Ada.", meta={})
-    aloop.tick()
-    assert not any(e["kind"] == "identity_adopt" for e in elog.read_all())
-    # With triggers removed, even clean affirmations do not adopt
-    elog.append(kind="response", content="I am Ada.", meta={})
-    aloop.tick()
-    assert not any(e["kind"] == "identity_adopt" for e in elog.read_all())
+        "I am not Ada.",
+        "I am Ada.",
+    ]
+    for stmt in statements:
+        elog.append(kind="response", content=stmt, meta={})
+        aloop.tick()
+    adopts = [e for e in elog.read_all() if e["kind"] == "identity_adopt"]
+    assert len(adopts) == 1
+    meta = adopts[-1].get("meta") or {}
+    assert meta.get("bootstrap") is True
 
 
-def test_affirmation_name_validation(tmp_path):
+def test_affirmations_never_adopt_even_with_valid_names(tmp_path):
     rt, log = _mk_rt(tmp_path)
     aloop, elog = _mk_autonomy(tmp_path, rt.cooldown, proposer=lambda: "Ada")
     aloop.tick()  # propose
-    bads = ["I am _Ada", "I am Ada_", "I am --Ada", "I am 1234", "I am admin"]
-    for b in bads:
-        elog.append(kind="response", content=b, meta={})
+    statements = [
+        "I am _Ada",
+        "I am Ada_",
+        "I am --Ada",
+        "I am 1234",
+        "I am admin",
+        "I am Ada",
+    ]
+    for stmt in statements:
+        elog.append(kind="response", content=stmt, meta={})
         aloop.tick()
-        # ensure no adopt from invalid
-        assert not any(e["kind"] == "identity_adopt" for e in elog.read_all())
-    # Also ensure a valid affirmation does not cause adoption
-    elog.append(kind="response", content="I am Ada", meta={})
-    aloop.tick()
-    assert not any(e["kind"] == "identity_adopt" for e in elog.read_all())
+    adopts = [e for e in elog.read_all() if e["kind"] == "identity_adopt"]
+    assert len(adopts) == 1
+    meta = adopts[-1].get("meta") or {}
+    assert meta.get("bootstrap") is True
 
 
 def test_proposal_adoption_idempotence(tmp_path):
@@ -269,7 +241,7 @@ def test_proposal_adoption_idempotence(tmp_path):
     # No second proposal
     aloop.tick()
     kinds = [e["kind"] for e in elog.read_all()]
-    assert kinds.count("identity_propose") == 1
+    assert kinds.count("identity_propose") == 0
     # Advance ticks to trigger bootstrap adoption once
     for _ in range(6):
         aloop.tick()
@@ -331,7 +303,7 @@ def test_name_validator_single_source(tmp_path, monkeypatch):
         interval_seconds=0.1,
         proposer=rt._propose_identity_name,
     )
-    # Prime S1 and novelty ok, 5th tick triggers proposal event with fallback name "Persona"
+    # Even with proposer patched, no proposals should be emitted
     for _ in range(5):
         log.append(
             kind="autonomy_tick",
@@ -341,10 +313,7 @@ def test_name_validator_single_source(tmp_path, monkeypatch):
     log.append(kind="debug", content="", meta={"reflect_skip": "time"})
     aloop.tick()
     evs = log.read_all()
-    assert any(
-        e["kind"] == "identity_propose" and (e["content"] == "Persona" or e["content"])
-        for e in evs
-    )
+    assert not any(e["kind"] == "identity_propose" for e in evs)
     # Ensure no duplicate sanitizer function exists on Runtime class
     assert not hasattr(Runtime, "_NAME_BANLIST")
     assert (
@@ -482,5 +451,5 @@ def test_no_drift_before_identity_adopt(tmp_path):
     aloop.tick()
     log.append(kind="debug", content="", meta={"reflect_skip": "low_novelty"})
     aloop.tick()
-    # No identity_adopt yet; ensure no trait_update at all
-    assert not any(e.get("kind") == "trait_update" for e in log.read_all())
+    # Bootstrap identity exists; trait updates may occur
+    assert any(e.get("kind") == "trait_update" for e in log.read_all())
