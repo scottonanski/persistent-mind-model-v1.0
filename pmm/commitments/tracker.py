@@ -9,7 +9,6 @@ Intent:
 from __future__ import annotations
 
 import uuid as _uuid
-import re as _re
 from typing import Dict, List, Optional, Tuple
 import datetime as _dt
 import hashlib
@@ -20,7 +19,7 @@ from dataclasses import dataclass
 
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
-from pmm.commitments.detectors import CommitmentDetector, get_default_detector
+from pmm.commitments.detectors import CommitmentDetector
 from pmm.runtime.embeddings import compute_embedding as _emb, cosine_similarity as _cos
 
 
@@ -39,7 +38,8 @@ class CommitmentTracker:
         self, eventlog: EventLog, detector: Optional[CommitmentDetector] = None
     ) -> None:
         self.eventlog = eventlog
-        self.detector = detector or get_default_detector()
+        # Free-text detection is disabled by default; detector may be provided explicitly
+        self.detector = detector
 
     def process_assistant_reply(
         self, text: str, reply_event_id: Optional[int] = None
@@ -54,61 +54,8 @@ class CommitmentTracker:
         except Exception:
             # Do not fail user flow if expiration has issues
             pass
-        found = self.detector.find(text or "") if self.detector else []
-        opened: List[str] = []
-        for item in found:
-            ctext = item.get("text") or ""
-            kind = (item.get("kind") or "plan").strip()
-            # Heuristic filter: skip meta-communication about reply formatting or immediate-next reply
-            low = ctext.lower()
-            if (
-                "next reply" in low
-                or ("ensure" in low and ("reply" in low or "response" in low))
-                or ("brevity" in low or "concise" in low)
-            ):
-                continue
-            # Normalize and dedup quickly via projection view
-            if kind not in {"plan", "followup"}:
-                kind = "plan"
-            # Trim to sentence and normalize spacing; preserve canonical identity tokens
-            if str(ctext).strip().lower().startswith("identity:name:"):
-                norm = str(ctext).strip()
-            else:
-                norm = self._normalize_text(ctext)
-            source = f"detector:{kind}" if kind else "detector"
-            extra_meta = (
-                {"origin_eid": int(reply_event_id)}
-                if reply_event_id is not None
-                else None
-            )
-            cid = self.add_commitment(norm, source=source, extra_meta=extra_meta)
-            if cid:
-                opened.append(cid)
-        # Identity-name commitment: "I will use the name <X>"
-        try:
-            m = _re.search(
-                r"\bI will use the name\s+([A-Za-z][A-Za-z0-9_-]{0,11})\b",
-                text or "",
-                _re.IGNORECASE,
-            )
-            if m:
-                x = m.group(1)
-                cid2 = self.add_commitment(f"identity:name:{x}", source="identity")
-                if cid2:
-                    opened.append(cid2)
-        except Exception:
-            pass
-        # If assistant self-ascribes a name ("I am <X>"), attempt to close matching identity commitment
-        try:
-            m2 = _re.search(
-                r"\bI am\s+([A-Za-z][A-Za-z0-9_-]{0,11})\b", text or "", _re.IGNORECASE
-            )
-            if m2:
-                x = m2.group(1)
-                self._close_identity_name_commitments(x)
-        except Exception:
-            pass
-        return opened
+        # Free-text commitment opening is disabled; use explicit structural events
+        return []
 
     def process_evidence(self, text: str) -> List[str]:
         """Detect "Done:" style evidence and emit candidate then close with confirmation.
@@ -122,10 +69,6 @@ class CommitmentTracker:
         Returns list of closed cids (0 or 1 element currently).
         """
         if not text:
-            return []
-        # Guard: require an explicit completion cue to avoid closing on plan statements
-        _done_guard = _re.compile(r"\b(?:done|completed|finished)\b", _re.IGNORECASE)
-        if not _done_guard.search(text or ""):
             return []
 
         # Build recent events slice and open commitments list
@@ -175,6 +118,7 @@ class CommitmentTracker:
                 if ok:
                     closed.append(cid)
                 return closed
+        return []
 
     # --- Reflection-driven lifecycle helpers ---
     def close_reflection_on_next(self, response_text: str) -> bool:
@@ -537,9 +481,8 @@ class CommitmentTracker:
         recent window. Deterministic scoring; no side effects.
 
         Scoring:
-        - Exact/substring match of promise key phrase -> +0.6
-        - Keyword map overlap (static dict) -> +0.2 per hit (capped so total <=1.0)
-        - Completion verbs present -> +0.2
+        - Exact/substring match of promise text in recent content -> +0.6
+        - Embedding cosine similarity (max with heuristic)
         Threshold handled by caller. Snippet is a <=160 char window around the match.
         """
 
@@ -559,63 +502,66 @@ class CommitmentTracker:
         concat = "\n".join([str(e.get("content") or "") for e in tail])
         low = _norm(concat)
 
-        # Extract last detail after a completion cue, if present
-        done_re = _re.compile(
-            r"\b(?:done|completed|finished)\s*:?\s*(.*)$", _re.IGNORECASE
-        )
-        detail_low = ""
-        for ln in reversed(low.splitlines()):
-            m = done_re.search(ln)
-            if m:
-                detail_low = _norm(m.group(1) or "")
-                break
-        # Compute embeddings once for detail (or low) if provider available
-        emb_detail = _emb(detail_low or low)
+        # Compute embeddings once for the whole recent text if provider available
+        emb_low = _emb(low)
 
-        # Static completion verbs and keyword map
-        completion_verbs = (
-            "done",
-            "completed",
-            "finished",
-            "shipped",
-            "implemented",
-            "merged",
-            "wrote",
-            "tested",
-        )
-        keyword_map = {
-            "report": {"report", "write", "wrote", "draft", "pushed"},
-            "code": {"code", "implement", "implemented", "commit", "merge"},
-            "test": {"test", "tested", "ci", "green"},
-            "docs": {"doc", "docs", "documentation", "wrote", "updated", "probe"},
-            "summary": {"summary", "summarize", "prepared", "draft"},
-        }
-        # stopword set retained for future use; not needed in the current scoring
+        # Lightweight token normalization helpers for approximate overlap
+        def _tok_stem(s: str) -> List[str]:
+            import re as _re2
 
-        # Tiny lemmatizer for a few forms used in tests and common phrasing
-        def _lemma_token(tok: str) -> str:
-            m = {
-                "wrote": "write",
-                "written": "write",
-                "writes": "write",
-                "finish": "finish",
-                "finished": "finish",
-                "finishes": "finish",
-                "finishing": "finish",
-                "summarized": "summarize",
-                "summaries": "summary",
-                "docs": "doc",
-                "documentation": "doc",
-            }
-            return m.get(tok, tok)
+            toks = [t for t in _re2.split(r"[^a-z0-9]+", (s or "").lower()) if t]
+            out: List[str] = []
+            for t in toks:
+                # Minimal stemming and a few irregulars to improve robustness
+                if t == "wrote":
+                    out.append("write")
+                    continue
+                if t.endswith("ing") and len(t) > 5:
+                    t = t[:-3]
+                elif t.endswith("ed") and len(t) > 4:
+                    t = t[:-2]
+                elif t.endswith("es") and len(t) > 5:
+                    t = t[:-2]
+                elif t.endswith("s") and len(t) > 4:
+                    t = t[:-1]
+                out.append(t)
+            return out
 
-        import re as _re_local
+        def _lev(a: str, b: str) -> int:
+            la, lb = len(a), len(b)
+            if la == 0:
+                return lb
+            if lb == 0:
+                return la
+            dp = list(range(lb + 1))
+            for i in range(1, la + 1):
+                prev = dp[0]
+                dp[0] = i
+                for j in range(1, lb + 1):
+                    tmp = dp[j]
+                    cost = 0 if a[i - 1] == b[j - 1] else 1
+                    dp[j] = min(dp[j] + 1, dp[j - 1] + 1, prev + cost)
+                    prev = tmp
+            return dp[-1]
 
-        def _tokens(s: str) -> List[str]:
-            # Replace non-alphanumeric with space, split, lower, lemmatize, drop stopwords
-            s2 = _re_local.sub(r"[^a-z0-9]+", " ", (s or "").lower())
-            toks = [t for t in s2.split() if t]
-            return [_lemma_token(t) for t in toks]
+        def _approx_token_overlap(a_text: str, b_text: str) -> float:
+            at = _tok_stem(a_text)
+            bt = _tok_stem(b_text)
+            if not at:
+                return 0.0
+            matched = 0
+            for t in at:
+                ok = False
+                if t in bt:
+                    ok = True
+                else:
+                    for u in bt:
+                        if _lev(t, u) <= 1:
+                            ok = True
+                            break
+                if ok:
+                    matched += 1
+            return float(matched) / float(len(at))
 
         results: List[tuple[str, float, str]] = []
         for item in open_commitments:
@@ -625,51 +571,31 @@ class CommitmentTracker:
                 continue
             score = 0.0
             snippet = ""
-            # exact/substring between promise text and the detail or whole low
-            hay = detail_low or low
-            if text and text in hay or (detail_low and detail_low in text):
+            # exact/substring between promise text and the whole recent text
+            hay = low
+            if text and text in hay:
                 score += 0.6
                 # create snippet window
-                idx = max(0, (concat.lower()).find((detail_low or text)))
+                idx = max(0, (concat.lower()).find(text))
                 raw = concat
                 # best-effort snippet from original concat around index
-                snippet = raw[max(0, idx - 40) : idx + len(detail_low or text) + 40]
-            # keyword overlaps
-            for key, words in keyword_map.items():
-                if key in text:
-                    dl = detail_low or low
-                    # check presence of base and a few lemmatized forms
-                    hits = 0
-                    for w in words:
-                        w2 = _lemma_token(w)
-                        if (" " + w + " ") in (" " + dl + " ") or (" " + w2 + " ") in (
-                            " " + dl + " "
-                        ):
-                            hits += 1
-                    if hits > 0:
-                        score += min(0.2 * hits, 0.4)  # cap contribution
-                        if not snippet:
-                            snippet = key
-            # token overlap between commitment and detail
-            if detail_low:
-                toks_text = _tokens(text)
-                dl_toks = set(_tokens(detail_low))
-                hits2 = sum(1 for t in toks_text if t in dl_toks)
-                if hits2 > 0:
-                    score += min(0.35 * hits2, 0.7)
-                    if not snippet:
-                        snippet = detail_low
-            # completion verbs
-            if any(v in low for v in completion_verbs):
-                score += 0.2
+                snippet = raw[max(0, idx - 40) : idx + len(text) + 40]
 
             # Embedding similarity as alternate score (prefer max between heuristic and cosine)
-            if emb_detail is not None:
+            if emb_low is not None:
                 emb_text = _emb(text)
                 if emb_text is not None:
-                    sim = _cos(emb_detail, emb_text)
+                    sim = _cos(emb_low, emb_text)
                     if sim > score:
                         score = float(sim)
+
+            # Approximate token overlap (robust to minor morphology/typos)
+            try:
+                approx = _approx_token_overlap(text, concat)
+                if approx > score:
+                    score = float(approx)
+            except Exception:
+                pass
 
             if score > 1.0:
                 score = 1.0
@@ -888,12 +814,9 @@ class CommitmentTracker:
         target_txt = f"identity:name:{name}"
         model = build_self_model(self.eventlog.read_all())
         open_map: Dict[str, Dict] = model.get("commitments", {}).get("open", {})
-        patt = _re.compile(
-            r"\bI will use the name\s+" + _re.escape(name) + r"\b", _re.IGNORECASE
-        )
         for cid, meta in list(open_map.items()):
             txt = str((meta or {}).get("text") or "")
-            if txt == target_txt or patt.search(txt):
+            if txt == target_txt:
                 try:
                     # Provide a synthetic artifact to satisfy truth-first policy
                     self.close_with_evidence(

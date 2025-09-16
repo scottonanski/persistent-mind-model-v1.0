@@ -103,7 +103,7 @@ def test_done_evidence_candidates_when_ambiguous(tmp_path, monkeypatch):
 
     db = tmp_path / "ev_done.db"
     log = EventLog(str(db))
-    t = CommitmentTracker(log, detector=RegexCommitmentDetector())
+    t = CommitmentTracker(log)
 
     text1 = "I will write the report."
     cid1 = t.add_commitment(text1, source="test6")
@@ -122,7 +122,7 @@ def test_done_evidence_candidates_by_detail_substring(tmp_path, monkeypatch):
 
     db = tmp_path / "ev_done2.db"
     log = EventLog(str(db))
-    t = CommitmentTracker(log, detector=RegexCommitmentDetector())
+    t = CommitmentTracker(log)
 
     text1 = "I will write the annual report."
     cid1 = t.add_commitment(text1, source="test8")

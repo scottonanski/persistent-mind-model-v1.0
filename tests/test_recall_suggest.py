@@ -1,17 +1,16 @@
 from pmm.storage.eventlog import EventLog
 from pmm.commitments.tracker import CommitmentTracker
-from pmm.commitments.detectors import RegexCommitmentDetector
 from pmm.runtime.recall import suggest_recall
 
 
 def test_suggests_relevant_prior_events(tmp_path):
     db = tmp_path / "recall1.db"
     log = EventLog(str(db))
-    ct = CommitmentTracker(log, detector=RegexCommitmentDetector())
+    ct = CommitmentTracker(log)
 
     # Open a commitment event
-    added = ct.process_assistant_reply("I will write the report")
-    assert added
+    cid = ct.add_commitment("write the report", source="test")
+    assert cid
 
     # Simulate a later assistant reply mentioning the same topic
     reply = "Working on the report now"

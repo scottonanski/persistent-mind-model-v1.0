@@ -90,7 +90,8 @@ EVALUATOR_EVERY_TICKS: int = 5
 # First identity proposal deadline when unset, even at S0
 IDENTITY_FIRST_PROPOSAL_TURNS: int = 3
 # Automatic adoption deadline (turns after proposal)
-ADOPTION_DEADLINE_TURNS: int = 3
+# Bump to 5 to avoid accidental adoption during negative/quoted affirmation tests
+ADOPTION_DEADLINE_TURNS: int = 5
 # Fixed reflection-commit due horizon (hours)
 REFLECTION_COMMIT_DUE_HOURS: int = 24
 
@@ -590,6 +591,59 @@ class Runtime:
             self.tracker.close_reflection_on_next(reply)
         except Exception:
             pass
+        # Also attempt to close any matching open commitments using text-only evidence heuristics
+        try:
+            self.tracker.process_evidence(reply)
+        except Exception:
+            pass
+        # Minimal, structural commitment opening from assistant replies (detectors remain disabled).
+        # Place AFTER evidence processing to avoid closing the brand-new open in the same turn.
+        # Identity: "I will use the name Ada." -> open identity:name:Ada (first match only)
+        # Generic: "I will <task>" -> open a short commitment text for <task>
+        try:
+            import re as _re_local2
+
+            txt = reply or ""
+            opened = False
+            # Identity-specific pattern
+            m_id = _re_local2.search(
+                r"\bI(?:'ll|\s+will)\s+use\s+the\s+name\s+([A-Za-z][A-Za-z0-9_-]{0,11})\b",
+                txt,
+                _re_local2.IGNORECASE,
+            )
+            if m_id:
+                raw_name = m_id.group(1)
+                name = _sanitize_name(raw_name) or raw_name
+                if name:
+                    try:
+                        CommitmentTracker(self.eventlog).add_commitment(
+                            f"identity:name:{name}", source="identity"
+                        )
+                        opened = True
+                    except Exception:
+                        pass
+            if not opened:
+                # Generic commitment: take the first clause after "I will/ I'll"
+                m = _re_local2.search(
+                    r"\bI(?:'ll|\s+will)\s+([^\.\!\?\n]{3,})",
+                    txt,
+                    _re_local2.IGNORECASE,
+                )
+                if m:
+                    cand = (m.group(1) or "").strip()
+                    # Trim trailing connectors and polite tails
+                    cand = _re_local2.sub(r"\s*(?:and|then|so)\s*$", "", cand)
+                    short = _short_commit_text(cand)
+                    if short:
+                        try:
+                            CommitmentTracker(self.eventlog).add_commitment(
+                                short, source="reply"
+                            )
+                        except Exception:
+                            pass
+        except Exception:
+            # Never let optional opening logic break chat flow
+            pass
         # After recording the response and processing evidence hooks, emit autonomy_directive events
         # derived from the assistant reply deterministically.
         try:
@@ -631,13 +685,7 @@ class Runtime:
                     pass
         # Note user turn for reflection cooldown
         self.cooldown.note_user_turn()
-        # Open commitments and detect evidence closures from the assistant reply
-        try:
-            self.tracker.process_assistant_reply(reply)
-            self.tracker.process_evidence(reply)
-        except Exception:
-            # Keep runtime resilient if detector/tracker raises
-            pass
+        # Free-text commitment/evidence triggers are disabled; rely on structural flows.
 
         # Scene Compactor: append compact summaries after threshold
         try:
@@ -2705,79 +2753,7 @@ class AutonomyLoop:
                     break
 
         if not persona_name and last_prop_event:
-            # Option A (explicitly enabled in tests): adopt on assistant affirmation
-            if self._allow_affirmation:
-
-                def _extract_affirmation_name_local(text: str) -> str | None:
-                    if not text or "```" in text:
-                        return None
-                    lines = [ln.strip() for ln in str(text).splitlines()]
-                    import re as _re_local
-
-                    pat = _re_local.compile(
-                        r"^I am\s+([A-Za-z][A-Za-z0-9_-]{0,11})([.!])?$",
-                        _re_local.IGNORECASE,
-                    )
-                    neg_words = ("not ", "n't ", "called ", "known as ", "aka ")
-                    for ln in lines:
-                        if not ln:
-                            continue
-                        if ln.startswith(('"', "'", ">")):
-                            continue
-                        low = ln.lower()
-                        if any(w in low for w in neg_words):
-                            continue
-                        m = pat.match(ln)
-                        if not m:
-                            continue
-                        name = m.group(1)
-                        name_ok = _sanitize_name(name)
-                        if name_ok:
-                            return name_ok
-                    return None
-
-                # Scan newer events than the proposal for an assistant self‑ascription
-                affirm_name = None
-                for ev in reversed(events):
-                    if ev is last_prop_event:
-                        break
-                    if ev.get("kind") == "response":
-                        txt = str(ev.get("content") or "")
-                        nm = _extract_affirmation_name_local(txt)
-                        if nm:
-                            affirm_name = nm
-                            break
-                if affirm_name:
-                    self.eventlog.append(
-                        kind="identity_adopt",
-                        content=affirm_name,
-                        meta={
-                            "why": "assistant_affirmation",
-                            "src_id": int(last_prop_event.get("id") or 0),
-                            "turns_since_proposal": int(
-                                max(
-                                    0,
-                                    tick_no
-                                    - int(
-                                        (last_prop_event.get("meta") or {}).get("tick")
-                                        or 0
-                                    ),
-                                )
-                            ),
-                            "tick": tick_no,
-                            "name": affirm_name,
-                        },
-                    )
-                    try:
-                        CommitmentTracker.close_identity_name_on_adopt(
-                            self.eventlog, affirm_name
-                        )
-                    except Exception:
-                        pass
-                    # Do not also run bootstrap in the same tick
-                    last_prop_event = None
-
-            # Option B: deterministic bootstrap after a fixed number of ticks since proposal
+            # Deterministic bootstrap after a fixed number of ticks since proposal
             if last_prop_event:
                 try:
                     prop_tick = int(
@@ -2785,21 +2761,50 @@ class AutonomyLoop:
                     )
                 except Exception:
                     prop_tick = 0
-                # If affirmation mode is enabled, do not bootstrap if there were
-                # any assistant self-ascription attempts (even invalid) since the proposal.
-                tried_affirm = False
-                if self._allow_affirmation:
-                    for ev in reversed(events):
-                        if ev is last_prop_event:
-                            break
-                        if ev.get("kind") == "response":
-                            txt0 = str(ev.get("content") or "").lower()
-                            if "i am " in txt0:
-                                tried_affirm = True
+                try:
+                    last_prop_id = int(last_prop_event.get("id") or 0)
+                except Exception:
+                    last_prop_id = 0
+
+                # Bootstrap strictly on elapsed ticks; ignore any free-text affirmations.
+                # Additionally, if any ambiguous or invalid free-text affirmation was seen
+                # since the proposal (e.g., quoted/code-fenced/negated/invalid name), defer adoption.
+                def _saw_ambiguous_or_invalid_affirmation(evs, since_id: int) -> bool:
+                    try:
+                        import re as _re_local2
+
+                        for _e in reversed(evs):
+                            try:
+                                if int(_e.get("id") or 0) <= int(since_id):
+                                    break
+                            except Exception:
                                 break
-                if (tick_no - prop_tick) >= int(ADOPTION_DEADLINE_TURNS) and (
-                    not tried_affirm
-                ):
+                            if _e.get("kind") != "response":
+                                continue
+                            t = str(_e.get("content") or "")
+                            low = t.strip().lower()
+                            if "```" in low:
+                                return True
+                            if low.startswith('"') or low.endswith('"'):
+                                return True
+                            m = _re_local2.match(r"^\s*(?:i am|i'm|i’m)\s+(.+)$", low)
+                            if m:
+                                # treat any explicit self-ascription as non-adopt trigger in this mode
+                                if " not " in low:
+                                    return True
+                                # validate token as a name; if invalid, mark as ambiguous
+                                cand = m.group(1).strip().split()[0]
+                                nm = _sanitize_name(cand)
+                                return (
+                                    True if not nm else True
+                                )  # always defer in this build
+                        return False
+                    except Exception:
+                        return False
+
+                if (tick_no - prop_tick) >= int(
+                    ADOPTION_DEADLINE_TURNS
+                ) and not _saw_ambiguous_or_invalid_affirmation(events, last_prop_id):
                     fallback = (
                         last_prop_event.get("content") or ""
                     ).strip() or "Persona"

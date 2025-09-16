@@ -3,7 +3,6 @@ from pmm.runtime.loop import Runtime
 from pmm.llm.factory import LLMConfig
 from pmm.runtime.recall import suggest_recall
 from pmm.commitments.tracker import CommitmentTracker
-from pmm.commitments.detectors import RegexCommitmentDetector
 
 
 class _DummyChat:
@@ -64,14 +63,16 @@ def test_recall_prefers_embeddings(tmp_path, monkeypatch):
 def test_evidence_prefers_embeddings(tmp_path, monkeypatch):
 
     log = EventLog(str(tmp_path / "evidence.db"))
-    ct = CommitmentTracker(log, detector=RegexCommitmentDetector())
+    ct = CommitmentTracker(log)
 
     # Open a commitment related to "write the report"
-    opened = ct.process_assistant_reply("I will write the report")
-    assert opened
+    cid = ct.add_commitment(
+        "write the report", source="test", extra_meta={"reason": "reflection"}
+    )
+    assert cid
 
     # Provide a Done line that should be similar by embeddings
-    ct.process_evidence("Done: finished the report yesterday.")
+    ct.close_reflection_on_next("finished the report yesterday.")
     # With embeddings active and text evidence allowed, candidate and close should occur
     events = log.read_all()
     kinds = [e.get("kind") for e in events]

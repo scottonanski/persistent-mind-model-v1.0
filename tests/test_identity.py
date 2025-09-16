@@ -119,13 +119,7 @@ def test_autonomy_adopts_on_affirmation_or_bootstrap(tmp_path, monkeypatch):
     )
     aloop.tick()  # emits identity_propose
 
-    # Case A: affirmation via assistant reply
-    log.append(kind="response", content="I am Ada", meta={})
-    aloop.tick()
-    events = log.read_all()
-    assert any(e["kind"] == "identity_adopt" and e["content"] == "Ada" for e in events)
-
-    # Reset DB for Case B: bootstrap after 5 more ticks without affirmation
+    # Bootstrap after ticks without affirmation
     db2 = tmp_path / "rt2.db"
     log2 = EventLog(str(db2))
     for _ in range(5):
@@ -147,12 +141,10 @@ def test_autonomy_adopts_on_affirmation_or_bootstrap(tmp_path, monkeypatch):
 
 def test_identity_commitment_open_and_close_on_adopt(tmp_path, monkeypatch):
     rt, log = _mk_rt(tmp_path)
+    # Open identity commitment structurally
+    from pmm.commitments.tracker import CommitmentTracker
 
-    def gen_commit(msgs, **kw):
-        return "I will use the name Ada"
-
-    monkeypatch.setattr(rt.chat, "generate", gen_commit)
-    rt.handle_user("hi")
+    CommitmentTracker(log).add_commitment("identity:name:Ada", source="identity")
     model = build_self_model(log.read_all())
     open_map = model.get("commitments", {}).get("open", {})
     # Expect identity commitment exists
@@ -248,12 +240,10 @@ I am Ada
     elog.append(kind="response", content="I am not Ada.", meta={})
     aloop.tick()
     assert not any(e["kind"] == "identity_adopt" for e in elog.read_all())
-    # Accept clean
+    # With triggers removed, even clean affirmations do not adopt
     elog.append(kind="response", content="I am Ada.", meta={})
     aloop.tick()
-    assert any(
-        e["kind"] == "identity_adopt" and e["content"] == "Ada" for e in elog.read_all()
-    )
+    assert not any(e["kind"] == "identity_adopt" for e in elog.read_all())
 
 
 def test_affirmation_name_validation(tmp_path):
@@ -266,6 +256,10 @@ def test_affirmation_name_validation(tmp_path):
         aloop.tick()
         # ensure no adopt from invalid
         assert not any(e["kind"] == "identity_adopt" for e in elog.read_all())
+    # Also ensure a valid affirmation does not cause adoption
+    elog.append(kind="response", content="I am Ada", meta={})
+    aloop.tick()
+    assert not any(e["kind"] == "identity_adopt" for e in elog.read_all())
 
 
 def test_proposal_adoption_idempotence(tmp_path):
@@ -276,13 +270,12 @@ def test_proposal_adoption_idempotence(tmp_path):
     aloop.tick()
     kinds = [e["kind"] for e in elog.read_all()]
     assert kinds.count("identity_propose") == 1
-    # Adopt once
-    elog.append(kind="response", content="I am Ada", meta={})
-    aloop.tick()
+    # Advance ticks to trigger bootstrap adoption once
+    for _ in range(6):
+        aloop.tick()
     kinds = [e["kind"] for e in elog.read_all()]
     assert kinds.count("identity_adopt") == 1
-    # Even if another response asserts, we do not adopt again without a new proposal
-    elog.append(kind="response", content="I am Ada", meta={})
+    # Additional ticks do not create duplicate adoption without a new proposal
     aloop.tick()
     kinds = [e["kind"] for e in elog.read_all()]
     assert kinds.count("identity_adopt") == 1

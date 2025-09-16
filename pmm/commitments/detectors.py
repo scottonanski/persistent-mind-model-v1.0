@@ -18,14 +18,8 @@ class CommitmentCandidate:
     end: int
 
 
-# Table-driven baseline patterns (deterministic order)
-_PATTERNS: List[re.Pattern] = [
-    re.compile(r"\b(I will|I'll|I shall)\s+([^\.!\n]+)", re.IGNORECASE),
-    re.compile(r"\bI can\s+(?:do|handle|set up|create)\s+([^\.!\n]+)", re.IGNORECASE),
-    re.compile(r"\bLet's\s+(?!not)\s*([^\.!\n]+)", re.IGNORECASE),
-    re.compile(r"\bTODO:\s*([^\n]+)", re.IGNORECASE),
-    re.compile(r"\bI commit to\s+([^\.!\n]+)", re.IGNORECASE),
-]
+# All keyword/regex triggers are disabled. No detection from free text.
+_PATTERNS: List[re.Pattern] = []
 
 
 def _normalize(s: str) -> str:
@@ -37,69 +31,31 @@ def _normalize(s: str) -> str:
 def detect_commitments(
     text: str, *, source: str = "reply"
 ) -> List[CommitmentCandidate]:
-    """Deterministic extraction; de-dup by normalized text while preserving pattern order."""
-    if not text:
-        return []
-    out: List[CommitmentCandidate] = []
-    seen: set[str] = set()
-    for pat in _PATTERNS:
-        for m in pat.finditer(text):
-            frag = m.group(2) if (m.lastindex and m.lastindex >= 2) else m.group(1)
-            norm = _normalize(frag)
-            # Canonicalize identity-intent phrases to a stable key
-            try:
-                m_id = re.search(
-                    r"\buse\s+the\s+name\s+([A-Za-z][A-Za-z0-9_-]{0,11})\b",
-                    norm,
-                    flags=re.IGNORECASE,
-                )
-                if m_id:
-                    nm = m_id.group(1)
-                    norm = f"identity:name:{nm}"
-            except Exception:
-                pass
-            if not norm or norm in seen:
-                continue
-            seen.add(norm)
-            out.append(
-                CommitmentCandidate(
-                    text=norm, source=source, start=m.start(), end=m.end()
-                )
-            )
-    return out
+    """Disabled: free-text commitment extraction is not supported.
+
+    Commitments should be opened explicitly via structural events (e.g.,
+    reflection_check + commitment_open) and not inferred from keywords.
+    """
+    return []
 
 
 class RegexCommitmentDetector:
-    """Brittle but simple baseline; good for smoke. Upgrade path is SemanticCommitmentDetector."""
+    """No-op detector. Preserved for API compatibility but returns no results."""
 
     def find(self, text: str) -> List[Dict]:
-        # Delegate to table-driven baseline to keep a single deterministic source of truth
-        cands = detect_commitments(text or "", source="reply")
-        results: List[Dict] = []
-        for c in cands:
-            results.append(
-                {
-                    "text": c.text,
-                    "span": (c.start, c.end),
-                    "kind": "plan",
-                    "confidence": 0.55,
-                }
-            )
-        return results
+        return []
 
 
 class SemanticCommitmentDetector:
-    """Stub: swaps in when PMM_DETECTOR=semantic. Implement with embeddings later."""
+    """No-op stub until semantic detection is implemented structurally."""
 
     def __init__(self, threshold: float = 0.58):
         self.threshold = threshold
 
     def find(self, text: str) -> List[Dict]:
-        # Placeholder: in future, score text against intent exemplars via embeddings similarity.
-        # For now, just defer to regex baseline to keep behavior consistent until semantic is wired.
-        return RegexCommitmentDetector().find(text)
+        return []
 
 
 def get_default_detector() -> CommitmentDetector:
-    # Always use deterministic regex baseline; no env gate switching.
+    """Return a no-op detector by default."""
     return RegexCommitmentDetector()

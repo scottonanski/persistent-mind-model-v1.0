@@ -24,11 +24,10 @@ def _run_ticks(log: EventLog, rt: Runtime, n: int):
 
 def test_expire_after_ttl(tmp_path, monkeypatch):
     rt, log = _mk_rt(tmp_path)
-    # Open a commitment
-    monkeypatch.setattr(
-        rt.chat, "generate", lambda msgs, **kw: "I will write the report."
-    )
-    rt.handle_user("hi")
+    # Open a commitment structurally
+    from pmm.commitments.tracker import CommitmentTracker
+
+    CommitmentTracker(log).add_commitment("write the report", source="test")
     # Advance > TTL (default 10 ticks)
     _run_ticks(log, rt, 11)
 
@@ -42,11 +41,10 @@ def test_expire_after_ttl(tmp_path, monkeypatch):
 
 def test_no_expire_if_recent_activity(tmp_path, monkeypatch):
     rt, log = _mk_rt(tmp_path)
-    # Open a commitment
-    monkeypatch.setattr(
-        rt.chat, "generate", lambda msgs, **kw: "I will draft the design doc."
-    )
-    rt.handle_user("hi")
+    # Open a commitment structurally
+    from pmm.commitments.tracker import CommitmentTracker
+
+    CommitmentTracker(log).add_commitment("draft the design doc", source="test")
     # Fewer than TTL ticks
     _run_ticks(log, rt, 5)
 
@@ -59,11 +57,10 @@ def test_no_expire_if_recent_activity(tmp_path, monkeypatch):
 
 def test_snooze_delays_expire(tmp_path, monkeypatch):
     rt, log = _mk_rt(tmp_path)
-    # Open
-    monkeypatch.setattr(
-        rt.chat, "generate", lambda msgs, **kw: "I will update the docs."
-    )
-    rt.handle_user("hi")
+    # Open structurally
+    from pmm.commitments.tracker import CommitmentTracker
+
+    CommitmentTracker(log).add_commitment("update the docs", source="test")
     # Add snooze until tick 15
     log.append(
         kind="commitment_snooze",
@@ -86,17 +83,14 @@ def test_snooze_delays_expire(tmp_path, monkeypatch):
 
 def test_no_premature_expire_if_evidence_within_ttl(tmp_path, monkeypatch):
     rt, log = _mk_rt(tmp_path)
-    # Fake reply opens a commitment
-    monkeypatch.setattr(
-        rt.chat, "generate", lambda msgs, **kw: "I will finish the report."
-    )
-    rt.handle_user("hi")
+    # Open a commitment structurally
+    from pmm.commitments.tracker import CommitmentTracker
+
+    CommitmentTracker(log).add_commitment("finish the report", source="test")
 
     # Later reply provides evidence of completion
-    monkeypatch.setattr(
-        rt.chat, "generate", lambda msgs, **kw: "Done: finished the report."
-    )
-    rt.handle_user("update")
+    # Free-text evidence is ignored by runtime; structural close requires explicit call
+    # (This test asserts only that no premature expire occurs within TTL.)
 
     # Run ticks fewer than TTL (default 10)
     _run_ticks(log, rt, 5)

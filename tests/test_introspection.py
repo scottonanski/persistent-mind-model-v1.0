@@ -1,21 +1,19 @@
 from pmm.storage.eventlog import EventLog
 from pmm.commitments.tracker import CommitmentTracker
-from pmm.commitments.detectors import RegexCommitmentDetector
 from pmm.runtime.loop import emit_reflection
 from pmm.runtime.introspection import run_audit
 
 
 def _open_commitment(ct: CommitmentTracker, text: str) -> str:
-    phrase = text if text.lower().startswith("i will") else f"I will {text}"
-    added = ct.process_assistant_reply(phrase)
-    assert added and len(added) == 1
-    return added[0]
+    cid = ct.add_commitment(text, source="test")
+    assert cid
+    return cid
 
 
 def test_audit_flags_close_without_candidate(tmp_path, monkeypatch):
     db = tmp_path / "audit1.db"
     log = EventLog(str(db))
-    ct = CommitmentTracker(log, detector=RegexCommitmentDetector())
+    ct = CommitmentTracker(log)
 
     cid = _open_commitment(ct, "write the report")
 
@@ -32,7 +30,7 @@ def test_audit_flags_close_without_candidate(tmp_path, monkeypatch):
 def test_audit_detects_duplicate_close(tmp_path, monkeypatch):
     db = tmp_path / "audit2.db"
     log = EventLog(str(db))
-    ct = CommitmentTracker(log, detector=RegexCommitmentDetector())
+    ct = CommitmentTracker(log)
 
     cid = _open_commitment(ct, "write the report")
 
@@ -57,7 +55,7 @@ def test_audit_detects_duplicate_close(tmp_path, monkeypatch):
 def test_audit_orphan_evidence(tmp_path, monkeypatch):
     db = tmp_path / "audit3.db"
     log = EventLog(str(db))
-    ct = CommitmentTracker(log, detector=RegexCommitmentDetector())
+    ct = CommitmentTracker(log)
 
     _ = _open_commitment(ct, "update docs")
 
@@ -85,7 +83,7 @@ def test_audit_orphan_evidence(tmp_path, monkeypatch):
 def test_audit_reflection_fact_check(tmp_path):
     db = tmp_path / "audit4.db"
     log = EventLog(str(db))
-    ct = CommitmentTracker(log, detector=RegexCommitmentDetector())
+    ct = CommitmentTracker(log)
 
     _ = _open_commitment(ct, "finish the report")
 
