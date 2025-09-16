@@ -30,7 +30,7 @@ from pmm.runtime.ngram_filter import NGramFilter
 from pmm.runtime.self_evolution import SelfEvolution
 from pmm.runtime.recall import suggest_recall
 from pmm.runtime.scene_compactor import maybe_compact
-from pmm.runtime.prioritizer import rank_commitments
+from pmm.runtime.prioritizer import rank_commitments, Prioritizer
 from pmm.runtime.stage_tracker import StageTracker, stage_str_to_level
 from pmm.runtime.bridge import ResponseRenderer
 from pmm.runtime.introspection import run_audit
@@ -78,7 +78,11 @@ import uuid as _uuid
 import re as _re
 import json as _json
 import hashlib as _hashlib
+from pmm.directives.hierarchy import DirectiveHierarchy
+from pmm.continuity.engine import ContinuityEngine
+import logging
 
+logger = logging.getLogger(__name__)
 
 # ---- Turn-based cadence constants (no env flags) ----
 # Evaluator cadence in turns
@@ -87,35 +91,19 @@ EVALUATOR_EVERY_TICKS: int = 5
 IDENTITY_FIRST_PROPOSAL_TURNS: int = 3
 # Automatic adoption deadline (turns after proposal)
 ADOPTION_DEADLINE_TURNS: int = 3
+# Fixed reflection-commit due horizon (hours)
+REFLECTION_COMMIT_DUE_HOURS: int = 24
 
 
 def _compute_reflection_due_epoch() -> int:
-    """Compute a soft due timestamp for reflection-driven commitments.
-
-    Env: PMM_REFLECTION_COMMIT_DUE_HOURS (int, default 24). Negatives clamp to 0.
-    Returns epoch seconds as int.
-    """
-    hours_str = str(_os.environ.get("PMM_REFLECTION_COMMIT_DUE_HOURS", "24"))
-    try:
-        hours = int(hours_str)
-    except Exception:
-        hours = 24
-    if hours < 0:
-        hours = 0
+    """Compute a soft due timestamp for reflection-driven commitments (constant horizon)."""
+    hours = max(0, int(REFLECTION_COMMIT_DUE_HOURS))
     return int(_time.time()) + hours * 3600
 
 
 def _vprint(msg: str) -> None:
-    """Verbose console output controlled by PMM_VERBOSE.
-
-    Set PMM_VERBOSE=1 to see background loop messages; otherwise suppressed.
-    """
-    try:
-        if str(_os.environ.get("PMM_VERBOSE", "0")).lower() in {"1", "true"}:
-            print(msg)
-    except Exception:
-        # Never allow logging errors to affect runtime
-        pass
+    """Deterministic console output policy: no env gate (quiet by default)."""
+    return
 
 
 def _sha256_json(obj) -> str:
@@ -232,7 +220,11 @@ def _strip_voice_wrappers(text: str, name: str) -> str:
 
     if not text:
         return text
-    out = _re_local.sub(rf"^\s*(?:I am\s+{_re_local.escape(name)}\.\s*)", "", text)
+    pat = rf"^\s*(?:I am|I'm|I’m)\s+{_re_local.escape(name)}[\.!]?\s*"
+    out = _re_local.sub(pat, "", text)
+    out = _re_local.sub(
+        rf"^\s*My\s+name\s+is\s+{_re_local.escape(name)}[\.!]?\s*", "", out
+    )
     return out
 
 
@@ -286,6 +278,15 @@ class Runtime:
         self._ngram_filter = NGramFilter(ngram_bans)
         # Renderer (bridge-lite)
         self._renderer = ResponseRenderer()
+        self.directive_hierarchy = (
+            DirectiveHierarchy(self.eventlog) if self.eventlog else None
+        )
+        self.continuity_engine = (
+            ContinuityEngine(self.eventlog, self.directive_hierarchy)
+            if self.eventlog and self.directive_hierarchy
+            else None
+        )
+        self.prioritizer = Prioritizer(self.eventlog) if self.eventlog else None
 
     def handle_user(self, user_text: str) -> str:
         msgs = [{"role": "user", "content": user_text}]
@@ -381,127 +382,7 @@ class Runtime:
                 msgs.append({"role": "system", "content": context_block})
         except Exception:
             pass
-        # Deterministic policy header: identity (if adopted) + top open commitments
-        try:
-            evs_all = self.eventlog.read_all()
-            ident0 = build_identity(evs_all)
-            name0 = str(ident0.get("name") or "").strip()
-            # Build ranked list of current open commitments (top 2)
-            header_lines: list[str] = []
-            if name0:
-                header_lines.append(f"You are {name0}. Speak in first person.")
-            # Map cid -> text from projection, then pick top by prioritizer
-            try:
-                model0 = build_self_model(evs_all)
-                open_map = (model0.get("commitments") or {}).get("open") or {}
-                ranking = rank_commitments(evs_all)
-                top_cids = [cid for cid, _ in ranking[:2] if cid in open_map]
-                top_texts: list[str] = []
-                for cid in top_cids:
-                    txt = str((open_map.get(cid) or {}).get("text") or "").strip()
-                    if not txt:
-                        continue
-                    line = _short_commit_text(txt, limit=80)
-                    if line:
-                        top_texts.append(line)
-                if top_texts:
-                    header_lines.append("Open commitments:")
-                    for t in top_texts:
-                        header_lines.append(f"- {t}")
-                # Projects: show most populous open project deterministically (includes assignments)
-                try:
-                    # Build assignment map (latest wins) for currently open cids
-                    assign: dict[str, str] = {}
-                    for _e in reversed(evs_all):
-                        if _e.get("kind") != "project_assign":
-                            continue
-                        m = _e.get("meta") or {}
-                        cc = str(m.get("cid") or "")
-                        pid = str(m.get("project_id") or "")
-                        if cc and cc in open_map and cc not in assign and pid:
-                            assign[cc] = pid
-                    proj_counts: dict[str, int] = {}
-                    for _cid, meta_c in open_map.items():
-                        pid0 = (meta_c or {}).get("project_id") or assign.get(_cid)
-                        if isinstance(pid0, str) and pid0:
-                            proj_counts[pid0] = proj_counts.get(pid0, 0) + 1
-                    if proj_counts:
-                        max_n = max(proj_counts.values())
-                        cands = sorted(
-                            [p for p, n in proj_counts.items() if n == max_n]
-                        )
-                        top_proj = cands[0]
-                        header_lines.append(
-                            f"[PROJECT] {top_proj} — {proj_counts[top_proj]} open"
-                        )
-                except Exception:
-                    pass
-                # Also surface a very compact recent trait drift indicator
-                # Find the most recent trait_update and summarize sign-only deltas
-                try:
-                    last_trait = None
-                    for _e in reversed(evs_all):
-                        if _e.get("kind") == "trait_update":
-                            last_trait = _e
-                            break
-                    if last_trait:
-                        m = last_trait.get("meta") or {}
-                        # Map keys to abbreviations
-                        _abbr = {
-                            "openness": "O",
-                            "conscientiousness": "C",
-                            "extraversion": "E",
-                            "agreeableness": "A",
-                            "neuroticism": "N",
-                            "o": "O",
-                            "c": "C",
-                            "e": "E",
-                            "a": "A",
-                            "n": "N",
-                        }
-                        tokens: list[str] = []
-                        d = m.get("delta")
-                        if isinstance(d, dict):
-                            for k, v in d.items():
-                                ab = _abbr.get(str(k).lower())
-                                if not ab:
-                                    continue
-                                try:
-                                    vf = float(v)
-                                except Exception:
-                                    continue
-                                if vf > 0:
-                                    tokens.append(f"+{ab}")
-                                elif vf < 0:
-                                    tokens.append(f"-{ab}")
-                                if len(tokens) >= 3:
-                                    break
-                        else:
-                            tkey = _abbr.get(str(m.get("trait") or "").lower())
-                            try:
-                                dv = (
-                                    float(m.get("delta"))
-                                    if m.get("delta") is not None
-                                    else 0.0
-                                )
-                            except Exception:
-                                dv = 0.0
-                            if tkey and dv:
-                                tokens.append(("+" if dv > 0 else "-") + tkey)
-                        if tokens:
-                            header_lines.append(
-                                "Recent trait drift: " + " ".join(tokens)
-                            )
-                except Exception:
-                    pass
-            except Exception:
-                # If prioritizer/projection fails, skip commitments portion
-                pass
-            if header_lines:
-                msgs.append({"role": "system", "content": "\n".join(header_lines)})
-        except Exception:
-            # Never let header construction break chat flow
-            pass
+        # Contextual header removed: do not inject identity/commitments/trait drift into prompts.
         # Deterministic phrasing preference: if user asks about current work, mention commitments
         try:
             lowq = (user_text or "").lower()
@@ -690,21 +571,7 @@ class Runtime:
         except Exception:
             # Do not break chat flow on recall issues
             pass
-        # Embeddings path:
-        # - If PMM_EMBEDDINGS_ENABLE=1: append response ONCE, then embedding_indexed for that response
-        # - Else: append embedding_skipped BEFORE response to preserve ordering
-        enabled = str(_os.environ.get("PMM_EMBEDDINGS_ENABLE", "1")).lower() in {
-            "1",
-            "true",
-            "True",
-        }
-        # Emit a pre-response skip marker only when embeddings are disabled
-        if not enabled:
-            try:
-                # Signal that we skipped embedding indexing in this mode (BEFORE response)
-                self.eventlog.append(kind="embedding_skipped", content="", meta={})
-            except Exception:
-                pass
+        # Embeddings path: always ON. Append response ONCE, then embedding_indexed for that response.
         import inspect
 
         stack = inspect.stack()
@@ -735,59 +602,32 @@ class Runtime:
         except Exception:
             # Never block the chat path on directive extraction
             pass
-        # Post-response embedding handling when enabled, unless test requests to skip.
-        # Only attempt compute when an embed provider is configured OR test/dummy flags are set.
-        if not skip_embedding and enabled:
-            has_provider = bool(getattr(self.cfg, "embed_provider", None))
-            test_mode = any(
-                str(_os.environ.get(k, "0")).lower() in {"1", "true"}
-                for k in (
-                    "PMM_EMBEDDINGS_DUMMY",
-                    "TEST_EMBEDDINGS",
-                    "TEST_EMBEDDINGS_CONSTANT",
-                )
-            )
-            if has_provider or test_mode:
-                # Keep synchronous behavior for tests to avoid races
-                if _os.environ.get("PYTEST_CURRENT_TEST"):
-                    try:
-                        vec = _emb_compute(reply)
-                        if vec is None:
-                            self.eventlog.append(
-                                kind="embedding_skipped", content="", meta={}
-                            )
-                        else:
-                            d = _emb_digest(vec)
-                            self.eventlog.append(
-                                kind="embedding_indexed",
-                                content="",
-                                meta={"eid": int(rid), "digest": d},
-                            )
-                    except Exception:
-                        pass
-                else:
-                    # Async in normal runs: return immediately; index in the background
-                    try:
-                        th = _threading.Thread(
-                            target=_index_embedding_async,
-                            args=(self.eventlog, int(rid), reply),
-                            name="PMM-EmbedIndex",
-                            daemon=True,
-                        )
-                        th.start()
-                    except Exception:
-                        # If we cannot start a thread, fall back to a non-fatal skip event
-                        try:
-                            self.eventlog.append(
-                                kind="embedding_skipped", content="", meta={}
-                            )
-                        except Exception:
-                            pass
-            else:
-                # Embeddings enabled but no provider configured and not in test mode: skip after response
+        # Post-response embedding handling (always ON), unless a specific test stack requests skip.
+        if not skip_embedding:
+            # Keep synchronous behavior for tests to avoid races
+            if _os.environ.get("PYTEST_CURRENT_TEST"):
                 try:
-                    self.eventlog.append(kind="embedding_skipped", content="", meta={})
+                    vec = _emb_compute(reply)
+                    d = _emb_digest(vec)
+                    self.eventlog.append(
+                        kind="embedding_indexed",
+                        content="",
+                        meta={"eid": int(rid), "digest": d},
+                    )
                 except Exception:
+                    pass
+            else:
+                # Async in normal runs: return immediately; index in the background
+                try:
+                    th = _threading.Thread(
+                        target=_index_embedding_async,
+                        args=(self.eventlog, int(rid), reply),
+                        name="PMM-EmbedIndex",
+                        daemon=True,
+                    )
+                    th.start()
+                except Exception:
+                    # If we cannot start a thread, ignore silently to keep ledger stable
                     pass
         # Note user turn for reflection cooldown
         self.cooldown.note_user_turn()
@@ -2268,6 +2108,8 @@ class AutonomyLoop:
             now_ts = float(_time2.time())
         except Exception:
             now_ts = None
+        did = False
+        reason = "init"
         if _cadence_should_reflect(state, now_ts=now_ts):
             # Build deterministic guidance from active directives and log it for audit
             try:
@@ -2341,14 +2183,11 @@ class AutonomyLoop:
                         pass
                     try:
                         arm, _delta2 = _choose_arm_biased(_means, _guidance_items)
-                        tick_c = 1 + sum(
-                            1 for ev in evs_now_bt if ev.get("kind") == "autonomy_tick"
-                        )
                     except Exception:
-                        arm = "succinct"
-                        tick_c = 1 + sum(
-                            1 for ev in evs_now_bt if ev.get("kind") == "autonomy_tick"
-                        )
+                        arm = None
+                    tick_c = 1 + sum(
+                        1 for ev in evs_now_bt if ev.get("kind") == "autonomy_tick"
+                    )
                     self.eventlog.append(
                         kind="bandit_arm_chosen",
                         content="",
@@ -2873,10 +2712,11 @@ class AutonomyLoop:
                     if not text or "```" in text:
                         return None
                     lines = [ln.strip() for ln in str(text).splitlines()]
-                    import re as _re
+                    import re as _re_local
 
-                    pat = _re.compile(
-                        r"^I am\s+([A-Za-z][A-Za-z0-9_-]{0,11})([.!])?$", _re.IGNORECASE
+                    pat = _re_local.compile(
+                        r"^I am\s+([A-Za-z][A-Za-z0-9_-]{0,11})([.!])?$",
+                        _re_local.IGNORECASE,
                     )
                     neg_words = ("not ", "n't ", "called ", "known as ", "aka ")
                     for ln in lines:
@@ -3382,64 +3222,59 @@ class AutonomyLoop:
                 # Auto-proposal ENABLED by default. Deterministic bootstrap ensures at least
                 # one proposal at a cadence boundary (EVALUATOR_EVERY_TICKS) in cold-start.
                 try:
-                    if str(_os.environ.get("PMM_AUTO_CURRICULUM", "1")).lower() in {
-                        "1",
-                        "true",
-                    }:
-                        br_count = 0
-                        novelty_trend = False
-                        for _sig in tail:
-                            k = _sig.get("kind")
-                            if k == "bandit_reward":
-                                br_count += 1
-                            elif k == "audit_report" and (
-                                (_sig.get("meta") or {}).get("category")
-                                == "novelty_trend"
-                            ):
-                                novelty_trend = True
-                        # Normal path: require stronger evidence buffer (>=4 rewards) or novelty_trend audit
-                        if novelty_trend or br_count >= 4:
-                            _maybe_curriculum(self.eventlog, tick=int(tick_no))
-                        else:
-                            # Cold-start bootstrap: if no prior proposal and cadence boundary, propose once.
-                            # Use a cooldown tweak to avoid interfering with reflection cadence idempotence tests.
+                    br_count = 0
+                    novelty_trend = False
+                    for _sig in tail:
+                        k = _sig.get("kind")
+                        if k == "bandit_reward":
+                            br_count += 1
+                        elif k == "audit_report" and (
+                            (_sig.get("meta") or {}).get("category") == "novelty_trend"
+                        ):
+                            novelty_trend = True
+                    # Normal path: require stronger evidence buffer (>=4 rewards) or novelty_trend audit
+                    if novelty_trend or br_count >= 4:
+                        _maybe_curriculum(self.eventlog, tick=int(tick_no))
+                    else:
+                        # Cold-start bootstrap: if no prior proposal and cadence boundary, propose once.
+                        # Use a cooldown tweak to avoid interfering with reflection cadence idempotence tests.
+                        try:
+                            _tail_now = self.eventlog.read_tail(limit=200)
+                        except TypeError:
+                            _tail_now = self.eventlog.read_tail(200)  # type: ignore[arg-type]
+                        has_prop = any(
+                            e.get("kind") == "curriculum_update" for e in _tail_now
+                        )
+                        if (not has_prop) and (
+                            int(tick_no) % int(EVALUATOR_EVERY_TICKS) == 0
+                        ):
+                            # Determine current cooldown threshold and bump by +0.05 (clamped)
                             try:
-                                _tail_now = self.eventlog.read_tail(limit=200)
-                            except TypeError:
-                                _tail_now = self.eventlog.read_tail(200)  # type: ignore[arg-type]
-                            has_prop = any(
-                                e.get("kind") == "curriculum_update" for e in _tail_now
+                                evs_boot = self.eventlog.read_all()
+                            except Exception:
+                                evs_boot = events
+                            _st_cool, _cur_cool = _last_policy_params(
+                                evs_boot, component="cooldown"
                             )
-                            if (not has_prop) and (
-                                int(tick_no) % int(EVALUATOR_EVERY_TICKS) == 0
-                            ):
-                                # Determine current cooldown threshold and bump by +0.05 (clamped)
-                                try:
-                                    evs_boot = self.eventlog.read_all()
-                                except Exception:
-                                    evs_boot = events
-                                _st_cool, _cur_cool = _last_policy_params(
-                                    evs_boot, component="cooldown"
+                            try:
+                                thr = float(
+                                    (_cur_cool or {}).get("novelty_threshold", 0.50)
                                 )
-                                try:
-                                    thr = float(
-                                        (_cur_cool or {}).get("novelty_threshold", 0.50)
-                                    )
-                                except Exception:
-                                    thr = 0.50
-                                new_thr = min(1.0, max(0.0, thr + 0.05))
-                                self.eventlog.append(
-                                    kind="curriculum_update",
-                                    content="",
-                                    meta={
-                                        "proposed": {
-                                            "component": "cooldown",
-                                            "params": {"novelty_threshold": new_thr},
-                                        },
-                                        "reason": "bootstrap",
-                                        "tick": int(tick_no),
+                            except Exception:
+                                thr = 0.50
+                            new_thr = min(1.0, max(0.0, thr + 0.05))
+                            self.eventlog.append(
+                                kind="curriculum_update",
+                                content="",
+                                meta={
+                                    "proposed": {
+                                        "component": "cooldown",
+                                        "params": {"novelty_threshold": new_thr},
                                     },
-                                )
+                                    "reason": "bootstrap",
+                                    "tick": int(tick_no),
+                                },
+                            )
                 except Exception:
                     pass
         except Exception:

@@ -1,49 +1,18 @@
 from __future__ import annotations
 
 from typing import List, Optional
-import os as _os
-from openai import OpenAI
 import hashlib as _hashlib
 import math as _math
 import re as _re
 
 
 def _load_env_if_missing() -> None:
-    """If OPENAI_API_KEY is missing, attempt to load it from the nearest .env file.
-
-    This avoids requiring users to `source .env` before running tests or code.
-    """
-    if _os.environ.get("OPENAI_API_KEY"):
-        return
-    # Search up from this file for a .env
-    cur = _os.path.abspath(_os.path.dirname(__file__))
-    for _ in range(6):  # search up to 6 levels
-        candidate = _os.path.join(cur, ".env")
-        if _os.path.isfile(candidate):
-            try:
-                with open(candidate, "r", encoding="utf-8") as fh:
-                    for line in fh:
-                        ln = line.strip()
-                        if not ln or ln.startswith("#"):
-                            continue
-                        if "=" not in ln:
-                            continue
-                        k, v = ln.split("=", 1)
-                        k = k.strip()
-                        v = v.strip().strip('"').strip("'")
-                        if k and v and k not in _os.environ:
-                            _os.environ[k] = v
-            except Exception:
-                pass
-            break
-        parent = _os.path.dirname(cur)
-        if parent == cur:
-            break
-        cur = parent
+    """No-op placeholder preserved for API compatibility (no external provider)."""
+    return
 
 
 def _dummy_vec(text: str, dim: int = 32) -> List[float]:
-    """Deterministic hash-based vector for tests: PMM_EMBEDDINGS_DUMMY=1."""
+    """Deterministic hash-based vector (used internally)."""
     h = _hashlib.sha1((text or "").encode("utf-8")).digest()
     vals = [h[i % len(h)] for i in range(dim)]
     # center and scale to [0,1]
@@ -51,9 +20,10 @@ def _dummy_vec(text: str, dim: int = 32) -> List[float]:
 
 
 def _bow_vec(text: str, dim: int = 64) -> List[float]:
-    """Simple bag-of-words hashed vector for tests: TEST_EMBEDDINGS=1.
+    """Simple bag-of-words hashed vector.
 
-    Overlapping tokens produce correlated vectors, making cosine similarity meaningful.
+    Overlapping tokens produce correlated vectors, making cosine similarity meaningful,
+    and is fully deterministic without external providers.
     """
     s = (text or "").lower()
     toks = [t for t in _re.split(r"[^a-z0-9]+", s) if t]
@@ -67,33 +37,24 @@ def _bow_vec(text: str, dim: int = 64) -> List[float]:
     return [v / norm for v in vec]
 
 
-def compute_embedding(
-    text: str, model: str = "text-embedding-3-small"
-) -> Optional[List[float]]:
-    """Compute an embedding for text.
+def compute_embedding(text: str, model: str = "local-bow") -> Optional[List[float]]:
+    """Compute an embedding for text deterministically, always ON.
 
-    Modes:
-    - PMM_EMBEDDINGS_DUMMY=1 -> deterministic hash vector via _dummy_vec
-    - TEST_EMBEDDINGS=1 -> bag-of-words hashed vector via _bow_vec
-    - TEST_EMBEDDINGS_CONSTANT=1 -> constant vector (useful for invariants)
-    - Else -> OpenAI embeddings; returns None on failure
+    No environment flags, no external providers.
     """
-    # Test/dummy modes first
-    if str(_os.environ.get("TEST_EMBEDDINGS_CONSTANT", "0")).lower() in {"1", "true"}:
-        return [1.0] * 16
-    if str(_os.environ.get("PMM_EMBEDDINGS_DUMMY", "0")).lower() in {"1", "true"}:
-        return _dummy_vec(text)
-    if str(_os.environ.get("TEST_EMBEDDINGS", "0")).lower() in {"1", "true"}:
-        return _bow_vec(text)
-
-    # Real provider path (OpenAI)
+    # Primary: bag-of-words hashed vector
     try:
-        _load_env_if_missing()
-        client = OpenAI()
-        resp = client.embeddings.create(model=model, input=text)
-        return resp.data[0].embedding
+        vec = _bow_vec(text)
+        # Small jitter via dummy mix to reduce identical digests for short inputs
+        dv = _dummy_vec(text)
+        n = min(len(vec), len(dv))
+        out = [float(0.9 * vec[i] + 0.1 * dv[i]) for i in range(n)]
+        # Renormalize
+        norm = _math.sqrt(sum(v * v for v in out)) or 1.0
+        return [v / norm for v in out]
     except Exception:
-        return None
+        # As a last resort, return a constant vector (still non-None)
+        return [1.0] * 16
 
 
 def cosine_similarity(a: List[float], b: List[float]) -> float:
@@ -118,17 +79,13 @@ def digest_vector(vec: List[float]) -> str:
 
 
 def index_and_log(eventlog, eid: int, text: str) -> None:
-    """Compute an embedding and append embedding_indexed or embedding_skipped for the given event id."""
+    """Compute an embedding and append embedding_indexed for the given event id (always ON)."""
     vec = compute_embedding(text)
-    if vec is None:
-        eventlog.append(kind="embedding_skipped", content="", meta={})
-        return
     try:
         eid_int = int(eid)
     except Exception:
         eid_int = 0
     if eid_int <= 0:
-        eventlog.append(kind="embedding_skipped", content="", meta={})
         return
     eventlog.append(
         kind="embedding_indexed",

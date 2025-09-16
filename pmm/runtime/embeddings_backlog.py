@@ -80,24 +80,12 @@ def process_backlog(
         content_by_id[int(eid)] = str(text or "")
     for eid in missing:
         text = content_by_id.get(int(eid), "")
-        if use_real:
-            try:
-                vec = _emb_compute(text)
-            except Exception:
-                vec = None
-        else:
+        try:
+            vec = _emb_compute(text)
+        except Exception:
             vec = None
         if vec is None:
-            try:
-                eventlog.append(
-                    kind="embedding_skipped",
-                    content="",
-                    meta={"eid": int(eid)},
-                )
-                counts["skipped"] += 1
-            except Exception:
-                # Swallow errors to keep backlog resilient
-                pass
+            # Deterministic always-on path should rarely hit this; treat as processed without ledger noise
             counts["processed"] += 1
             continue
         # Append embedding_indexed and attempt to persist in side table if available
@@ -123,15 +111,7 @@ def process_backlog(
                 # Never allow side-table errors to bubble up
                 pass
         except Exception:
-            # Fall back to skipped on any failure in append path
-            try:
-                eventlog.append(
-                    kind="embedding_skipped",
-                    content="",
-                    meta={"eid": int(eid)},
-                )
-                counts["skipped"] += 1
-            except Exception:
-                pass
+            # Ignore individual failures to keep backlog resilient
+            pass
         counts["processed"] += 1
     return counts

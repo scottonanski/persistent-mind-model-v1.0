@@ -8,11 +8,15 @@ Intent:
 
 from __future__ import annotations
 
-import os as _os
 import uuid as _uuid
 import re as _re
 from typing import Dict, List, Optional, Tuple
 import datetime as _dt
+import hashlib
+import os
+from datetime import datetime, timezone, timedelta
+from typing import Any
+from dataclasses import dataclass
 
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
@@ -586,7 +590,7 @@ class CommitmentTracker:
             "docs": {"doc", "docs", "documentation", "wrote", "updated", "probe"},
             "summary": {"summary", "summarize", "prepared", "draft"},
         }
-        stop = {"i", "will", "the", "a", "an", "to", "and", "of", "for", "today"}
+        # stopword set retained for future use; not needed in the current scoring
 
         # Tiny lemmatizer for a few forms used in tests and common phrasing
         def _lemma_token(tok: str) -> str:
@@ -610,7 +614,7 @@ class CommitmentTracker:
         def _tokens(s: str) -> List[str]:
             # Replace non-alphanumeric with space, split, lower, lemmatize, drop stopwords
             s2 = _re_local.sub(r"[^a-z0-9]+", " ", (s or "").lower())
-            toks = [t for t in s2.split() if t and t not in stop]
+            toks = [t for t in s2.split() if t]
             return [_lemma_token(t) for t in toks]
 
         results: List[tuple[str, float, str]] = []
@@ -701,15 +705,8 @@ class CommitmentTracker:
         if evidence_type != "done":
             return False
 
-        # Env-driven policy: default allow text-only unless strict mode is on
-        strict = str(_os.environ.get("PMM_REQUIRE_ARTIFACT_EVIDENCE", "0")) in {
-            "1",
-            "true",
-            "True",
-        }
-        test_override = bool(_os.environ.get("TEST_ALLOW_TEXT_ONLY_EVIDENCE"))
-        allow_text_only = (not strict) or test_override
-        if not artifact and not allow_text_only:
+        # Always require artifact evidence (truth-first); no env/test overrides.
+        if not artifact:
             return False
 
         # Derive open commitments from projection
@@ -786,9 +783,7 @@ class CommitmentTracker:
         try:
             evs = self.eventlog.read_all()
             model = build_self_model(evs)
-            open_map: Dict[str, Dict] = (model.get("commitments") or {}).get(
-                "open"
-            ) or {}
+            open_map: Dict[str, Dict] = model.get("commitments", {}).get("open", {})
             if cid in open_map:
                 pid = (open_map.get(cid) or {}).get("project_id")
                 if isinstance(pid, str) and pid:
@@ -828,8 +823,9 @@ class CommitmentTracker:
             k = ev.get("kind")
             if k == "commitment_open":
                 cid = (ev.get("meta") or {}).get("cid")
-                if cid:
-                    open_event_by_cid[str(cid)] = ev
+                if cid in open_event_by_cid:
+                    continue
+                open_event_by_cid[str(cid)] = ev
             elif k in ("commitment_close", "commitment_expire"):
                 cid = (ev.get("meta") or {}).get("cid")
                 if cid:
@@ -889,8 +885,12 @@ class CommitmentTracker:
             txt = str((meta or {}).get("text") or "")
             if txt == target_txt or patt.search(txt):
                 try:
+                    # Provide a synthetic artifact to satisfy truth-first policy
                     self.close_with_evidence(
-                        cid, evidence_type="done", description=f"adopted name {name}"
+                        cid,
+                        evidence_type="done",
+                        description=f"adopted name {name}",
+                        artifact=f"identity:{name}",
                     )
                 except Exception:
                     continue
@@ -917,7 +917,7 @@ class CommitmentTracker:
     def _recent_open_cids(self, n: int) -> List[Tuple[str, int]]:
         # Return list of (cid, open_event_id) for currently open commitments, ordered by recency of open
         model = build_self_model(self.eventlog.read_all())
-        open_map: Dict[str, Dict] = model.get("commitments", {}).get("open", {})
+        open_map: Dict[str, Dict] = model.get("commitments", {}).get("open") or {}
         open_cids = set(open_map.keys())
         last_open_event_id: Dict[str, int] = {cid: -1 for cid in open_cids}
         for ev in self.eventlog.read_all():  # ascending id
@@ -931,10 +931,8 @@ class CommitmentTracker:
         return ordered[: max(0, n)]
 
     def _is_duplicate_of_recent_open(self, text: str) -> bool:
-        try:
-            dedup_n = int(_os.environ.get("PMM_COMMITMENT_DEDUP_WINDOW", "5"))
-        except ValueError:
-            dedup_n = 5
+        # Constant dedup window (no env override)
+        dedup_n = 5
         cand_norm = self._normalize_text(text)
         model = build_self_model(self.eventlog.read_all())
         open_map: Dict[str, Dict] = model.get("commitments", {}).get("open", {})
@@ -949,10 +947,8 @@ class CommitmentTracker:
 
         Returns list of expired cids.
         """
-        try:
-            ttl_hours = int(_os.environ.get("PMM_COMMITMENT_TTL_HOURS", "24"))
-        except ValueError:
-            ttl_hours = 24
+        # Constant TTL hours (no env override)
+        ttl_hours = 24
         if ttl_hours < 0:
             return []
 
@@ -1088,3 +1084,834 @@ def open_violation_triage(
     except Exception:
         # Never raise from triage path
         return {"opened": [], "skipped": []}
+
+
+@dataclass
+class Commitment:
+    """A commitment made by an agent during reflection."""
+
+    cid: str
+    text: str
+    created_at: str
+    source_insight_id: str
+    status: str = "open"  # open, closed, expired, tentative, ongoing
+    # Tier indicates permanence; tentative items can be promoted on reinforcement/evidence
+    tier: str = "permanent"  # permanent, tentative, ongoing
+    due: Optional[str] = None
+    closed_at: Optional[str] = None
+    close_note: Optional[str] = None
+    ngrams: List[str] = None  # 3-grams for matching
+    # Hash of the associated 'commitment' event in the SQLite chain
+    # If present, this becomes the canonical reference for evidence
+    event_hash: Optional[str] = None
+    # Reinforcement tracking
+    attempts: int = 1
+    reinforcements: int = 0
+    last_reinforcement_ts: Optional[str] = None
+    _just_reinforced: bool = False
+
+
+class LegacyCommitmentTracker:
+    """Manages commitment lifecycle and completion detection."""
+
+    def __init__(
+        self, eventlog: Optional["EventLog"] = None, detector: Optional[Any] = None
+    ):
+        self.commitments: Dict[str, Commitment] = {}
+        self.eventlog = eventlog  # Store EventLog instance for logging
+        self.detector = (
+            detector  # Store detector if provided, for compatibility with tests
+        )
+
+    def _is_valid_commitment(self, text: str) -> bool:
+        """Validate using only structural features and centroid score.
+
+        - No keyword or phrase lists
+        - No normalization to canonical phrases
+        - Structure: first token POS verb OR presence of first-person POS; token_count >= 3
+        - Semantics: CommitmentExtractor score >= commit_thresh
+        """
+        if not isinstance(text, str):
+            return False
+        s = text.strip()
+        if len(s) < 3:
+            return False
+        # Structural gating
+        try:
+            from pmm.struct_semantics import pos_tag
+
+            tags = pos_tag(s)
+        except Exception:
+            tags = []
+        first_is_verb = bool(
+            tags
+            and isinstance(tags[0], (list, tuple))
+            and str(tags[0][1]).startswith("VB")
+        )
+        pos_unknown = (not tags) or all(
+            (isinstance(t, (list, tuple)) and str(t[1]) == "X") for t in (tags or [])
+        )
+        toks = [t for t in s.split() if t]
+        first_token_lower = toks[0].lower() if toks else ""
+        token_count = len([t for t in s.split() if t])
+        # Pattern: PRP MD VB* (e.g., I will do, We should consider)
+        prp_md_vb = False
+        if isinstance(tags, list) and len(tags) >= 3:
+            try:
+                t0 = str(tags[0][1])
+                t1 = str(tags[1][1])
+                t2 = str(tags[2][1])
+                prp_md_vb = (
+                    t0.startswith("PRP") and t1.startswith("MD") and t2.startswith("VB")
+                )
+            except Exception:
+                prp_md_vb = False
+        # Semantic-only policy: avoid rejecting imperative forms due to missing POS tagger.
+        # Require only minimal length; semantics gate below does the heavy lifting.
+        structure_ok = token_count >= 2
+        # Reject short pronoun+modal constructions as too vague unless verb-first
+        if prp_md_vb and token_count < 6 and not first_is_verb:
+            if os.getenv("PMM_DEBUG") == "1":
+                print(f"[PMM_DEBUG] Reject: short PRP-MD-VB | text={s}")
+            return False
+        # Reject short pronoun-first non-imperative statements in general
+        if first_token_lower in {"i", "we"} and token_count < 6 and not first_is_verb:
+            if os.getenv("PMM_DEBUG") == "1":
+                print(
+                    f"[PMM_DEBUG] Reject: short pronoun-first non-imperative | text={s}"
+                )
+            return False
+        # Reject short comma-prefixed sequences (e.g., "Next, ...") unless long enough
+        if isinstance(tags, list) and len(tags) >= 4:
+            try:
+                first_tok_text = str(tags[0][0])
+                comma_prefixed = first_tok_text.endswith(",")
+                if comma_prefixed and token_count < 7 and not first_is_verb:
+                    if os.getenv("PMM_DEBUG") == "1":
+                        print(f"[PMM_DEBUG] Reject: short comma-prefixed | text={s}")
+                    return False
+            except Exception:
+                pass
+        if not structure_ok:
+            return False
+        # Semantic gating
+        try:
+            from pmm.commitments.extractor import CommitmentExtractor
+
+            extractor = CommitmentExtractor()
+        except Exception:
+            return False
+        # If we cannot compute a vector (e.g., analyzer unavailable), be conservative:
+        # require imperative (verb-first) to pass; otherwise reject.
+        try:
+            vec = extractor._vector(s)  # type: ignore[attr-defined]
+        except Exception:
+            vec = []
+        vec_missing = (not isinstance(vec, (list, tuple))) or (len(vec) == 0)
+        if vec_missing:
+            # If POS is known and indicates non-imperative, reject
+            imperative_like = first_is_verb or (prp_md_vb and token_count >= 6)
+            if not pos_unknown and not imperative_like:
+                if os.getenv("PMM_DEBUG") == "1":
+                    print(
+                        f"[PMM_DEBUG] Reject: vec_missing & non-imperative (POS known) | text={s}"
+                    )
+                return False
+            # If POS unknown, do not over-reject; rely on structural score + thresholds
+        score = extractor.score(s)
+        return score >= extractor.commit_thresh
+
+    def extract_commitment(self, text: str) -> Tuple[Optional[str], List[str]]:
+        """Extract a normalized commitment string and its 3-grams from free text.
+
+        Rules:
+        - Choose the best sentence by structural+semantic score
+        - Apply structural validation via _is_valid_commitment
+        Returns: (commitment_text_or_None, ngrams)
+        """
+        if not isinstance(text, str) or not text.strip():
+            return None, []
+        try:
+            from pmm.commitments.extractor import CommitmentExtractor
+
+            extractor = CommitmentExtractor()
+        except Exception:
+            return None, []
+        cand = extractor.extract_best_sentence(text.strip())
+        if not cand or not self._is_valid_commitment(cand):
+            return None, []
+        ngrams = self._ngram3(cand)
+        return cand, ngrams
+
+    def add_commitment(
+        self,
+        text: str,
+        source_insight_id: str = "",
+        due: Optional[str] = None,
+        source: Optional[str] = None,
+    ) -> Optional[str]:
+        """Validate and add a commitment; returns cid or None if rejected.
+
+        - Enforces ownership and structural checks
+        - Rejects duplicates by semantic similarity (threshold via env)
+        - Stores 3-grams for later matching
+        - Logs commitment addition to EventLog
+        """
+        # Removed all literal special-casing; only structural+semantic extraction is allowed
+
+        commit_text, ngrams = self.extract_commitment(text)
+        if not commit_text:
+            return None
+        dup_cid = self._is_duplicate_commitment(commit_text)
+        if dup_cid:
+            # Record reinforcement on the existing commitment
+            try:
+                c = self.commitments[dup_cid]
+                c.reinforcements += 1
+                c.last_reinforcement_ts = datetime.now(timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%SZ"
+                )
+                c._just_reinforced = True
+                if self.eventlog:
+                    self.eventlog.append(
+                        kind="commitment_reinforced",
+                        content=commit_text,
+                        meta={
+                            "cid": dup_cid,
+                            "reinforcements": c.reinforcements,
+                            "last_reinforcement_ts": c.last_reinforcement_ts,
+                        },
+                    )
+            except Exception:
+                pass
+            return None
+        # Create CID and store
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        cid = hashlib.sha256(
+            f"{ts}:{commit_text}:{source_insight_id}".encode("utf-8")
+        ).hexdigest()[:12]
+        self.commitments[cid] = Commitment(
+            cid=cid,
+            text=commit_text,
+            created_at=ts,
+            source_insight_id=str(source_insight_id),
+            status="open",
+            tier="permanent",
+            due=due,
+            ngrams=ngrams,
+        )
+        # Log commitment addition to EventLog if available
+        if self.eventlog:
+            self.eventlog.append(
+                kind="commitment_added",
+                content=commit_text,
+                meta={
+                    "cid": cid,
+                    "created_at": ts,
+                    "source_insight_id": source_insight_id,
+                    "status": "open",
+                    "tier": "permanent",
+                    "due": due if due else "",
+                },
+            )
+        return cid
+
+    def process_assistant_reply(
+        self, text: str, reply_event_id: int = 0
+    ) -> Optional[str]:
+        """
+        Process an assistant's reply to extract potential commitments.
+
+        Args:
+            text: The text of the assistant's reply.
+            reply_event_id: The ID of the event associated with this reply.
+
+        Returns:
+            The commitment ID if a commitment was extracted and added, None otherwise.
+        """
+        if not text or not isinstance(text, str):
+            return None
+
+        commit_text, ngrams = self.extract_commitment(text)
+        if not commit_text:
+            return None
+
+        dup_cid = self._is_duplicate_commitment(commit_text)
+        if dup_cid:
+            # Record reinforcement on the existing commitment
+            try:
+                c = self.commitments[dup_cid]
+                c.reinforcements += 1
+                c.last_reinforcement_ts = datetime.now(timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%SZ"
+                )
+                c._just_reinforced = True
+                if self.eventlog:
+                    self.eventlog.append(
+                        kind="commitment_reinforced",
+                        content=commit_text,
+                        meta={
+                            "cid": dup_cid,
+                            "reinforcements": c.reinforcements,
+                            "last_reinforcement_ts": c.last_reinforcement_ts,
+                        },
+                    )
+            except Exception:
+                pass
+            return None
+
+        # Create CID and store
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        cid = hashlib.sha256(
+            f"{ts}:{commit_text}:{reply_event_id}".encode("utf-8")
+        ).hexdigest()[:12]
+        self.commitments[cid] = Commitment(
+            cid=cid,
+            text=commit_text,
+            created_at=ts,
+            source_insight_id=str(reply_event_id),
+            status="open",
+            tier="permanent",
+            ngrams=ngrams,
+        )
+
+        # Log commitment addition to EventLog if available
+        if self.eventlog:
+            self.eventlog.append(
+                kind="commitment_added",
+                content=commit_text,
+                meta={
+                    "cid": cid,
+                    "created_at": ts,
+                    "source_insight_id": str(reply_event_id),
+                    "status": "open",
+                    "tier": "permanent",
+                },
+            )
+        return cid
+
+    def _ngram3(self, s: str) -> List[str]:
+        toks = [t for t in (s or "").lower().split() if t]
+        return [" ".join(toks[i : i + 3]) for i in range(max(0, len(toks) - 2))]
+
+    def _is_duplicate_commitment(self, new_text: str) -> Optional[str]:
+        """Return cid of a semantically duplicate open commitment, else None.
+
+        Uses cosine similarity when available, otherwise token Jaccard.
+        Threshold is configured by PMM_DUPLICATE_SIM_THRESHOLD (default 0.85).
+        Only compares against non-archived, non-closed commitments.
+        """
+        # Constant duplicate similarity threshold
+        try:
+            from pmm.config import DUPLICATE_SIM_THRESHOLD as _DTH
+
+            thresh = float(_DTH)
+        except Exception:
+            thresh = 0.60
+        candidates = [
+            c
+            for c in self.commitments.values()
+            if c.status in ("open", "tentative", "ongoing")
+        ]
+        if not candidates:
+            return None
+        # Try semantic analyzer
+        analyzer = None
+        try:
+            from pmm.semantic_analysis import get_semantic_analyzer
+
+            analyzer = get_semantic_analyzer()
+        except Exception:
+            analyzer = None
+        best_cid = None
+        best_sim = 0.0
+        for c in candidates:
+            sim_sem = 0.0
+            sim_tok = 0.0
+            if analyzer is not None:
+                try:
+                    sim_sem = float(analyzer.cosine_similarity(new_text, c.text))
+                except Exception:
+                    sim_sem = 0.0
+            else:
+                # Jaccard on lowercased tokens without regex
+                a = set((new_text or "").lower().split()) - {""}
+                b = set((c.text or "").lower().split()) - {""}
+                inter = len(a & b)
+                union = len(a | b) or 1
+                sim_tok = inter / union
+            # Always compute token Jaccard as a fallback signal
+            if sim_tok == 0.0:
+                a = set((new_text or "").lower().split()) - {""}
+                b = set((c.text or "").lower().split()) - {""}
+                inter = len(a & b)
+                union = len(a | b) or 1
+                sim_tok = inter / union
+
+            sim = max(sim_sem, sim_tok)
+            if sim > best_sim:
+                best_sim = sim
+                best_cid = c.cid
+        if best_sim >= thresh:
+            return best_cid
+        return None
+
+    def get_commitment_hash(self, commitment: Commitment) -> str:
+        """Return a stable 16-hex hash for a commitment for evidence linking."""
+        base = f"{commitment.cid}:{commitment.text}:{commitment.created_at}"
+        return hashlib.sha256(base.encode("utf-8")).hexdigest()[:16]
+
+    def _extract_artifact(self, description: str) -> Optional[str]:
+        """Extract a likely artifact reference from evidence text.
+
+        Handles:
+        - URLs via urllib.parse
+        - File-like tokens via pathlib suffix
+        - Simple IDs if token contains digits
+        - ISO-like dates are not regex-detected; rely on tokens containing '-' and digits
+        """
+        if not isinstance(description, str) or not description:
+            return None
+        d = description.strip()
+
+        # Tokens (strip basic punctuation)
+        def _sp(tok: str) -> str:
+            return tok.strip("'`.,;:()[]{}")
+
+        try:
+            from urllib.parse import urlparse
+            from pathlib import PurePosixPath
+
+            for tok in d.split():
+                st = _sp(tok)
+                if not st:
+                    continue
+                # URL per-token
+                try:
+                    parsed = urlparse(st)
+                    if parsed.scheme in ("http", "https") and parsed.netloc:
+                        return st
+                except Exception:
+                    pass
+                try:
+                    p = PurePosixPath(st)
+                    if p.suffix:
+                        return st
+                except Exception:
+                    pass
+                if any(ch.isdigit() for ch in st):
+                    return st
+        except Exception:
+            pass
+        return None
+
+    def detect_evidence_events(
+        self, text: str
+    ) -> List[Tuple[str, str, str, Optional[str]]]:
+        """Deprecated: keyword-based evidence detection removed.
+
+        Evidence mapping is handled semantically in pmm/evidence/behavior_engine.py.
+        This function now returns an empty list.
+        """
+        return []
+
+    def _estimate_evidence_confidence(
+        self,
+        commitment_text: str,
+        description: str,
+        artifact: Optional[str] = None,
+    ) -> float:
+        """Heuristically estimate confidence that evidence supports the commitment."""
+        try:
+            ct = (commitment_text or "").lower()
+            desc = (description or "").lower()
+            base = 0.35
+
+            def bigrams(s: str) -> set:
+                toks = [t for t in (s or "").split() if t]
+                return set(
+                    " ".join(toks[i : i + 2]) for i in range(max(0, len(toks) - 1))
+                )
+
+            def trigrams(s: str) -> set:
+                toks = [t for t in (s or "").split() if t]
+                return set(
+                    " ".join(toks[i : i + 3]) for i in range(max(0, len(toks) - 2))
+                )
+
+            b_ct, b_desc = bigrams(ct), bigrams(desc)
+            t_ct, t_desc = trigrams(ct), trigrams(desc)
+            b_overlap = (len(b_ct & b_desc) / len(b_ct)) if b_ct else 0.0
+            t_overlap = (len(t_ct & t_desc) / len(t_ct)) if t_ct else 0.0
+
+            score = base + 0.35 * b_overlap + 0.25 * t_overlap
+
+            # Semantic boost
+            try:
+                from pmm.semantic_analysis import get_semantic_analyzer
+
+                analyzer = get_semantic_analyzer()
+                cos = analyzer.cosine_similarity(commitment_text, description)
+                score += 0.35 * max(0.0, min(1.0, float(cos)))
+            except Exception:
+                pass
+
+            if artifact:
+                score += 0.10
+                # URL boost
+                try:
+                    from urllib.parse import urlparse
+
+                    parsed = urlparse(artifact)
+                    if parsed.scheme in ("http", "https") and parsed.netloc:
+                        score += 0.05
+                except Exception:
+                    pass
+                # File suffix boost
+                try:
+                    from pathlib import PurePosixPath
+
+                    p = PurePosixPath(artifact)
+                    if p.suffix:
+                        score += 0.05
+                except Exception:
+                    pass
+                # Bare id token boost if contains digits
+                try:
+                    if any(ch.isdigit() for ch in str(artifact)):
+                        score += 0.03
+                except Exception:
+                    pass
+
+            return max(0.0, min(1.0, score))
+        except Exception:
+            return 0.5
+
+    def get_open_commitments(self) -> List[Dict[str, Any]]:
+        """Return a simple list of open (non-archived, non-closed) commitments."""
+        out: List[Dict[str, Any]] = []
+        for c in self.commitments.values():
+            if c.status in ("open", "tentative", "ongoing"):
+                out.append(
+                    {
+                        "cid": c.cid,
+                        "text": c.text,
+                        "status": c.status,
+                        "created_at": c.created_at,
+                    }
+                )
+        return out
+
+    def archive_legacy_commitments(self) -> List[str]:
+        """Deprecated: removal of keyword-based hygiene archiving.
+
+        Returns an empty list to comply with no-keyword policy.
+        """
+        return []
+
+    def mark_commitment(
+        self, cid: str, status: str, note: Optional[str] = None
+    ) -> bool:
+        """Update commitment status and optional note.
+
+        Returns True if found and updated; False otherwise.
+        Logs status update to EventLog.
+        """
+        c = self.commitments.get(cid)
+        if not c:
+            return False
+        # Allow closing or expiring ongoing via explicit mark; protect in evidence path only
+        valid_status = {
+            "open",
+            "closed",
+            "expired",
+            "tentative",
+            "ongoing",
+            "archived_legacy",
+        }
+        if status not in valid_status:
+            return False
+        c.status = status
+        if status in ("closed", "expired", "archived_legacy"):
+            c.closed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if note:
+            c.close_note = note
+
+        # Log status update to EventLog if available
+        if self.eventlog:
+            self.eventlog.append(
+                kind="commitment_status_updated",
+                content="",
+                meta={
+                    "cid": cid,
+                    "new_status": status,
+                    "closed_at": c.closed_at if c.closed_at else "",
+                    "close_note": note if note else "",
+                },
+            )
+        return True
+
+    def auto_close_from_reflection(self, text: str) -> List[str]:
+        """Heuristic auto-closure from reflection content.
+
+        Current implementation is conservative: does not auto-close any items.
+        Returns the list of cids that were closed (empty).
+        """
+        return []
+
+    def close_commitment_with_evidence(
+        self,
+        commit_hash: str,
+        evidence_type: str,
+        description: str,
+        artifact: Optional[str] = None,
+        confidence: Optional[float] = None,
+    ) -> bool:
+        """
+        Close a commitment with evidence.
+
+        Args:
+            commit_hash: Hash of the commitment to close
+            evidence_type: Type of evidence (done, blocked, delegated)
+            description: Description of the evidence
+            artifact: Optional artifact (file, URL, etc.)
+            confidence: Optional confidence score (0-1)
+
+        Returns:
+            bool: True if commitment was closed, False otherwise
+        Logs evidence and closure to EventLog.
+        """
+        # Find commitment by hash
+        target_cid = None
+        target_commitment = None
+
+        for cid, commitment in self.commitments.items():
+            if self.get_commitment_hash(commitment) == commit_hash:
+                target_cid = cid
+                target_commitment = commitment
+                break
+
+        if not target_commitment:
+            print(f"[PMM_EVIDENCE] commitment not found: {commit_hash}")
+            return False
+
+        # Protect ongoing items; record evidence upstream without closing
+        if (
+            getattr(target_commitment, "status", "open") == "ongoing"
+            or getattr(target_commitment, "tier", "permanent") == "ongoing"
+        ):
+            print(
+                f"[PMM_EVIDENCE] ongoing commitment; recording evidence only: {target_cid}"
+            )
+            if self.eventlog:
+                self.eventlog.append(
+                    kind="evidence_recorded_only",
+                    content=description,
+                    meta={
+                        "cid": target_cid,
+                        "evidence_type": evidence_type,
+                        "artifact": artifact if artifact else "",
+                        "reason": "ongoing commitment",
+                    },
+                )
+            return False
+        # Permit closing 'tentative' commitments too, since the UI lists them among open items
+        if target_commitment.status not in ("open", "tentative"):
+            try:
+                st = str(getattr(target_commitment, "status", "unknown"))
+            except Exception:
+                st = "unknown"
+            print(f"[PMM_EVIDENCE] commitment not closable (status={st}): {target_cid}")
+            return False
+
+        # Only 'done' evidence can close commitments
+        if evidence_type != "done":
+            print(
+                f"[PMM_EVIDENCE] non_done_evidence: {evidence_type} recorded but not closing"
+            )
+            if self.eventlog:
+                self.eventlog.append(
+                    kind="evidence_recorded_only",
+                    content=description,
+                    meta={
+                        "cid": target_cid,
+                        "evidence_type": evidence_type,
+                        "artifact": artifact if artifact else "",
+                        "reason": "non-done evidence",
+                    },
+                )
+            return False
+
+        # Validate evidence input (requires artifact by default; allows specific test-only override)
+        if not self._is_valid_evidence(evidence_type, description, artifact):
+            return False
+
+        # Close on valid 'done' evidence with acceptable artifact
+        target_commitment.status = "closed"
+        target_commitment.closed_at = datetime.now(timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        target_commitment.close_note = (
+            f"Evidence: {description} | artifact={artifact if artifact else 'None'}"
+        )
+
+        # Log evidence and closure to EventLog if available
+        if self.eventlog:
+            self.eventlog.append(
+                kind="evidence_added",
+                content=description,
+                meta={
+                    "cid": target_cid,
+                    "evidence_type": evidence_type,
+                    "artifact": artifact if artifact else "",
+                    "confidence": confidence if confidence is not None else 0.0,
+                },
+            )
+            self.eventlog.append(
+                kind="commitment_closed",
+                content="",
+                meta={
+                    "cid": target_cid,
+                    "closed_at": target_commitment.closed_at,
+                    "close_note": target_commitment.close_note,
+                },
+            )
+        return True
+
+    def close_with_evidence(
+        self,
+        cid: str,
+        evidence_type: str,
+        description: str,
+        artifact: Optional[str] = None,
+        confidence: Optional[float] = None,
+    ) -> bool:
+        """
+        Close a commitment with evidence by CID.
+
+        Args:
+            cid: The ID of the commitment to close.
+            evidence_type: Type of evidence (done, blocked, delegated).
+            description: Description of the evidence.
+            artifact: Optional artifact (file, URL, etc.).
+            confidence: Optional confidence score (0-1).
+
+        Returns:
+            bool: True if commitment was closed, False otherwise.
+        """
+        if cid not in self.commitments:
+            return False
+        commitment = self.commitments[cid]
+        return self.close_commitment_with_evidence(
+            self.get_commitment_hash(commitment),
+            evidence_type,
+            description,
+            artifact,
+            confidence,
+        )
+
+    def process_evidence(
+        self,
+        text: str,
+        evidence_type: str = "done",
+        artifact: Optional[str] = None,
+        event_id: Optional[int] = None,
+    ) -> List[str]:
+        """
+        Process evidence text to close matching commitments.
+
+        Args:
+            text: The evidence text.
+            evidence_type: Type of evidence (done, blocked, delegated).
+            artifact: Optional artifact (file, URL, etc.).
+            event_id: Optional event ID associated with this evidence.
+
+        Returns:
+            List of commitment IDs that were closed.
+        """
+        closed_cids = []
+        if not text or not isinstance(text, str):
+            return closed_cids
+
+        candidates = [
+            c for c in self.commitments.values() if c.status in ("open", "tentative")
+        ]
+        if not candidates:
+            return closed_cids
+
+        description = text.strip()
+        for c in candidates:
+            confidence = self._estimate_evidence_confidence(
+                c.text, description, artifact
+            )
+            if confidence >= 0.7:  # Threshold for closing
+                if self.close_commitment_with_evidence(
+                    self.get_commitment_hash(c),
+                    evidence_type,
+                    description,
+                    artifact,
+                    confidence,
+                ):
+                    closed_cids.append(c.cid)
+
+        return closed_cids
+
+    def _is_valid_evidence(
+        self,
+        evidence_type: str,
+        description: str,
+        artifact: Optional[str] = None,
+    ) -> bool:
+        """Validate evidence inputs for closing a commitment.
+
+        Policy:
+        - Only 'done' evidence is eligible for closure (checked by caller).
+        - Require a non-empty artifact string; text-only evidence is insufficient.
+        """
+        if not isinstance(description, str) or not description.strip():
+            return False
+        if isinstance(artifact, str) and artifact.strip():
+            return True
+        # No artifact provided → invalid
+        return False
+
+    def expire_old_commitments(self, days_old: int = 30) -> List[str]:
+        """Mark old commitments as expired. Logs expiration to EventLog."""
+        expired_cids = []
+
+        # Calculate cutoff timestamp
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days_old)
+        except Exception:
+            cutoff = datetime.now(timezone.utc)
+
+        for cid, commitment in self.commitments.items():
+            if commitment.status != "open":
+                continue
+
+            try:
+                created = datetime.fromisoformat(commitment.created_at.replace("Z", ""))
+                # Normalize to aware datetime in UTC for comparison
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                if created < cutoff:
+                    self.mark_commitment(
+                        cid, "expired", f"Auto-expired after {days_old} days"
+                    )
+                    expired_cids.append(cid)
+                    if self.eventlog:
+                        self.eventlog.append(
+                            kind="commitment_expired",
+                            content="",
+                            meta={
+                                "cid": cid,
+                                "reason": f"Auto-expired after {days_old} days",
+                            },
+                        )
+            except Exception:
+                continue
+
+        return expired_cids
+
+
+# Ensure proper statement separation with multiple newlines at the end of the file

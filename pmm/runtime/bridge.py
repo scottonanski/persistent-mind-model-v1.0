@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re as _re
 from typing import Dict, Optional
-import os as _os
 
 
 class ResponseRenderer:
@@ -35,35 +34,26 @@ class ResponseRenderer:
         text = self._boilerplate_re.sub("", text).lstrip()
 
         ident = identity or {}
-        name = ident.get("name")
-        recent_adopt = bool(ident.get("_recent_adopt"))
-
-        # Append one-time continuity banner after adoption
-        if recent_adopt and isinstance(name, str) and name.strip():
-            # Skip for ultra-short replies (<=4 visible chars) to avoid awkward micro-signatures
-            if len(text.strip()) <= 4:
-                return text
-            # If the text already ends with a signature like "— Name", avoid duplication
-            sig = f"— {name.strip()}"
-            # Normalize terminal whitespace before comparison
-            tnorm = text.rstrip()
-            if not tnorm.endswith(sig):
-                # Ensure single trailing newline handling
-                if text and not text.endswith("\n"):
-                    text = text + "\n"
-                text = text + sig
+        # One-shot identity continuity signature banner when recent adopt
+        try:
+            nm = ident.get("name")
+            if nm and ident.get("_recent_adopt"):
+                # Avoid awkward micro-signatures for ultra-short replies (<=4 chars)
+                if len(text.strip()) <= 4:
+                    return text
+                # Avoid duplicating if already present
+                if not text.rstrip().endswith(f"— {nm}"):
+                    if text and not text.endswith("\n"):
+                        text = text + "\n"
+                    text = text + f"— {nm}"
+        except Exception:
+            pass
 
         # One-shot Insight line: only when events are provided
         if events is None:
             return text
 
-        # If overlay is disabled via env, return early
-        enabled = str(_os.environ.get("PMM_INSIGHT_OVERLAY", "1")).lower() in {
-            "1",
-            "true",
-        }
-        if not enabled:
-            return text
+        # Overlay always enabled (no env gate)
         # Find most recent insight_ready
         ir = None
         for ev in reversed(events):

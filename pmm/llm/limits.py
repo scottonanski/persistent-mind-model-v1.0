@@ -1,10 +1,18 @@
 from __future__ import annotations
 import time
 from dataclasses import dataclass
+import os as _os
 
 # ---- deterministic ceilings (per tick) ----
-MAX_CHAT_CALLS_PER_TICK: int = 4
-MAX_EMBED_CALLS_PER_TICK: int = 20
+# Allow environment overrides for power users (keeps defaults unchanged).
+try:
+    MAX_CHAT_CALLS_PER_TICK: int = int(_os.environ.get("PMM_MAX_CHAT_PER_TICK", "4"))
+except Exception:
+    MAX_CHAT_CALLS_PER_TICK = 4
+try:
+    MAX_EMBED_CALLS_PER_TICK: int = int(_os.environ.get("PMM_MAX_EMBED_PER_TICK", "20"))
+except Exception:
+    MAX_EMBED_CALLS_PER_TICK = 20
 
 # Sentinel used by higher-level wrappers when an operation is skipped due to budget
 RATE_LIMITED = object()

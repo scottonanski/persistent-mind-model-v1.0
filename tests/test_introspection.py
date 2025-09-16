@@ -19,10 +19,10 @@ def test_audit_flags_close_without_candidate(tmp_path, monkeypatch):
 
     cid = _open_commitment(ct, "write the report")
 
-    # Allow text-only closes in tests
-    monkeypatch.setenv("TEST_ALLOW_TEXT_ONLY_EVIDENCE", "1")
-    # Force a close directly without emitting evidence_candidate
-    ct.close_with_evidence(cid, evidence_type="done", description="finished")
+    # Force a close directly without emitting evidence_candidate (requires artifact)
+    ct.close_with_evidence(
+        cid, evidence_type="done", description="finished", artifact="/tmp/proof.txt"
+    )
 
     audits = run_audit(log.read_all(), window=50)
     cats = [a.get("meta", {}).get("category") for a in audits]
@@ -36,8 +36,12 @@ def test_audit_detects_duplicate_close(tmp_path, monkeypatch):
 
     cid = _open_commitment(ct, "write the report")
 
-    monkeypatch.setenv("TEST_ALLOW_TEXT_ONLY_EVIDENCE", "1")
-    assert ct.close_with_evidence(cid, evidence_type="done", description="done") is True
+    assert (
+        ct.close_with_evidence(
+            cid, evidence_type="done", description="done", artifact="/tmp/a.txt"
+        )
+        is True
+    )
     # Manually append a second close to simulate bad duplicate close (no re-open)
     log.append(
         kind="commitment_close",
@@ -57,7 +61,6 @@ def test_audit_orphan_evidence(tmp_path, monkeypatch):
 
     _ = _open_commitment(ct, "update docs")
 
-    monkeypatch.setenv("TEST_ALLOW_TEXT_ONLY_EVIDENCE", "1")
     # Emit an orphan candidate by appending it directly without a close
     # Find the open cid from projection
     events_now = log.read_all()

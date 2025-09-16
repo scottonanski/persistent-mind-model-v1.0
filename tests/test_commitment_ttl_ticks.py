@@ -104,6 +104,5 @@ def test_no_premature_expire_if_evidence_within_ttl(tmp_path, monkeypatch):
     evs = log.read_all()
     kinds = [e["kind"] for e in evs]
 
-    # Commitment should close via evidence, not expire
-    assert "commitment_close" in kinds
+    # With artifact-required policy, evidence without artifact does not close; ensure no premature expire
     assert "commitment_expire" not in kinds

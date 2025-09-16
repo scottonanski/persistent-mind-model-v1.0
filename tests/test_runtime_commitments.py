@@ -27,7 +27,7 @@ def test_runtime_opens_commitment_from_reply(tmp_path, monkeypatch):
     assert len(open_map) >= 1  # at least one commitment opened
 
 
-def test_runtime_closes_commitment_on_done_reply(tmp_path, monkeypatch):
+def test_runtime_does_not_close_without_artifact(tmp_path, monkeypatch):
     rt, log = _mk_rt(tmp_path)
 
     # 1) open a commitment
@@ -37,15 +37,13 @@ def test_runtime_closes_commitment_on_done_reply(tmp_path, monkeypatch):
     monkeypatch.setattr(rt.chat, "generate", gen_open)
     rt.handle_user("hi")
 
-    # 2) close it via Done: reply
+    # 2) emit Done: reply (text-only); should not close without artifact
     def gen_done(msgs, **kw):
         return "Done: summarized the meeting"
 
     monkeypatch.setattr(rt.chat, "generate", gen_done)
-    # allow text-only evidence path if required by tracker
-    monkeypatch.setenv("TEST_ALLOW_TEXT_ONLY_EVIDENCE", "1")
     rt.handle_user("follow-up")
 
     model = build_self_model(log.read_all())
     open_map = model.get("commitments", {}).get("open", {})
-    assert len(open_map) == 0  # closed via evidence
+    assert len(open_map) >= 1  # remains open without artifact

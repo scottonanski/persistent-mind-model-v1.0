@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from typing import List, Dict, Optional
 import re
-import os
 
 
 class BridgeManager:
@@ -124,13 +123,6 @@ def sanitize(text: str, *, family: Optional[str] = None) -> str:
         if ("anthropic" in fam) or ("claude" in fam):
             s = re.sub(r"^\s*helpful\s+assistant[:,]?\s*", "", s, flags=re.IGNORECASE)
 
-    # 5) Whitespace normalization strategy (default: single-line collapse for deterministic tests)
-    preserve = str(os.environ.get("PMM_SANITIZE_PRESERVE_LINES", "0")).lower() in {
-        "1",
-        "true",
-    }
-    if preserve:
-        s = _normalize_ws_preserve_lines(s)
-    else:
-        s = _collapse_ws(s)
+    # 5) Whitespace normalization strategy: single-line collapse (no env gate)
+    s = _collapse_ws(s)
     return s

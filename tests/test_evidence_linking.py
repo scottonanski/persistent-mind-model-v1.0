@@ -14,10 +14,9 @@ def test_e2e_done_closes_commitment(tmp_path, monkeypatch):
     assert added and len(added) == 1
     cid = added[0]
 
-    # allow text-only evidence for the test
-    monkeypatch.setenv("TEST_ALLOW_TEXT_ONLY_EVIDENCE", "1")
+    # Text-only evidence no longer closes; expect no closure
     closed = ct.process_evidence("Done: wrote the docs")
-    assert closed == [cid]
+    assert closed == []
 
     model = build_self_model(log.read_all())
-    assert cid not in model.get("commitments", {}).get("open", {})
+    assert cid in model.get("commitments", {}).get("open", {})

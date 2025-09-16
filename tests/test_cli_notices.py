@@ -66,9 +66,6 @@ def test_stage_and_policy_notices_print_once_on_change(tmp_path, capsys, monkeyp
 
     rt = DummyRT(log)
 
-    # Notices gated by env var
-    monkeypatch.setenv("PMM_CLI_STAGE_NOTICE", "1")
-
     # Clear any previous static attrs
     for attr in ("_last_stage_label", "_last_cooldown_thr"):
         if hasattr(chat.main, attr):
@@ -97,7 +94,7 @@ def test_stage_and_policy_notices_print_once_on_change(tmp_path, capsys, monkeyp
     assert "[policy] cooldown.novelty_threshold → 0.40" in out3
 
 
-def test_notices_guarded_by_env(tmp_path, capsys, monkeypatch):
+def test_notices_print_once_without_env_gate(tmp_path, capsys, monkeypatch):
     db_path = tmp_path / "notices2.db"
     log = EventLog(str(db_path))
     log.append(kind="stage_update", content="", meta={"to": "S2"})
@@ -111,17 +108,16 @@ def test_notices_guarded_by_env(tmp_path, capsys, monkeypatch):
         def __init__(self, log):
             self.eventlog = log
 
-    # Ensure env flag is off
-    monkeypatch.delenv("PMM_CLI_STAGE_NOTICE", raising=False)
-
     # Clear state
     for attr in ("_last_stage_label", "_last_cooldown_thr"):
         if hasattr(chat.main, attr):
             delattr(chat.main, attr)
 
-    # Simulate how chat.main guards printing by env: if off, we simply don't call the block
-    # Here we call it anyway but the test only asserts that without the guard (which the real CLI has),
-    # our inline function would print, so we skip assertions. Instead, we assert REAL guard behavior by not calling.
-    # Thus this test ensures no output when env is not set and block isn't executed.
+    # With gates removed, the notice block always prints on change and only once
+    _run_notice_block(DummyRT(log))
     out, _ = capsys.readouterr()
-    assert out == ""
+    assert "[stage]" in out and "[policy]" in out
+    # Calling again with no change yields no output
+    _run_notice_block(DummyRT(log))
+    out2, _ = capsys.readouterr()
+    assert out2 == ""

@@ -28,36 +28,48 @@ class RuntimeEnv:
     commitment_ttl_hours: int
     commitment_dedup_window: int
     ngram_ban_file: str | None
+    default_model: str
+    default_base_url: str
+    default_db_path: str
+    commitment_threshold: float
+    duplicate_sim_threshold: float
+    continuity_reflection_cooldown_hours: int
+    continuity_lookback_days: int
+    continuity_insight_confidence_threshold: float
+    priority_threshold: float
+    debug_mode: bool
 
 
 def load_runtime_env(dotenv_path: str = ".env") -> RuntimeEnv:
+    # Best-effort .env load for external libs (e.g., API keys); PMM core uses constants below
     load_dotenv(dotenv_path)
     provider = os.getenv("PMM_PROVIDER", "openai")
     # Prefer OPENAI_MODEL if set; otherwise PMM_MODEL; fallback to gpt-4o-mini
     model = os.getenv("OPENAI_MODEL", os.getenv("PMM_MODEL", "gpt-4o-mini"))
     db_path = os.getenv("PMM_DB", ".data/pmm.db")
-    reflect_enabled = os.getenv("PMM_REFLECT", "1") not in {"0", "false", "False"}
-    # Default ON: background autonomy ticks every 10 seconds unless explicitly disabled (PMM_AUTONOMY_INTERVAL=0)
-    try:
-        autonomy_interval = float(os.getenv("PMM_AUTONOMY_INTERVAL", "10"))
-    except ValueError:
-        autonomy_interval = 10.0
-    require_artifact_evidence = os.getenv("PMM_REQUIRE_ARTIFACT_EVIDENCE", "0") in {
-        "1",
-        "true",
-        "True",
-    }
-    # Commitment TTL and dedup knobs
-    try:
-        commitment_ttl_hours = int(os.getenv("PMM_COMMITMENT_TTL_HOURS", "24"))
-    except ValueError:
-        commitment_ttl_hours = 24
-    try:
-        commitment_dedup_window = int(os.getenv("PMM_COMMITMENT_DEDUP_WINDOW", "5"))
-    except ValueError:
-        commitment_dedup_window = 5
+    # Reflection is always enabled; no env gate
+    reflect_enabled = True
+    # Fixed cadence: background autonomy ticks every 10 seconds (no env override)
+    autonomy_interval = 10.0
+    # Truth-first evidence policy: artifact required (no env override)
+    require_artifact_evidence = True
+    # Commitment TTL and dedup knobs (constants)
+    commitment_ttl_hours = 24
+    commitment_dedup_window = 5
 
     ngram_ban_file = os.getenv("PMM_NGRAM_BAN_FILE") or None
+
+    default_model = os.getenv("PMM_DEFAULT_MODEL", "llama3")
+    default_base_url = os.getenv("PMM_DEFAULT_BASE_URL", "http://localhost:11434")
+    default_db_path = os.getenv("PMM_DB_PATH", "pmm_data.db")
+    commitment_threshold = 0.70
+    duplicate_sim_threshold = 0.60
+    continuity_reflection_cooldown_hours = 6
+    continuity_lookback_days = 30
+    continuity_insight_confidence_threshold = 0.70
+    priority_threshold = 0.70
+    # Debug mode (no effect on core behavior); keep False for deterministic runs
+    debug_mode = False
 
     return RuntimeEnv(
         provider=provider,
@@ -69,4 +81,39 @@ def load_runtime_env(dotenv_path: str = ".env") -> RuntimeEnv:
         commitment_ttl_hours=commitment_ttl_hours,
         commitment_dedup_window=commitment_dedup_window,
         ngram_ban_file=ngram_ban_file,
+        default_model=default_model,
+        default_base_url=default_base_url,
+        default_db_path=default_db_path,
+        commitment_threshold=commitment_threshold,
+        duplicate_sim_threshold=duplicate_sim_threshold,
+        continuity_reflection_cooldown_hours=continuity_reflection_cooldown_hours,
+        continuity_lookback_days=continuity_lookback_days,
+        continuity_insight_confidence_threshold=continuity_insight_confidence_threshold,
+        priority_threshold=priority_threshold,
+        debug_mode=debug_mode,
     )
+
+
+# Configuration settings for Persistent Mind Model (PMM)
+
+# LLM Configuration
+DEFAULT_MODEL = os.getenv("PMM_DEFAULT_MODEL", "llama3")
+DEFAULT_BASE_URL = os.getenv("PMM_DEFAULT_BASE_URL", "http://localhost:11434")
+
+# Storage Configuration
+DEFAULT_DB_PATH = os.getenv("PMM_DB_PATH", "pmm_data.db")
+
+# Commitment Extractor Configuration (constants)
+COMMITMENT_THRESHOLD = 0.70
+DUPLICATE_SIM_THRESHOLD = 0.60
+
+# Continuity Engine Configuration (constants)
+CONTINUITY_REFLECTION_COOLDOWN_HOURS = 6
+CONTINUITY_LOOKBACK_DAYS = 30
+CONTINUITY_INSIGHT_CONFIDENCE_THRESHOLD = 0.70
+
+# Prioritizer Configuration (constant)
+PRIORITY_THRESHOLD = 0.70
+
+# Debug Configuration (disabled in core)
+DEBUG_MODE = False

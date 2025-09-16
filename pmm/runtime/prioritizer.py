@@ -1,8 +1,15 @@
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any, Optional
 import datetime as _dt
+import logging
 
+try:
+    from pmm.storage.eventlog import EventLog
+except ImportError:
+    EventLog = None
+
+logger = logging.getLogger(__name__)
 
 W1_URGENCY = 0.6
 W2_NOVELTY = 0.3
@@ -100,3 +107,124 @@ def rank_commitments(events: List[Dict]) -> List[Tuple[str, float]]:
     # Sort: score desc, then opened_ts asc (older first), then cid asc
     scored.sort(key=lambda x: (-x[1], opened_ts.get(x[0]) or now, x[0]))
     return scored
+
+
+class Prioritizer:
+    """
+    A class to prioritize tasks or commitments based on semantic importance, urgency,
+    and other contextual factors within the Persistent Mind Model (PMM).
+    """
+
+    def __init__(self, eventlog: Optional["EventLog"] = None):
+        self.eventlog = eventlog
+
+    def prioritize_commitments(
+        self, commitments: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Prioritize a list of commitments based on semantic importance and urgency.
+
+        Args:
+            commitments: A list of commitment dictionaries with keys like 'cid', 'text', 'status', 'created_at'.
+
+        Returns:
+            A sorted list of commitment dictionaries based on priority.
+        """
+        if not commitments:
+            return []
+
+        prioritized = []
+        for commitment in commitments:
+            priority_score = self._calculate_priority_score(commitment)
+            prioritized.append({**commitment, "priority_score": priority_score})
+
+        # Sort by priority score in descending order
+        prioritized.sort(key=lambda x: x["priority_score"], reverse=True)
+
+        # Log prioritization results to EventLog if available
+        if self.eventlog:
+            self.eventlog.append(
+                kind="commitments_prioritized",
+                content="",
+                meta={
+                    "commitment_count": len(prioritized),
+                    "top_priority": prioritized[0]["cid"] if prioritized else None,
+                },
+            )
+
+        return prioritized
+
+    def _calculate_priority_score(self, commitment: Dict[str, Any]) -> float:
+        """
+        Calculate a priority score for a single commitment based on various factors.
+
+        Args:
+            commitment: A dictionary representing a commitment.
+
+        Returns:
+            A float representing the priority score.
+        """
+        score = 0.0
+
+        # Base score on status (open commitments have higher priority)
+        if commitment.get("status") == "open":
+            score += 0.5
+        elif commitment.get("status") == "tentative":
+            score += 0.3
+
+        # Increase score based on urgency keywords in text (placeholder for semantic analysis)
+        text = commitment.get("text", "").lower()
+        urgency_keywords = ["urgent", "immediate", "critical", "asap", "soon"]
+        for keyword in urgency_keywords:
+            if keyword in text:
+                score += 0.2
+
+        # Adjust score based on age (older commitments might be less urgent unless critical)
+        try:
+            from datetime import datetime, timezone
+
+            created_at = datetime.fromisoformat(
+                commitment.get("created_at", "").replace("Z", "")
+            )
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            age_days = (datetime.now(timezone.utc) - created_at).days
+            # Decrease priority slightly for very old commitments
+            if age_days > 30:
+                score -= 0.1
+        except Exception:
+            pass
+
+        return max(0.0, min(1.0, score))
+
+    def filter_high_priority(
+        self, commitments: List[Dict[str, Any]], threshold: float = 0.7
+    ) -> List[Dict[str, Any]]:
+        """
+        Filter commitments to return only those with a priority score above the threshold.
+
+        Args:
+            commitments: A list of commitment dictionaries.
+            threshold: The minimum priority score for a commitment to be considered high priority.
+
+        Returns:
+            A filtered list of high-priority commitment dictionaries.
+        """
+        prioritized = self.prioritize_commitments(commitments)
+        high_priority = [
+            c for c in prioritized if c.get("priority_score", 0.0) >= threshold
+        ]
+
+        # Log filtering results to EventLog if available
+        if self.eventlog:
+            self.eventlog.append(
+                kind="high_priority_filtered",
+                content="",
+                meta={
+                    "total_commitments": len(commitments),
+                    "high_priority_count": len(high_priority),
+                    "threshold": threshold,
+                },
+            )
+
+        return high_priority

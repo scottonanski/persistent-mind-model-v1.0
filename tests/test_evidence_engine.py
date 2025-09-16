@@ -17,25 +17,19 @@ def test_logs_evidence_before_close(tmp_path, monkeypatch):
     log = EventLog(str(db))
     ct = CommitmentTracker(log, detector=RegexCommitmentDetector())
 
-    cid = _open_commitment(ct, "write the report today.")
+    _ = _open_commitment(ct, "write the report today.")
 
-    # allow text-only for tests
-    monkeypatch.setenv("TEST_ALLOW_TEXT_ONLY_EVIDENCE", "1")
     closed = ct.process_evidence("Done: I wrote the report and pushed it.")
-    assert closed == [cid]
+    assert closed == []
 
     events = log.read_all()
     kinds = [e.get("kind") for e in events]
     # Ensure evidence_candidate occurs before commitment_close
     assert "evidence_candidate" in kinds
     # Find indices
-    idx_cand = next(
-        i for i, e in enumerate(events) if e.get("kind") == "evidence_candidate"
-    )
-    idx_close = next(
-        i for i, e in enumerate(events) if e.get("kind") == "commitment_close"
-    )
-    assert idx_cand < idx_close
+    _ = next(i for i, e in enumerate(events) if e.get("kind") == "evidence_candidate")
+    # No close without artifact
+    assert "commitment_close" not in kinds
 
 
 def test_no_close_without_evidence(tmp_path, monkeypatch):
@@ -45,7 +39,6 @@ def test_no_close_without_evidence(tmp_path, monkeypatch):
 
     _ = _open_commitment(ct, "draft a design doc.")
 
-    monkeypatch.setenv("TEST_ALLOW_TEXT_ONLY_EVIDENCE", "1")
     closed = ct.process_evidence("Chit-chat with no progress.")
     assert closed == []
 
@@ -62,7 +55,6 @@ def test_idempotent_candidates(tmp_path, monkeypatch):
 
     _ = _open_commitment(ct, "update probe docs.")
 
-    monkeypatch.setenv("TEST_ALLOW_TEXT_ONLY_EVIDENCE", "1")
     # First tick
     _ = ct.process_evidence("Done: updated the docs")
     # Second adjacent tick with same snippet

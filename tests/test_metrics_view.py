@@ -2,17 +2,10 @@ from pmm.runtime.metrics_view import MetricsView
 from pmm.storage.eventlog import EventLog
 
 
-def test_toggle_on_off_and_render(tmp_path, capsys):
+def test_snapshot_and_render(tmp_path, capsys):
     log = EventLog(str(tmp_path / "m1.db"))
     mv = MetricsView()
-    assert mv.enabled is False
-    mv.on()
-    assert mv.enabled is True
-    mv.off()
-    assert mv.enabled is False
-
-    # When enabled, render prints something meaningful
-    mv.on()
+    # Render prints something meaningful without toggles
     snap = mv.snapshot(log)
     out = MetricsView.render(snap)
     assert "[METRICS]" in out
@@ -65,7 +58,6 @@ def test_full_self_model_line_appears_when_metrics_on(tmp_path):
     from pmm.runtime.metrics_view import MetricsView
 
     mv = MetricsView()
-    mv.on()
     snap = mv.snapshot(log)
     out = MetricsView.render(snap)
     # identity line with traits vector two decimals

@@ -25,7 +25,7 @@ import datetime as _dt
 import json as _json
 import os as _os
 import sqlite3 as _sqlite3
-from typing import Dict, List
+from typing import Dict, List, Optional, Any
 import hashlib as _hashlib
 
 
@@ -379,3 +379,67 @@ class EventLog:
                 return False
             prev_h = stored_hash
         return True
+
+    def query(
+        self, kind: Optional[str] = None, limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Query events from the log.
+
+        Args:
+            kind: Optional event type to filter by.
+            limit: Maximum number of events to return.
+
+        Returns:
+            A list of event dictionaries with keys: id, timestamp, kind, content, meta.
+        """
+        cur = self._conn.execute(
+            "SELECT id, ts, kind, content, meta FROM events ORDER BY id DESC LIMIT ?",
+            (limit,),
+        )
+        rows = cur.fetchall()
+        result: List[Dict[str, Any]] = []
+        for rid, ts, kind, content, meta_json in rows:
+            try:
+                meta_obj = _json.loads(meta_json) if meta_json else {}
+            except Exception:
+                meta_obj = {}
+            result.append(
+                {
+                    "id": int(rid),
+                    "timestamp": str(ts),
+                    "kind": str(kind),
+                    "content": str(content),
+                    "meta": meta_obj,
+                }
+            )
+        return result
+
+    def get_event(self, event_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a specific event by its ID.
+
+        Args:
+            event_id: The ID of the event to retrieve.
+
+        Returns:
+            The event dictionary if found, None otherwise.
+        """
+        cur = self._conn.execute(
+            "SELECT id, ts, kind, content, meta FROM events WHERE id = ?",
+            (event_id,),
+        )
+        row = cur.fetchone()
+        if row:
+            try:
+                meta_obj = _json.loads(row[4]) if row[4] else {}
+            except Exception:
+                meta_obj = {}
+            return {
+                "id": int(row[0]),
+                "timestamp": str(row[1]),
+                "kind": str(row[2]),
+                "content": str(row[3]),
+                "meta": meta_obj,
+            }
+        return None

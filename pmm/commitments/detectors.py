@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import Protocol, List, Dict
-import os
 import re
 from dataclasses import dataclass
 
@@ -102,6 +101,5 @@ class SemanticCommitmentDetector:
 
 
 def get_default_detector() -> CommitmentDetector:
-    if os.getenv("PMM_DETECTOR", "").lower() == "semantic":
-        return SemanticCommitmentDetector()
+    # Always use deterministic regex baseline; no env gate switching.
     return RegexCommitmentDetector()

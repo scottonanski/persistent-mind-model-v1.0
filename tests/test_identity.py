@@ -445,8 +445,9 @@ def test_trait_drift_emits_bounded_events(tmp_path, monkeypatch):
     log.append(
         kind="reflection", content="ok", meta={"telemetry": {"IAS": 0.4, "GAS": 0.25}}
     )
-    monkeypatch.setenv("TEST_ALLOW_TEXT_ONLY_EVIDENCE", "1")
-    tracker.close_with_evidence(cid1, evidence_type="done", description="done A")
+    tracker.close_with_evidence(
+        cid1, evidence_type="done", description="done A", artifact="/tmp/a.txt"
+    )
     # Next tick should detect close_rate_up
     aloop.tick()
     assert _count("close_rate_up") == 1
@@ -455,7 +456,9 @@ def test_trait_drift_emits_bounded_events(tmp_path, monkeypatch):
     log.append(
         kind="reflection", content="ok2", meta={"telemetry": {"IAS": 0.4, "GAS": 0.25}}
     )
-    tracker.close_with_evidence(cid2, evidence_type="done", description="done B")
+    tracker.close_with_evidence(
+        cid2, evidence_type="done", description="done B", artifact="/tmp/b.txt"
+    )
     aloop.tick()
     assert _count("close_rate_up") == 1
 

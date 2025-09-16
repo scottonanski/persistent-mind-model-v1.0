@@ -27,8 +27,6 @@ def _runtime_with_dummy_chat(tmp_path):
 
 
 def test_embedding_indexed_event(tmp_path, monkeypatch):
-    monkeypatch.setenv("PMM_EMBEDDINGS_DUMMY", "1")
-    monkeypatch.setenv("PMM_EMBEDDINGS_ENABLE", "1")
     rt, log = _runtime_with_dummy_chat(tmp_path)
     _ = rt.handle_user("Hi")
     events = log.read_all()
@@ -43,20 +41,14 @@ def test_embedding_indexed_event(tmp_path, monkeypatch):
     assert (emb.get("meta") or {}).get("digest")
 
 
-def test_embedding_skipped_when_no_provider(tmp_path, monkeypatch):
-    # Ensure provider flags are not set
-    monkeypatch.delenv("PMM_EMBEDDINGS_DUMMY", raising=False)
-    monkeypatch.delenv("TEST_EMBEDDINGS", raising=False)
-    monkeypatch.delenv("TEST_EMBEDDINGS_CONSTANT", raising=False)
+def test_embedding_always_indexed(tmp_path, monkeypatch):
     rt, log = _runtime_with_dummy_chat(tmp_path)
     _ = rt.handle_user("Hello")
     kinds = [e.get("kind") for e in log.read_all()]
-    assert "embedding_skipped" in kinds
+    assert "embedding_indexed" in kinds
 
 
 def test_recall_prefers_embeddings(tmp_path, monkeypatch):
-    # Monkeypatch compute_embedding to make one prior event highly similar
-    monkeypatch.setenv("TEST_EMBEDDINGS", "1")
 
     log = EventLog(str(tmp_path / "recall.db"))
     # Create two prior events
@@ -70,8 +62,6 @@ def test_recall_prefers_embeddings(tmp_path, monkeypatch):
 
 
 def test_evidence_prefers_embeddings(tmp_path, monkeypatch):
-    # Use dummy embeddings to ensure similarity path is active
-    monkeypatch.setenv("PMM_EMBEDDINGS_DUMMY", "1")
 
     log = EventLog(str(tmp_path / "evidence.db"))
     ct = CommitmentTracker(log, detector=RegexCommitmentDetector())
@@ -82,8 +72,8 @@ def test_evidence_prefers_embeddings(tmp_path, monkeypatch):
 
     # Provide a Done line that should be similar by embeddings
     ct.process_evidence("Done: finished the report yesterday.")
-    # With embeddings active, candidate and close should occur
+    # With embeddings active, an evidence_candidate should occur (closure requires artifact)
     events = log.read_all()
     kinds = [e.get("kind") for e in events]
     assert "evidence_candidate" in kinds
-    assert "commitment_close" in kinds
+    assert "commitment_close" not in kinds

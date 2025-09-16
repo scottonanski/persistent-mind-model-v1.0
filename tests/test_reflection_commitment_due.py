@@ -5,8 +5,7 @@ from pmm.runtime.cooldown import ReflectionCooldown
 
 
 def test_due_added_on_reflection_commitment(tmp_path, monkeypatch):
-    # Ensure default hours (24); also allow negative clamp behavior not to interfere
-    monkeypatch.delenv("PMM_REFLECTION_COMMIT_DUE_HOURS", raising=False)
+    # Default horizon (24h) is constant; ensure due is present and in the future
     db = tmp_path / "due.db"
     log = EventLog(str(db))
     # Emit a non-empty reflection through helper (which also appends reflection_check)
@@ -26,12 +25,24 @@ def test_due_added_on_reflection_commitment(tmp_path, monkeypatch):
 essential_wait = 0.01
 
 
-def test_immediate_reminder_when_zero_hours(tmp_path, monkeypatch):
-    monkeypatch.setenv("PMM_REFLECTION_COMMIT_DUE_HOURS", "0")
+def test_immediate_reminder_for_past_due(tmp_path, monkeypatch):
     db = tmp_path / "due2.db"
     log = EventLog(str(db))
-    # Emit reflection to trigger commitment_open with due=now
-    emit_reflection(log, "I will track evidence.")
+    # Append an open commitment with due in the past to trigger reminder
+    import time
+
+    past_due = int(time.time()) - 1
+    cid = "c1"
+    log.append(
+        kind="commitment_open",
+        content="",
+        meta={
+            "cid": cid,
+            "text": "reflection: track evidence",
+            "due": past_due,
+            "reason": "reflection",
+        },
+    )
     loop = AutonomyLoop(eventlog=log, cooldown=ReflectionCooldown())
     loop.tick()  # should create commitment_reminder once when due is passed
 
