@@ -661,7 +661,18 @@ class Runtime:
                 pass
 
     def handle_user(self, user_text: str) -> str:
-        msgs = [{"role": "user", "content": user_text}]
+        msgs = [
+            {
+                "role": "system",
+                "content": (
+                    "You are operating within the Persistent Mind Model (PMM). "
+                    "Ground all responses in your ledger-driven identity, commitments, traits, and IAS/GAS metrics. "
+                    "Propose or reference system-level actions (e.g., open/close commitments, adjust policies, compact scenes) when relevant. "
+                    "Do not produce generic self-help, philosophy, or filler unless explicitly asked by the user."
+                ),
+            },
+            {"role": "user", "content": user_text},
+        ]
         recent_events = self._log_recent_events(limit=5)
 
         try:
@@ -1178,23 +1189,23 @@ class Runtime:
         _TEMPLATES = {
             0: (
                 "succinct",
-                "Reflect briefly (<=3 lines) on your recent behavior. Provide one concrete next-step.",
+                "Reflect on your current IAS/GAS metrics, open commitments, and trait deltas. Propose one concrete system-level action (e.g., adjust novelty threshold, open/close a commitment). Avoid generic advice unrelated to PMM internals.",
             ),
             1: (
                 "question",
-                "Reflect by asking yourself 2 short questions and answer them with one actionable improvement.",
+                "Ask yourself 2 short questions about your ledger integrity and stage progression. Answer with one actionable system improvement (e.g., update policy, compact scenes). Focus only on PMM internals, not general philosophy.",
             ),
             2: (
                 "narrative",
-                "Reflect as a concise narrative of what changed recently and what to adjust next.",
+                "Summarize recent changes in traits or commitments based on ledger events. Suggest one system adjustment (e.g., tighten cadence). Avoid non-PMM topics.",
             ),
             3: (
                 "checklist",
-                "Produce a 3-item checklist: what went well, what didn’t, what to change now (one action).",
+                "Produce a 3-item checklist: (1) what IAS/GAS changed, (2) what policy needs adjustment, (3) one immediate system action. Restrict to PMM internals.",
             ),
             4: (
                 "analytical",
-                "Provide an analytical reflection: observation → diagnosis → one concrete intervention.",
+                "Provide an analytical reflection: observe your current stage and commitments → diagnose gaps in autonomy → propose one concrete intervention (e.g., ratchet trait, close low-priority tasks). Exclude generic or external advice.",
             ),
         }
         label, instr = _TEMPLATES.get(int(stage_level), _TEMPLATES[0])
@@ -1997,14 +2008,26 @@ def emit_reflection(
         stage_str = None
     stage_level = stage_str_to_level(stage_str)
     _TEMPLATES = {
-        0: ("succinct", "Briefly state one observation and one change next reply."),
-        1: ("question", "Ask 1 self-question and answer with one change next reply."),
+        0: (
+            "succinct",
+            "Reflect on your current IAS/GAS metrics, open commitments, and trait deltas. Propose one concrete system-level action (e.g., adjust novelty threshold, open/close a commitment). Avoid generic advice unrelated to PMM internals.",
+        ),
+        1: (
+            "question",
+            "Ask yourself 2 short questions about your ledger integrity and stage progression. Answer with one actionable system improvement (e.g., update policy, compact scenes). Focus only on PMM internals, not general philosophy.",
+        ),
         2: (
             "narrative",
-            "Describe what changed recently, then one concrete adjustment.",
+            "Summarize recent changes in traits or commitments based on ledger events. Suggest one system adjustment (e.g., tighten cadence). Avoid non-PMM topics.",
         ),
-        3: ("checklist", "Two bullets: what didn’t work; what I’ll change next."),
-        4: ("analytical", "Observation → diagnosis → one intervention next reply."),
+        3: (
+            "checklist",
+            "Produce a 3-item checklist: (1) what IAS/GAS changed, (2) what policy needs adjustment, (3) one immediate system action. Restrict to PMM internals.",
+        ),
+        4: (
+            "analytical",
+            "Provide an analytical reflection: observe your current stage and commitments → diagnose gaps in autonomy → propose one concrete intervention (e.g., ratchet trait, close low-priority tasks). Exclude generic or external advice.",
+        ),
     }
     tmpl_label, tmpl_instr = _TEMPLATES.get(int(stage_level), _TEMPLATES[0])
     if forced and not (content or "").strip():
@@ -2941,6 +2964,7 @@ class AutonomyLoop:
                         meta={
                             "forced_reflection": {
                                 "skip_reason": force_reason,
+                                "consecutive": 1,
                                 "forced_reflection_id": int(rid_forced),
                                 "mode": "scheduled_force",
                             }
@@ -2974,18 +2998,18 @@ class AutonomyLoop:
                 # Only emit if none exists since the last autonomy_tick
                 evs_now_bt = self.eventlog.read_all()
                 last_auto_id_bt = None
-                for be in reversed(evs_now_bt):
-                    if be.get("kind") == "autonomy_tick":
-                        last_auto_id_bt = int(be.get("id") or 0)
+                for be2 in reversed(evs_now_bt):
+                    if be2.get("kind") == "autonomy_tick":
+                        last_auto_id_bt = int(be2.get("id") or 0)
                         break
                 already_bt = False
-                for be in reversed(evs_now_bt):
+                for be2 in reversed(evs_now_bt):
                     if (
                         last_auto_id_bt is not None
-                        and int(be.get("id") or 0) <= last_auto_id_bt
+                        and int(be2.get("id") or 0) <= last_auto_id_bt
                     ):
                         break
-                    if be.get("kind") == "bandit_arm_chosen":
+                    if be2.get("kind") == "bandit_arm_chosen":
                         already_bt = True
                         break
                 if not already_bt:

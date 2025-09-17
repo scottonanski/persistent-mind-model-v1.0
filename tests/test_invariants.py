@@ -47,7 +47,10 @@ def test_bridge_pass_through(monkeypatch, tmp_path):
     _ = rt.handle_user("hello")
 
     assert isinstance(seen["msgs"], list)
-    assert seen["msgs"][0]["content"] == "hello"
+    assert len(seen["msgs"]) > 1, "Not enough messages captured"
+    assert (
+        seen["msgs"][1]["content"] == "hello"
+    ), "User message not found in expected position"
 
 
 def _mk_ev(id_: int, kind: str, content: str = "", meta: dict | None = None):
