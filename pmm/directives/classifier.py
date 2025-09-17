@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 import logging
 from dataclasses import dataclass
 
@@ -42,6 +42,245 @@ class SemanticDirectiveClassifier:
     def __init__(self, eventlog: Optional["EventLog"] = None):
         self.classification_history: Dict[str, str] = {}
         self.eventlog = eventlog  # Store EventLog instance for logging
+
+    # ---- Identity intent classification -------------------------------------------------
+
+    def classify_identity_intent(
+        self,
+        text: str,
+        speaker: str,
+        recent_events: List[Dict],
+    ) -> Tuple[str, Optional[str], float]:
+        """Return (intent, candidate_name, confidence)."""
+
+        raw = (text or "").strip()
+        if not raw:
+            return ("irrelevant", None, 0.0)
+
+        words_raw = raw.split()
+        words_lower = [w.lower() for w in words_raw]
+
+        features = self._extract_naming_features(
+            raw, words_raw, words_lower, speaker, recent_events
+        )
+        intent, name, confidence = self._classify_naming_intent(
+            raw, words_raw, words_lower, features, speaker
+        )
+
+        if self.eventlog:
+            try:
+                self.eventlog.append(
+                    kind="naming_intent_classified",
+                    content=raw,
+                    meta={
+                        "intent": intent,
+                        "name": name,
+                        "confidence": float(confidence),
+                        "speaker": speaker,
+                        "features": {
+                            "has_naming_context": features["has_naming_context"],
+                            "subject_role": features["subject_role"],
+                            "has_proper_noun": features["has_proper_noun"],
+                            "has_linking_verb": features["has_linking_verb"],
+                        },
+                    },
+                )
+            except Exception:
+                logger.exception("Failed to log naming intent classification")
+
+        return intent, name, confidence
+
+    def _extract_naming_features(
+        self,
+        text: str,
+        words_raw: List[str],
+        words_lower: List[str],
+        speaker: str,
+        recent_events: List[Dict],
+    ) -> Dict[str, Any]:
+        features: Dict[str, Any] = {
+            "has_naming_context": False,
+            "subject_role": None,
+            "has_proper_noun": False,
+            "has_linking_verb": False,
+        }
+
+        # Context from recent events
+        naming_tokens = {"name", "call", "rename", "dub"}
+        for ev in recent_events[-3:]:
+            if ev.get("kind") in {"user", "response"}:
+                content = str(ev.get("content", "")).lower()
+                if any(tok in content for tok in naming_tokens):
+                    features["has_naming_context"] = True
+                    break
+
+        if "name" in words_lower or "call" in words_lower:
+            features["has_naming_context"] = True
+
+        if words_lower:
+            first = words_lower[0]
+            if first in {"you", "your"}:
+                features["subject_role"] = "assistant"
+            elif first in {"i", "i'm", "i’m", "my"}:
+                features["subject_role"] = speaker
+
+        if "your name" in text.lower() or "call you" in text.lower():
+            features["subject_role"] = "assistant"
+        elif "my name" in text.lower() and speaker == "user":
+            features["subject_role"] = "user"
+
+        linking_verbs = {"am", "'m", "’m", "is", "are", "be", "called"}
+        features["has_linking_verb"] = any(w in linking_verbs for w in words_lower)
+
+        common_words = {
+            "i",
+            "i'm",
+            "i’m",
+            "you",
+            "your",
+            "the",
+            "a",
+            "an",
+        }
+        for token in words_raw[1:]:
+            cleaned = token.strip(".,!?;:")
+            if (
+                len(cleaned) > 1
+                and cleaned[0].isupper()
+                and cleaned.lower() not in common_words
+            ):
+                features["has_proper_noun"] = True
+                break
+
+        return features
+
+    def _classify_naming_intent(
+        self,
+        text: str,
+        words_raw: List[str],
+        words_lower: List[str],
+        features: Dict[str, Any],
+        speaker: str = "user",
+    ) -> Tuple[str, Optional[str], float]:
+        score = 0.0
+        if features["has_naming_context"]:
+            score += 0.4
+        if features["has_linking_verb"]:
+            score += 0.3
+        if features["has_proper_noun"]:
+            score += 0.2
+        if features["subject_role"] == "assistant":
+            score += 0.3
+        elif features["subject_role"] == "user":
+            score += 0.1
+
+        candidate = None
+        intent = "irrelevant"
+
+        # Check for assistant self-affirmation first (speaker is assistant + "I am")
+        if (
+            features["subject_role"] == "assistant"
+            and "i am" in text.lower()
+            and speaker == "assistant"
+        ):
+            intent = "affirm_assistant_name"
+            candidate = self._extract_candidate_name(words_raw, words_lower)
+        elif (
+            features["subject_role"] == "assistant"
+            and features["has_proper_noun"]
+            and score >= 0.6
+        ):
+            intent = "assign_assistant_name"
+            candidate = self._extract_candidate_name(words_raw, words_lower)
+        elif (
+            features["subject_role"] == "assistant"
+            and not features["has_proper_noun"]
+            and score >= 0.6
+        ):
+            intent = "assign_assistant_name"
+        elif features["subject_role"] == "user" and score >= 0.6:
+            intent = "assign_user_name"
+
+        return intent, candidate, min(score, 1.0)
+
+    def _extract_candidate_name(
+        self, words_raw: List[str], words_lower: List[str]
+    ) -> Optional[str]:
+        # Look for names after linking verbs
+        linking_verbs = {"is", "are", "am", "'m", "'m", "called"}
+
+        for i, word_lower in enumerate(words_lower):
+            if word_lower in linking_verbs and i + 1 < len(words_raw):
+                next_word = words_raw[i + 1].strip(".,!?;:")
+                if len(next_word) > 1 and next_word[0].isupper():
+                    # Filter out common words that aren't names
+                    if next_word.lower() not in {
+                        "important",
+                        "critical",
+                        "urgent",
+                        "great",
+                        "good",
+                        "bad",
+                    }:
+                        return next_word
+
+        # Look for "call you/call them X" pattern
+        for i, word_lower in enumerate(words_lower):
+            if word_lower == "call" and i + 1 < len(words_lower):
+                if words_lower[i + 1] in {"you", "them", "him", "her"} and i + 2 < len(
+                    words_raw
+                ):
+                    candidate = words_raw[i + 2].strip(".,!?;:")
+                    if len(candidate) > 1 and candidate[0].isupper():
+                        if candidate.lower() not in {
+                            "important",
+                            "critical",
+                            "urgent",
+                            "great",
+                            "good",
+                            "bad",
+                        }:
+                            return candidate
+
+        # Look for "name is X" or "name you X" patterns
+        for i, word_lower in enumerate(words_lower):
+            if word_lower == "name":
+                # Check "name is X"
+                if (
+                    i + 1 < len(words_lower)
+                    and words_lower[i + 1] == "is"
+                    and i + 2 < len(words_raw)
+                ):
+                    candidate = words_raw[i + 2].strip(".,!?;:")
+                    if len(candidate) > 1 and candidate[0].isupper():
+                        if candidate.lower() not in {
+                            "important",
+                            "critical",
+                            "urgent",
+                            "great",
+                            "good",
+                            "bad",
+                        }:
+                            return candidate
+                # Check "name you X"
+                elif (
+                    i + 1 < len(words_lower)
+                    and words_lower[i + 1] == "you"
+                    and i + 2 < len(words_raw)
+                ):
+                    candidate = words_raw[i + 2].strip(".,!?;:")
+                    if len(candidate) > 1 and candidate[0].isupper():
+                        if candidate.lower() not in {
+                            "important",
+                            "critical",
+                            "urgent",
+                            "great",
+                            "good",
+                            "bad",
+                        }:
+                            return candidate
+
+        return None
 
     def extract_features(self, text: str) -> DirectiveFeatures:
         """Extract semantic features from directive text."""

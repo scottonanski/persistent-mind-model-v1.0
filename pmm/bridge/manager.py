@@ -18,12 +18,18 @@ class BridgeManager:
         self.model_family = (model_family or "").lower()
 
     def format_messages(self, messages: List[Dict], *, intent: str) -> List[Dict]:
-        """Return a new list of messages, potentially applying style rules.
-
-        Currently a no-op pass-through; returns shallow copies to avoid caller
-        mutation side-effects.
-        """
+        """Return a new list of messages, potentially applying style rules."""
         return [dict(m) for m in messages]
+
+    def sanitize(
+        self,
+        text: str,
+        *,
+        family: Optional[str] = None,
+        adopted_name: Optional[str] = None,
+    ) -> str:
+        fam = (family or self.model_family) or None
+        return sanitize(text, family=fam, adopted_name=adopted_name)
 
 
 # ---- Deterministic sanitizer (flag-less, table-driven) ----
@@ -82,7 +88,12 @@ _IDENTITY_PHRASES = (
 )
 
 
-def sanitize(text: str, *, family: Optional[str] = None) -> str:
+def sanitize(
+    text: str,
+    *,
+    family: Optional[str] = None,
+    adopted_name: Optional[str] = None,
+) -> str:
     """Deterministically sanitize raw model output.
 
     - Strip provider boilerplate/preambles/prefixes.
@@ -114,6 +125,14 @@ def sanitize(text: str, *, family: Optional[str] = None) -> str:
     # 3) Remove identity-claim phrases anywhere
     for pat in _IDENTITY_PHRASES:
         s = re.sub(pat, "", s, flags=re.IGNORECASE)
+
+    if adopted_name:
+        s = re.sub(
+            r"\bI\s*(?:am|’m|'m)\s+[A-Za-z0-9_\-]+",
+            f"I am {adopted_name}",
+            s,
+            flags=re.IGNORECASE,
+        )
 
     # 4) Family-specific small trims
     fam = (family or "").lower()
