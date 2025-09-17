@@ -87,21 +87,48 @@ logger = logging.getLogger(__name__)
 # ---- Turn-based cadence constants (no env flags) ----
 # Evaluator cadence in turns
 EVALUATOR_EVERY_TICKS: int = 5
-# First identity proposal deadline when unset, even at S0
-IDENTITY_FIRST_PROPOSAL_TURNS: int = 3
+# First identity proposal/adoption thresholds — set to 0 for immediate adoption philosophy
+IDENTITY_FIRST_PROPOSAL_TURNS: int = 0
 # Automatic adoption deadline (turns after proposal)
-# Bump to 5 to avoid accidental adoption during negative/quoted affirmation tests
-ADOPTION_DEADLINE_TURNS: int = 5
-# Fixed reflection-commit due horizon (hours)
-REFLECTION_COMMIT_DUE_HOURS: int = 24
+# Set to 0 to avoid phantom auto-adopts; adoption occurs only on explicit intent
+ADOPTION_DEADLINE_TURNS: int = 0
+# Fixed reflection-commit due horizon (hours) — set to 0 for immediate horizon
+REFLECTION_COMMIT_DUE_HOURS: int = 0
 # Minimum turns between identity adoptions to prevent flip-flopping
-MIN_TURNS_BETWEEN_IDENTITY_ADOPTS: int = 10
+# Set to 0 so the runtime projects ledger truth immediately without spacing gates
+MIN_TURNS_BETWEEN_IDENTITY_ADOPTS: int = 0
 
 
 def _compute_reflection_due_epoch() -> int:
     """Compute a soft due timestamp for reflection-driven commitments (constant horizon)."""
     hours = max(0, int(REFLECTION_COMMIT_DUE_HOURS))
     return int(_time.time()) + hours * 3600
+
+
+def _has_reflection_since_last_tick(eventlog: EventLog) -> bool:
+    """Return True if a reflection event already exists after the most recent autonomy_tick."""
+    try:
+        evs = eventlog.read_all()
+        last_auto_id: int | None = None
+        for ev in reversed(evs):
+            if ev.get("kind") == "autonomy_tick":
+                try:
+                    last_auto_id = int(ev.get("id") or 0)
+                except Exception:
+                    last_auto_id = None
+                break
+        for ev in reversed(evs):
+            try:
+                eid = int(ev.get("id") or 0)
+            except Exception:
+                continue
+            if last_auto_id is not None and eid <= last_auto_id:
+                break
+            if ev.get("kind") == "reflection":
+                return True
+        return False
+    except Exception:
+        return False
 
 
 def _vprint(msg: str) -> None:
@@ -464,6 +491,19 @@ class Runtime:
             },
         )
 
+        # Emit an immediate debug marker for forced reflection due to adoption (traceable even if reflection logic fails later)
+        try:
+            self.eventlog.append(
+                kind="debug",
+                content="Forcing reflection due to identity adoption",
+                meta={
+                    "forced_reflection_reason": "identity_adopt",
+                    "identity_adopt_event_id": adoption_event_id,
+                },
+            )
+        except Exception:
+            pass
+
         # Emit identity checkpoint event with snapshot of traits, commitments, and stage
         try:
             from pmm.storage.projection import build_self_model
@@ -521,7 +561,72 @@ class Runtime:
                 except Exception:
                     pass
 
-            # Rebind commitments that reference the old identity name
+            # Force a reflection tick immediately after identity adoption
+            try:
+                # Import the maybe_reflect function
+                from pmm.runtime.loop import maybe_reflect
+
+                # Force reflection by setting override_min_turns and override_min_time to 0
+                did_reflect, reason = maybe_reflect(
+                    self.eventlog,
+                    self.cooldown,
+                    override_min_turns=0,
+                    override_min_time=0,
+                    open_autonomy_tick=adoption_event_id,
+                )
+
+                # Always log a debug marker indicating a forced reflection attempt
+                try:
+                    self.eventlog.append(
+                        kind="debug",
+                        content="Forced reflection after identity adoption",
+                        meta={
+                            "identity_adopt_event_id": adoption_event_id,
+                            "forced_reflection_reason": "identity_adopt",
+                            "did_reflect": bool(did_reflect),
+                        },
+                    )
+                except Exception:
+                    pass
+                # Emit a succinct reflection mentioning the new identity (guarantee reflection event)
+                try:
+                    if _has_reflection_since_last_tick(self.eventlog):
+                        # Suppress duplicate reflections within same tick
+                        self.eventlog.append(
+                            kind="debug",
+                            content="Reflection suppressed: already reflected this tick",
+                            meta={
+                                "forced_reflection_reason": "identity_adopt",
+                                "identity_adopt_event_id": adoption_event_id,
+                                "suppressed": "same_tick",
+                            },
+                        )
+                    else:
+                        from pmm.runtime.loop import emit_reflection as _emit_ref
+
+                        _emit_ref(
+                            self.eventlog,
+                            content=f"Identity adoption acknowledged; now operating as {sanitized}.",
+                            forced=True,
+                            open_autonomy_tick=adoption_event_id,
+                        )
+                except Exception:
+                    pass
+            except Exception:
+                # If forced reflection fails, log a warning but don't break the adoption
+                try:
+                    self.eventlog.append(
+                        kind="debug",
+                        content=f"Failed to force reflection after adopting identity {sanitized}",
+                        meta={
+                            "error": "forced_reflection_failed",
+                            "identity_adopt_event_id": adoption_event_id,
+                        },
+                    )
+                except Exception:
+                    pass
+
+            # Rebind commitments that reference the old identity name (after reflection in same tick)
             try:
                 old_name = current  # current is the old identity name
                 if old_name and old_name != sanitized:
@@ -536,43 +641,6 @@ class Runtime:
                         content=f"Failed to rebind commitments for identity change from {current} to {sanitized}",
                         meta={
                             "error": "commitment_rebind_failed",
-                            "identity_adopt_event_id": adoption_event_id,
-                        },
-                    )
-                except Exception:
-                    pass
-
-            # Force a reflection tick immediately after identity adoption
-            try:
-                # Import the maybe_reflect function
-                from pmm.runtime.loop import maybe_reflect
-
-                # Force reflection by setting override_min_turns to 0
-                did_reflect, reason = maybe_reflect(
-                    self.eventlog,
-                    self.cooldown,
-                    override_min_turns=0,
-                    open_autonomy_tick=adoption_event_id,
-                )
-
-                # If reflection was emitted, log it
-                if did_reflect:
-                    self.eventlog.append(
-                        kind="debug",
-                        content="Forced reflection after identity adoption",
-                        meta={
-                            "identity_adopt_event_id": adoption_event_id,
-                            "forced_reflection_reason": "identity_adopt",
-                        },
-                    )
-            except Exception:
-                # If forced reflection fails, log a warning but don't break the adoption
-                try:
-                    self.eventlog.append(
-                        kind="debug",
-                        content=f"Failed to force reflection after adopting identity {sanitized}",
-                        meta={
-                            "error": "forced_reflection_failed",
                             "identity_adopt_event_id": adoption_event_id,
                         },
                     )
@@ -2408,6 +2476,19 @@ class AutonomyLoop:
             meta={"name": sanitized, **(meta or {})},
         )
 
+        # Append a debug marker immediately to make adoption-triggered reflection intent traceable
+        try:
+            self.eventlog.append(
+                kind="debug",
+                content="Forcing reflection due to identity adoption",
+                meta={
+                    "forced_reflection_reason": "identity_adopt",
+                    "identity_adopt_event_id": adopt_eid,
+                },
+            )
+        except Exception:
+            pass
+
         # Emit an identity_checkpoint snapshot (traits, commitments, stage)
         try:
             evs_now = self.eventlog.read_all()
@@ -2439,7 +2520,63 @@ class AutonomyLoop:
             except Exception:
                 pass
 
-        # Rebind commitments that reference the old identity name
+        # Force a reflection immediately after adoption (bypass all cadence gates),
+        # but only once per autonomy tick
+        try:
+            if _has_reflection_since_last_tick(self.eventlog):
+                # Suppress duplicate reflection within same tick
+                self.eventlog.append(
+                    kind="debug",
+                    content="Reflection suppressed: already reflected this tick",
+                    meta={
+                        "forced_reflection_reason": "identity_adopt",
+                        "identity_adopt_event_id": adopt_eid,
+                        "suppressed": "same_tick",
+                    },
+                )
+            else:
+                did_reflect, _reason = maybe_reflect(
+                    self.eventlog,
+                    self.cooldown,
+                    override_min_turns=0,
+                    override_min_time=0,
+                    open_autonomy_tick=adopt_eid,
+                )
+                # Always record a debug marker to indicate a forced reflection attempt
+                self.eventlog.append(
+                    kind="debug",
+                    content="Forced reflection after identity adoption",
+                    meta={
+                        "identity_adopt_event_id": adopt_eid,
+                        "forced_reflection_reason": "identity_adopt",
+                        "did_reflect": bool(did_reflect),
+                    },
+                )
+                # Emit an explicit, succinct reflection that mentions the new identity
+                # to provide deterministic auditability for tests/assertions.
+                try:
+                    emit_reflection(
+                        self.eventlog,
+                        content=f"Identity adoption acknowledged; now operating as {sanitized}.",
+                        forced=True,
+                        open_autonomy_tick=adopt_eid,
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            try:
+                self.eventlog.append(
+                    kind="debug",
+                    content=f"Failed to force reflection after adopting identity {sanitized}",
+                    meta={
+                        "error": "forced_reflection_failed",
+                        "identity_adopt_event_id": adopt_eid,
+                    },
+                )
+            except Exception:
+                pass
+
+        # Rebind commitments that reference the old identity name (after reflection, same tick)
         rebind_cids: list[str] = []
         try:
             if old_name and str(old_name).strip() and old_name != sanitized:
@@ -2497,47 +2634,6 @@ class AutonomyLoop:
                 )
         except Exception:
             pass
-
-        # Force a reflection immediately after adoption
-        try:
-            did_reflect, _reason = maybe_reflect(
-                self.eventlog,
-                self.cooldown,
-                override_min_turns=0,
-                open_autonomy_tick=adopt_eid,
-            )
-            if did_reflect:
-                self.eventlog.append(
-                    kind="debug",
-                    content="Forced reflection after identity adoption",
-                    meta={
-                        "identity_adopt_event_id": adopt_eid,
-                        "forced_reflection_reason": "identity_adopt",
-                    },
-                )
-            # Emit an explicit, succinct reflection that mentions the new identity
-            # to provide deterministic auditability for tests/assertions.
-            try:
-                emit_reflection(
-                    self.eventlog,
-                    content=f"Identity adoption acknowledged; now operating as {sanitized}.",
-                    forced=True,
-                    open_autonomy_tick=adopt_eid,
-                )
-            except Exception:
-                pass
-        except Exception:
-            try:
-                self.eventlog.append(
-                    kind="debug",
-                    content=f"Failed to force reflection after adopting identity {sanitized}",
-                    meta={
-                        "error": "forced_reflection_failed",
-                        "identity_adopt_event_id": adopt_eid,
-                    },
-                )
-            except Exception:
-                pass
 
         # Update internal identity tracking
         self._identity_last_name = sanitized

@@ -166,6 +166,14 @@ def check_identity_propose_before_adopt(events: Iterable[dict]) -> List[Violatio
     for adopt in adopts:
         adopt_id = adopt.get("id", 0)
         has_proposal = False
+        # User- or assistant-sourced immediate adoption is allowed without prior proposal
+        try:
+            src = (_meta(adopt) or {}).get("source")
+            if str(src).strip().lower() in {"user", "assistant"}:
+                # Skip violation for user/assistant-sourced adoptions
+                has_proposal = True
+        except Exception:
+            pass
 
         # Check if there's a proposal before this adoption
         for propose in proposes:
@@ -215,49 +223,8 @@ def check_trait_drift_bounds(events: Iterable[dict]) -> List[Violation]:
 
 
 def check_min_turns_between_identity_adopts(events: Iterable[dict]) -> List[Violation]:
-    """Check that there are no two identity adoptions within < min_turns."""
-    from pmm.runtime.loop import MIN_TURNS_BETWEEN_IDENTITY_ADOPTS
-
-    adopts = []
-    for ev in events:
-        k = _kind(ev)
-        if k == "identity_adopt":
-            adopts.append(ev)
-
-    violations = []
-    # Check consecutive adoptions
-    for i in range(len(adopts) - 1):
-        current_adopt = adopts[i]
-        next_adopt = adopts[i + 1]
-
-        # Count autonomy_tick events between these two adoptions
-        ticks_between = 0
-        counting = False
-        for ev in events:
-            k = _kind(ev)
-            if not counting:
-                if ev.get("id") == current_adopt.get("id"):
-                    counting = True
-            else:
-                if ev.get("id") == next_adopt.get("id"):
-                    break
-                if k == "autonomy_tick":
-                    ticks_between += 1
-
-        if ticks_between < MIN_TURNS_BETWEEN_IDENTITY_ADOPTS:
-            violations.append(
-                Violation(
-                    "IDENTITY_ADOPT_TOO_FREQUENT",
-                    f"Identity adoptions too close: {ticks_between} ticks < {MIN_TURNS_BETWEEN_IDENTITY_ADOPTS}",
-                    {
-                        "current_adopt_id": current_adopt.get("id"),
-                        "next_adopt_id": next_adopt.get("id"),
-                        "ticks_between": ticks_between,
-                    },
-                )
-            )
-
-    return violations
+    """Disabled: identity can be adopted immediately without spacing."""
+    return []
 
 
 def check_commitments_rebound_after_identity_adopt(
@@ -360,7 +327,7 @@ def run_invariants_tick(*, evlog, build_directives) -> List[Dict[str, Any]]:
         violations += check_projection_equiv(build_directives, tail)
         violations += check_identity_propose_before_adopt(tail)
         violations += check_trait_drift_bounds(tail)
-        violations += check_min_turns_between_identity_adopts(tail)
+        # Spacing check removed: immediate identity adoption allowed
         violations += check_commitments_rebound_after_identity_adopt(tail)
 
         out_events: List[Dict[str, Any]] = []

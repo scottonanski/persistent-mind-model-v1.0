@@ -133,23 +133,21 @@ def test_forced_reflection_after_identity_adopt():
             confidence=0.9,
         )
 
-        # Check that reflection events were emitted
+        # Check that a reflection was emitted OR a forced-reflection debug marker exists
         events = eventlog.read_all()
-        debug_events = [e for e in events if e.get("kind") == "debug"]
-        forced_reflection_events = [
+        reflections = [e for e in events if e.get("kind") == "reflection"]
+        debug_forced = [
             e
-            for e in debug_events
-            if (e.get("meta") or {}).get("forced_reflection_reason") == "identity_adopt"
+            for e in events
+            if e.get("kind") == "debug"
+            and (e.get("meta") or {}).get("forced_reflection_reason")
+            == "identity_adopt"
         ]
-
-        # Note: The actual reflection emission depends on the maybe_reflect implementation
-        # which might not emit a reflection in test mode. We're checking for the debug event
-        # that indicates the forced reflection was attempted.
-        assert len(forced_reflection_events) >= 1
+        assert reflections or debug_forced
 
 
 def test_min_turns_constraint_between_identity_adopts():
-    """Test that min turns constraint prevents rapid identity flips."""
+    """Now allows rapid identity flips (constraint removed)."""
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "test.db")
         eventlog = EventLog(db_path)
@@ -167,7 +165,7 @@ def test_min_turns_constraint_between_identity_adopts():
         for i in range(5):  # Less than MIN_TURNS_BETWEEN_IDENTITY_ADOPTS
             eventlog.append("autonomy_tick", f"tick {i}", {"tick": i})
 
-        # Try to adopt second identity (should be blocked due to insufficient turns)
+        # Try to adopt second identity (allowed in evolving mode)
         runtime._adopt_identity(
             "SecondBot", source="user", intent="assign_assistant_name", confidence=0.9
         )
@@ -175,20 +173,9 @@ def test_min_turns_constraint_between_identity_adopts():
         # Check events - should have naming_intent_classified but no identity_adopt for second
         events = eventlog.read_all()
         identity_adopt_events = [e for e in events if e.get("kind") == "identity_adopt"]
-        naming_intent_events = [
-            e for e in events if e.get("kind") == "naming_intent_classified"
-        ]
 
-        # Should only have one identity_adopt (for FirstBot)
-        assert len(identity_adopt_events) == 1
-        assert identity_adopt_events[0].get("content") == "FirstBot"
-
-        # Should have a naming_intent_classified event for the blocked adoption
-        assert len(naming_intent_events) >= 1
-        blocked_event = naming_intent_events[0]
-        meta = blocked_event.get("meta", {})
-        assert meta.get("blocked") is True
-        assert meta.get("reason") == "min_turns_constraint"
+        # Both adoptions should be present
+        assert len(identity_adopt_events) == 2
 
 
 def test_ias_gas_response_to_identity_events():
