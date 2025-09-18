@@ -2458,6 +2458,11 @@ class AutonomyLoop:
         self._evolution_reporter = EvolutionReporter(eventlog)
         self._commitment_restructurer = CommitmentRestructurer(eventlog)
 
+        # ---- Phase 5: Stage Advancement Integration ----
+        from pmm.runtime.stage_manager import StageManager
+
+        self._stage_manager = StageManager(eventlog)
+
         # Ensure a deterministic bootstrap identity exists (ledger-backed via canonical handler)
         try:
             events_boot = self.eventlog.read_all()
@@ -2887,8 +2892,9 @@ class AutonomyLoop:
         """Run a complete introspection cycle.
 
         Orchestrates Phase 1 (self-inspection), Phase 2 (evolution reporting),
-        and Phase 3 (commitment restructuring) in sequence. All operations
-        are deterministic and idempotent with digest-based event emission.
+        Phase 3 (commitment restructuring), and Phase 5 (stage advancement)
+        in sequence. All operations are deterministic and idempotent with
+        digest-based event emission.
         """
         try:
             # Phase 1: Self-Inspection - query recent patterns
@@ -2919,8 +2925,38 @@ class AutonomyLoop:
             # Phase 3: Commitment Restructuring - optimize commitment structure
             self._commitment_restructurer.run_restructuring()
 
+            # Phase 5: Stage Advancement - check and advance stage if criteria met
+            stage_event_id = self._stage_manager.check_and_advance()
+            if stage_event_id:
+                # Stage advancement occurred - update reflection cadence based on new stage
+                current_stage = self._stage_manager.current_stage()
+                self._update_reflection_cadence_for_stage(current_stage)
+
         except Exception:
             # Never allow introspection to break the autonomy loop
+            pass
+
+    def _update_reflection_cadence_for_stage(self, stage: str) -> None:
+        """Update reflection cadence policy based on current stage.
+
+        Liberalizes cadence in early stages (S0, S1) to feed evolution engine,
+        then applies standard cadence in later stages for stability.
+        """
+        try:
+            if stage in ["S0", "S1"]:
+                # Liberalized cadence for early stages
+                self.cooldown.min_turns = 1
+                self.cooldown.min_seconds = 60.0
+            elif stage in ["S2"]:
+                # Moderate cadence for middle stage
+                self.cooldown.min_turns = 2
+                self.cooldown.min_seconds = 120.0
+            else:  # S3, S4
+                # Standard cadence for advanced stages
+                self.cooldown.min_turns = 6
+                self.cooldown.min_seconds = 300.0
+        except Exception:
+            # Never allow cadence updates to break the loop
             pass
 
     def start(self) -> None:

@@ -17,6 +17,7 @@ class EventKinds:
     # Identity and traits
     TRAIT_UPDATE = "trait_update"
     IDENTITY_ADOPTION = "identity_adoption"
+    IDENTITY_LOCK = "identity_lock"
 
     # Audit and reporting
     AUDIT_REPORT = "audit_report"
@@ -26,3 +27,6 @@ class EventKinds:
     COMMITMENT_RESTRUCTURE = "commitment_restructure"
     DIRECTIVE_HIERARCHY = "directive_hierarchy"
     PATTERN_CONTINUITY = "pattern_continuity"
+    STAGE_UPDATE = "stage_update"
+    POLICY_UPDATE = "policy_update"
+    METRICS_UPDATE = "metrics_update"
