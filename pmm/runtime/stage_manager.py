@@ -37,6 +37,16 @@ class StageManager:
         evols = [
             e for e in self.eventlog.read_all() if e["kind"] == EventKinds.EVOLUTION
         ]
+        introspection_queries = [
+            e
+            for e in self.eventlog.read_all()
+            if e["kind"] == EventKinds.INTROSPECTION_QUERY
+        ]
+        identity_adoptions = [
+            e
+            for e in self.eventlog.read_all()
+            if e["kind"] == EventKinds.IDENTITY_ADOPTION
+        ]
         metrics = [
             e
             for e in self.eventlog.read_all()
@@ -52,12 +62,24 @@ class StageManager:
         hysteresis = 0.03
 
         if stage == "S0":
-            return (
+            # Enhanced criteria: either traditional metrics OR introspective emergence indicators
+            traditional_criteria = (
                 len(refs) >= 3
                 and len(evols) >= 2
                 and ias >= (0.60 + hysteresis)
                 and gas >= (0.20 + hysteresis)
             )
+
+            # Alternative: introspective emergence indicators
+            introspective_emergence = (
+                len(refs) >= 3  # Still need basic reflection activity
+                and len(introspection_queries) >= 2  # Evidence of self-inspection
+                and len(identity_adoptions) >= 2  # Evidence of identity evolution
+                and ias
+                >= (0.40 + hysteresis)  # Lower IAS threshold for introspective path
+            )
+
+            return traditional_criteria or introspective_emergence
         if stage == "S1":
             return (
                 len(refs) >= 5
