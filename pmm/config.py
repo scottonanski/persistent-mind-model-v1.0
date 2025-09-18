@@ -122,3 +122,44 @@ require_artifact_evidence: bool = False
 
 # Debug Configuration (disabled in core)
 DEBUG_MODE = False
+
+
+# ---- Lightweight project config (JSON, optional) ----
+# Provides durable policy defaults without environment flags. Values here can be
+# overridden by creating a project-local ".pmm/config.json" file.
+_DEFAULTS = {
+    # Tighten reflection cadence so deep reflections occur in short sessions
+    "reflect_min_turns": 1,
+    "reflect_min_seconds": 0,
+    # Repeat per-tick reminders for reflection-driven commitments while overdue
+    "repeat_overdue_reflection_commitment_reminders": True,
+}
+
+
+def load() -> dict:
+    """Load PMM policy/config values.
+
+    Order of precedence:
+      1) Project-local JSON at .pmm/config.json (if present, best-effort parse)
+      2) Built-in defaults above
+
+    Returns a shallow dict of config values.
+    """
+    try:
+        from pathlib import Path as _Path
+        import json as _json_local
+
+        cfg_path = _Path(".pmm/config.json")
+        if cfg_path.exists():
+            try:
+                data = _json_local.loads(cfg_path.read_text())
+                if isinstance(data, dict):
+                    out = dict(_DEFAULTS)
+                    out.update({k: v for k, v in data.items() if k in _DEFAULTS})
+                    return out
+            except Exception:
+                # Fall through to defaults on parse errors
+                pass
+    except Exception:
+        pass
+    return dict(_DEFAULTS)

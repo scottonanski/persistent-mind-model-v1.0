@@ -50,3 +50,54 @@ def compute_ias_gas(events: Iterable[dict]) -> Tuple[float, float]:
     ias = max(0.0, min(1.0, ias))
     gas = max(0.0, min(1.0, gas))
     return ias, gas
+
+
+# --- Lightweight GAS nudge based on reflection content (ontology-locked) ---
+PMM_POS = ("ledger", "traits", "commitment", "policy", "scene", "projection", "rebind")
+ASSIST_NEG = ("how can i assist", "journal", "learn more")
+
+
+def adjust_gas_from_text(
+    eventlog, text: str, base_delta: float = 0.0, reason: str = "content_nudge"
+) -> float:
+    """Nudge GAS based on reflection content; clamp to [0,1]. Appends a metrics event.
+
+    Reads last metrics event for GAS/IAS defaults; if none, uses 0.0/0.0.
+    """
+    t = (text or "").lower()
+    pos = any(k in t for k in PMM_POS)
+    neg = any(k in t for k in ASSIST_NEG)
+
+    delta = float(base_delta)
+    if pos:
+        delta += 0.01
+    if neg:
+        delta -= 0.01
+
+    import json
+
+    try:
+        row = eventlog._conn.execute(
+            "SELECT meta FROM events WHERE kind='metrics' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    except Exception:
+        row = None
+    gas_prev = 0.0
+    ias_prev = 0.0
+    if row:
+        try:
+            m = json.loads(row[0] or "{}")
+            gas_prev = float(m.get("GAS", 0.0))
+            ias_prev = float(m.get("IAS", 0.0))
+        except Exception:
+            gas_prev, ias_prev = 0.0, 0.0
+    new_gas = max(0.0, min(1.0, gas_prev + delta))
+    try:
+        eventlog.append(
+            "metrics",
+            "",
+            {"GAS": new_gas, "IAS": ias_prev, "gas_delta": delta, "reason": reason},
+        )
+    except Exception:
+        pass
+    return new_gas

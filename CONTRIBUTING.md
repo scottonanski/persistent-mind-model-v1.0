@@ -58,4 +58,11 @@ black --check .
 - Use clear, imperative commit messages and reference issues where relevant (e.g., "Fix: stabilize stage transitions near S1/S2 boundary").
 
 ---
+
+When writing tests for PMM, only test actual implemented code. Do not write speculative tests for planned features, placeholders, stubs, or imagined behaviors. All tests must directly exercise existing functions, classes, or modules in the codebase, and assert against concrete, deterministic outputs or logged events.
+
+---
+
 Questions? Open an issue or start a discussion. Thank you for helping improve PMM.
+
+

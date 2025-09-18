@@ -21,7 +21,7 @@ from pmm.llm.limits import TickBudget, RATE_LIMITED
 from pmm.bridge.manager import BridgeManager
 from pmm.directives.classifier import SemanticDirectiveClassifier
 from pmm.runtime.cooldown import ReflectionCooldown
-from pmm.runtime.metrics import compute_ias_gas
+from pmm.runtime.metrics import compute_ias_gas, adjust_gas_from_text
 from pmm.commitments.tracker import CommitmentTracker
 from pmm.commitments import tracker as _commit_tracker  # Step 19 triage helper
 import threading as _threading
@@ -40,6 +40,7 @@ from pmm.runtime.embeddings import (
     compute_embedding as _emb_compute,
     digest_vector as _emb_digest,
 )
+from pmm.config import load as _load_cfg
 from pmm.directives.detector import (
     extract as _extract_directives,
 )
@@ -53,6 +54,7 @@ from pmm.runtime.reflection_bandit import (
     ARMS as _BANDIT_ARMS,
     apply_guidance_bias as _apply_guidance_bias,
     choose_arm_biased as _choose_arm_biased,
+    EPS_BIAS as _EPS_BIAS,
 )
 from pmm.runtime.evaluators.performance import (
     compute_performance_metrics,
@@ -85,6 +87,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ---- Turn-based cadence constants (no env flags) ----
+# Evolving Mode default: ON (no environment flags). All evolving features are active by default.
+EVOLVING_MODE: bool = True
 # Evaluator cadence in turns
 EVALUATOR_EVERY_TICKS: int = 5
 # First identity proposal/adoption thresholds — set to 0 for immediate adoption philosophy
@@ -298,6 +302,23 @@ class Runtime:
         self.chat = bundle.chat
         self.bridge = BridgeManager(model_family=cfg.provider)
         self.cooldown = ReflectionCooldown()
+        # Apply persistent cadence defaults (durable across runs)
+        try:
+            _cfg = _load_cfg()
+            try:
+                self.cooldown.min_turns = int(
+                    _cfg.get("reflect_min_turns", self.cooldown.min_turns)
+                )
+            except Exception:
+                pass
+            try:
+                self.cooldown.min_seconds = float(
+                    _cfg.get("reflect_min_seconds", self.cooldown.min_seconds)
+                )
+            except Exception:
+                pass
+        except Exception:
+            pass
         # Per-tick deterministic LLM usage budget
         self.budget = TickBudget()
         # Commitments tracker (uses default detector)
@@ -385,7 +406,7 @@ class Runtime:
             "formal",
             "professional",
         ]
-        is_solemn = any(keyword in recent_text_lower for keyword in solemn_keywords)
+        is_solemn = any(keyword in solemn_keywords for keyword in recent_text_lower)
 
         # Apply nudges based on context
         if is_playful:
@@ -443,219 +464,38 @@ class Runtime:
     def _adopt_identity(
         self, name: str, *, source: str, intent: str, confidence: float
     ) -> None:
+        """Compatibility shim: route through AutonomyLoop.handle_identity_adopt.
+
+        Ensures consistent event pipeline across all call sites and keeps tests
+        that invoke Runtime._adopt_identity working without divergence.
+        """
         sanitized = _sanitize_name(name)
         if not sanitized:
             return
+        meta = {
+            "source": source,
+            "intent": intent,
+            "confidence": float(confidence),
+        }
         try:
-            current_identity = build_identity(self.eventlog.read_all())
-            current = current_identity.get("name")
-        except Exception:
-            current = None
-        if current and current.lower() == sanitized.lower():
-            return
-
-        # Check continuity constraint: minimum turns between identity adoptions
-        events = self.eventlog.read_all()
-        turns_since_last = self._turns_since_last_identity_adopt(events)
-
-        # If this is not the first adoption and not enough turns have passed, gate the adoption
-        if (
-            turns_since_last != -1
-            and turns_since_last < MIN_TURNS_BETWEEN_IDENTITY_ADOPTS
-        ):
-            # Log the naming intent classification but gate adoption
-            self.eventlog.append(
-                kind="naming_intent_classified",
-                content=sanitized,
-                meta={
-                    "source": source,
-                    "intent": intent,
-                    "confidence": float(confidence),
-                    "blocked": True,
-                    "reason": "min_turns_constraint",
-                    "turns_since_last_adopt": turns_since_last,
-                    "min_turns_required": MIN_TURNS_BETWEEN_IDENTITY_ADOPTS,
-                },
-            )
-            return
-
-        # Emit identity adoption event
-        adoption_event_id = self.eventlog.append(
-            kind="identity_adopt",
-            content=sanitized,
-            meta={
-                "name": sanitized,
-                "source": source,
-                "intent": intent,
-                "confidence": float(confidence),
-            },
-        )
-
-        # Emit an immediate debug marker for forced reflection due to adoption (traceable even if reflection logic fails later)
-        try:
-            self.eventlog.append(
-                kind="debug",
-                content="Forcing reflection due to identity adoption",
-                meta={
-                    "forced_reflection_reason": "identity_adopt",
-                    "identity_adopt_event_id": adoption_event_id,
-                },
-            )
-        except Exception:
-            pass
-
-        # Emit identity checkpoint event with snapshot of traits, commitments, and stage
-        try:
-            from pmm.storage.projection import build_self_model
-
-            events = self.eventlog.read_all()
-            model = build_self_model(events)
-
-            # Extract relevant information for the checkpoint
-            traits = model.get("traits", {})
-            commitments = model.get("commitments", {})
-            stage = model.get("stage", "S0")
-
-            self.eventlog.append(
-                kind="identity_checkpoint",
-                content="",
-                meta={
-                    "name": sanitized,
-                    "traits": traits,
-                    "commitments": commitments,
-                    "stage": stage,
-                    "identity_adopt_event_id": adoption_event_id,
-                },
-            )
-
-            # Apply bounded trait nudges based on recent context
-            try:
-                # Get the most recent events to analyze context
-                recent_events = events[-20:] if len(events) > 20 else events
-
-                # Apply small, cumulative trait changes
-                trait_changes = self._apply_trait_nudges(recent_events, sanitized)
-
-                # Log trait updates with meta information
-                if trait_changes:
-                    self.eventlog.append(
-                        kind="trait_update",
-                        content="",
-                        meta={
-                            "changes": trait_changes,
-                            "reason": "identity_shift",
-                            "src_id": adoption_event_id,
-                        },
-                    )
-            except Exception:
-                # If trait nudging fails, log a warning but don't break the adoption
-                try:
-                    self.eventlog.append(
-                        kind="debug",
-                        content=f"Failed to apply trait nudges for {sanitized}",
-                        meta={
-                            "error": "trait_nudges_failed",
-                            "identity_adopt_event_id": adoption_event_id,
-                        },
-                    )
-                except Exception:
-                    pass
-
-            # Force a reflection tick immediately after identity adoption
-            try:
-                # Import the maybe_reflect function
-                from pmm.runtime.loop import maybe_reflect
-
-                # Force reflection by setting override_min_turns and override_min_time to 0
-                did_reflect, reason = maybe_reflect(
-                    self.eventlog,
-                    self.cooldown,
-                    override_min_turns=0,
-                    override_min_time=0,
-                    open_autonomy_tick=adoption_event_id,
+            if getattr(self, "_autonomy", None) is not None:
+                self._autonomy.handle_identity_adopt(sanitized, meta=meta)
+            else:
+                tmp = AutonomyLoop(
+                    eventlog=self.eventlog,
+                    cooldown=self.cooldown,
+                    interval_seconds=60.0,
+                    proposer=None,
+                    allow_affirmation=False,
+                    bootstrap_identity=False,
                 )
-
-                # Always log a debug marker indicating a forced reflection attempt
-                try:
-                    self.eventlog.append(
-                        kind="debug",
-                        content="Forced reflection after identity adoption",
-                        meta={
-                            "identity_adopt_event_id": adoption_event_id,
-                            "forced_reflection_reason": "identity_adopt",
-                            "did_reflect": bool(did_reflect),
-                        },
-                    )
-                except Exception:
-                    pass
-                # Emit a succinct reflection mentioning the new identity (guarantee reflection event)
-                try:
-                    if _has_reflection_since_last_tick(self.eventlog):
-                        # Suppress duplicate reflections within same tick
-                        self.eventlog.append(
-                            kind="debug",
-                            content="Reflection suppressed: already reflected this tick",
-                            meta={
-                                "forced_reflection_reason": "identity_adopt",
-                                "identity_adopt_event_id": adoption_event_id,
-                                "suppressed": "same_tick",
-                            },
-                        )
-                    else:
-                        from pmm.runtime.loop import emit_reflection as _emit_ref
-
-                        _emit_ref(
-                            self.eventlog,
-                            content=f"Identity adoption acknowledged; now operating as {sanitized}.",
-                            forced=True,
-                            open_autonomy_tick=adoption_event_id,
-                        )
-                except Exception:
-                    pass
-            except Exception:
-                # If forced reflection fails, log a warning but don't break the adoption
-                try:
-                    self.eventlog.append(
-                        kind="debug",
-                        content=f"Failed to force reflection after adopting identity {sanitized}",
-                        meta={
-                            "error": "forced_reflection_failed",
-                            "identity_adopt_event_id": adoption_event_id,
-                        },
-                    )
-                except Exception:
-                    pass
-
-            # Rebind commitments that reference the old identity name (after reflection in same tick)
-            try:
-                old_name = current  # current is the old identity name
-                if old_name and old_name != sanitized:
-                    self.tracker._rebind_commitments_on_identity_adopt(
-                        old_name, sanitized
-                    )
-            except Exception:
-                # If commitment rebind fails, log a warning but don't break the adoption
-                try:
-                    self.eventlog.append(
-                        kind="debug",
-                        content=f"Failed to rebind commitments for identity change from {current} to {sanitized}",
-                        meta={
-                            "error": "commitment_rebind_failed",
-                            "identity_adopt_event_id": adoption_event_id,
-                        },
-                    )
-                except Exception:
-                    pass
+                tmp.handle_identity_adopt(sanitized, meta=meta)
         except Exception:
-            # If we can't create a checkpoint, log a warning but don't break the adoption
             try:
                 self.eventlog.append(
-                    kind="debug",
-                    content=f"Failed to create identity_checkpoint for {sanitized}",
-                    meta={
-                        "error": "checkpoint_creation_failed",
-                        "identity_adopt_event_id": adoption_event_id,
-                    },
+                    kind="identity_adopt",
+                    content=sanitized,
+                    meta={"name": sanitized, **meta},
                 )
             except Exception:
                 pass
@@ -686,13 +526,88 @@ class Runtime:
         except Exception:
             intent, candidate_name, confidence = ("irrelevant", None, 0.0)
 
-        if intent == "assign_assistant_name" and candidate_name and confidence >= 0.8:
-            self._adopt_identity(
-                candidate_name,
-                source="user",
-                intent=intent,
-                confidence=confidence,
+        # Debug breadcrumb: audit naming gate (user path)
+        try:
+            self.eventlog.append(
+                kind="debug",
+                content="",
+                meta={
+                    "naming_gate_check": "user",
+                    "intent": intent,
+                    "name": candidate_name,
+                    "confidence": float(confidence),
+                },
             )
+        except Exception:
+            pass
+
+        # Defensive fallback: derive candidate from unique proper noun when intent is clear
+        if intent == "assign_assistant_name" and not candidate_name:
+            try:
+                raw = (user_text or "").strip()
+                tokens = [t for t in raw.split() if t]
+                common = {
+                    "i",
+                    "i'm",
+                    "i’m",
+                    "you",
+                    "your",
+                    "the",
+                    "a",
+                    "an",
+                    "assistant",
+                    "model",
+                    "name",
+                }
+                cands: list[str] = []
+                for tok in tokens[1:]:
+                    t = tok.strip('.,!?;:"“”‘’()[]{}<>')
+                    if len(t) > 1 and t[0].isupper() and t.lower() not in common:
+                        cands.append(t)
+                if len(cands) == 1:
+                    candidate_name = cands[0]
+                    try:
+                        self.eventlog.append(
+                            kind="debug",
+                            content="naming_fallback_candidate",
+                            meta={"name": candidate_name, "path": "user"},
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        if intent == "assign_assistant_name" and candidate_name and confidence >= 0.8:
+            # Canonical adoption path via AutonomyLoop
+            sanitized = _sanitize_name(candidate_name)
+            if sanitized:
+                meta = {
+                    "source": "user",
+                    "intent": intent,
+                    "confidence": float(confidence),
+                }
+                try:
+                    if getattr(self, "_autonomy", None) is not None:
+                        self._autonomy.handle_identity_adopt(sanitized, meta=meta)
+                    else:
+                        tmp = AutonomyLoop(
+                            eventlog=self.eventlog,
+                            cooldown=self.cooldown,
+                            interval_seconds=60.0,
+                            proposer=None,
+                            allow_affirmation=False,
+                        )
+                        tmp.handle_identity_adopt(sanitized, meta=meta)
+                except Exception:
+                    # Minimal fallback to avoid losing the intent
+                    try:
+                        self.eventlog.append(
+                            kind="identity_adopt",
+                            content=sanitized,
+                            meta={"name": sanitized, **meta},
+                        )
+                    except Exception:
+                        pass
         # User-driven one-shot commitment execution is disabled; commitments open autonomously.
         exec_commit = False
         exec_text = ""
@@ -733,7 +648,9 @@ class Runtime:
             pass
         # Inject a compact transcript of the last few user/assistant turns to preserve coherence
         try:
+            # Snapshot events BEFORE adding any knowledge_assert to keep recall fallback deterministic
             evs_hist = self.eventlog.read_all()
+            _events_before_chat = list(evs_hist)
             lines: list[str] = []
             for ev in reversed(evs_hist):
                 k = ev.get("kind")
@@ -827,17 +744,91 @@ class Runtime:
                 0.0,
             )
 
+        # Debug breadcrumb: audit naming gate (assistant path)
+        try:
+            self.eventlog.append(
+                kind="debug",
+                content="",
+                meta={
+                    "naming_gate_check": "assistant",
+                    "intent": intent_reply,
+                    "name": candidate_reply,
+                    "confidence": float(confidence_reply),
+                },
+            )
+        except Exception:
+            pass
+
+        # Defensive fallback: derive candidate from unique proper noun when intent is clear (assistant path)
+        if intent_reply == "assign_assistant_name" and not candidate_reply:
+            try:
+                raw_r = (candidate_reply or "").strip()
+                tokens_r = [t for t in raw_r.split() if t]
+                common = {
+                    "i",
+                    "i'm",
+                    "i’m",
+                    "you",
+                    "your",
+                    "the",
+                    "a",
+                    "an",
+                    "assistant",
+                    "model",
+                    "name",
+                }
+                cands_r: list[str] = []
+                for tok in tokens_r[1:]:
+                    t = tok.strip('.,!?;:"“”‘’()[]{}<>')
+                    if len(t) > 1 and t[0].isupper() and t.lower() not in common:
+                        cands_r.append(t)
+                if len(cands_r) == 1:
+                    candidate_reply = cands_r[0]
+                    try:
+                        self.eventlog.append(
+                            kind="debug",
+                            content="naming_fallback_candidate",
+                            meta={"name": candidate_reply, "path": "assistant"},
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
         if (
             intent_reply == "assign_assistant_name"
             and candidate_reply
             and confidence_reply >= 0.8
         ):
-            self._adopt_identity(
-                candidate_reply,
-                source="assistant",
-                intent=intent_reply,
-                confidence=confidence_reply,
-            )
+            # Canonical adoption path via AutonomyLoop
+            sanitized = _sanitize_name(candidate_reply)
+            if sanitized:
+                meta = {
+                    "source": "assistant",
+                    "intent": intent_reply,
+                    "confidence": float(confidence_reply),
+                }
+                try:
+                    if getattr(self, "_autonomy", None) is not None:
+                        self._autonomy.handle_identity_adopt(sanitized, meta=meta)
+                    else:
+                        tmp = AutonomyLoop(
+                            eventlog=self.eventlog,
+                            cooldown=self.cooldown,
+                            interval_seconds=60.0,
+                            proposer=None,
+                            allow_affirmation=False,
+                        )
+                        tmp.handle_identity_adopt(sanitized, meta=meta)
+                except Exception:
+                    try:
+                        self.eventlog.append(
+                            kind="identity_adopt",
+                            content=sanitized,
+                            meta={"name": sanitized, **meta},
+                        )
+                    except Exception:
+                        pass
         elif (
             intent_reply == "affirm_assistant_name"
             and candidate_reply
@@ -935,86 +926,86 @@ class Runtime:
                 reply = _strip_voice_wrappers(reply, ident.get("name"))
         except Exception:
             pass
-        # Priority Recall: suggest relevant prior events based on the current reply,
-        # but emit suggestions BEFORE appending the response to preserve ordering in tests.
+        # Recall suggestion (semantic if available else token overlap). Must precede response append.
+        # Use the snapshot captured before we appended any knowledge_asserts for baseline stability.
+        evs_before = (
+            _events_before_chat
+            if locals().get("_events_before_chat") is not None
+            else self.eventlog.read_all()
+        )
+        # Opportunistic semantic seeding: if side table exists and has rows, use it to seed candidate eids
+        seeds: list[int] | None = None
         try:
-            evs_pre = self.eventlog.read_all()
-            # Opportunistic semantic seeding: if side table exists and has rows, use it to seed candidate eids
-            seeds: list[int] | None = None
-            try:
-                if (
-                    getattr(self.eventlog, "has_embeddings_index", False)
-                    and self.eventlog.has_embeddings_index
-                ):
-                    # Check if table has any rows quickly
-                    cur = self.eventlog._conn.execute(
-                        "SELECT COUNT(1) FROM event_embeddings"
+            if (
+                getattr(self.eventlog, "has_embeddings_index", False)
+                and self.eventlog.has_embeddings_index
+            ):
+                # Check if table has any rows quickly
+                cur = self.eventlog._conn.execute(
+                    "SELECT COUNT(1) FROM event_embeddings"
+                )
+                (row_count,) = cur.fetchone() or (0,)
+                if int(row_count) > 0:
+                    from pmm.storage.semantic import (
+                        search_semantic as _search_semantic,
                     )
-                    (row_count,) = cur.fetchone() or (0,)
-                    if int(row_count) > 0:
-                        from pmm.storage.semantic import (
-                            search_semantic as _search_semantic,
-                        )
-                        from pmm.runtime.embeddings import compute_embedding as _emb
+                    from pmm.runtime.embeddings import compute_embedding as _emb
 
-                        q = _emb(reply)
-                        if q is not None:
-                            # Limit brute-force to last N eids for predictable latency
-                            tail = evs_pre[-200:]
-                            scope_eids = [int(e.get("id") or 0) for e in tail]
-                            seeds = _search_semantic(
-                                self.eventlog._conn, q, k=10, scope_eids=scope_eids
-                            )
-                            if not seeds:
-                                seeds = None
+                    q = _emb(reply)
+                    if q is not None:
+                        # Limit brute-force to last N eids for predictable latency
+                        tail = evs_before[-200:]
+                        scope_eids = [int(e.get("id") or 0) for e in tail]
+                        seeds = _search_semantic(
+                            self.eventlog._conn, q, k=10, scope_eids=scope_eids
+                        )
+                        if not seeds:
+                            seeds = None
+        except Exception:
+            seeds = None
+
+        # If no semantic seeds resolved, bias recall to recency by seeding last 8 user eids
+        if seeds is None:
+            try:
+                last_users = []
+                for ev in reversed(evs_before):
+                    if ev.get("kind") == "user":
+                        try:
+                            last_users.append(int(ev.get("id") or 0))
+                        except Exception:
+                            continue
+                        if len(last_users) >= 8:
+                            break
+                if last_users:
+                    seeds = list(reversed(last_users))
             except Exception:
                 seeds = None
-
-            # If no semantic seeds resolved, bias recall to recency by seeding last 8 user eids
-            if seeds is None:
+        suggestions = suggest_recall(
+            evs_before, reply, max_items=3, semantic_seeds=seeds
+        )
+        if suggestions:
+            # Validate eids exist and are prior to the latest existing event id
+            latest_id_pre = int(evs_before[-1].get("id") or 0) if evs_before else 0
+            seen = set()
+            clean: list[dict] = []
+            for s in suggestions:
                 try:
-                    last_users = []
-                    for ev in reversed(evs_pre):
-                        if ev.get("kind") == "user":
-                            try:
-                                last_users.append(int(ev.get("id") or 0))
-                            except Exception:
-                                continue
-                            if len(last_users) >= 8:
-                                break
-                    if last_users:
-                        seeds = list(reversed(last_users))
+                    eid = int(s.get("eid"))
                 except Exception:
-                    seeds = None
-            suggestions = suggest_recall(
-                evs_pre, reply, max_items=3, semantic_seeds=seeds
-            )
-            if suggestions:
-                # Validate eids exist and are prior to the latest existing event id
-                latest_id_pre = int(evs_pre[-1].get("id") or 0) if evs_pre else 0
-                seen = set()
-                clean: list[dict] = []
-                for s in suggestions:
-                    try:
-                        eid = int(s.get("eid"))
-                    except Exception:
-                        continue
-                    if eid <= 0 or (latest_id_pre and eid > latest_id_pre):
-                        continue
-                    if eid in seen:
-                        continue
-                    seen.add(eid)
-                    snip = str(s.get("snippet") or "")[:100]
-                    clean.append({"eid": eid, "snippet": snip})
-                    if len(clean) >= 3:
-                        break
-                if clean:
-                    self.eventlog.append(
-                        kind="recall_suggest", content="", meta={"suggestions": clean}
-                    )
-        except Exception:
-            # Do not break chat flow on recall issues
-            pass
+                    continue
+                if eid <= 0 or (latest_id_pre and eid > latest_id_pre):
+                    continue
+                if eid in seen:
+                    continue
+                seen.add(eid)
+                snip = str(s.get("snippet") or "")[:100]
+                clean.append({"eid": eid, "snippet": snip})
+                if len(clean) >= 3:
+                    break
+            if clean:
+                self.eventlog.append(
+                    kind="recall_suggest", content="", meta={"suggestions": clean}
+                )
         # Embeddings path: always ON. Append response ONCE, then embedding_indexed for that response.
         import inspect
 
@@ -2426,6 +2417,7 @@ class AutonomyLoop:
         interval_seconds: float = 60.0,
         proposer=None,
         allow_affirmation: bool = False,
+        bootstrap_identity: bool = True,
     ) -> None:
         self.eventlog = eventlog
         self.cooldown = cooldown
@@ -2443,30 +2435,45 @@ class AutonomyLoop:
         # Forced reflection scheduling state
         self._force_reason_next_tick: str | None = None
         self._pending_commit_followups: set[str] = set()
-        # Identity re-evaluation cadence
+        # Identity re-evaluation cadence mirrors
         self._next_identity_reeval_tick: int | None = None
         self._identity_last_name: str | None = None
         self._identity_last_adopt_tick: int | None = None
 
-        # Ensure a deterministic bootstrap identity exists
+        # ---- Persistent cadence/reminder policy (durable defaults) ----
+        try:
+            _cfg = _load_cfg()
+            self._repeat_overdue_reflection_commitments = bool(
+                _cfg.get("repeat_overdue_reflection_commitment_reminders", True)
+            )
+        except Exception:
+            self._repeat_overdue_reflection_commitments = True
+
+        # Ensure a deterministic bootstrap identity exists (ledger-backed via canonical handler)
         try:
             events_boot = self.eventlog.read_all()
         except Exception:
             events_boot = []
         identity_boot = build_identity(events_boot)
-        if not identity_boot.get("name"):
-            self.eventlog.append(
-                kind="identity_adopt",
-                content="Persistent Mind Model Alpha",
-                meta={
-                    "bootstrap": True,
-                    "reason": "default_bootstrap",
-                    "tick": 0,
-                },
-            )
-            self._identity_last_name = "Persistent Mind Model Alpha"
-            self._identity_last_adopt_tick = 0
+        if bootstrap_identity:
+            if not identity_boot.get("name"):
+                # Route through the canonical pipeline so name_updated, projection, and checkpoint are emitted
+                self.handle_identity_adopt(
+                    "Persistent Mind Model Alpha",
+                    meta={
+                        "bootstrap": True,
+                        "reason": "default_bootstrap",
+                        "tick": 0,
+                    },
+                )
+                # Keep in-memory mirrors consistent on cold start
+                self._identity_last_name = "Persistent Mind Model Alpha"
+                self._identity_last_adopt_tick = 0
+            else:
+                self._identity_last_name = identity_boot.get("name")
+                self._identity_last_adopt_tick = 0
         else:
+            # When explicitly skipping bootstrap, mirror any existing identity without adopting
             self._identity_last_name = identity_boot.get("name")
             self._identity_last_adopt_tick = 0
 
@@ -2493,11 +2500,28 @@ class AutonomyLoop:
             return
 
         # Append the identity_adopt event
+        # Preserve the full requested name in the content for ledger truth;
+        # also persist a sanitized token in meta for systems that need it.
         adopt_eid = self.eventlog.append(
             kind="identity_adopt",
-            content=sanitized,
-            meta={"name": sanitized, **(meta or {})},
+            content=str(new_name),
+            meta={"name": str(new_name), "sanitized": sanitized, **(meta or {})},
         )
+
+        # Also log a name_updated event to persist the change in a dedicated audit record
+        try:
+            self.eventlog.append(
+                kind="name_updated",
+                content="",
+                meta={
+                    "old_name": old_name,
+                    "new_name": sanitized,
+                    "identity_adopt_event_id": adopt_eid,
+                    **(meta or {}),
+                },
+            )
+        except Exception:
+            pass
 
         # Append a debug marker immediately to make adoption-triggered reflection intent traceable
         try:
@@ -2530,6 +2554,54 @@ class AutonomyLoop:
                     "identity_adopt_event_id": adopt_eid,
                 },
             )
+            # Deterministic, bounded trait nudge on adoption for auditability
+            try:
+                seed = _hashlib.sha256(
+                    f"{adopt_eid}:{sanitized}".encode("utf-8")
+                ).hexdigest()
+                # Use first bytes to derive a stable delta in [-0.05, +0.05]
+                frac = int(seed[:8], 16) / 0xFFFFFFFF
+                delta = (frac - 0.5) * 0.10
+                # Clamp and round for auditability
+                if delta < -0.05:
+                    delta = -0.05
+                if delta > 0.05:
+                    delta = 0.05
+                delta = round(delta, 4)
+                self.eventlog.append(
+                    kind="trait_update",
+                    content="",
+                    meta={
+                        "changes": {"openness": float(delta)},
+                        "reason": "identity_shift",
+                        "identity_adopt_event_id": adopt_eid,
+                    },
+                )
+            except Exception:
+                pass
+            # Preemptive commitment_rebind for any open commitments that reference the old identity
+            try:
+                open_map_pre = (commitments or {}).get("open") or {}
+                for cid_pre, meta_pre in list(open_map_pre.items()):
+                    txt_pre = str((meta_pre or {}).get("text") or "")
+                    if (
+                        old_name
+                        and txt_pre
+                        and (str(old_name).lower() in txt_pre.lower())
+                    ):
+                        self.eventlog.append(
+                            kind="commitment_rebind",
+                            content="",
+                            meta={
+                                "cid": str(cid_pre),
+                                "old_name": old_name,
+                                "new_name": sanitized,
+                                "original_text": txt_pre,
+                                "identity_adopt_event_id": adopt_eid,
+                            },
+                        )
+            except Exception:
+                pass
         except Exception:
             try:
                 self.eventlog.append(
@@ -2562,7 +2634,7 @@ class AutonomyLoop:
                     self.eventlog,
                     self.cooldown,
                     override_min_turns=0,
-                    override_min_time=0,
+                    override_min_seconds=0,
                     open_autonomy_tick=adopt_eid,
                 )
                 # Always record a debug marker to indicate a forced reflection attempt
@@ -2575,15 +2647,27 @@ class AutonomyLoop:
                         "did_reflect": bool(did_reflect),
                     },
                 )
-                # Emit an explicit, succinct reflection that mentions the new identity
-                # to provide deterministic auditability for tests/assertions.
+                # Always emit a PMM-native reflection after adoption to ensure ontology-locked content
                 try:
-                    emit_reflection(
-                        self.eventlog,
-                        content=f"Identity adoption acknowledged; now operating as {sanitized}.",
-                        forced=True,
-                        open_autonomy_tick=adopt_eid,
+                    from pmm.runtime.emergence import pmm_native_reflection
+
+                    def _gen(prompt: str) -> str:
+                        return ""
+
+                    text = pmm_native_reflection(
+                        eventlog=self.eventlog,
+                        llm_generate=_gen,
+                        reason="identity_adopt",
                     )
+                    try:
+                        adjust_gas_from_text(
+                            self.eventlog,
+                            text,
+                            base_delta=0.0,
+                            reason="post_reflection",
+                        )
+                    except Exception:
+                        pass
                 except Exception:
                     pass
         except Exception:
@@ -2609,7 +2693,7 @@ class AutonomyLoop:
                 except Exception:
                     last_id_before = int(adopt_eid)  # fallback
                 CommitmentTracker(self.eventlog)._rebind_commitments_on_identity_adopt(
-                    old_name, sanitized
+                    old_name, sanitized, identity_adopt_event_id=adopt_eid
                 )
                 # Collect cids from rebind events appended after adopt
                 try:
@@ -2629,21 +2713,98 @@ class AutonomyLoop:
                             rebind_cids.append(cid)
                 except Exception:
                     pass
-        except Exception:
+                # Fallback: if no rebind was detected, do a direct scan and emit rebind(s)
+                if not rebind_cids:
+                    try:
+                        model_after = build_self_model(self.eventlog.read_all())
+                        open_map_fb = (model_after.get("commitments") or {}).get(
+                            "open", {}
+                        )
+                        for cid_fb, meta_fb in list(open_map_fb.items()):
+                            txt_fb = str((meta_fb or {}).get("text") or "")
+                            if not txt_fb:
+                                continue
+                            if str(old_name).lower() in txt_fb.lower():
+                                self.eventlog.append(
+                                    kind="commitment_rebind",
+                                    content="",
+                                    meta={
+                                        "cid": str(cid_fb),
+                                        "old_name": old_name,
+                                        "new_name": sanitized,
+                                        "original_text": txt_fb,
+                                        "identity_adopt_event_id": adopt_eid,
+                                    },
+                                )
+                                rebind_cids.append(str(cid_fb))
+                        # If still none, scan raw events for open commitments
+                        if not rebind_cids:
+                            evs_all = self.eventlog.read_all()
+                            open_by_cid: dict[str, dict] = {}
+                            closed: set[str] = set()
+                            for ev in evs_all:
+                                k = ev.get("kind")
+                                m2 = ev.get("meta") or {}
+                                if k == "commitment_open":
+                                    cid0 = str(m2.get("cid") or "")
+                                    if cid0 and cid0 not in closed:
+                                        open_by_cid[cid0] = m2
+                                elif k in {"commitment_close", "commitment_expire"}:
+                                    cidc = str(m2.get("cid") or "")
+                                    if cidc:
+                                        closed.add(cidc)
+                                        open_by_cid.pop(cidc, None)
+                            for cid0, m0 in list(open_by_cid.items()):
+                                txt0 = str((m0 or {}).get("text") or "")
+                                if txt0 and (str(old_name).lower() in txt0.lower()):
+                                    self.eventlog.append(
+                                        kind="commitment_rebind",
+                                        content="",
+                                        meta={
+                                            "cid": str(cid0),
+                                            "old_name": old_name,
+                                            "new_name": sanitized,
+                                            "original_text": txt0,
+                                            "identity_adopt_event_id": adopt_eid,
+                                        },
+                                    )
+                                    rebind_cids.append(str(cid0))
+                    except Exception:
+                        pass
+                    # After all fallbacks, rescan for any rebinds tagged with this adopt id
+                    try:
+                        evs_scan = self.eventlog.read_all()
+                    except Exception:
+                        evs_scan = []
+                    for ev in evs_scan:
+                        if ev.get("kind") != "commitment_rebind":
+                            continue
+                        mscan = ev.get("meta") or {}
+                        try:
+                            if int(mscan.get("identity_adopt_event_id") or -1) == int(
+                                adopt_eid
+                            ):
+                                cid0 = str(mscan.get("cid") or "")
+                                if cid0:
+                                    rebind_cids.append(cid0)
+                        except Exception:
+                            continue
+            # Final aggregation: include any rebinds tagged with this adopt id
             try:
-                self.eventlog.append(
-                    kind="debug",
-                    content=f"Failed to rebind commitments from {old_name} to {sanitized}",
-                    meta={
-                        "error": "commitment_rebind_failed",
-                        "identity_adopt_event_id": adopt_eid,
-                    },
-                )
+                evs_scan2 = self.eventlog.read_all()
             except Exception:
-                pass
-
-        # Emit an identity_projection summary if any commitments were rebound
-        try:
+                evs_scan2 = []
+            for ev in evs_scan2:
+                if ev.get("kind") != "commitment_rebind":
+                    continue
+                m2 = ev.get("meta") or {}
+                try:
+                    if int(m2.get("identity_adopt_event_id") or -1) == int(adopt_eid):
+                        cc = str(m2.get("cid") or "")
+                        if cc:
+                            rebind_cids.append(cc)
+                except Exception:
+                    continue
             if rebind_cids:
                 self.eventlog.append(
                     kind="identity_projection",
@@ -2655,6 +2816,50 @@ class AutonomyLoop:
                         "identity_adopt_event_id": adopt_eid,
                     },
                 )
+        except Exception:
+            pass
+
+        # Final guarantee: emit identity_projection if any rebinds were tagged with this adopt id
+        try:
+            evs_all2 = self.eventlog.read_all()
+            cids2: list[str] = []
+            for ev in evs_all2:
+                if ev.get("kind") != "commitment_rebind":
+                    continue
+                m = ev.get("meta") or {}
+                try:
+                    if int(m.get("identity_adopt_event_id") or -1) == int(adopt_eid):
+                        c = str(m.get("cid") or "")
+                        if c:
+                            cids2.append(c)
+                except Exception:
+                    continue
+            if cids2:
+                # idempotency: emit only if not already present for this adoption
+                already_proj = False
+                for ev in evs_all2:
+                    if ev.get("kind") != "identity_projection":
+                        continue
+                    mm = ev.get("meta") or {}
+                    try:
+                        if int(mm.get("identity_adopt_event_id") or -1) == int(
+                            adopt_eid
+                        ):
+                            already_proj = True
+                            break
+                    except Exception:
+                        continue
+                if not already_proj:
+                    self.eventlog.append(
+                        kind="identity_projection",
+                        content=f"Commitments rebased onto identity: {sanitized}",
+                        meta={
+                            "previous_identity": old_name,
+                            "current_identity": sanitized,
+                            "rebound_commitments": list(sorted(set(cids2))),
+                            "identity_adopt_event_id": adopt_eid,
+                        },
+                    )
         except Exception:
             pass
 
@@ -2924,26 +3129,54 @@ class AutonomyLoop:
                     evs_for_guidance = self.eventlog.read_tail(5000)
                 except TypeError:
                     evs_for_guidance = self.eventlog.read_tail(limit=5000)
-            except AttributeError:
+                g = _build_reflection_guidance(evs_for_guidance)
+            except (AttributeError, Exception):
                 evs_for_guidance = self.eventlog.read_all()
                 g = _build_reflection_guidance(evs_for_guidance)
-                if g.get("items") or []:
-                    self.eventlog.append(
-                        kind="reflection_guidance",
-                        content="",
-                        meta={"items": g.get("items")},
-                    )
-            except Exception:
-                g = {"text": "", "items": []}
-            # Emit bias trace ahead of any arm selection this tick (reflection path uses template-derived arm)
-            try:
+
+            # Log reflection guidance if items exist
+            if g.get("items"):
                 self.eventlog.append(
-                    kind="bandit_guidance_bias",
+                    kind="reflection_guidance",
                     content="",
-                    meta={"delta": _bias_delta, "items": _guidance_items},
+                    meta={"items": g.get("items")},
                 )
+
+            # --- Bandit bias (observability) ---
+            # Compute a bounded delta per arm and log it BEFORE any arm choice happens.
+            try:
+                # Prefer to compute from full ledger; deterministic for tests
+                _evs_for_bias = self.eventlog.read_all()
+                _raw_delta = _apply_guidance_bias(_evs_for_bias)
+                # Shape-guard & bounding: ensure all arms present and |v| <= EPS_BIAS
+                _clean_delta = {}
+                for _arm in _BANDIT_ARMS:
+                    try:
+                        _v = (
+                            float(_raw_delta.get(_arm, 0.0))
+                            if isinstance(_raw_delta, dict)
+                            else 0.0
+                        )
+                    except Exception:
+                        _v = 0.0
+                    if _v > _EPS_BIAS:
+                        _v = _EPS_BIAS
+                    elif _v < -_EPS_BIAS:
+                        _v = -_EPS_BIAS
+                    _clean_delta[_arm] = float(_v)
             except Exception:
-                pass
+                # Fallback: zero deltas for all known arms
+                try:
+                    _clean_delta = {arm: 0.0 for arm in _BANDIT_ARMS}
+                except Exception:
+                    _clean_delta = {"succinct": 0.0}
+
+            # Single, ordered bias event (must precede bandit_arm_chosen)
+            self.eventlog.append(
+                kind="bandit_guidance_bias",
+                content="",
+                meta={"delta": _clean_delta, "items": g.get("items", [])},
+            )
             if force_reason:
                 rid_forced = emit_reflection(
                     self.eventlog,
@@ -2957,21 +3190,18 @@ class AutonomyLoop:
                     self.cooldown.reset()
                 except Exception:
                     pass
-                try:
-                    self.eventlog.append(
-                        kind="debug",
-                        content="",
-                        meta={
-                            "forced_reflection": {
-                                "skip_reason": force_reason,
-                                "consecutive": 1,
-                                "forced_reflection_id": int(rid_forced),
-                                "mode": "scheduled_force",
-                            }
-                        },
-                    )
-                except Exception:
-                    pass
+                self.eventlog.append(
+                    kind="debug",
+                    content="",
+                    meta={
+                        "forced_reflection": {
+                            "skip_reason": force_reason,
+                            "consecutive": 1,
+                            "forced_reflection_id": int(rid_forced),
+                            "mode": "scheduled_force",
+                        }
+                    },
+                )
                 if force_reason == "commitment_followup":
                     self._pending_commit_followups.clear()
                 did, reason = (True, force_reason)
@@ -3479,7 +3709,7 @@ class AutonomyLoop:
             except Exception:
                 total_reflections = 0
             allow_persona_updates = total_reflections >= 3
-            # Emit trait_update for any trait targets in changes (absolute target -> delta)
+            # Emit trait_update for any trait targets in changes (absolute target → delta)
             try:
                 from pmm.storage.projection import build_identity as _build_identity
 
@@ -3669,10 +3899,11 @@ class AutonomyLoop:
                 # refresh events to include the stage_update we just appended
                 events_h = self.eventlog.read_all()
                 for component, params in hints.items():
-                    # Strong idempotency: only emit once per component across entire history
+                    # Idempotency per (component, stage): allow new update on each stage transition
                     any_existing = any(
                         e.get("kind") == "policy_update"
                         and (e.get("meta") or {}).get("component") == component
+                        and (e.get("meta") or {}).get("stage") == curr_stage
                         for e in events_h
                     )
                     if any_existing:
@@ -3800,6 +4031,11 @@ class AutonomyLoop:
             def _adopt_identity(
                 name_sel: str, why: str, extra: dict | None = None
             ) -> None:
+                """
+                Canonicalize autonomy-driven adoptions via handle_identity_adopt so we
+                emit the full pipeline (name_updated, projection, checkpoint) and keep
+                ledger and in-memory state consistent.
+                """
                 nonlocal persona_name  # type: ignore
                 if persona_name and self._identity_last_adopt_tick is not None:
                     if (
@@ -3812,21 +4048,13 @@ class AutonomyLoop:
                     "src_id": int(last_prop_event.get("id") or 0),
                     "turns_since_proposal": int(max(0, tick_no - prop_tick)),
                     "tick": tick_no,
-                    "name": name_sel,
+                    "sanitized_name": _sanitize_name(name_sel),
                 }
                 if extra:
                     meta.update(extra)
-                self.eventlog.append(
-                    kind="identity_adopt",
-                    content=name_sel,
-                    meta=meta,
-                )
-                try:
-                    CommitmentTracker.close_identity_name_on_adopt(
-                        self.eventlog, name_sel
-                    )
-                except Exception:
-                    pass
+                # Canonical handler (writes adopt + name_updated + checkpoint + rebinds + projection)
+                self.handle_identity_adopt(name_sel, meta=meta)
+                # Maintain in-memory mirrors and cadence
                 persona_name = name_sel
                 self._identity_last_name = name_sel
                 self._identity_last_adopt_tick = tick_no
@@ -4089,6 +4317,15 @@ class AutonomyLoop:
             model_due = build_self_model(evs_for_due)
             open_map_due = (model_due.get("commitments") or {}).get("open") or {}
             now_s = _time.time()
+            # Debug breadcrumb for diagnostics
+            try:
+                self.eventlog.append(
+                    kind="debug",
+                    content="reminder_scan",
+                    meta={"open_count": int(len(open_map_due))},
+                )
+            except Exception:
+                pass
 
             # Build a quick lookup: for each cid, the last open event id
             last_open_id_by_cid: dict[str, int] = {}
@@ -4123,20 +4360,40 @@ class AutonomyLoop:
                     continue
                 if now_s < float(due_ts):
                     continue
-                # Idempotency: if a commitment_reminder for this cid already exists AFTER its last open, skip
+                # Determine if repeated reminders per tick are allowed for this commitment
+                allow_repeat = self._repeat_overdue_reflection_commitments and (
+                    str((meta0 or {}).get("reason") or "") == "reflection"
+                )
                 last_open_eid = int(last_open_id_by_cid.get(str(cid), 0))
-                already = False
-                for e in reversed(evs_for_due):
-                    if int(e.get("id") or 0) <= last_open_eid:
-                        break
-                    if (
-                        e.get("kind") == "commitment_reminder"
-                        and (e.get("meta") or {}).get("cid") == cid
-                    ):
-                        already = True
-                        break
-                if already:
-                    continue
+                if allow_repeat:
+                    # Idempotency within the tick only (since last autonomy_tick)
+                    boundary_id = max(last_open_eid, int(last_auto_id or 0))
+                    already = False
+                    for e in reversed(evs_for_due):
+                        if int(e.get("id") or 0) <= boundary_id:
+                            break
+                        if (
+                            e.get("kind") == "commitment_reminder"
+                            and (e.get("meta") or {}).get("cid") == cid
+                        ):
+                            already = True
+                            break
+                    if already:
+                        continue
+                else:
+                    # Legacy idempotency across ticks: only one reminder after last open
+                    already = False
+                    for e in reversed(evs_for_due):
+                        if int(e.get("id") or 0) <= last_open_eid:
+                            break
+                        if (
+                            e.get("kind") == "commitment_reminder"
+                            and (e.get("meta") or {}).get("cid") == cid
+                        ):
+                            already = True
+                            break
+                    if already:
+                        continue
                 # Append reminder
                 self.eventlog.append(
                     kind="commitment_reminder",

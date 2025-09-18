@@ -59,7 +59,11 @@ class CommitmentTracker:
 
     # --- Identity helpers (compat with legacy tracker) ---
     def _rebind_commitments_on_identity_adopt(
-        self, old_name: str, new_name: str
+        self,
+        old_name: str,
+        new_name: str,
+        *,
+        identity_adopt_event_id: int | None = None,
     ) -> None:
         """Rebind or update open commitments that reference the old identity name.
 
@@ -75,23 +79,55 @@ class CommitmentTracker:
             events = self.eventlog.read_all()
             model = build_self_model(events)
             open_map: Dict[str, Dict] = (model.get("commitments") or {}).get("open", {})
+            # Accumulate a summary of rebinds emitted during this invocation to support
+            # a single identity_projection event after processing, idempotently.
+            rebind_summaries: List[Dict[str, Any]] = []
             for cid, meta in list(open_map.items()):
                 txt = str((meta or {}).get("text") or "")
                 if not txt:
                     continue
-                if str(old_name).lower() in txt.lower():
+                if (str(old_name).lower() in txt.lower()) or (
+                    identity_adopt_event_id is not None
+                ):
+                    # Idempotency guard: do not emit duplicate rebind for same adopt id
                     try:
-                        # Emit rebind marker
-                        self.eventlog.append(
-                            kind="commitment_rebind",
-                            content="",
-                            meta={
-                                "cid": cid,
-                                "old_name": old_name,
-                                "new_name": new_name,
-                                "original_text": txt,
-                            },
-                        )
+                        already = False
+                        if identity_adopt_event_id is not None:
+                            try:
+                                evs_tail = self.eventlog.read_all()[-200:]
+                            except Exception:
+                                evs_tail = self.eventlog.read_all()
+                            for ev in reversed(evs_tail):
+                                if ev.get("kind") != "commitment_rebind":
+                                    continue
+                                m = ev.get("meta") or {}
+                                if str(m.get("cid")) == str(cid) and int(
+                                    m.get("identity_adopt_event_id") or -1
+                                ) == int(identity_adopt_event_id):
+                                    already = True
+                                    break
+                        if not already:
+                            # Emit rebind marker, tagged with adoption id
+                            self.eventlog.append(
+                                kind="commitment_rebind",
+                                content="",
+                                meta={
+                                    "cid": cid,
+                                    "old_name": old_name,
+                                    "new_name": new_name,
+                                    "original_text": txt,
+                                    "identity_adopt_event_id": identity_adopt_event_id,
+                                },
+                            )
+                            # Record summary for identity_projection
+                            rebind_summaries.append(
+                                {
+                                    "cid": str(cid),
+                                    "old_name": str(old_name),
+                                    "new_name": str(new_name),
+                                    "original_text": txt,
+                                }
+                            )
                     except Exception:
                         pass
                     # Compute new text by simple replacement (best-effort)
@@ -112,6 +148,66 @@ class CommitmentTracker:
                             )
                         except Exception:
                             pass
+            # Emit a single identity_projection summary if we performed any rebinds and
+            # no prior projection exists for this identity adoption id. If none were
+            # emitted in this helper invocation, but there are existing commitment_rebind
+            # events for the same adoption id, summarize those instead to ensure a
+            # projection is present.
+            try:
+                if identity_adopt_event_id is not None:
+                    # If local list is empty, attempt to summarize existing rebinds for this adopt id
+                    if not rebind_summaries:
+                        try:
+                            evs_tail3 = self.eventlog.read_all()[-400:]
+                        except Exception:
+                            evs_tail3 = self.eventlog.read_all()
+                        for ev in evs_tail3:
+                            if ev.get("kind") != "commitment_rebind":
+                                continue
+                            m3 = ev.get("meta") or {}
+                            if int(m3.get("identity_adopt_event_id") or -1) != int(
+                                identity_adopt_event_id
+                            ):
+                                continue
+                            rebind_summaries.append(
+                                {
+                                    "cid": str(m3.get("cid") or ""),
+                                    "old_name": str(m3.get("old_name") or ""),
+                                    "new_name": str(m3.get("new_name") or ""),
+                                    "original_text": str(m3.get("original_text") or ""),
+                                }
+                            )
+                    # Proceed only if we have something to project
+                    if rebind_summaries:
+                        # Check idempotency: skip if an identity_projection exists for this adopt id
+                        already_proj = False
+                        try:
+                            evs_tail2 = self.eventlog.read_all()[-200:]
+                        except Exception:
+                            evs_tail2 = self.eventlog.read_all()
+                        for ev in reversed(evs_tail2):
+                            if ev.get("kind") != "identity_projection":
+                                continue
+                            m2 = ev.get("meta") or {}
+                            if int(m2.get("identity_adopt_event_id") or -1) == int(
+                                identity_adopt_event_id
+                            ):
+                                already_proj = True
+                                break
+                        if not already_proj:
+                            self.eventlog.append(
+                                kind="identity_projection",
+                                content="",
+                                meta={
+                                    "identity_adopt_event_id": identity_adopt_event_id,
+                                    "old_name": old_name,
+                                    "new_name": new_name,
+                                    "rebinds": rebind_summaries,
+                                },
+                            )
+            except Exception:
+                # Never allow projection summary to break flow
+                pass
         except Exception:
             return
 

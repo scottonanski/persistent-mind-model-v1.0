@@ -280,6 +280,31 @@ class SemanticDirectiveClassifier:
                         }:
                             return candidate
 
+        # --- Semantic fallback: unique proper noun anywhere in the utterance ---
+        try:
+            common_words = {
+                "i",
+                "i'm",
+                "i’m",
+                "you",
+                "your",
+                "the",
+                "a",
+                "an",
+                "assistant",
+                "model",
+                "name",
+            }
+            cands: List[str] = []
+            for tok in words_raw[1:]:  # skip first token to avoid sentence-case bias
+                t = tok.strip('.,!?;:"“”‘’()[]{}<>')
+                if len(t) > 1 and t[0].isupper() and t.lower() not in common_words:
+                    cands.append(t)
+            if len(cands) == 1:
+                return cands[0]
+        except Exception:
+            pass
+
         return None
 
     def extract_features(self, text: str) -> DirectiveFeatures:
