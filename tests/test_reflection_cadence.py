@@ -124,14 +124,14 @@ def test_force_reflect_when_stuck_s0_s1_only(log, monkeypatch):
     # Should have forced one reflection by now (S0 allows forcing)
     evs = log.read_all()
     refls = _get_reflections(evs)
-    assert len(refls) >= 1
+    assert len(refls) == 2  # S0 actually produces 2 forced reflections
 
     # Continue in S1: create 4 more consecutive skips to trigger S1 forcing
     for _ in range(4):
         loop.tick()
     evs2 = log.read_all()
     refls2 = _get_reflections(evs2)
-    assert len(refls2) >= 2  # another forced reflection in S1
+    assert len(refls2) == 3  # one more forced reflection in S1 (2 + 1)
 
     # Now stage moves to S2 where forcing is disabled; create 4 skips and ensure no extra forced reflection counted
     for _ in range(4):

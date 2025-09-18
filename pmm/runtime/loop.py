@@ -23,6 +23,9 @@ from pmm.directives.classifier import SemanticDirectiveClassifier
 from pmm.runtime.cooldown import ReflectionCooldown
 from pmm.runtime.metrics import compute_ias_gas, adjust_gas_from_text
 from pmm.commitments.tracker import CommitmentTracker
+from pmm.runtime.self_introspection import SelfIntrospection
+from pmm.runtime.evolution_reporter import EvolutionReporter
+from pmm.commitments.restructuring import CommitmentRestructurer
 from pmm.commitments import tracker as _commit_tracker  # Step 19 triage helper
 import threading as _threading
 import time as _time
@@ -2449,6 +2452,12 @@ class AutonomyLoop:
         except Exception:
             self._repeat_overdue_reflection_commitments = True
 
+        # ---- Introspective Agency Integration ----
+        self._introspection_cadence = 20  # Run introspection every N ticks
+        self._self_introspection = SelfIntrospection(eventlog)
+        self._evolution_reporter = EvolutionReporter(eventlog)
+        self._commitment_restructurer = CommitmentRestructurer(eventlog)
+
         # Ensure a deterministic bootstrap identity exists (ledger-backed via canonical handler)
         try:
             events_boot = self.eventlog.read_all()
@@ -2865,6 +2874,54 @@ class AutonomyLoop:
 
         # Update internal identity tracking
         self._identity_last_name = sanitized
+
+    def _should_introspect(self, tick_no: int) -> bool:
+        """Determine if introspection should run on this tick.
+
+        Uses deterministic cadence based on tick number to ensure
+        replay consistency and predictable introspection timing.
+        """
+        return tick_no > 0 and (tick_no % self._introspection_cadence) == 0
+
+    def _run_introspection_cycle(self, tick_no: int) -> None:
+        """Run a complete introspection cycle.
+
+        Orchestrates Phase 1 (self-inspection), Phase 2 (evolution reporting),
+        and Phase 3 (commitment restructuring) in sequence. All operations
+        are deterministic and idempotent with digest-based event emission.
+        """
+        try:
+            # Phase 1: Self-Inspection - query recent patterns
+            commitment_summary = self._self_introspection.query_commitments()
+            reflection_summary = self._self_introspection.analyze_reflections()
+            trait_summary = self._self_introspection.track_traits()
+
+            # Emit introspection query event if any patterns found
+            if commitment_summary or reflection_summary or trait_summary:
+                query_results = {
+                    "commitments": commitment_summary,
+                    "reflections": reflection_summary,
+                    "traits": trait_summary,
+                    "tick": tick_no,
+                    "digest": commitment_summary.get("digest", "")
+                    + reflection_summary.get("digest", "")
+                    + trait_summary.get("digest", ""),
+                }
+                self._self_introspection.emit_query_event(
+                    "combined_query", query_results
+                )
+
+            # Phase 2: Evolution Reporting - generate trajectory summary
+            evolution_summary = self._evolution_reporter.generate_summary()
+            if evolution_summary:
+                self._evolution_reporter.emit_evolution_report(evolution_summary)
+
+            # Phase 3: Commitment Restructuring - optimize commitment structure
+            self._commitment_restructurer.run_restructuring()
+
+        except Exception:
+            # Never allow introspection to break the autonomy loop
+            pass
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -4678,4 +4735,12 @@ class AutonomyLoop:
             _commit_tracker.open_violation_triage(tail, self.eventlog)
         except Exception:
             # Never allow triage emission to affect the loop
+            pass
+
+        # Step 20: Introspective Agency Integration - Run introspection cycle if cadence met
+        try:
+            if self._should_introspect(tick_no):
+                self._run_introspection_cycle(tick_no)
+        except Exception:
+            # Never allow introspection to break the autonomy loop
             pass

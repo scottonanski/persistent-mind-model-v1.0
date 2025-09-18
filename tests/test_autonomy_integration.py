@@ -89,7 +89,11 @@ class TestAutonomousSystemsManager:
             for r in results["recommendations"]
             if r["type"] == "commitment_adjustment"
         ]
-        assert len(commitment_recs) >= 0  # May or may not have recommendations
+        # Verify recommendation structure if any exist
+        for rec in commitment_recs:
+            assert "type" in rec
+            assert "digest" in rec
+            assert rec["type"] == "commitment_adjustment"
 
     def test_get_system_status(self):
         """Test system status reporting."""
@@ -195,7 +199,13 @@ class TestIntegrationFunction:
         assert len(results["systems_processed"]) > 0
 
         # Should have emitted some events
-        assert results["events_emitted"] >= 0
+        # Verify events emitted have proper structure
+        if results["events_emitted"] > 0:
+            recent_events = self.eventlog.read_tail(limit=results["events_emitted"])
+            for event in recent_events:
+                assert "kind" in event
+                assert "meta" in event
+                assert isinstance(event["meta"], dict)
 
 
 class TestEventValidation:
@@ -268,7 +278,12 @@ class TestEventValidation:
         results = validate_autonomous_event_emissions(self.eventlog)
 
         assert results["autonomous_events"] == 1
-        assert len(results["validation_warnings"]) >= 1
+        assert len(results["validation_warnings"]) == 2
+        for warning in results["validation_warnings"]:
+            assert isinstance(warning, str)
+            assert len(warning) > 0
+            assert "policy_update" in warning
+            assert any(field in warning for field in ["component", "deterministic"])
 
     def test_validate_duplicate_detection(self):
         """Test validation detects duplicate events."""
@@ -288,7 +303,9 @@ class TestEventValidation:
         results = validate_autonomous_event_emissions(self.eventlog)
 
         assert results["autonomous_events"] == 2
-        assert len(results["validation_errors"]) >= 1
+        assert len(results["validation_errors"]) == 1
+        error = results["validation_errors"][0]
+        assert "Duplicate event signature" in error
         assert any(
             "Duplicate event signature" in error
             for error in results["validation_errors"]

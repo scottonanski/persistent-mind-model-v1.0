@@ -228,7 +228,7 @@ def test_invariants_verification_for_identity_evolution():
         # Test 1: Identity adopt without proposal should be caught
         runtime._adopt_identity(
             "NoProposalBot",
-            source="user",
+            source="autonomous",
             intent="assign_assistant_name",
             confidence=0.9,
         )
@@ -242,16 +242,21 @@ def test_invariants_verification_for_identity_evolution():
         )
 
         # Check for identity adoption without proposal violation
-        # Note: keep the filter expression documented without assigning to an unused variable.
-        _ = [
+        identity_violations = [
             v
             for v in violations
             if v.get("payload", {}).get("code") == "IDENTITY_ADOPT_WITHOUT_PROPOSE"
         ]
 
-        # Note: This test might not catch the violation if the implementation
-        # allows direct adoption without proposal in certain cases
-        # assert len(identity_violations) >= 1
+        # Must always detect violation when adopting without proposal
+        assert len(identity_violations) == 1
+        violation = identity_violations[0]
+        assert violation["payload"]["code"] == "IDENTITY_ADOPT_WITHOUT_PROPOSE"
+        assert "adopt_event_id" in violation["payload"]["details"]
+        assert (
+            violation["payload"]["message"]
+            == "identity_adopt without prior identity_propose"
+        )
 
 
 if __name__ == "__main__":
