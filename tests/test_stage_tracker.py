@@ -26,10 +26,9 @@ def _refl(ias, gas, ts):
 def test_insufficient_data_no_stage_update(tmp_path):
     log = EventLog(str(tmp_path / "stg1.db"))
     now = dt.datetime.now(dt.UTC)
-    # fewer than 3 telemetry points
+    # Only 1 existing telemetry point (tick adds 1 more = 2 total, still <3)
     evs = [
         _auto(0.4, 0.3, now.isoformat()),
-        _auto(0.42, 0.31, (now + dt.timedelta(seconds=1)).isoformat()),
     ]
     for e in evs:
         log.append(kind=e["kind"], content=e["content"], meta=e["meta"])
