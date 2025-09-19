@@ -48,8 +48,9 @@ def test_bridge_pass_through(monkeypatch, tmp_path):
 
     assert isinstance(seen["msgs"], list)
     assert len(seen["msgs"]) > 1, "Not enough messages captured"
-    assert (
-        seen["msgs"][1]["content"] == "hello"
+    assert any(
+        m.get("role") == "user" and m.get("content") == "hello"
+        for m in seen["msgs"][1:]
     ), "User message not found in expected position"
 
 

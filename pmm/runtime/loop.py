@@ -22,6 +22,9 @@ from pmm.bridge.manager import BridgeManager
 from pmm.directives.classifier import SemanticDirectiveClassifier
 from pmm.runtime.cooldown import ReflectionCooldown
 from pmm.runtime.metrics import compute_ias_gas, adjust_gas_from_text
+
+# --- Prompt context builder (ledger slice injection) ---
+from pmm.runtime.context_builder import build_context_from_ledger
 from pmm.commitments.tracker import CommitmentTracker
 from pmm.runtime.self_introspection import SelfIntrospection
 from pmm.runtime.evolution_reporter import EvolutionReporter
@@ -526,7 +529,9 @@ class Runtime:
                 pass
 
     def handle_user(self, user_text: str) -> str:
+        context_block = build_context_from_ledger(self.eventlog, n_reflections=3)
         msgs = [
+            {"role": "system", "content": context_block},
             {
                 "role": "system",
                 "content": (
