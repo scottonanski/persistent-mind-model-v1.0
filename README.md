@@ -1,5 +1,9 @@
 # Persistent Mind Model (PMM)
 
+
+## Important!
+This README is a little dated... Install directions are current, and the general gist of things are present. But the actual codebase has changed quite a bit since this was written...
+
 PMM is a small runtime that turns a language model into a steady, self-improving “mind”.
 
 It is not just a chat wrapper.
@@ -44,82 +48,65 @@ Self‑evolving AI mind kernel — where identity, memory, and growth are first�
 - Meta‑reflection (every 5 reflections): summarizes “opened vs. closed” and effectiveness for that window.
 - Self‑assessment (every 10 reflections): richer stats (e.g., average close lag, hit rate) plus a fingerprint of the exact window; may trigger a small cadence policy tweak, safely clamped and with deadband to avoid flapping.
 
-## Quick Start
+## Quick Start (2 minutes)
 
-### 0) Install (Linux, macOS, Windows)
+This is a minimal, model‑agnostic setup. PMM works with OpenAI or local Ollama.
 
-- Prereqs: Git, Python 3.10+ (3.11 recommended), pip. For verify: `jq` (CLI JSON tool).
+### 1) Install
 
-- Linux (Ubuntu/Debian):
-  - `sudo apt-get update && sudo apt-get install -y python3 python3-venv python3-pip jq`
-  - `git clone https://github.com/USERNAME/persistent-mind-model.git && cd persistent-mind-model`
-  - `python3 -m venv .venv && source .venv/bin/activate`
-  - `pip install -U pip && pip install -e .`  # add `.[dev]` for dev tools/tests
-
-- macOS:
-  - Install Homebrew if needed, then: `brew install python jq`
-  - `git clone https://github.com/USERNAME/persistent-mind-model.git && cd persistent-mind-model`
-  - `python3 -m venv .venv && source .venv/bin/activate`
-  - `pip install -U pip && pip install -e .`
-
-- Windows (PowerShell):
-  - Install Python 3.10+ from python.org and Git for Windows.
-  - Optional: `choco install jq` (or use Git Bash and `jq` via `pacman` in MSYS2).
-  - `git clone https://github.com/USERNAME/persistent-mind-model.git` then `cd persistent-mind-model`
-  - `py -3 -m venv .venv; .\.venv\Scripts\Activate.ps1`
-  - `python -m pip install -U pip && pip install -e .`
-
-Configure your `.env` (copy then edit):
-
+```bash
+git clone https://github.com/USERNAME/persistent-mind-model.git
+cd persistent-mind-model
+python -m venv .venv && source .venv/bin/activate  # Windows: .\.venv\Scripts\Activate.ps1
+pip install -U pip && pip install -e .
 ```
+
+### 2) Configure .env
+
+```bash
 cp .env .env.local || true
 ```
 
-Open `.env` (or `.env.local`) and set at least:
+Open `.env` (or `.env.local`) and set as needed:
 
-```
-OPENAI_API_KEY=sk-...      # required for the default OpenAI chat adapter
-# Optional knobs
-# OPENAI_MODEL=gpt-4o-mini  # or PMM_MODEL to override
-# PMM_AUTONOMY_INTERVAL=10  # seconds between background ticks (0 disables)
-# PMM_COLOR=0               # disable colored notices in CLI
+```ini
+# OpenAI (hosted)
+OPENAI_API_KEY=sk-...          # required for OpenAI provider
+# Optional defaults (you can also select interactively at runtime)
+# OPENAI_MODEL=gpt-4o-mini      # or set PMM_MODEL
+# PMM_MODEL=llama3
+# PMM_DB=.data/pmm.db           # SQLite path (portable)
 ```
 
-### 1) Start a chat (metrics view on):
+For Ollama (local):
+- Install Ollama and pull a model, for example: `ollama pull llama3`
+- Ensure the Ollama server is running (defaults to http://localhost:11434)
+- No API key is required
+
+### 3) Start
 
 ```bash
-python -m pmm.cli.chat --@metrics on
+python -m pmm.cli.chat
 ```
 
-### 2) Verify what happened (scoped, deterministic checks):
+At startup you’ll be prompted to select a model. Choose an OpenAI model (requires `OPENAI_API_KEY`) or a local Ollama model (e.g., `llama3`). PMM starts a background autonomy loop (~10s cadence) and writes everything to a portable SQLite database at `.data/pmm.db` by default.
+
+### 4) In‑chat controls
+
+- `--@metrics on` to show a compact metrics snapshot after each reply; `--@metrics off` to disable
+- `--@models` to switch provider/model interactively at any time
+
+### 5) Portability
+
+The entire state is a single SQLite file (default: `.data/pmm.db`). You can copy this file to any device running PMM and continue seamlessly:
 
 ```bash
-bash scripts/verify_pmm.sh .logs_run .data/pmm.db
+scp .data/pmm.db new-machine:~/persistent-mind-model/.data/pmm.db
 ```
 
-### 3) Inspect the event log directly:
+### License
 
-```bash
-python -m pmm.api.probe snapshot --db .data/pmm.db --limit 50 | jq .
-```
-
-## Beginner Quickstart (3 minutes)
-
-Think of PMM like a tidy “mind notebook.” It writes down everything it thinks or decides. You can start small:
-
-1) Create the notebook and start talking
-- Run: `python -m pmm.cli.chat --@metrics on`
-- You’ll see a header line (identity, open items) and a reason why it reflected or not.
-
-2) Ask simple things
-- “What are you working on?” → it mentions top open items from its notebook.
-- “Reflect on your last answer.” → it writes a short reflection (and may open a tiny task).
-
-3) Check the notebook
-- `python -m pmm.api.probe snapshot --db .data/pmm.db --limit 30 | jq .`
-- You’ll see entries like `reflection`, `commitment_open`, `policy_update` — everything is written down.
-
-That’s it. PMM is just a careful mind that writes everything to a ledger.
+This project is licensed under a  dual open source license. See [LICENSE](LICENSE.md).
 
 ## Concepts in Everyday Terms
 

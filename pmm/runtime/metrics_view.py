@@ -9,6 +9,7 @@ from pmm.runtime.loop import (
     DRIFT_MULT_BY_STAGE,
     _resolve_reflection_cadence,
 )
+from pmm.runtime.metrics import compute_ias_gas
 
 
 class MetricsView:
@@ -23,20 +24,16 @@ class MetricsView:
 
     def snapshot(self, eventlog) -> Dict:
         events: List[Dict] = eventlog.read_all()
-        latest_ias: Optional[float] = None
-        latest_gas: Optional[float] = None
         reflect_skip: str = "none"
         stage: str = "none"
         priority_top5: List[Dict] = []
 
-        # Walk from tail for most recent items
+        # Compute IAS/GAS directly from full ledger
+        ias, gas = compute_ias_gas(events)
+
+        # Walk from tail for other fields
         for ev in reversed(events):
             k = ev.get("kind")
-            if latest_ias is None and k == "autonomy_tick":
-                tel = (ev.get("meta") or {}).get("telemetry") or {}
-                if "IAS" in tel and "GAS" in tel:
-                    latest_ias = float(tel["IAS"])
-                    latest_gas = float(tel["GAS"])
             if reflect_skip == "none" and k == "debug":
                 rs = (ev.get("meta") or {}).get("reflect_skip")
                 if rs:
@@ -47,7 +44,6 @@ class MetricsView:
                     stage = str(st)
             if not priority_top5 and k == "priority_update":
                 r = (ev.get("meta") or {}).get("ranking") or []
-                # Normalize items {cid, score}
                 if isinstance(r, list):
                     for item in r:
                         try:
@@ -69,7 +65,6 @@ class MetricsView:
         ident = build_identity(events)
         name = ident.get("name") or "none"
         traits = ident.get("traits") or {}
-        # Pick top 3 by absolute deviation from 0.5 for display
         try:
             sorted_traits = sorted(
                 traits.items(), key=lambda kv: abs(float(kv[1]) - 0.5), reverse=True
@@ -80,18 +75,12 @@ class MetricsView:
             {"trait": k[:3].upper(), "v": float(v)} for k, v in sorted_traits[:3]
         ]
 
-        # Defaults if no telemetry yet
-        if latest_ias is None:
-            latest_ias, latest_gas = 0.0, 0.0
-
-        # --- Self-model + stage policy peek lines (Step H) ---
-        # Stage via inference (default to S0 on error)
+        # Stage inference fallback
         try:
             stage_now, _snap = StageTracker.infer_stage(events)
             stage_now = stage_now or "S0"
         except Exception:
             stage_now = "S0"
-        # If no explicit stage_update was seen, override with inferred stage for display
         if stage == "none":
             stage = stage_now
 
@@ -114,7 +103,6 @@ class MetricsView:
             f"traits=[O:{tv['O']} C:{tv['C']} E:{tv['E']} A:{tv['A']} N:{tv['N']}]"
         )
 
-        # Resolve cadence from last reflection policy update if present; fallback to stage defaults
         try:
             mt, ms = _resolve_reflection_cadence(events)
             cad = {"min_turns": int(mt), "min_time_s": int(ms)}
@@ -124,9 +112,7 @@ class MetricsView:
 
         def _fmt_float(x) -> str:
             try:
-                # consistent minimal format (strip trailing zeros) but stable
-                s = "%g" % float(x)
-                return s
+                return "%g" % float(x)
             except Exception:
                 return "0"
 
@@ -138,7 +124,7 @@ class MetricsView:
         )
 
         return {
-            "telemetry": {"IAS": latest_ias, "GAS": latest_gas},
+            "telemetry": {"IAS": ias, "GAS": gas},
             "reflect_skip": reflect_skip,
             "stage": stage,
             "open_commitments": {"count": open_count, "top3": top3},
@@ -157,9 +143,8 @@ class MetricsView:
         oc = snap.get("open_commitments", {})
         ocn = int(oc.get("count", 0))
         parts = [
-            f"[METRICS] IAS={ias:.2f} GAS={gas:.2f} | stage={stage} | open={ocn} | reflect_skip={rs}"
+            f"[METRICS] IAS={ias:.3f} GAS={gas:.3f} | stage={stage} | open={ocn} | reflect_skip={rs}"
         ]
-        # Append Step H lines right after the main metrics line
         sm_lines = snap.get("self_model_lines") or []
         for ln in sm_lines:
             if isinstance(ln, str) and ln:

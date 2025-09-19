@@ -21,7 +21,7 @@ from pmm.llm.limits import TickBudget, RATE_LIMITED
 from pmm.bridge.manager import BridgeManager
 from pmm.directives.classifier import SemanticDirectiveClassifier
 from pmm.runtime.cooldown import ReflectionCooldown
-from pmm.runtime.metrics import compute_ias_gas, adjust_gas_from_text
+from pmm.runtime.metrics import compute_ias_gas
 
 # --- Prompt context builder (ledger slice injection) ---
 from pmm.runtime.context_builder import build_context_from_ledger
@@ -2543,10 +2543,14 @@ class AutonomyLoop:
         # Append the identity_adopt event
         # Preserve the full requested name in the content for ledger truth;
         # also persist a sanitized token in meta for systems that need it.
+        meta_payload = {"name": str(new_name), "sanitized": sanitized}
+        if meta:
+            meta_payload.update(meta)
+        meta_payload["stable_window"] = True
         adopt_eid = self.eventlog.append(
             kind="identity_adopt",
             content=str(new_name),
-            meta={"name": str(new_name), "sanitized": sanitized, **(meta or {})},
+            meta=meta_payload,
         )
 
         # Also log a name_updated event to persist the change in a dedicated audit record
@@ -2701,11 +2705,15 @@ class AutonomyLoop:
                         reason="identity_adopt",
                     )
                     try:
-                        adjust_gas_from_text(
-                            self.eventlog,
-                            text,
-                            base_delta=0.0,
-                            reason="post_reflection",
+                        ias, gas = compute_ias_gas(self.eventlog.read_all())
+                        self.eventlog.append(
+                            kind="metrics",
+                            content="",
+                            meta={
+                                "IAS": ias,
+                                "GAS": gas,
+                                "reason": "ledger_replay",
+                            },
                         )
                     except Exception:
                         pass
@@ -3026,7 +3034,7 @@ class AutonomyLoop:
                     break
             except Exception:
                 break
-        ias, gas = compute_ias_gas(events)
+        ias, gas = compute_ias_gas(self.eventlog.read_all())
         curr_stage, snapshot = StageTracker.infer_stage(events)
 
         identity_snapshot = build_identity(events)

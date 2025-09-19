@@ -834,6 +834,7 @@ class CommitmentTracker:
             "cid": cid,
             "evidence_type": evidence_type,
             "description": description,
+            "clean": True,
         }
         if artifact is not None:
             meta["artifact"] = artifact

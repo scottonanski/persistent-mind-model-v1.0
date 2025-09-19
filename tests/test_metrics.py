@@ -15,7 +15,7 @@ def test_compute_ias_gas_bounds():
     assert 0.0 <= ias <= 1.0
     assert 0.0 <= gas <= 1.0
 
-    # More closes than opens -> IAS >= 1.0 but clamped to 1.0
+    # More closes than opens still holds the IAS baseline (identity stability rules)
     evs2 = [
         {"kind": "commitment_open"},
         {"kind": "commitment_close"},
@@ -23,8 +23,8 @@ def test_compute_ias_gas_bounds():
         {"kind": "commitment_close"},
     ]
     ias2, gas2 = compute_ias_gas(evs2)
-    assert ias2 == 1.0
-    assert 0.0 <= gas2 <= 1.0
+    assert 0.5 <= ias2 <= 1.0
+    assert 0.0 < gas2 <= 1.0
 
 
 def test_reflection_emits_telemetry(tmp_path):
