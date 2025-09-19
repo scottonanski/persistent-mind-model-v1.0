@@ -7,6 +7,10 @@ from pmm.storage.eventlog import EventLog
 from pmm.runtime.loop import Runtime
 from pmm.llm.factory import LLMConfig
 
+# Skip this module if local Ollama client isn't installed.
+# The runtime uses the Ollama adapter for these tests' configuration.
+pytest.importorskip("ollama")
+
 
 def test_identity_checkpoint_emission():
     """Test that identity_checkpoint event is emitted when identity is adopted."""

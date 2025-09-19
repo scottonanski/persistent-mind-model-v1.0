@@ -1,4 +1,5 @@
 from pytest import raises
+import pytest
 
 from pmm.llm.factory import LLMFactory, LLMConfig
 
@@ -23,6 +24,8 @@ def test_openai_bundle_shapes():
 
 
 def test_ollama_bundle_shapes():
+    # Skip cleanly if local Ollama package isn't available in this environment
+    pytest.importorskip("ollama")
     cfg = LLMConfig(
         provider="ollama",
         model="llama3:instruct",
