@@ -2,7 +2,7 @@ import pytest
 from pmm.runtime.stage_manager import StageManager
 from pmm.storage.eventlog import EventLog
 from pmm.constants import EventKinds
-from tests.helpers.stage_seeding import (
+from helpers.stage_seeding import (
     _seed_reflections,
     _seed_restructures,
     _seed_metrics,

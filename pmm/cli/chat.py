@@ -10,6 +10,7 @@ from pmm.llm.factory import LLMConfig
 from pmm.runtime.loop import Runtime, maybe_reflect as runtime_maybe_reflect
 from pmm.runtime.metrics_view import MetricsView
 from pmm.storage.projection import build_identity
+from pmm.cli.model_select import select_model
 
 
 def _c(s: str, code: str) -> str:
@@ -52,13 +53,24 @@ def main() -> None:
     env = load_runtime_env(".env")
     Path(env.db_path).parent.mkdir(parents=True, exist_ok=True)
 
-    if env.provider == "openai" and not os.getenv("OPENAI_API_KEY"):
+    # Always prompt for model selection at startup
+    print("🚀 Welcome to PMM! Please select your model:")
+    selection = select_model()
+    if not selection:
+        print("👋 Cancelled. Exiting.")
+        return
+
+    provider, model_name = selection
+    print(f"[INFO] Starting PMM with {model_name} ({provider})")
+
+    # Check API key if using OpenAI
+    if provider == "openai" and not os.getenv("OPENAI_API_KEY"):
         print("ERROR: OPENAI_API_KEY not set in environment (.env).", file=sys.stderr)
         sys.exit(2)
 
     log = EventLog(env.db_path)
     cfg = LLMConfig(
-        provider=env.provider, model=env.model, embed_provider=None, embed_model=None
+        provider=provider, model=model_name, embed_provider=None, embed_model=None
     )
     # Load optional n-gram bans
     ngram_bans = None
@@ -83,7 +95,7 @@ def main() -> None:
     rt.start_autonomy(max(0.01, float(env.autonomy_interval or 10)))
 
     print(
-        f"PMM ready ({env.provider}/{env.model}) — DB: {env.db_path}. Ctrl+C to exit.",
+        f"PMM ready ({provider}/{model_name}) — DB: {env.db_path}. Ctrl+C to exit.",
         flush=True,
     )
     # Startup info banner for evolution mechanisms
@@ -104,9 +116,21 @@ def main() -> None:
             user = input("> ").strip()
             if not user:
                 continue
-            # Metrics view commands retained for compatibility; view always renders
+            # Handle special commands
             if user.strip() in {"--@metrics on", "--@metrics off"}:
                 print("[metrics view: ALWAYS ON]", flush=True)
+                continue
+
+            if user.strip() == "--@models":
+                print("\n🔄 Model Selection:")
+                selection = select_model(force_tty=False)
+                if selection:
+                    new_provider, new_model = selection
+                    print(f"[INFO] Switching to {new_model} ({new_provider})...")
+                    rt.set_model(new_provider, new_model)
+                    print("✅ Model switched successfully!")
+                else:
+                    print("❌ Model selection cancelled.")
                 continue
 
             if user.lower() in {"exit", "quit", "/q"}:

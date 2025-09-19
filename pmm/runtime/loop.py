@@ -301,47 +301,69 @@ class Runtime:
     ) -> None:
         self.cfg = cfg
         self.eventlog = eventlog
-        bundle = LLMFactory.from_config(cfg)
+        self._ngram_bans = ngram_bans
+        self._init_llm_backend()
+
+    def _init_llm_backend(self) -> None:
+        """Initialize or reinitialize the LLM backend from current config."""
+        bundle = LLMFactory.from_config(self.cfg)
         self.chat = bundle.chat
-        self.bridge = BridgeManager(model_family=cfg.provider)
-        self.cooldown = ReflectionCooldown()
-        # Apply persistent cadence defaults (durable across runs)
-        try:
-            _cfg = _load_cfg()
+        if not hasattr(self, "bridge") or self.bridge is None:
+            self.bridge = BridgeManager(model_family=self.cfg.provider)
+        else:
+            # Update existing bridge with new model family
+            self.bridge = BridgeManager(model_family=self.cfg.provider)
+
+        # Only initialize these once during __init__
+        if not hasattr(self, "cooldown"):
+            self.cooldown = ReflectionCooldown()
+            # Apply persistent cadence defaults (durable across runs)
             try:
-                self.cooldown.min_turns = int(
-                    _cfg.get("reflect_min_turns", self.cooldown.min_turns)
-                )
+                _cfg = _load_cfg()
+                try:
+                    self.cooldown.min_turns = int(
+                        _cfg.get("reflect_min_turns", self.cooldown.min_turns)
+                    )
+                except Exception:
+                    pass
+                try:
+                    self.cooldown.min_seconds = float(
+                        _cfg.get("reflect_min_seconds", self.cooldown.min_seconds)
+                    )
+                except Exception:
+                    pass
             except Exception:
                 pass
-            try:
-                self.cooldown.min_seconds = float(
-                    _cfg.get("reflect_min_seconds", self.cooldown.min_seconds)
-                )
-            except Exception:
-                pass
-        except Exception:
-            pass
-        # Per-tick deterministic LLM usage budget
-        self.budget = TickBudget()
-        # Commitments tracker (uses default detector)
-        self.tracker = CommitmentTracker(self.eventlog)
-        # Autonomy loop handle (started explicitly)
-        self._autonomy: AutonomyLoop | None = None
-        # Output filter for assistant replies
-        self._ngram_filter = NGramFilter(ngram_bans)
-        # Renderer (bridge-lite)
-        self._renderer = ResponseRenderer()
-        self.directive_hierarchy = (
-            DirectiveHierarchy(self.eventlog) if self.eventlog else None
+            # Per-tick deterministic LLM usage budget
+            self.budget = TickBudget()
+            # Commitments tracker (uses default detector)
+            self.tracker = CommitmentTracker(self.eventlog)
+            # Autonomy loop handle (started explicitly)
+            self._autonomy: AutonomyLoop | None = None
+            # Output filter for assistant replies
+            self._ngram_filter = NGramFilter(getattr(self, "_ngram_bans", None))
+            # Renderer (bridge-lite)
+            self._renderer = ResponseRenderer()
+            self.directive_hierarchy = (
+                DirectiveHierarchy(self.eventlog) if self.eventlog else None
+            )
+            self.continuity_engine = (
+                ContinuityEngine(self.eventlog, self.directive_hierarchy)
+                if self.eventlog and self.directive_hierarchy
+                else None
+            )
+            self.prioritizer = Prioritizer(self.eventlog) if self.eventlog else None
+            self.classifier = SemanticDirectiveClassifier(self.eventlog)
+
+    def set_model(self, provider: str, model: str) -> None:
+        """Switch runtime to a new model at runtime."""
+        self.cfg = LLMConfig(
+            provider=provider,
+            model=model,
+            embed_provider=self.cfg.embed_provider,
+            embed_model=self.cfg.embed_model,
         )
-        self.continuity_engine = (
-            ContinuityEngine(self.eventlog, self.directive_hierarchy)
-            if self.eventlog and self.directive_hierarchy
-            else None
-        )
-        self.prioritizer = Prioritizer(self.eventlog) if self.eventlog else None
-        self.classifier = SemanticDirectiveClassifier(self.eventlog)
+        self._init_llm_backend()
 
     def _log_recent_events(self, limit: int = 3) -> List[dict]:
         try:
