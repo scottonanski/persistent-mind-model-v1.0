@@ -1,7 +1,10 @@
 import hashlib
+import logging
 from typing import Optional
 from pmm.storage.eventlog import EventLog
 from pmm.constants import EventKinds
+
+logger = logging.getLogger(__name__)
 
 
 class StageManager:
@@ -56,27 +59,27 @@ class StageManager:
         if not metrics:
             return False
         last_metrics = metrics[-1]["meta"]
-        ias, gas = last_metrics.get("ias", 0), last_metrics.get("gas", 0)
+        ias, gas = last_metrics.get("IAS", 0), last_metrics.get("GAS", 0)
 
         # Apply hysteresis buffer ±0.03 to prevent thrashing
         hysteresis = 0.03
 
         if stage == "S0":
-            # Enhanced criteria: either traditional metrics OR introspective emergence indicators
+            # Responsive criteria for dynamic evolution - PMM with IAS=1.0, GAS=0.567 should advance
             traditional_criteria = (
-                len(refs) >= 3
-                and len(evols) >= 2
-                and ias >= (0.60 + hysteresis)
-                and gas >= (0.20 + hysteresis)
+                len(refs) >= 2  # Reduced from 3 - more responsive
+                and len(evols) >= 1  # Reduced from 2 - more responsive
+                and ias >= (0.50 + hysteresis)  # Reduced from 0.60 - achievable
+                and gas >= (0.15 + hysteresis)  # Reduced from 0.20 - achievable
             )
 
-            # Alternative: introspective emergence indicators
+            # Alternative: introspective emergence indicators (even more responsive)
             introspective_emergence = (
-                len(refs) >= 3  # Still need basic reflection activity
-                and len(introspection_queries) >= 2  # Evidence of self-inspection
-                and len(identity_adoptions) >= 2  # Evidence of identity evolution
+                len(refs) >= 2  # Reduced from 3 - more responsive
+                and len(introspection_queries) >= 1  # Reduced from 2 - more responsive
+                and len(identity_adoptions) >= 1  # Reduced from 2 - more responsive
                 and ias
-                >= (0.40 + hysteresis)  # Lower IAS threshold for introspective path
+                >= (0.30 + hysteresis)  # Much lower threshold for introspective path
             )
 
             return traditional_criteria or introspective_emergence
@@ -111,6 +114,10 @@ class StageManager:
             return None
 
         next_stage = self.STAGE_ORDER[idx + 1]
+
+        # Log current progress toward next stage
+        self._log_stage_progress(current, next_stage)
+
         if not self._criteria_met(current):
             return None
 
@@ -154,7 +161,72 @@ class StageManager:
             },
         )
 
+        # Get current metrics for logging
+        metrics = [
+            e
+            for e in self.eventlog.read_all()
+            if e["kind"] == EventKinds.METRICS_UPDATE
+        ]
+        if metrics:
+            last_metrics = metrics[-1]["meta"]
+            ias, gas = last_metrics.get("IAS", 0), last_metrics.get("GAS", 0)
+            logger.info(
+                f"Stage advanced: {current} → {next_stage} (IAS={ias:.3f}, GAS={gas:.3f})"
+            )
+        else:
+            logger.info(f"Stage advanced: {current} → {next_stage}")
         return str(event_id)
+
+    def _log_stage_progress(self, current: str, next_stage: str):
+        """Log progress toward next stage advancement."""
+        refs = [
+            e for e in self.eventlog.read_all() if e["kind"] == EventKinds.REFLECTION
+        ]
+        evols = [
+            e for e in self.eventlog.read_all() if e["kind"] == EventKinds.EVOLUTION
+        ]
+        introspection_queries = [
+            e
+            for e in self.eventlog.read_all()
+            if e["kind"] == EventKinds.INTROSPECTION_QUERY
+        ]
+        identity_adoptions = [
+            e
+            for e in self.eventlog.read_all()
+            if e["kind"] == EventKinds.IDENTITY_ADOPTION
+        ]
+        metrics = [
+            e
+            for e in self.eventlog.read_all()
+            if e["kind"] == EventKinds.METRICS_UPDATE
+        ]
+
+        if not metrics:
+            return
+
+        last_metrics = metrics[-1]["meta"]
+        ias, gas = last_metrics.get("IAS", 0), last_metrics.get("GAS", 0)
+        hysteresis = 0.03
+
+        if current == "S0":
+            # Show progress for both paths
+            trad_ias_req = 0.50 + hysteresis
+            trad_gas_req = 0.15 + hysteresis
+            intro_ias_req = 0.30 + hysteresis
+
+            logger.info(
+                f"{current}→{next_stage} Progress: "
+                f"refs={len(refs)}/2, evols={len(evols)}/1, "
+                f"IAS={ias:.3f}/{trad_ias_req:.3f}, GAS={gas:.3f}/{trad_gas_req:.3f} (traditional) | "
+                f"introspection={len(introspection_queries)}/1, identities={len(identity_adoptions)}/1, "
+                f"IAS={ias:.3f}/{intro_ias_req:.3f} (introspective)"
+            )
+        elif current == "S1":
+            logger.info(
+                f"{current}→{next_stage} Progress: "
+                f"refs={len(refs)}/5, evols={len(evols)}/4, "
+                f"IAS={ias:.3f}/{0.70 + hysteresis:.3f}, GAS={gas:.3f}/{0.35 + hysteresis:.3f}"
+            )
 
     def _get_cadence_policy(self, stage: str) -> str:
         """Get reflection cadence policy for stage."""

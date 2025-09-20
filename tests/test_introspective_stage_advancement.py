@@ -17,7 +17,7 @@ def test_introspective_emergence_triggers_s0_s1_advancement():
     eventlog.append(
         kind=EventKinds.METRICS_UPDATE,
         content="",
-        meta={"ias": 0.45, "gas": 0.10},  # Below traditional S0→S1 thresholds
+        meta={"IAS": 0.45, "GAS": 0.10},  # Below traditional S0→S1 thresholds
     )
 
     # Add reflections (meets basic requirement)
@@ -68,7 +68,7 @@ def test_traditional_criteria_still_work():
     eventlog.append(
         kind=EventKinds.METRICS_UPDATE,
         content="",
-        meta={"ias": 0.65, "gas": 0.25},  # Above traditional thresholds
+        meta={"IAS": 0.65, "GAS": 0.25},  # Above traditional thresholds
     )
 
     # Add required reflections and evolution events
@@ -101,7 +101,7 @@ def test_insufficient_introspective_evidence_blocks_advancement():
     eventlog.append(
         kind=EventKinds.METRICS_UPDATE,
         content="",
-        meta={"ias": 0.47, "gas": 0.08},  # Above introspective threshold
+        meta={"IAS": 0.47, "GAS": 0.08},  # Above introspective threshold
     )
 
     # Add reflections
@@ -112,20 +112,11 @@ def test_insufficient_introspective_evidence_blocks_advancement():
             meta={"rid": f"r{i+1}"},
         )
 
-    # Add only ONE introspection query (need 2)
-    eventlog.append(
-        kind=EventKinds.INTROSPECTION_QUERY,
-        content="",
-        meta={"query_type": "single_query"},
-    )
+    # Add NO introspection queries (need 1 for introspective path)
+    # Add NO identity adoptions (need 1 for introspective path)
+    # Add NO evolution events (need 1 for traditional path)
 
-    # Add identity adoptions
-    for i in range(2):
-        eventlog.append(
-            kind=EventKinds.IDENTITY_ADOPTION, content="", meta={"name": f"Name{i+1}"}
-        )
-
-    # Should NOT advance (insufficient introspection queries)
+    # Should NOT advance (insufficient evidence for both paths)
     result = stage_manager.check_and_advance()
     assert result is None
     assert stage_manager.current_stage() == "S0"
@@ -140,7 +131,7 @@ def test_introspective_emergence_idempotency():
     eventlog.append(
         kind=EventKinds.METRICS_UPDATE,
         content="",
-        meta={"ias": 0.47, "gas": 0.08},  # Above introspective threshold
+        meta={"IAS": 0.47, "GAS": 0.08},  # Above introspective threshold
     )
 
     for i in range(3):

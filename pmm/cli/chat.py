@@ -2,6 +2,7 @@
 from __future__ import annotations
 import os
 import sys
+import logging
 from pathlib import Path
 
 from pmm.config import load_runtime_env
@@ -50,6 +51,13 @@ def should_print_identity_notice(events: list[dict]) -> bool:
 
 
 def main() -> None:
+    # Configure logging for metrics transparency
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(levelname)s] %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
+
     env = load_runtime_env(".env")
     Path(env.db_path).parent.mkdir(parents=True, exist_ok=True)
 

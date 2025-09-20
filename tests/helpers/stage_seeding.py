@@ -38,8 +38,8 @@ def _seed_metrics(eventlog: EventLog, ias: float, gas: float) -> None:
         content="",
         meta={
             "digest": digest,
-            "ias": round(ias, 2),
-            "gas": round(gas, 2),
+            "IAS": round(ias, 2),
+            "GAS": round(gas, 2),
         },
     )
 

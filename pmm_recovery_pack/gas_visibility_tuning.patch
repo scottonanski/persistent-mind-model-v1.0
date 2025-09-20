@@ -1,0 +1,15 @@
+*** Begin Patch
+*** Update File: pmm/runtime/metrics/gas_constants.py
+@@
+-# Prior penalties (too aggressive while debugging visibility)
+-_GAS_FORCED_CLOSE_PENALTY = 0.05
+-_GAS_REFLECTION_REPEAT_PENALTY = 0.02
+-_DECAY_PER_TICK = 0.0
++# Visibility-first tuning (temporarily disable penalties; no decay)
++_GAS_FORCED_CLOSE_PENALTY = 0.0
++_GAS_REFLECTION_REPEAT_PENALTY = 0.0
++_DECAY_PER_TICK = 1.0
++
++# TODO(scott): Reintroduce calibrated penalties behind a feature flag once
++# IAS/GAS dashboards are stably visible under load.
+*** End Patch

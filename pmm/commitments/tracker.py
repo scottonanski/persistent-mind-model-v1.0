@@ -849,6 +849,25 @@ class CommitmentTracker:
 
         content = f"Commitment closed: {cid}"
         self.eventlog.append(kind="commitment_close", content=content, meta=meta)
+
+        # Immediately recompute and emit fresh metrics after commitment_close
+        try:
+            from pmm.runtime.metrics import compute_ias_gas
+
+            ias, gas = compute_ias_gas(self.eventlog.read_all())
+            self.eventlog.append(
+                kind="metrics",
+                content="",
+                meta={
+                    "IAS": ias,
+                    "GAS": gas,
+                    "reason": "live_update",
+                },
+            )
+        except Exception:
+            # Never let metrics computation break commitment flow
+            pass
+
         # If this was the last open commitment in its project, close the project idempotently
         try:
             if proj_id:

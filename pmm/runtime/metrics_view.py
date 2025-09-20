@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from pmm.storage.projection import build_self_model, build_identity
 from pmm.runtime.stage_tracker import StageTracker
@@ -9,7 +9,6 @@ from pmm.runtime.loop import (
     DRIFT_MULT_BY_STAGE,
     _resolve_reflection_cadence,
 )
-from pmm.runtime.metrics import compute_ias_gas
 
 
 class MetricsView:
@@ -28,8 +27,10 @@ class MetricsView:
         stage: str = "none"
         priority_top5: List[Dict] = []
 
-        # Compute IAS/GAS directly from full ledger
-        ias, gas = compute_ias_gas(events)
+        # Use the new hybrid approach: read from DB first, recompute only if needed
+        from pmm.runtime.metrics import get_or_compute_ias_gas
+
+        ias, gas = get_or_compute_ias_gas(eventlog)
 
         # Walk from tail for other fields
         for ev in reversed(events):

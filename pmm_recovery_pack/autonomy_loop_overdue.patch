@@ -1,0 +1,42 @@
+*** Begin Patch
+*** Update File: pmm/runtime/loop.py
+@@
+ class AutonomyLoop:
+@@
+-    def tick(self) -> None:
+-        """Run one autonomy tick."""
+-        now = _time.time()
+-        # existing logic ...
+-        self._emit_overdue_reminders_once_since_open()
++    def tick(self) -> None:
++        """Run one autonomy tick."""
++        now = _time.time()
++        # existing logic ...
++        # Overdue reminders semantics:
++        # - reflection-driven commitments: allow one reminder *per tick while overdue*
++        #   (bounded by the last autonomy_tick id to keep it idempotent within a single tick)
++        # - non-reflection commitments: preserve legacy single-reminder-since-open behavior
++        self._emit_overdue_reminders_reflection_per_tick()
++        self._emit_overdue_reminders_non_reflection_once_since_open()
+@@
+-    def _emit_overdue_reminders_once_since_open(self) -> None:
+-        """Legacy behavior for all commitments."""
+-        # implementation hidden
+-        ...
++    def _emit_overdue_reminders_reflection_per_tick(self) -> None:
++        """For reflection-driven commitments, emit at most one reminder per tick while overdue."""
++        last_tick_id = getattr(self, "_last_tick_event_id", None)
++        for c in self._tracker.iter_overdue_reflection_commitments():
++            if c.last_reminder_tick_id == last_tick_id:
++                continue  # already reminded this tick
++            self._eventlog.append(type="commitment_reminder", data={"commitment_id": c.id, "reason": "reflection-overdue", "tick_id": last_tick_id})
++            c.last_reminder_tick_id = last_tick_id
++
++    def _emit_overdue_reminders_non_reflection_once_since_open(self) -> None:
++        """For all other commitments, keep legacy single reminder since last open."""
++        for c in self._tracker.iter_overdue_non_reflection_commitments():
++            if c.reminded_since_last_open:
++                continue
++            self._eventlog.append(type="commitment_reminder", data={"commitment_id": c.id, "reason": "overdue"})
++            c.reminded_since_last_open = True
+*** End Patch

@@ -59,9 +59,9 @@ def test_s1_to_s2_advancement_deterministic(eventlog):
 
 def test_no_advancement_if_criteria_not_met(eventlog):
     """Test no advancement when criteria are not met."""
-    _seed_reflections(eventlog, 2)  # below threshold
-    _seed_restructures(eventlog, 1)
-    _seed_metrics(eventlog, 0.59, 0.19)
+    _seed_reflections(eventlog, 1)  # below threshold (need 2)
+    _seed_restructures(eventlog, 0)  # below threshold (need 1)
+    _seed_metrics(eventlog, 0.40, 0.10)  # below all thresholds
 
     sm = StageManager(eventlog)
     stage_before = sm.current_stage()
@@ -74,9 +74,11 @@ def test_no_advancement_if_criteria_not_met(eventlog):
 
 def test_hysteresis_buffer_prevents_thrash(eventlog):
     """Test hysteresis buffer prevents stage thrashing."""
-    _seed_reflections(eventlog, 3)
-    _seed_restructures(eventlog, 2)
-    _seed_metrics(eventlog, 0.61, 0.21)  # within hysteresis band (0.60+0.03=0.63)
+    _seed_reflections(eventlog, 2)
+    _seed_restructures(eventlog, 1)
+    _seed_metrics(
+        eventlog, 0.51, 0.16
+    )  # within hysteresis band (0.50+0.03=0.53, 0.15+0.03=0.18)
 
     sm = StageManager(eventlog)
     stage_before = sm.current_stage()

@@ -15,7 +15,7 @@ def test_compute_ias_gas_bounds():
     assert 0.0 <= ias <= 1.0
     assert 0.0 <= gas <= 1.0
 
-    # More closes than opens still holds the IAS baseline (identity stability rules)
+    # More closes than opens - IAS starts from 0.0 (no identity adoptions)
     evs2 = [
         {"kind": "commitment_open"},
         {"kind": "commitment_close"},
@@ -23,7 +23,7 @@ def test_compute_ias_gas_bounds():
         {"kind": "commitment_close"},
     ]
     ias2, gas2 = compute_ias_gas(evs2)
-    assert 0.5 <= ias2 <= 1.0
+    assert 0.0 <= ias2 <= 1.0  # IAS starts from 0.0, not 0.5
     assert 0.0 < gas2 <= 1.0
 
 

@@ -748,7 +748,7 @@ class Runtime:
             pass
         styled = self.bridge.format_messages(msgs, intent="chat")
         # Keep replies responsive and bounded when using remote providers
-        reply = self.chat.generate(styled, temperature=0.3, max_tokens=256)
+        reply = self.chat.generate(styled, temperature=0.3, max_tokens=1024)
         # Sanitize raw model output deterministically before any event emission
         try:
             reply = self.bridge.sanitize(
@@ -945,7 +945,7 @@ class Runtime:
                 }
                 msgs2 = list(msgs) + [correction_msg]
                 styled2 = self.bridge.format_messages(msgs2, intent="chat")
-                reply2 = self.chat.generate(styled2, temperature=0.0, max_tokens=256)
+                reply2 = self.chat.generate(styled2, temperature=0.0, max_tokens=1024)
                 if reply2:
                     reply = reply2
         except Exception:
@@ -1257,7 +1257,7 @@ class Runtime:
             _skip_latency_log = False
 
         def _do_reflect():
-            return self.chat.generate(styled, temperature=0.4, max_tokens=256)
+            return self.chat.generate(styled, temperature=0.4, max_tokens=1024)
 
         out = chat_with_budget(
             _do_reflect,
@@ -2480,7 +2480,7 @@ class AutonomyLoop:
             self._repeat_overdue_reflection_commitments = True
 
         # ---- Introspective Agency Integration ----
-        self._introspection_cadence = 20  # Run introspection every N ticks
+        self._introspection_cadence = 5  # Run introspection every N ticks (15s with 3s ticks for responsive stage advancement)
         self._self_introspection = SelfIntrospection(eventlog)
         self._evolution_reporter = EvolutionReporter(eventlog)
         self._commitment_restructurer = CommitmentRestructurer(eventlog)
@@ -2699,7 +2699,7 @@ class AutonomyLoop:
                     def _gen(prompt: str) -> str:
                         return ""
 
-                    text = pmm_native_reflection(
+                    pmm_native_reflection(
                         eventlog=self.eventlog,
                         llm_generate=_gen,
                         reason="identity_adopt",
@@ -2712,7 +2712,7 @@ class AutonomyLoop:
                             meta={
                                 "IAS": ias,
                                 "GAS": gas,
-                                "reason": "ledger_replay",
+                                "reason": "live_update",
                             },
                         )
                     except Exception:
