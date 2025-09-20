@@ -27,6 +27,10 @@ dev = [
   "uvicorn>=0.28.0",
 ]
 
+[tool.setuptools.packages.find]
+include = ["pmm*"]
+exclude = ["pmm_recovery_pack*"]
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
