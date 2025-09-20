@@ -36,11 +36,23 @@ def check_ollama_running() -> bool:
     return bool(proc and proc.returncode == 0)
 
 
+def check_ollama_python_library() -> bool:
+    """Return True if the Python ollama library is available for import."""
+    import importlib.util
+
+    return importlib.util.find_spec("ollama") is not None
+
+
 def get_ollama_models() -> List[Dict]:
     """Parse `ollama list` output into a list of {name,size,full_line} dicts.
 
-    Returns an empty list if Ollama is not installed/running.
+    Returns an empty list if Ollama is not installed/running or if the Python
+    ollama library is not available.
     """
+    # First check if the Python library is available
+    if not check_ollama_python_library():
+        return []
+
     proc = _run_ollama_list(timeout=10)
     if not proc or proc.returncode != 0:
         return []
