@@ -20,7 +20,11 @@ def test_voicable_reflection_marks_insight_ready(tmp_path):
     log.append(kind="autonomy_tick", content="autonomy heartbeat", meta={})
     log.append(kind="commitment_open", content="", meta={"cid": "c1", "text": "t"})
 
-    rid = emit_reflection(log, "I will keep answers concise.")
+    # Provide a two-line, sufficiently long reflection so acceptance passes
+    rid = emit_reflection(
+        log,
+        "I will keep answers concise in future replies.\nThis should improve clarity and reduce verbosity.",
+    )
     # AutonomyLoop.tick will sweep and append insight_ready if voicable and no response yet
     loop.tick()
     evs = log.read_all()
@@ -34,7 +38,10 @@ def test_one_shot_append_and_no_duplicates(tmp_path):
     renderer = ResponseRenderer()
 
     # Seed: reflection then insight_ready, but no response yet
-    rid = emit_reflection(log, "I'll try a shorter format next time.")
+    rid = emit_reflection(
+        log,
+        "I'll try a shorter format next time by focusing on essentials.\nI will also avoid redundancy in future turns.",
+    )
     log.append(kind="insight_ready", content="", meta={"from_event": rid, "tick": 1})
 
     # First render should append the insight

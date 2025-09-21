@@ -36,6 +36,9 @@ DEFAULTS = {
     },
     "bootstrap": {"ticks": 8, "streak": 3},
     "embedding_gate": {"enabled": False, "candidate_digest": None, "window": 20},
+    # Add stricter quality checks to prevent empty reflections
+    "min_meaningful_chars": 50,  # Minimum characters with meaningful content
+    "max_repetitive_ratio": 0.8,  # Maximum ratio of repetitive content
 }
 
 
@@ -162,7 +165,46 @@ def accept(
             {"len_chars": len_chars, "len_lines": len_lines},
         )
 
-    # 2) N-gram dedup vs last N reflections
+    # 2) Quality checks - prevent empty and repetitive reflections
+    t_lower = t.lower()
+    # Calculate quality score based on meaningful content
+    meaningful_chars = len([c for c in t if c.isalnum() or c in " .,!?-"])
+    quality_score = meaningful_chars / max(1, len_chars)
+
+    # Check for repetitive content patterns
+    words = t_lower.split()
+    if len(words) > 3:
+        unique_words = set(words)
+        repetitive_ratio = (len(words) - len(unique_words)) / len(words)
+        if repetitive_ratio > float(cfg.get("max_repetitive_ratio", 0.8)):
+            return (
+                False,
+                "too_repetitive",
+                {
+                    "quality_score": round(quality_score, 3),
+                    "repetitive_ratio": round(repetitive_ratio, 3),
+                    "len_chars": len_chars,
+                    "len_lines": len_lines,
+                },
+            )
+
+    # Check for policy adjustment loops
+    policy_keywords = ["novelty_threshold", "policy:", "lower", "increase", "decrease"]
+    policy_count = sum(1 for kw in policy_keywords if kw in t_lower)
+    # Trigger if too many policy keywords regardless of quality (prevents policy spam)
+    if policy_count >= 3:
+        return (
+            False,
+            "policy_loop_detected",
+            {
+                "quality_score": round(quality_score, 3),
+                "policy_keywords": policy_count,
+                "len_chars": len_chars,
+                "len_lines": len_lines,
+            },
+        )
+
+    # 3) N-gram dedup vs last N reflections
     window = int(cfg["ngram_window"]) or 10
     n = int(cfg["ngram_len"]) or 3
     recent = _recent_reflections(events, window)
@@ -187,7 +229,7 @@ def accept(
             },
         )
 
-    # 3) Optional embedding duplicate (exact digest)
+    # 4) Optional embedding duplicate (exact digest)
     emb_cfg = cfg["embedding_gate"] or {}
     if emb_cfg.get("enabled"):
         cand_digest = emb_cfg.get("candidate_digest")
@@ -209,17 +251,25 @@ def accept(
             if str(cand_digest) in digests:
                 return (False, "embedding_duplicate", {"embedding_match": True})
 
-    # 4) Bootstrap accept (only after hygiene; may bypass dedup/embedding)
+    # 5) Bootstrap accept (only after hygiene; may bypass dedup/embedding)
+    # BUT NOT if quality is too low - prevent empty reflections from ever passing
     last_ref_id = _last_reflection_id(events)
     tick_gap = _ticks_since(events, last_ref_id)
     rej_streak = _rejection_streak_since(events, last_ref_id)
-    if (tick_gap >= int(cfg["bootstrap"]["ticks"])) or (
-        rej_streak >= int(cfg["bootstrap"]["streak"])
+
+    # Only allow bootstrap if quality meets minimum threshold
+    if quality_score >= 0.3 and (
+        (tick_gap >= int(cfg["bootstrap"]["ticks"]))
+        or (rej_streak >= int(cfg["bootstrap"]["streak"]))
     ):
         return (
             True,
             "bootstrap_accept",
-            {"ticks_since": tick_gap, "rejection_streak": rej_streak},
+            {
+                "ticks_since": tick_gap,
+                "rejection_streak": rej_streak,
+                "quality_score": round(quality_score, 3),
+            },
         )
 
     # passed all gates
@@ -232,5 +282,6 @@ def accept(
             "stage_level": lvl,
             "len_chars": len_chars,
             "len_lines": len_lines,
+            "quality_score": round(quality_score, 3),
         },
     )

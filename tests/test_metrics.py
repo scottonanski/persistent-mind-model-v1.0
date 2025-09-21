@@ -31,8 +31,14 @@ def test_reflection_emits_telemetry(tmp_path):
     db = tmp_path / "m.db"
     log = EventLog(str(db))
 
-    # Emit reflection via helper, ensure telemetry appended
-    emit_reflection(log, content="note")
+    # Emit reflection via helper, ensure telemetry appended (provide valid content)
+    emit_reflection(
+        log,
+        content=(
+            "I will analyze our current metrics and track IAS/GAS trends.\n"
+            "Next, I will record specific actions to improve results."
+        ),
+    )
     events = log.read_all()
     # Find the reflection event and assert embedded telemetry fields
     refl = [e for e in events if e["kind"] == "reflection"]

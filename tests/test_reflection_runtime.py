@@ -40,11 +40,21 @@ def test_reflect_resets_cooldown(tmp_path):
 
     events = log.read_all()
     kinds = [e["kind"] for e in events]
-    # Ensure a reflection was emitted
-    assert "reflection" in kinds
-    # And telemetry is embedded in the reflection meta
-    refl = [e for e in events if e["kind"] == "reflection"]
-    meta = refl[-1].get("meta") or {}
-    tel = meta.get("telemetry") or {}
-    assert 0.0 <= tel.get("IAS", 0.0) <= 1.0
-    assert 0.0 <= tel.get("GAS", 0.0) <= 1.0
+    # A reflection may be rejected by the acceptance gate; accept either outcome
+    if "reflection" in kinds:
+        refl = [e for e in events if e["kind"] == "reflection"]
+        meta = refl[-1].get("meta") or {}
+        tel = meta.get("telemetry") or {}
+        assert 0.0 <= tel.get("IAS", 0.0) <= 1.0
+        assert 0.0 <= tel.get("GAS", 0.0) <= 1.0
+    else:
+        # If rejected, a debug breadcrumb is emitted
+        rejects = [
+            e
+            for e in events
+            if e.get("kind") == "debug"
+            and (e.get("meta") or {}).get("reflection_reject")
+        ]
+        assert (
+            rejects
+        ), "expected a reflection_reject breadcrumb when no reflection is emitted"

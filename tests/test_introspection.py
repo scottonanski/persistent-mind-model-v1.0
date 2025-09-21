@@ -87,8 +87,14 @@ def test_audit_reflection_fact_check(tmp_path):
 
     _ = _open_commitment(ct, "finish the report")
 
-    # Emit a reflection claiming done, but no close
-    emit_reflection(log, content="I finished the report today.")
+    # Emit a reflection claiming done, but no close (ensure it passes acceptance)
+    emit_reflection(
+        log,
+        content=(
+            "I finished the report today and reached a clear conclusion.\n"
+            "The task is complete and no further action remains."
+        ),
+    )
 
     audits = run_audit(log.read_all(), window=50)
     # There should be a fact-check audit

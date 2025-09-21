@@ -101,6 +101,26 @@ def test_assistant_affirms_name():
     )
 
 
+def test_assistant_affirmation_multiword_skipped():
+    runtime = _make_runtime()
+    runtime.eventlog = EventLog()
+    runtime.classifier = runtime.classifier.__class__(runtime.eventlog)
+    runtime.chat.generate = lambda *a, **k: "I am Ice Cream."
+    runtime.bridge.sanitize = lambda text, **kwargs: "I am Ice Cream."
+    runtime.handle_user("What is your name?")
+    events = runtime.eventlog.read_all()
+    assert not any(
+        e.get("kind") == "identity_propose"
+        and (str(e.get("content") or "").lower() == "ice")
+        for e in events
+    )
+    assert not any(
+        e.get("kind") == "identity_adopt"
+        and (str((e.get("meta") or {}).get("name") or "").lower() == "ice")
+        for e in events
+    )
+
+
 def test_ambiguous_input_filtered():
     runtime = _make_runtime()
     # Clear any existing events to ensure clean test

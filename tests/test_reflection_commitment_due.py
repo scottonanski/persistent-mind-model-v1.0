@@ -8,8 +8,11 @@ def test_due_added_on_reflection_commitment(tmp_path, monkeypatch):
     # Default horizon (24h) is constant; ensure due is present and in the future
     db = tmp_path / "due.db"
     log = EventLog(str(db))
-    # Emit a non-empty reflection through helper (which also appends reflection_check)
-    emit_reflection(log, "I will improve consistency.")
+    # Emit a valid reflection through helper (ensures acceptance and commitment_open)
+    emit_reflection(
+        log,
+        "I will improve consistency in my next tasks.\nThis includes tracking follow-up evidence diligently.",
+    )
 
     evs = log.read_all()
     com = next(
