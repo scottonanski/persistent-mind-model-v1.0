@@ -490,8 +490,11 @@ def adjust_gas_from_text(
     import json
 
     try:
+        from pmm.constants import EventKinds
+
         row = eventlog._conn.execute(
-            "SELECT meta FROM events WHERE kind='metrics' ORDER BY id DESC LIMIT 1"
+            "SELECT meta FROM events WHERE kind=? ORDER BY id DESC LIMIT 1",
+            (EventKinds.METRICS_UPDATE,),
         ).fetchone()
     except Exception:
         row = None

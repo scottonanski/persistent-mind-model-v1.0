@@ -1,170 +1,105 @@
-import datetime as dt
+"""Tests for the semantic prioritizer."""
 
-from pmm.runtime.prioritizer import rank_commitments
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.loop import AutonomyLoop
-from pmm.runtime.cooldown import ReflectionCooldown
+from __future__ import annotations
 
-
-def _append_open(log: EventLog, cid: str, text: str, ts: str | None = None):
-    if ts:
-        # EventLog doesn't allow custom ts on append; emulate by direct sqlite write is out of scope.
-        # Instead, we'll manipulate age by appending earlier and waiting, but that's brittle.
-        # So we craft events manually and use rank_commitments on in-memory events for determinism.
-        pass
+from pmm.runtime.prioritizer import Prioritizer, detect_urgency, rank_commitments
 
 
-def _mk_events_for_urgency():
-    now = dt.datetime.now(dt.UTC)
+class MockEventLog:
+    """Minimal event log stub for verifying metadata outputs."""
 
-    def iso(t):
-        return t.isoformat()
+    def __init__(self) -> None:
+        self.events: list[dict[str, object]] = []
+        self._next = 1
 
-    # Create synthetic events list with custom timestamps to control ages
-    events = []
-    # Open three commitments at different times
-    events.append(
+    def append(self, kind: str, content: str, meta: dict) -> str:
+        event_id = f"event_{self._next}"
+        self._next += 1
+        self.events.append(
+            {"id": event_id, "kind": kind, "content": content, "meta": meta}
+        )
+        return event_id
+
+    def read_all(self) -> list[dict[str, object]]:  # pragma: no cover - passthrough
+        return list(self.events)
+
+
+def test_detect_urgency_high_level() -> None:
+    analysis = detect_urgency(
+        "This must be done immediately, it cannot wait any longer."
+    )
+
+    assert analysis["level"] == "high"
+    assert analysis["score"] >= 0.7
+    assert analysis["exemplar"]
+
+
+def test_detect_urgency_synonymic_phrase() -> None:
+    analysis = detect_urgency("We really need to push this out right away.")
+
+    assert analysis["level"] == "high"
+    assert analysis["score"] >= 0.7
+
+
+def test_prioritize_commitments_includes_urgency_metadata() -> None:
+    prioritizer = Prioritizer()
+    commitments = [
         {
-            "id": 1,
-            "ts": iso(now - dt.timedelta(hours=20)),
+            "cid": "c-high",
+            "text": "This must be done immediately, it cannot wait any longer.",
+            "status": "open",
+            "created_at": "2024-01-01T00:00:00+00:00",
+        },
+        {
+            "cid": "c-low",
+            "text": "This can wait until I have some free time.",
+            "status": "open",
+            "created_at": "2024-01-01T00:00:00+00:00",
+        },
+    ]
+
+    prioritized = prioritizer.prioritize_commitments(commitments)
+
+    assert prioritized[0]["cid"] == "c-high"
+    assert prioritized[0]["urgency"]["level"] == "high"
+    assert prioritized[0]["urgency"]["exemplar"]
+
+
+def test_prioritize_commitments_logs_event() -> None:
+    eventlog = MockEventLog()
+    prioritizer = Prioritizer(eventlog=eventlog)
+    commitments = [
+        {
+            "cid": "c1",
+            "text": "We should handle this in the next few days.",
+            "status": "open",
+            "created_at": "2024-01-05T00:00:00+00:00",
+        }
+    ]
+
+    prioritizer.prioritize_commitments(commitments)
+
+    assert len(eventlog.events) == 1
+    meta = eventlog.events[0]["meta"]
+    assert meta["commitment_count"] == 1
+    assert meta["top_urgency"]["level"] in {"medium", "high", "low", "none"}
+
+
+def test_rank_commitments_uses_semantic_urgency() -> None:
+    events = [
+        {
             "kind": "commitment_open",
-            "content": "",
-            "meta": {"cid": "a", "text": "task a"},
-        }
-    )
-    events.append(
+            "meta": {"cid": "c1", "text": "This must be done immediately."},
+            "ts": "2024-01-01T00:00:00+00:00",
+        },
         {
-            "id": 2,
-            "ts": iso(now - dt.timedelta(hours=10)),
             "kind": "commitment_open",
-            "content": "",
-            "meta": {"cid": "b", "text": "task b"},
-        }
-    )
-    events.append(
-        {
-            "id": 3,
-            "ts": iso(now - dt.timedelta(hours=2)),
-            "kind": "commitment_open",
-            "content": "",
-            "meta": {"cid": "c", "text": "task c"},
-        }
-    )
-    return events
+            "meta": {"cid": "c2", "text": "This can wait until later."},
+            "ts": "2024-01-01T00:00:00+00:00",
+        },
+    ]
 
+    ranked = rank_commitments(events)
 
-def _mk_events_for_novelty():
-    now = dt.datetime.now(dt.UTC)
-
-    def iso(t):
-        return t.isoformat()
-
-    events = []
-    # Recent assistant replies similar to commitment x, dissimilar to y
-    events.append(
-        {
-            "id": 1,
-            "ts": iso(now - dt.timedelta(minutes=5)),
-            "kind": "response",
-            "content": "write docs quickly",
-            "meta": {},
-        }
-    )
-    events.append(
-        {
-            "id": 2,
-            "ts": iso(now - dt.timedelta(minutes=4)),
-            "kind": "response",
-            "content": "finish docs now",
-            "meta": {},
-        }
-    )
-    # Two commitments
-    events.append(
-        {
-            "id": 3,
-            "ts": iso(now - dt.timedelta(minutes=3)),
-            "kind": "commitment_open",
-            "content": "",
-            "meta": {"cid": "x", "text": "write the docs"},
-        }
-    )
-    events.append(
-        {
-            "id": 4,
-            "ts": iso(now - dt.timedelta(minutes=2)),
-            "kind": "commitment_open",
-            "content": "",
-            "meta": {"cid": "y", "text": "explore new algorithm"},
-        }
-    )
-    return events
-
-
-def _mk_events_for_priority_update_event():
-    now = dt.datetime.now(dt.UTC)
-
-    def iso(t):
-        return t.isoformat()
-
-    events = []
-    # A few opens and a reply
-    events.append(
-        {
-            "id": 1,
-            "ts": iso(now - dt.timedelta(hours=5)),
-            "kind": "commitment_open",
-            "content": "",
-            "meta": {"cid": "a", "text": "alpha"},
-        }
-    )
-    events.append(
-        {
-            "id": 2,
-            "ts": iso(now - dt.timedelta(hours=4)),
-            "kind": "commitment_open",
-            "content": "",
-            "meta": {"cid": "b", "text": "bravo"},
-        }
-    )
-    events.append(
-        {
-            "id": 3,
-            "ts": iso(now - dt.timedelta(minutes=10)),
-            "kind": "response",
-            "content": "misc reply",
-            "meta": {},
-        }
-    )
-    return events
-
-
-def test_urgency_ranks_older_higher():
-    events = _mk_events_for_urgency()
-    ranking = rank_commitments(events)
-    # 'a' is oldest -> highest urgency, then 'b', then 'c'
-    assert [cid for cid, _ in ranking] == ["a", "b", "c"]
-
-
-def test_novelty_boosts_dissimilar_commitment():
-    events = _mk_events_for_novelty()
-    ranking = rank_commitments(events)
-    # 'y' (explore new algorithm) is more novel than 'x' (write docs)
-    assert ranking[0][0] == "y"
-
-
-def test_priority_update_event_emitted(tmp_path):
-    log = EventLog(str(tmp_path / "prio.db"))
-    # Seed some events
-    for ev in _mk_events_for_priority_update_event():
-        log.append(kind=ev["kind"], content=ev["content"], meta=ev.get("meta"))
-    loop = AutonomyLoop(
-        eventlog=log, cooldown=ReflectionCooldown(), interval_seconds=0.01
-    )
-    loop.tick()
-    events = log.read_all()
-    pr = [e for e in events if e.get("kind") == "priority_update"]
-    assert pr, "priority_update event should be appended"
-    # ranking should include entries
-    ranking = (pr[-1].get("meta") or {}).get("ranking")
-    assert ranking and isinstance(ranking, list)
+    assert ranked[0][0] == "c1"
+    assert ranked[0][1] >= ranked[1][1]

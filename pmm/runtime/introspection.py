@@ -4,6 +4,138 @@ from typing import Dict, List, Tuple
 from dataclasses import dataclass
 from typing import Callable, Protocol, Any
 
+from pmm.runtime.embeddings import compute_embedding, cosine_similarity, digest_vector
+
+
+COMPLETION_EXEMPLARS: Dict[str, List[str]] = {
+    "complete": [
+        "I have finished this reflection",
+        "this task is now complete",
+        "I have resolved the issue",
+        "I reached a clear conclusion",
+    ],
+    "incomplete": [
+        "I still need to think about this",
+        "this is ongoing",
+        "I don't have an answer yet",
+        "work in progress",
+    ],
+}
+
+COMPLETION_THRESHOLD = 0.65
+
+
+def _embedding(text: str) -> List[float]:
+    vec = compute_embedding(text or "")
+    return vec if isinstance(vec, list) else []
+
+
+def _prepare_samples(
+    exemplars: Dict[str, List[str]],
+) -> Dict[str, List[Dict[str, Any]]]:
+    samples: Dict[str, List[Dict[str, Any]]] = {}
+    for label, texts in exemplars.items():
+        vectors = []
+        for text in texts:
+            vec = _embedding(text)
+            if vec:
+                vectors.append({"text": text, "vector": vec})
+        samples[label] = vectors
+    return samples
+
+
+COMPLETION_SAMPLES = _prepare_samples(COMPLETION_EXEMPLARS)
+
+
+def _centroid(vectors: List[List[float]]) -> List[float]:
+    if not vectors:
+        return []
+    length = len(vectors[0])
+    summed = [0.0] * length
+    for vec in vectors:
+        for idx, value in enumerate(vec):
+            summed[idx] += float(value)
+    count = float(len(vectors)) or 1.0
+    return [value / count for value in summed]
+
+
+COMPLETION_CENTROIDS: Dict[str, List[float]] = {
+    label: _centroid([sample["vector"] for sample in samples])
+    for label, samples in COMPLETION_SAMPLES.items()
+    if samples
+}
+
+
+def detect_reflection_completion(
+    text: str, threshold: float = COMPLETION_THRESHOLD
+) -> Dict[str, Any]:
+    """Return semantic completion status for a reflection."""
+    if not isinstance(text, str) or not text.strip():
+        return {
+            "status": "incomplete",
+            "score": 0.0,
+            "threshold": threshold,
+            "exemplar": "",
+            "embedding_digest": "",
+        }
+
+    vec = _embedding(text)
+    digest = digest_vector(vec) if vec else ""
+
+    complete_samples = COMPLETION_SAMPLES.get("complete", [])
+    incomplete_samples = COMPLETION_SAMPLES.get("incomplete", [])
+
+    complete_best = 0.0
+    complete_exemplar = ""
+    for sample in complete_samples:
+        score = float(cosine_similarity(vec, sample["vector"]))
+        if score > complete_best:
+            complete_best = score
+            complete_exemplar = sample["text"]
+
+    incomplete_best = 0.0
+    for sample in incomplete_samples:
+        score = float(cosine_similarity(vec, sample["vector"]))
+        if score > incomplete_best:
+            incomplete_best = score
+
+    complete_centroid = COMPLETION_CENTROIDS.get("complete", [])
+    incomplete_centroid = COMPLETION_CENTROIDS.get("incomplete", [])
+
+    if complete_centroid:
+        complete_centroid_score = float(cosine_similarity(vec, complete_centroid))
+        complete_best = max(complete_best, complete_centroid_score)
+    if incomplete_centroid:
+        incomplete_centroid_score = float(cosine_similarity(vec, incomplete_centroid))
+        incomplete_best = max(incomplete_best, incomplete_centroid_score)
+
+    if complete_best >= threshold and complete_best >= incomplete_best:
+        return {
+            "status": "complete",
+            "score": complete_best,
+            "threshold": threshold,
+            "exemplar": complete_exemplar,
+            "embedding_digest": digest,
+        }
+
+    if incomplete_best >= threshold:
+        return {
+            "status": "incomplete",
+            "score": incomplete_best,
+            "threshold": threshold,
+            "exemplar": "",
+            "embedding_digest": digest,
+        }
+
+    return {
+        "status": "incomplete",
+        "score": 0.0,
+        "threshold": threshold,
+        "exemplar": "",
+        "embedding_digest": digest,
+    }
+
+
 # Deterministic, append-only audit that inspects recent events and proposes
 # annotation-only audit_report events. No mutations, no hidden state.
 #
@@ -119,9 +251,7 @@ def run_audit(events: List[Dict], window: int = 50) -> List[Dict]:
                 )
 
     # --- Rule: reflection fact-check ---
-    # Deterministic keyword overlap based on simple tokens + completion cues
-    completion_cues = ("done", "completed", "finished")
-
+    # Semantic completion detection combined with simple token overlap against open commitments
     def _tokens(s: str) -> List[str]:
         import re as _re
 
@@ -146,14 +276,15 @@ def run_audit(events: List[Dict], window: int = 50) -> List[Dict]:
                 # Closed now → remove from open_like
                 open_like.pop(cid, None)
 
-    # For each reflection in tail, if it mentions completion and overlaps with any still-open
-    # commitment text, and there's no close for that cid after the reflection, flag.
+    # For each reflection in tail, if semantic completion is detected and it overlaps with any
+    # still-open commitment text, and there's no close for that cid after the reflection, flag.
     for ev in tail:
         if ev.get("kind") != "reflection":
             continue
         rid = int(ev.get("id") or 0)
-        text = (ev.get("content") or "").lower()
-        if not any(cue in text for cue in completion_cues):
+        text = ev.get("content") or ""
+        completion_analysis = detect_reflection_completion(text)
+        if completion_analysis["status"] != "complete":
             continue
         rtoks = set(_tokens(text))
         # Try to match a cid by simple token overlap with the open commitment text
@@ -171,7 +302,7 @@ def run_audit(events: List[Dict], window: int = 50) -> List[Dict]:
             closes_after = [cl for cl in closes_by_cid.get(cid, []) if cl > rid]
             if not closes_after:
                 _audit(
-                    "Reflection claims completion but commitment still open",
+                    f"Reflection marked complete (score {completion_analysis['score']:.3f}) but commitment still open",
                     [rid, oid],
                     "fact-check",
                 )

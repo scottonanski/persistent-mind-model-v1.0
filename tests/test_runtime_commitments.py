@@ -47,3 +47,17 @@ def test_runtime_closes_with_text_only_evidence(tmp_path, monkeypatch):
     model = build_self_model(log.read_all())
     open_map = model.get("commitments", {}).get("open", {})
     assert len(open_map) == 0  # closed via text evidence
+
+
+def test_runtime_opens_commitment_from_user_text(tmp_path, monkeypatch):
+    rt, log = _mk_rt(tmp_path)
+
+    def fake_generate(msgs, **kw):
+        return "Acknowledged."
+
+    monkeypatch.setattr(rt.chat, "generate", fake_generate)
+    rt.handle_user("I will handle the release documentation tomorrow.")
+
+    model = build_self_model(log.read_all())
+    open_map = model.get("commitments", {}).get("open", {})
+    assert any("release documentation" in c.get("text", "") for c in open_map.values())

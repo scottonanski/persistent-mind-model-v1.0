@@ -61,54 +61,82 @@ class SelfModelManager:
             event_id = event.get("id")
             meta = event.get("meta", {})
 
+            # Normalize helper: maps long names and prefixed keys → single letter codes
+            def _norm_trait_key(k: str) -> str:
+                k = str(k).strip().lower()
+                if k.startswith("traits."):
+                    k = k.split(".", 1)[1]
+                mapping = {
+                    "openness": "O",
+                    "conscientiousness": "C",
+                    "extraversion": "E",
+                    "agreeableness": "A",
+                    "neuroticism": "N",
+                }
+                return mapping.get(k, k.upper()[:1])
+
             # Process trait_update events
             if event_kind == "trait_update":
-                delta_field = meta.get("delta")
-                trait = str(meta.get("trait", "")).strip().upper()
-
-                if isinstance(delta_field, dict):
-                    # Multi-delta format: apply each trait delta
-                    for k, v in delta_field.items():
-                        trait_key = str(k).upper()
-                        if trait_key in self.TRAIT_KEYS:
-                            try:
-                                delta = float(v)
-                                # Clamp delta to reasonable bounds
-                                delta = max(-1.0, min(1.0, delta))
-                                # Apply delta and clamp result to [0.0, 1.0]
-                                traits[trait_key] = max(
-                                    0.0, min(1.0, traits[trait_key] + delta)
-                                )
-                                applied_events.append(
-                                    {
-                                        "event_id": event_id,
-                                        "trait": trait_key,
-                                        "delta": delta,
-                                        "source": "trait_update",
-                                    }
-                                )
-                                last_update_id = event_id
-                            except (ValueError, TypeError):
-                                continue
-                elif trait in self.TRAIT_KEYS:
-                    # Single-trait format
-                    try:
-                        delta = float(delta_field)
-                        # Clamp delta to reasonable bounds
-                        delta = max(-1.0, min(1.0, delta))
-                        # Apply delta and clamp result to [0.0, 1.0]
-                        traits[trait] = max(0.0, min(1.0, traits[trait] + delta))
+                # FIX: normalize multiple formats
+                if "trait" in meta and "delta" in meta:
+                    t = _norm_trait_key(meta["trait"])
+                    d = float(meta["delta"])
+                    if t in traits:
+                        traits[t] = max(0.0, min(1.0, traits[t] + d))
                         applied_events.append(
                             {
                                 "event_id": event_id,
-                                "trait": trait,
-                                "delta": delta,
+                                "trait": t,
+                                "delta": d,
                                 "source": "trait_update",
                             }
                         )
                         last_update_id = event_id
-                    except (ValueError, TypeError):
-                        continue
+                elif "delta" in meta and isinstance(meta["delta"], dict):
+                    # Handle multi-delta format: {"delta": {"O": 0.1, "C": -0.05, "E": 0.15}}
+                    for t, d in meta["delta"].items():
+                        t = _norm_trait_key(t)
+                        if t in traits:
+                            traits[t] = max(0.0, min(1.0, traits[t] + float(d)))
+                            applied_events.append(
+                                {
+                                    "event_id": event_id,
+                                    "trait": t,
+                                    "delta": float(d),
+                                    "source": "trait_update",
+                                }
+                            )
+                            last_update_id = event_id
+                elif "changes" in meta:
+                    for t, d in meta["changes"].items():
+                        t = _norm_trait_key(t)
+                        if t in traits:
+                            traits[t] = max(0.0, min(1.0, float(d)))
+                            applied_events.append(
+                                {
+                                    "event_id": event_id,
+                                    "trait": t,
+                                    "delta": float(d),
+                                    "source": "trait_update",
+                                }
+                            )
+                            last_update_id = event_id
+                else:
+                    # Handle nested trait keys like "traits.Conscientiousness"
+                    for k, v in meta.items():
+                        if k.startswith("traits."):
+                            t = _norm_trait_key(k)
+                            if t in traits:
+                                traits[t] = max(0.0, min(1.0, float(v)))
+                                applied_events.append(
+                                    {
+                                        "event_id": event_id,
+                                        "trait": t,
+                                        "delta": float(v),
+                                        "source": "trait_update",
+                                    }
+                                )
+                                last_update_id = event_id
 
             # Process policy_update events with trait changes
             elif event_kind == "policy_update":
@@ -118,7 +146,7 @@ class SelfModelManager:
                 if component == "personality" and isinstance(changes, list):
                     for change in changes:
                         if isinstance(change, dict):
-                            trait = str(change.get("trait", "")).strip().upper()
+                            trait = _norm_trait_key(change.get("trait", ""))
                             if trait in self.TRAIT_KEYS:
                                 try:
                                     delta = float(change.get("delta", 0))
@@ -147,7 +175,7 @@ class SelfModelManager:
                     for key, value in changes.items():
                         # Look for trait keys like "traits.O", "traits.C", etc.
                         if key.startswith("traits."):
-                            trait = key.split(".", 1)[1].upper()
+                            trait = _norm_trait_key(key)
                             if trait in self.TRAIT_KEYS:
                                 try:
                                     # Evolution events typically contain absolute values, not deltas

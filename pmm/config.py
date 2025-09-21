@@ -104,7 +104,7 @@ DEFAULT_BASE_URL = os.getenv("PMM_DEFAULT_BASE_URL", "http://localhost:11434")
 DEFAULT_DB_PATH = os.getenv("PMM_DB_PATH", "pmm_data.db")
 
 # Commitment Extractor Configuration (constants)
-COMMITMENT_THRESHOLD = 0.70
+COMMITMENT_THRESHOLD = 0.62
 DUPLICATE_SIM_THRESHOLD = 0.60
 
 # Continuity Engine Configuration (constants)

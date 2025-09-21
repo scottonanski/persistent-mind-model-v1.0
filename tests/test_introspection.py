@@ -1,7 +1,7 @@
 from pmm.storage.eventlog import EventLog
 from pmm.commitments.tracker import CommitmentTracker
 from pmm.runtime.loop import emit_reflection
-from pmm.runtime.introspection import run_audit
+from pmm.runtime.introspection import run_audit, detect_reflection_completion
 
 
 def _open_commitment(ct: CommitmentTracker, text: str) -> str:
@@ -94,3 +94,17 @@ def test_audit_reflection_fact_check(tmp_path):
     # There should be a fact-check audit
     cats = [a.get("meta", {}).get("category") for a in audits]
     assert "fact-check" in cats
+
+
+def test_detect_reflection_completion_semantics():
+    complete = detect_reflection_completion(
+        "I have finished this reflection and reached a clear conclusion."
+    )
+    assert complete["status"] == "complete"
+    assert complete["score"] >= complete["threshold"]
+
+    incomplete = detect_reflection_completion(
+        "I still need to think about this and figure out the answer."
+    )
+    assert incomplete["status"] == "incomplete"
+    assert incomplete["score"] >= incomplete["threshold"]

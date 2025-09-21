@@ -15,8 +15,9 @@ def test_e2e_done_closes_commitment(tmp_path, monkeypatch):
     assert cid
 
     # Evidence confirmation via structural helper
-    ok = ct.close_reflection_on_next("wrote the docs")
-    assert ok is True
+    result = ct.close_reflection_on_next("wrote the docs")
+    assert result is None  # New method returns None, not True
 
     model = build_self_model(log.read_all())
+    # Commitment should be closed (not in open map)
     assert cid not in model.get("commitments", {}).get("open", {})

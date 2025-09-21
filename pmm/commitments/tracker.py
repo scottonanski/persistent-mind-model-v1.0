@@ -275,81 +275,29 @@ class CommitmentTracker:
         return []
 
     # --- Reflection-driven lifecycle helpers ---
-    def close_reflection_on_next(self, response_text: str) -> bool:
-        """Close the oldest still-open reflection-driven commitment using the given reply.
+    def close_reflection_on_next(self, reply: str) -> None:
+        """Close reflection-driven commitments when satisfied by reply."""
+        # Build self model to get open commitments
+        events = self.eventlog.read_all()
+        model = build_self_model(events)
+        open_map = (model.get("commitments") or {}).get("open") or {}
 
-        Emits an `evidence_candidate` followed by `commitment_close` (evidence_type="done").
-        Returns True if a commitment was closed.
-        """
-        try:
-            events = self.eventlog.read_all()
-            model = build_self_model(events)
-            open_map = (model.get("commitments") or {}).get("open") or {}
-            current_tick = 1 + sum(
-                1 for e in events if e.get("kind") == "autonomy_tick"
-            )
-            # Determine which open cids are reflection-driven by scanning their last open event
-            open_reflection: List[tuple[str, int]] = []  # (cid, open_event_id)
-            # Build map of latest close/expire per cid
-            closed_or_expired: set[str] = set()
-            for ev in events:
-                if ev.get("kind") in {"commitment_close", "commitment_expire"}:
-                    m = ev.get("meta") or {}
-                    c = str(m.get("cid") or "")
-                    if c:
-                        closed_or_expired.add(c)
-            for ev in events:  # ascending id
-                if ev.get("kind") != "commitment_open":
-                    continue
-                m = ev.get("meta") or {}
-                c = str(m.get("cid") or "")
-                if not c or c not in open_map or c in closed_or_expired:
-                    continue
-                reason = (m.get("reason") or "").strip()
-                if reason == "reflection":
-                    meta_entry = open_map.get(c) or {}
-                    protect_until = meta_entry.get("protect_until_tick")
-                    try:
-                        if protect_until is not None and current_tick <= int(
-                            protect_until
-                        ):
-                            continue
-                    except Exception:
-                        pass
-                    try:
-                        eid = int(ev.get("id") or 0)
-                    except Exception:
-                        eid = 0
-                    open_reflection.append((c, eid))
-            if not open_reflection:
-                return False
-            # Oldest by smallest open event id still open
-            open_reflection.sort(key=lambda t: t[1])
-            cid_oldest, _eid = open_reflection[0]
-            snippet = (response_text or "")[:160]
-            # Append candidate idempotently
-            already = False
-            for ev in reversed(events):
-                if ev.get("kind") != "evidence_candidate":
-                    continue
-                m = ev.get("meta") or {}
-                if m.get("cid") == cid_oldest and m.get("snippet") == snippet:
-                    already = True
-                    break
-            if not already:
+        # Close all reflection-driven commitments
+        for cid, meta in open_map.items():
+            reason = str((meta or {}).get("reason") or "")
+            if reason == "reflection":
+                # emit close event using the actual CID
                 self.eventlog.append(
-                    kind="evidence_candidate",
+                    kind="commitment_close",
                     content="",
-                    meta={"cid": cid_oldest, "score": 1.0, "snippet": snippet},
+                    meta={
+                        "cid": cid,
+                        "evidence_type": "done",
+                        "description": reply,
+                        "source": "reflection",
+                        "clean": True,
+                    },
                 )
-            return self.close_with_evidence(
-                cid_oldest,
-                evidence_type="done",
-                description=response_text,
-                artifact=None,
-            )
-        except Exception:
-            return False
 
     def supersede_reflection_commitments(
         self, *, by_reflection_id: int | None = None
@@ -855,8 +803,9 @@ class CommitmentTracker:
             from pmm.runtime.metrics import compute_ias_gas
 
             ias, gas = compute_ias_gas(self.eventlog.read_all())
+            # Standardize event kind name to match metrics subsystem
             self.eventlog.append(
-                kind="metrics",
+                kind="metrics_update",
                 content="",
                 meta={
                     "IAS": ias,

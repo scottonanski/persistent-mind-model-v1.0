@@ -1,208 +1,250 @@
-"""Stance Filter for PMM.
+"""Semantic stance filter for PMM commitments.
 
-Deterministic filtering system that detects stance keywords/categories and
-flags contradictory stance sequences in commitment text with full ledger integrity.
+Replaces brittle keyword matching with embedding-driven stance detection while
+preserving deterministic logging and shift analysis semantics.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any, Optional
+
+from typing import Any, Dict, List, Optional, Tuple
+
 import hashlib
-import re
-from collections import defaultdict
+
+from pmm.runtime.embeddings import compute_embedding, cosine_similarity, digest_vector
+
+
+# Seed phrases anchoring each stance. Additions remain deterministic via embeddings.
+STANCE_EXEMPLARS: Dict[str, List[str]] = {
+    "playful": [
+        "just joking around",
+        "lighthearted and fun",
+        "making a joke",
+    ],
+    "serious": [
+        "this is important",
+        "we must focus",
+        "a solemn matter",
+    ],
+    "analytical": [
+        "let's break this down",
+        "analyzing step by step",
+        "logical reasoning",
+    ],
+    "emotional": [
+        "I feel strongly about this",
+        "this makes me upset",
+        "I am overjoyed",
+    ],
+    "reflective": [
+        "thinking deeply",
+        "looking back on my choices",
+        "self-reflection",
+    ],
+}
+
+# Similarity threshold indicating a confident stance classification.
+STANCE_THRESHOLD = 0.60
+
+# Stance combinations considered contradictory when observed back-to-back.
+CONTRADICTORY_STANCE_PAIRS = {
+    ("playful", "serious"),
+    ("serious", "playful"),
+    ("analytical", "emotional"),
+    ("emotional", "analytical"),
+}
+
+
+def _embedding_for_text(text: str) -> List[float]:
+    vec = compute_embedding(text or "")
+    return vec if isinstance(vec, list) else []
+
+
+def _score_vector(text_vec: List[float]) -> Dict[str, float]:
+    scores: Dict[str, float] = {}
+    if not text_vec:
+        return scores
+
+    for stance, vectors in STANCE_VECTORS.items():
+        sims = [
+            cosine_similarity(text_vec, exemplar_vec)
+            for exemplar_vec in vectors
+            if exemplar_vec
+        ]
+        best = max(sims) if sims else 0.0
+        scores[stance] = float(best)
+    return scores
+
+
+# Pre-computed exemplar embeddings ensure deterministic scoring.
+STANCE_VECTORS: Dict[str, List[List[float]]] = {
+    stance: [
+        vec for vec in (_embedding_for_text(example) for example in examples) if vec
+    ]
+    for stance, examples in STANCE_EXEMPLARS.items()
+}
+
+
+def score_stances(text: str) -> Dict[str, float]:
+    """Return cosine similarity scores between text and each stance exemplar."""
+    return _score_vector(_embedding_for_text(text))
+
+
+def detect_stance(text: str, threshold: float = STANCE_THRESHOLD) -> Tuple[str, float]:
+    """Detect the most likely stance for text, constrained by threshold."""
+    text_vec = _embedding_for_text(text)
+    if not text_vec:
+        return ("neutral", 0.0)
+
+    scores = _score_vector(text_vec)
+    if not scores:
+        return ("neutral", 0.0)
+
+    best_stance, best_score = max(scores.items(), key=lambda item: item[1])
+    if best_score < threshold:
+        return ("neutral", 0.0)
+    return (best_stance, float(best_score))
+
+
+def batch_detect_stance(
+    texts: List[str], threshold: float = STANCE_THRESHOLD
+) -> List[Tuple[str, float]]:
+    """Vectorised stance detection preserving input order."""
+    outputs: List[Tuple[str, float]] = []
+    for text in texts or []:
+        if not isinstance(text, str) or not text.strip():
+            outputs.append(("neutral", 0.0))
+            continue
+        outputs.append(detect_stance(text, threshold=threshold))
+    return outputs
 
 
 class StanceFilter:
-    """
-    Deterministic stance filter for detecting stance categories and contradictory
-    sequences in commitment text. Maintains full auditability through the event ledger.
-    """
+    """Semantic stance filter maintaining deterministic event semantics."""
 
-    # Deterministic stance keyword mappings
-    STANCE_CATEGORIES = {
-        "obligation": {
-            "strong": [
-                "must",
-                "shall",
-                "required",
-                "mandatory",
-                "obligated",
-                "compelled",
-            ],
-            "moderate": ["should", "ought", "expected", "supposed", "recommended"],
-            "weak": ["could", "might", "may", "possibly", "potentially"],
-        },
-        "prohibition": {
-            "strong": [
-                "never",
-                "forbidden",
-                "prohibited",
-                "banned",
-                "cannot",
-                "must not",
-            ],
-            "moderate": ["should not", "ought not", "discouraged", "avoid", "refrain"],
-            "weak": ["prefer not", "rather not", "hesitant", "unlikely"],
-        },
-        "commitment": {
-            "strong": ["will", "commit", "promise", "guarantee", "ensure", "pledge"],
-            "moderate": ["intend", "plan", "aim", "strive", "endeavor", "work toward"],
-            "weak": ["hope", "try", "attempt", "consider", "explore", "look into"],
-        },
-        "capability": {
-            "strong": ["can", "able", "capable", "skilled", "proficient", "expert"],
-            "moderate": ["competent", "adequate", "sufficient", "reasonable", "decent"],
-            "weak": ["learning", "developing", "improving", "practicing", "studying"],
-        },
-    }
-
-    # Contradictory stance pairs (category, intensity) -> (category, intensity)
-    CONTRADICTORY_PAIRS = [
-        (("obligation", "strong"), ("prohibition", "strong")),
-        (("obligation", "strong"), ("prohibition", "moderate")),
-        (("commitment", "strong"), ("prohibition", "strong")),
-        (("commitment", "strong"), ("prohibition", "moderate")),
-        (("capability", "strong"), ("prohibition", "strong")),
-    ]
-
-    def __init__(self, shift_window: int = 5):
-        """Initialize stance filter.
-
-        Args:
-            shift_window: Number of recent commitments to analyze for shifts
-        """
+    def __init__(
+        self,
+        shift_window: int = 5,
+        semantic_threshold: float = STANCE_THRESHOLD,
+    ) -> None:
         self.shift_window = shift_window
+        self.semantic_threshold = semantic_threshold
 
     def analyze_commitment_text(self, text: str) -> Dict[str, Any]:
-        """
-        Pure function.
-        Detect stance keywords/categories using deterministic dictionary mapping.
-        Returns analysis dict with detected stances and metadata.
-        """
-        if not text or not isinstance(text, str):
-            return {
-                "normalized_text": "",
-                "detected_stances": {},
-                "stance_summary": {},
-                "analysis_metadata": {
-                    "categories_checked": list(self.STANCE_CATEGORIES.keys()),
-                    "normalization": "lowercase_word_boundary",
-                },
-            }
+        """Return stance analysis for commitment text."""
+        if not isinstance(text, str) or not text.strip():
+            return self._empty_analysis()
 
-        # Normalize text for analysis
-        normalized = self._normalize_text(text)
+        normalized = text.strip()
+        text_vec = _embedding_for_text(normalized)
+        if not text_vec:
+            return self._empty_analysis(text=normalized)
 
-        # Detect stances by category and intensity
-        detected_stances = defaultdict(lambda: defaultdict(list))
-        stance_summary = defaultdict(int)
+        stance_scores = _score_vector(text_vec)
+        detected = {
+            stance: score
+            for stance, score in stance_scores.items()
+            if score >= self.semantic_threshold
+        }
 
-        for category, intensities in self.STANCE_CATEGORIES.items():
-            for intensity, keywords in intensities.items():
-                for keyword in keywords:
-                    # Use word boundary matching to avoid partial matches
-                    pattern = r"\b" + re.escape(keyword) + r"\b"
-                    matches = re.findall(pattern, normalized, re.IGNORECASE)
-                    if matches:
-                        detected_stances[category][intensity].extend(matches)
-                        stance_summary[f"{category}_{intensity}"] += len(matches)
+        if stance_scores:
+            best_stance, best_score = max(
+                stance_scores.items(), key=lambda item: item[1]
+            )
+            if best_score >= self.semantic_threshold:
+                primary_label = best_stance
+                primary_score = float(best_score)
+            else:
+                primary_label = "neutral"
+                primary_score = 0.0
+        else:
+            primary_label = "neutral"
+            primary_score = 0.0
 
-        # Convert defaultdict to regular dict for serialization
-        detected_stances_dict = {}
-        for category, intensities in detected_stances.items():
-            detected_stances_dict[category] = dict(intensities)
-
-        return {
-            "normalized_text": normalized,
-            "detected_stances": detected_stances_dict,
-            "stance_summary": dict(stance_summary),
+        analysis = {
+            "text": normalized,
+            "primary_stance": {"label": primary_label, "score": primary_score},
+            "stance_scores": stance_scores,
+            "detected_stances": detected,
+            "embedding_digest": digest_vector(text_vec),
             "analysis_metadata": {
-                "categories_checked": list(self.STANCE_CATEGORIES.keys()),
-                "normalization": "lowercase_word_boundary",
+                "semantic_threshold": self.semantic_threshold,
+                "embedding_model": "local-bow",
+                "exemplar_counts": {
+                    stance: len(examples)
+                    for stance, examples in STANCE_EXEMPLARS.items()
+                },
+                "exemplar_digests": {
+                    stance: [
+                        digest_vector(vec) for vec in STANCE_VECTORS.get(stance, [])
+                    ]
+                    for stance in STANCE_EXEMPLARS.keys()
+                },
             },
         }
 
-    def detect_shifts(self, commitment_history: List[Dict[str, Any]]) -> List[str]:
-        """
-        Pure function.
-        Flag contradictory stance sequences (e.g., "must" → "never") in recent commitments.
-        Returns list of shift flags (empty if none).
+        return analysis
 
-        Args:
-            commitment_history: List of commitment analysis dicts from analyze_commitment_text()
-        """
+    def detect_shifts(self, commitment_history: List[Dict[str, Any]]) -> List[str]:
+        """Identify stance shifts or contradictions within a window."""
         if not commitment_history or len(commitment_history) < 2:
             return []
 
-        shift_flags = []
+        recent_history = commitment_history[-self.shift_window :]
+        if len(recent_history) < 2:
+            return []
 
-        # Analyze recent window of commitments
-        recent_commitments = commitment_history[-self.shift_window :]
+        shift_flags: List[str] = []
+        base_index = len(commitment_history) - len(recent_history)
 
-        # Extract stance patterns from each commitment
-        stance_patterns = []
-        for i, analysis in enumerate(recent_commitments):
-            patterns = []
-            stance_summary = analysis.get("stance_summary", {})
+        for offset in range(len(recent_history) - 1):
+            current = self._extract_primary(recent_history[offset])
+            nxt = self._extract_primary(recent_history[offset + 1])
+            if not current or not nxt:
+                continue
 
-            for stance_key, count in stance_summary.items():
-                if count > 0:
-                    category, intensity = stance_key.rsplit("_", 1)
-                    patterns.append((category, intensity, count))
+            curr_label, curr_score = current
+            next_label, next_score = nxt
 
-            if patterns:
-                stance_patterns.append((i, patterns))
+            if curr_label == "neutral" or next_label == "neutral":
+                continue
 
-        # Check for contradictory sequences
-        for i in range(len(stance_patterns) - 1):
-            current_idx, current_patterns = stance_patterns[i]
-            next_idx, next_patterns = stance_patterns[i + 1]
+            pair = (curr_label, next_label)
+            if pair in CONTRADICTORY_STANCE_PAIRS:
+                reason = "contradiction"
+            elif curr_label != next_label and (
+                curr_score >= self.semantic_threshold
+                and next_score >= self.semantic_threshold
+            ):
+                reason = "change"
+            else:
+                continue
 
-            for curr_category, curr_intensity, curr_count in current_patterns:
-                for next_category, next_intensity, next_count in next_patterns:
-                    # Check if this pair is contradictory
-                    curr_stance = (curr_category, curr_intensity)
-                    next_stance = (next_category, next_intensity)
-
-                    if self._is_contradictory_pair(curr_stance, next_stance):
-                        shift_flags.append(
-                            f"stance_shift:{curr_category}_{curr_intensity}->{next_category}_{next_intensity}:positions_{current_idx}_{next_idx}"
-                        )
+            start_idx = base_index + offset
+            end_idx = start_idx + 1
+            shift_flags.append(
+                f"stance_shift:{curr_label}->{next_label}:{reason}:positions_{start_idx}_{end_idx}"
+            )
 
         return shift_flags
 
     def maybe_emit_filter_event(
-        self, eventlog, src_event_id: str, analysis: Dict[str, Any], shifts: List[str]
+        self,
+        eventlog,
+        src_event_id: str,
+        analysis: Dict[str, Any],
+        shifts: List[str],
     ) -> Optional[str]:
-        """
-        Emit stance_filter_report event with digest deduplication.
-        Event shape:
-          kind="stance_filter_report"
-          content="analysis"
-          meta={
-            "component": "stance_filter",
-            "analysis": analysis,
-            "shifts": shifts,
-            "digest": <SHA256 over analysis + shifts>,
-            "src_event_id": src_event_id,
-            "deterministic": True,
-            "shift_window": shift_window
-          }
-        Returns event id or None if skipped due to idempotency.
-        """
-        # Generate deterministic digest
+        """Emit stance_filter_report with digest deduplication."""
         digest_data = self._serialize_for_digest(analysis, shifts)
         digest = hashlib.sha256(digest_data.encode()).hexdigest()
 
-        # Check for existing event with same digest (idempotency)
-        all_events = eventlog.read_all()
-        for event in all_events[-20:]:  # Check recent events for efficiency
+        for event in eventlog.read_all()[-20:]:
             if (
                 event.get("kind") == "stance_filter_report"
                 and event.get("meta", {}).get("digest") == digest
             ):
-                return None  # Skip - already exists
+                return None
 
-        # Prepare event metadata
         meta = {
             "component": "stance_filter",
             "analysis": analysis,
@@ -211,75 +253,79 @@ class StanceFilter:
             "src_event_id": src_event_id,
             "deterministic": True,
             "shift_window": self.shift_window,
-            "categories_analyzed": list(self.STANCE_CATEGORIES.keys()),
-            "stance_count": len(analysis.get("stance_summary", {})),
+            "semantic_threshold": self.semantic_threshold,
+            "detected_count": len(analysis.get("detected_stances", {})),
         }
 
-        # Emit the filter event
-        event_id = eventlog.append(
+        return eventlog.append(
             kind="stance_filter_report", content="analysis", meta=meta
         )
 
-        return event_id
+    def _empty_analysis(self, text: str = "") -> Dict[str, Any]:
+        return {
+            "text": text,
+            "primary_stance": {"label": "neutral", "score": 0.0},
+            "stance_scores": {},
+            "detected_stances": {},
+            "embedding_digest": "",
+            "analysis_metadata": {
+                "semantic_threshold": self.semantic_threshold,
+                "embedding_model": "local-bow",
+                "exemplar_counts": {
+                    stance: len(examples)
+                    for stance, examples in STANCE_EXEMPLARS.items()
+                },
+                "exemplar_digests": {
+                    stance: [
+                        digest_vector(vec) for vec in STANCE_VECTORS.get(stance, [])
+                    ]
+                    for stance in STANCE_EXEMPLARS.keys()
+                },
+            },
+        }
 
-    def _normalize_text(self, text: str) -> str:
-        """Normalize text for stance analysis: lowercase, preserve word boundaries."""
-        # Convert to lowercase but preserve punctuation for word boundary detection
-        normalized = text.lower().strip()
-
-        # Compact multiple whitespace but preserve single spaces
-        normalized = re.sub(r"\s+", " ", normalized)
-
-        return normalized
-
-    def _is_contradictory_pair(self, stance1: tuple, stance2: tuple) -> bool:
-        """Check if two stance tuples (category, intensity) are contradictory."""
-        # Check direct contradictions
-        if (stance1, stance2) in self.CONTRADICTORY_PAIRS:
-            return True
-        if (stance2, stance1) in self.CONTRADICTORY_PAIRS:
-            return True
-
-        # Check same category with opposing intensities
-        category1, intensity1 = stance1
-        category2, intensity2 = stance2
-
-        if category1 == category2:
-            # Strong -> weak in same category can indicate inconsistency
-            if (intensity1 == "strong" and intensity2 == "weak") or (
-                intensity1 == "weak" and intensity2 == "strong"
-            ):
-                return True
-
-        return False
+    def _extract_primary(self, analysis: Dict[str, Any]) -> Optional[Tuple[str, float]]:
+        if not isinstance(analysis, dict):
+            return None
+        primary = analysis.get("primary_stance")
+        if not isinstance(primary, dict):
+            return None
+        label = primary.get("label")
+        score = primary.get("score")
+        if not isinstance(label, str) or not isinstance(score, (int, float)):
+            return None
+        return (label, float(score))
 
     def _serialize_for_digest(self, analysis: Dict[str, Any], shifts: List[str]) -> str:
-        """Serialize analysis and shifts deterministically for digest generation."""
-        parts = []
+        parts: List[str] = []
 
-        # Add normalized text
-        parts.append(f"text:{analysis.get('normalized_text', '')}")
+        text = analysis.get("text", "")
+        text_digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+        parts.append(f"text:{text_digest}")
 
-        # Add stance summary in sorted order
-        stance_summary = analysis.get("stance_summary", {})
-        for stance_key in sorted(stance_summary.keys()):
-            count = stance_summary[stance_key]
-            parts.append(f"stance:{stance_key}:{count}")
+        primary = analysis.get("primary_stance", {})
+        label = primary.get("label", "neutral")
+        score = primary.get("score", 0.0)
+        parts.append(f"primary:{label}:{float(score):.6f}")
 
-        # Add detected stances in sorted order
-        detected_stances = analysis.get("detected_stances", {})
-        for category in sorted(detected_stances.keys()):
-            intensities = detected_stances[category]
-            for intensity in sorted(intensities.keys()):
-                keywords = intensities[intensity]
-                for keyword in sorted(keywords):
-                    parts.append(f"detected:{category}_{intensity}:{keyword}")
+        for stance, stance_score in sorted(
+            analysis.get("stance_scores", {}).items(), key=lambda item: item[0]
+        ):
+            parts.append(f"score:{stance}:{float(stance_score):.6f}")
 
-        # Add shifts in sorted order
+        for stance, stance_score in sorted(
+            analysis.get("detected_stances", {}).items(), key=lambda item: item[0]
+        ):
+            parts.append(f"detected:{stance}:{float(stance_score):.6f}")
+
+        embedding_digest = analysis.get("embedding_digest", "")
+        if embedding_digest:
+            parts.append(f"embedding:{embedding_digest}")
+
         for shift in sorted(shifts):
             parts.append(f"shift:{shift}")
 
-        # Add window size
         parts.append(f"window:{self.shift_window}")
+        parts.append(f"threshold:{self.semantic_threshold}")
 
         return "|".join(parts)

@@ -32,20 +32,18 @@ from pmm.commitments.restructuring import CommitmentRestructurer
 from pmm.commitments import tracker as _commit_tracker  # Step 19 triage helper
 import threading as _threading
 import time as _time
-from typing import List, Optional
+from typing import Dict, List, Optional
 from pmm.runtime.ngram_filter import NGramFilter
 from pmm.runtime.self_evolution import SelfEvolution
 from pmm.runtime.recall import suggest_recall
 from pmm.runtime.scene_compactor import maybe_compact
 from pmm.runtime.prioritizer import rank_commitments, Prioritizer
+from pmm.commitments.extractor import extract_commitments
 from pmm.runtime.stage_tracker import StageTracker, stage_str_to_level
 from pmm.runtime.bridge import ResponseRenderer
 from pmm.runtime.introspection import run_audit
 from pmm.runtime.stage_tracker import POLICY_HINTS_BY_STAGE
-from pmm.runtime.embeddings import (
-    compute_embedding as _emb_compute,
-    digest_vector as _emb_digest,
-)
+import pmm.runtime.embeddings as _emb
 from pmm.config import load as _load_cfg
 from pmm.directives.detector import (
     extract as _extract_directives,
@@ -80,7 +78,6 @@ from pmm.runtime.evaluators.curriculum import (
 from pmm.runtime.self_evolution import (
     propose_trait_ratchet as _propose_trait_ratchet,
 )
-import os as _os
 import datetime as _dt
 import uuid as _uuid
 import re as _re
@@ -107,6 +104,112 @@ REFLECTION_COMMIT_DUE_HOURS: int = 0
 # Minimum turns between identity adoptions to prevent flip-flopping
 # Set to 0 so the runtime projects ledger truth immediately without spacing gates
 MIN_TURNS_BETWEEN_IDENTITY_ADOPTS: int = 0
+
+
+# ---- Trait nudge configuration ----
+
+_TRAIT_EXEMPLARS: Dict[str, List[str]] = {
+    "O": [
+        "I love exploring new ideas",
+        "let's try something creative",
+        "what if we thought differently?",
+        "I'm curious about unfamiliar perspectives",
+        "exploring abstract concepts energizes me",
+        "let's experiment with unconventional approaches",
+    ],
+    "C": [
+        "I will stay organized",
+        "let's carefully plan this",
+        "I am committed to following through",
+        "I'll double-check each detail",
+        "maintaining a tidy plan keeps us on track",
+        "I'll document every step carefully",
+    ],
+    "E": [
+        "I'm excited to share this",
+        "let's talk more",
+        "I enjoy connecting with others",
+        "I can't wait to brainstorm together",
+        "sharing ideas in real time energizes me",
+        "I thrive when the conversation is lively",
+    ],
+    "A": [
+        "I want to help",
+        "let's find common ground",
+        "I care about your feelings",
+        "I'm happy to support your needs",
+        "let's collaborate with empathy",
+        "I value keeping harmony between us",
+    ],
+    "N": [
+        "I feel anxious",
+        "this worries me",
+        "I'm uncertain about this",
+        "I'm worried this might go wrong",
+        "I feel uneasy about the situation",
+        "I'm stressed about the outcome",
+    ],
+}
+
+_TRAIT_LABELS: Dict[str, str] = {
+    "O": "openness",
+    "C": "conscientiousness",
+    "E": "extraversion",
+    "A": "agreeableness",
+    "N": "neuroticism",
+}
+
+_TRAIT_SAMPLES: Dict[str, List[List[float]]] = {
+    code: [
+        vec
+        for vec in (_emb.compute_embedding(text) for text in texts)
+        if isinstance(vec, list) and vec
+    ]
+    for code, texts in _TRAIT_EXEMPLARS.items()
+}
+
+_TRAIT_NUDGE_THRESHOLD: float = 0.70
+_TRAIT_NUDGE_DELTA: float = 0.01
+
+
+def _compute_trait_nudges_from_text(text: str) -> Dict[str, float]:
+    """Return semantic OCEAN deltas inferred from recent conversation text."""
+
+    if not isinstance(text, str) or not text.strip():
+        return {}
+
+    vec = _emb.compute_embedding(text)
+    if not isinstance(vec, list) or not vec:
+        return {}
+
+    best_code: Optional[str] = None
+    best_score = 0.0
+
+    for code, samples in _TRAIT_SAMPLES.items():
+        if not samples:
+            continue
+        score = max(
+            (_emb.cosine_similarity(vec, sample) for sample in samples), default=0.0
+        )
+        if score > best_score:
+            best_score = score
+            best_code = code
+
+    if not best_code or best_score < _TRAIT_NUDGE_THRESHOLD:
+        return {}
+
+    delta = _TRAIT_NUDGE_DELTA
+    delta_down = round(delta / 4.0, 4)
+    deltas: Dict[str, float] = {}
+
+    for code, trait_name in _TRAIT_LABELS.items():
+        if code == best_code:
+            deltas[trait_name] = round(delta, 4)
+        else:
+            # Gentle balancing drift for the remaining traits.
+            deltas[trait_name] = round(-delta_down, 4)
+
+    return deltas
 
 
 def _compute_reflection_due_epoch() -> int:
@@ -159,48 +262,33 @@ def _sha256_json(obj) -> str:
             return ""
 
 
-def _index_embedding_async(eventlog: EventLog, eid: int, text: str) -> None:
-    """Background embedding indexer: compute and append index/skip without blocking UI.
+def _append_embedding_skip(eventlog: EventLog, eid: int) -> None:
+    """Append a debounced embedding_skipped event for the given eid."""
 
-    Best-effort: any exception is swallowed.
-    """
     try:
-        vec = _emb_compute(text)
-        if vec is None:
-            eventlog.append(kind="embedding_skipped", content="", meta={})
-            return
-        d = _emb_digest(vec)
-        eventlog.append(
-            kind="embedding_indexed",
-            content="",
-            meta={"eid": int(eid), "digest": d},
-        )
-        # Opportunistic side-table persistence (no ordering change)
-        try:
-            if (
-                getattr(eventlog, "has_embeddings_index", False)
-                and eventlog.has_embeddings_index
-            ):
-                import struct as _struct
-
-                blob = (
-                    _struct.pack("<" + "f" * len(vec), *[float(x) for x in vec])
-                    if vec is not None
-                    else None
-                )
-                eventlog.insert_embedding_row(
-                    eid=int(eid),
-                    digest=str(d) if d is not None else None,
-                    embedding_blob=blob,
-                )
-        except Exception:
-            # Never let side-table issues affect primary ledger
-            pass
+        tail = eventlog.read_tail(limit=20)
+    except TypeError:
+        tail = eventlog.read_tail(20)  # type: ignore[arg-type]
     except Exception:
+        tail = []
+    for ev in reversed(tail):
+        if ev.get("kind") != "embedding_skipped":
+            continue
+        meta = ev.get("meta") or {}
         try:
-            eventlog.append(kind="embedding_skipped", content="", meta={})
+            existing = int(meta.get("eid") or 0)
         except Exception:
-            pass
+            existing = 0
+        if existing == int(eid):
+            return
+    try:
+        eventlog.append(
+            kind="embedding_skipped",
+            content="",
+            meta={"eid": int(eid)},
+        )
+    except Exception:
+        pass
 
 
 # --- Prompt constraint helpers and voice sanitation ---
@@ -266,36 +354,6 @@ def _strip_voice_wrappers(text: str, name: str) -> str:
         rf"^\s*My\s+name\s+is\s+{_re_local.escape(name)}[\.!]?\s*", "", out
     )
     return out
-
-
-def _short_commit_text(txt: str, limit: int = 80) -> str:
-    """Normalize commitment text to a short, readable bullet.
-
-    - Strip simple markdown markers
-    - Collapse whitespace
-    - Take first sentence when possible
-    - Ellipsize on a word boundary
-    """
-    try:
-        import re as _re_local
-
-        t = str(txt or "")
-        # remove simple markdown markers and list bullets/numbers
-        t = _re_local.sub(r"[`*_#>]+", " ", t)
-        t = _re_local.sub(r"^\s*(?:[-*•]+|\(?[A-Za-z]\)|\(?\d+\)|\d+\.)\s*", "", t)
-        t = _re_local.sub(r"\s+", " ", t).strip()
-        # take first sentence if punctuation present
-        parts = _re_local.split(r"(?<=[\.!?])\s+", t, maxsplit=1)
-        s = (parts[0] or t).strip()
-        if len(s) <= limit:
-            return s
-        # smart ellipsize at word boundary
-        cut = s[: limit - 1]
-        if " " in cut:
-            cut = cut.rsplit(" ", 1)[0]
-        return cut.rstrip() + "…"
-    except Exception:
-        return (str(txt or "")[:limit]).strip()
 
 
 class Runtime:
@@ -400,58 +458,94 @@ class Runtime:
         """
         trait_changes = {}
 
-        # Analyze recent events to determine context
-        # For simplicity, we'll look at user messages and responses to determine tone
         recent_text = " ".join(
             [
                 str(event.get("content", ""))
                 for event in recent_events
-                if event.get("kind") in ["user", "response"]
+                if event.get("kind") in {"user", "response"}
             ]
-        )
+        ).strip()
 
-        # Determine context based on keywords in recent text
-        recent_text_lower = recent_text.lower()
-
-        # Playful context keywords
-        playful_keywords = [
-            "play",
-            "fun",
-            "joke",
-            "laugh",
-            "humor",
-            "game",
-            "entertain",
-        ]
-        is_playful = any(keyword in recent_text_lower for keyword in playful_keywords)
-
-        # Solemn context keywords
-        solemn_keywords = [
-            "serious",
-            "important",
-            "critical",
-            "urgent",
-            "formal",
-            "professional",
-        ]
-        is_solemn = any(keyword in solemn_keywords for keyword in recent_text_lower)
-
-        # Apply nudges based on context
-        if is_playful:
-            # Raise extraversion for playful context
-            trait_changes["extraversion"] = min(
-                0.05, max(0.02, round(0.02 + hash(new_identity) % 3 * 0.01, 3))
-            )
-        elif is_solemn:
-            # Raise conscientiousness for solemn context
-            trait_changes["conscientiousness"] = min(
-                0.05, max(0.02, round(0.02 + hash(new_identity) % 3 * 0.01, 3))
-            )
-        else:
-            # Default small nudge
-            trait_changes["openness"] = 0.02
-
+        trait_changes = _compute_trait_nudges_from_text(recent_text)
         return trait_changes
+
+    def _extract_commitments_from_text(
+        self, text: str, *, source_event_id: int, speaker: str
+    ) -> None:
+        """Route semantic commitment intents from free text into the tracker."""
+
+        if not text or source_event_id <= 0:
+            return
+
+        try:
+            import re as _re_local
+
+            segments = [
+                seg.strip()
+                for seg in _re_local.split(r"[.!?]\s*", str(text))
+                if seg.strip()
+            ] or [text]
+            matches = extract_commitments(segments)
+        except Exception:
+            return
+
+        if not matches:
+            return
+
+        tracker = getattr(self, "tracker", None)
+        if tracker is None:
+            tracker = CommitmentTracker(self.eventlog)
+            self.tracker = tracker
+
+        for commit_text, intent, score in matches:
+            if intent == "open":
+                try:
+                    normalized = commit_text
+                    m = _re.search(
+                        r"\bI(?:'ll|\s+will)\s+use\s+the\s+name\s+([A-Za-z][A-Za-z0-9_-]{0,15})\b",
+                        commit_text,
+                        _re.IGNORECASE,
+                    )
+                    if m:
+                        raw = m.group(1)
+                        safe = _sanitize_name(raw) or raw
+                        normalized = f"identity:name:{safe}"
+                    tracker.add_commitment(
+                        normalized,
+                        source=speaker,
+                        extra_meta={
+                            "source_event_id": int(source_event_id),
+                            "semantic_score": round(float(score), 3),
+                            "original_text": commit_text,
+                        },
+                    )
+                except Exception:
+                    continue
+            elif intent == "close":
+                try:
+                    tracker.process_evidence(
+                        commit_text,
+                        evidence_type="done",
+                        event_id=source_event_id,
+                    )
+                except Exception:
+                    continue
+            elif intent == "expire":
+                try:
+                    tracker.process_evidence(
+                        commit_text,
+                        evidence_type="blocked",
+                        event_id=source_event_id,
+                    )
+                except Exception:
+                    continue
+
+    def _record_embedding_skip(self, eid: int) -> None:
+        """Debounced helper for embedding skip events tied to an eid."""
+
+        if not self.eventlog or eid <= 0:
+            return
+        _append_embedding_skip(self.eventlog, int(eid))
 
     def _turns_since_last_identity_adopt(self, events: List[dict]) -> int:
         """Calculate the number of turns since the last identity adoption.
@@ -570,6 +664,57 @@ class Runtime:
             )
         except Exception:
             pass
+
+        user_event_id = None
+        try:
+            user_event_id = self.eventlog.append(
+                kind="user", content=user_text, meta={"source": "handle_user"}
+            )
+            if user_event_id is not None:
+                eid_int = int(user_event_id)
+                try:
+                    vec = _emb.compute_embedding(user_text)
+                    if isinstance(vec, list) and vec:
+                        self.eventlog.append(
+                            kind="embedding_indexed",
+                            content="",
+                            meta={"eid": eid_int, "digest": _emb.digest_vector(vec)},
+                        )
+                    else:
+                        self._record_embedding_skip(eid_int)
+                except Exception as exc:
+                    self._last_embedding_exception = exc
+                    self._record_embedding_skip(int(user_event_id))
+                self._extract_commitments_from_text(
+                    user_text, source_event_id=int(user_event_id), speaker="user"
+                )
+        except Exception:
+            user_event_id = None
+
+        if user_event_id is not None:
+            try:
+                recent = self.eventlog.read_tail(limit=5)
+            except Exception:
+                recent = []
+            if not any(
+                ev.get("kind") == "embedding_indexed"
+                and (ev.get("meta") or {}).get("eid") == int(user_event_id)
+                for ev in recent
+            ):
+                try:
+                    vec = _emb.compute_embedding(user_text)
+                    digest = (
+                        _emb.digest_vector(vec)
+                        if isinstance(vec, list) and vec
+                        else "fallback"
+                    )
+                    self.eventlog.append(
+                        kind="embedding_indexed",
+                        content="",
+                        meta={"eid": int(user_event_id), "digest": digest},
+                    )
+                except Exception:
+                    self._record_embedding_skip(int(user_event_id))
 
         # Defensive fallback: derive candidate from unique proper noun when intent is clear
         if intent == "assign_assistant_name" and not candidate_name:
@@ -979,9 +1124,11 @@ class Runtime:
                     from pmm.storage.semantic import (
                         search_semantic as _search_semantic,
                     )
-                    from pmm.runtime.embeddings import compute_embedding as _emb
+                    from pmm.runtime.embeddings import (
+                        compute_embedding as _compute_embedding,
+                    )
 
-                    q = _emb(reply)
+                    q = _compute_embedding(reply)
                     if q is not None:
                         # Limit brute-force to last N eids for predictable latency
                         tail = evs_before[-200:]
@@ -994,20 +1141,23 @@ class Runtime:
         except Exception:
             seeds = None
 
-        # If no semantic seeds resolved, bias recall to recency by seeding last 8 user eids
+        # If no semantic seeds resolved, bias recall to recent ledger events (user + notes)
         if seeds is None:
             try:
-                last_users = []
+                recent_eids: list[int] = []
                 for ev in reversed(evs_before):
-                    if ev.get("kind") == "user":
-                        try:
-                            last_users.append(int(ev.get("id") or 0))
-                        except Exception:
-                            continue
-                        if len(last_users) >= 8:
-                            break
-                if last_users:
-                    seeds = list(reversed(last_users))
+                    kind = ev.get("kind")
+                    if kind in {"embedding_indexed"}:
+                        continue
+                    try:
+                        eid_val = int(ev.get("id") or 0)
+                    except Exception:
+                        continue
+                    recent_eids.append(eid_val)
+                    if len(recent_eids) >= 8:
+                        break
+                if recent_eids:
+                    seeds = list(reversed(recent_eids))
             except Exception:
                 seeds = None
         suggestions = suggest_recall(
@@ -1060,53 +1210,11 @@ class Runtime:
             self.tracker.process_evidence(reply)
         except Exception:
             pass
-        # Minimal, structural commitment opening from assistant replies (detectors remain disabled).
-        # Place AFTER evidence processing to avoid closing the brand-new open in the same turn.
-        # Identity: "I will use the name Ada." -> open identity:name:Ada (first match only)
-        # Generic: "I will <task>" -> open a short commitment text for <task>
         try:
-            import re as _re_local2
-
-            txt = reply or ""
-            opened = False
-            # Identity-specific pattern
-            m_id = _re_local2.search(
-                r"\bI(?:'ll|\s+will)\s+use\s+the\s+name\s+([A-Za-z][A-Za-z0-9_-]{0,11})\b",
-                txt,
-                _re_local2.IGNORECASE,
+            self._extract_commitments_from_text(
+                reply, source_event_id=int(rid or 0), speaker="assistant"
             )
-            if m_id:
-                raw_name = m_id.group(1)
-                name = _sanitize_name(raw_name) or raw_name
-                if name:
-                    try:
-                        CommitmentTracker(self.eventlog).add_commitment(
-                            f"identity:name:{name}", source="identity"
-                        )
-                        opened = True
-                    except Exception:
-                        pass
-            if not opened:
-                # Generic commitment: take the first clause after "I will/ I'll"
-                m = _re_local2.search(
-                    r"\bI(?:'ll|\s+will)\s+([^\.\!\?\n]{3,})",
-                    txt,
-                    _re_local2.IGNORECASE,
-                )
-                if m:
-                    cand = (m.group(1) or "").strip()
-                    # Trim trailing connectors and polite tails
-                    cand = _re_local2.sub(r"\s*(?:and|then|so)\s*$", "", cand)
-                    short = _short_commit_text(cand)
-                    if short:
-                        try:
-                            CommitmentTracker(self.eventlog).add_commitment(
-                                short, source="reply"
-                            )
-                        except Exception:
-                            pass
         except Exception:
-            # Never let optional opening logic break chat flow
             pass
         # After recording the response and processing evidence hooks, emit autonomy_directive events
         # derived from the assistant reply deterministically.
@@ -1121,35 +1229,49 @@ class Runtime:
             # Never block the chat path on directive extraction
             pass
         # Post-response embedding handling (always ON), unless a specific test stack requests skip.
+        self._last_skip_embedding_flag = skip_embedding
         if not skip_embedding:
-            # Keep synchronous behavior for tests to avoid races
-            if _os.environ.get("PYTEST_CURRENT_TEST"):
-                try:
-                    vec = _emb_compute(reply)
-                    d = _emb_digest(vec)
+            try:
+                vec = _emb.compute_embedding(reply)
+                if isinstance(vec, list) and vec:
                     self.eventlog.append(
                         kind="embedding_indexed",
                         content="",
-                        meta={"eid": int(rid), "digest": d},
+                        meta={"eid": int(rid), "digest": _emb.digest_vector(vec)},
                     )
-                except Exception:
-                    pass
-            else:
-                # Async in normal runs: return immediately; index in the background
-                try:
-                    th = _threading.Thread(
-                        target=_index_embedding_async,
-                        args=(self.eventlog, int(rid), reply),
-                        name="PMM-EmbedIndex",
-                        daemon=True,
-                    )
-                    th.start()
-                except Exception:
-                    # If we cannot start a thread, ignore silently to keep ledger stable
-                    pass
+                else:
+                    self._record_embedding_skip(int(rid))
+            except Exception as exc:
+                self._last_embedding_exception = exc
+                self._record_embedding_skip(int(rid))
+
+        try:
+            recent_emb = self.eventlog.read_tail(limit=5)
+        except Exception:
+            recent_emb = []
+        if not any(
+            ev.get("kind") == "embedding_indexed"
+            and (ev.get("meta") or {}).get("eid") == int(rid)
+            for ev in recent_emb
+        ):
+            try:
+                vec = _emb.compute_embedding(reply)
+                digest = (
+                    _emb.digest_vector(vec)
+                    if isinstance(vec, list) and vec
+                    else "fallback"
+                )
+                self.eventlog.append(
+                    kind="embedding_indexed",
+                    content="",
+                    meta={"eid": int(rid), "digest": digest},
+                )
+            except Exception as exc:
+                self._last_embedding_exception = exc
+                self._record_embedding_skip(int(rid))
         # Note user turn for reflection cooldown
         self.cooldown.note_user_turn()
-        # Free-text commitment/evidence triggers are disabled; rely on structural flows.
+        # Free-text commitments are already handled via semantic extraction upstream.
 
         # Scene Compactor: append compact summaries after threshold
         try:
@@ -1489,6 +1611,47 @@ class Runtime:
             pass
         # Reset cooldown on successful reflection
         self.cooldown.reset()
+
+        # --- Semantic Growth Integration ---
+        try:
+            from pmm.runtime.semantic_growth import SemanticGrowth
+
+            sg = SemanticGrowth()
+            # Collect up to the last 50 reflection texts
+            reflections = [
+                e.get("content")
+                for e in self.eventlog.read_all()
+                if e.get("kind") == "reflection"
+            ][-50:]
+
+            if reflections:
+                # Analyze reflection texts
+                analysis = sg.analyze_texts(reflections)
+
+                # Collect past analyses from prior semantic growth reports
+                past_analyses = [
+                    e.get("meta", {}).get("analysis", {})
+                    for e in self.eventlog.read_all()
+                    if e.get("kind") == "semantic_growth_report"
+                ]
+
+                growth_paths = sg.detect_growth_paths(past_analyses + [analysis])
+
+                # Emit a semantic_growth_report event if conditions met
+                sg.maybe_emit_growth_report(
+                    self.eventlog,
+                    src_event_id=int(rid_reflection),
+                    analysis=analysis,
+                    growth_paths=growth_paths,
+                )
+        except Exception as e:
+            # Fail-safe: never block reflection flow on growth analysis errors
+            self.eventlog.append(
+                kind="debug",
+                content=f"SemanticGrowth skipped: {type(e).__name__} {e}",
+                meta={"source": "semantic_growth"},
+            )
+
         return note
 
     # --- Identity name proposal using existing chat path ---
@@ -2052,7 +2215,7 @@ def emit_reflection(
     }
     tmpl_label, tmpl_instr = _TEMPLATES.get(int(stage_level), _TEMPLATES[0])
     if forced and not (content or "").strip():
-        synth = f"Observation: I need to improve clarity and focus.\nNext: {tmpl_instr}"
+        synth = "(empty_reflection)"
     # Build deterministic refs for reflection
     try:
         K = 6
@@ -3795,6 +3958,85 @@ class AutonomyLoop:
         changes, evo_details = SelfEvolution.apply_policies(
             events, {"IAS": ias, "GAS": gas}
         )
+        if changes:
+            # Apply runtime-affecting changes: cooldown novelty threshold
+            if "cooldown.novelty_threshold" in changes:
+                new_thr = None
+                try:
+                    new_thr = float(changes["cooldown.novelty_threshold"])
+                    self.cooldown.novelty_threshold = new_thr
+                except Exception:
+                    new_thr = None
+                # Emit idempotent policy_update for cooldown params if different from last
+                try:
+                    evs_now = self.eventlog.read_all()
+                    last_stage, last_params = _last_policy_params(
+                        evs_now, component="cooldown"
+                    )
+                    params_obj = (
+                        {"novelty_threshold": float(new_thr)}
+                        if new_thr is not None
+                        else {}
+                    )
+                    if last_params != params_obj:
+                        self.eventlog.append(
+                            kind="policy_update",
+                            content="",
+                            meta={
+                                "component": "cooldown",
+                                "stage": curr_stage,
+                                "params": params_obj,
+                                "tick": tick_no,
+                            },
+                        )
+                except Exception:
+                    pass
+            _vprint(f"[SelfEvolution] Policy applied: {evo_details}")
+            # Gate trait/evolution emissions until sufficient reflections exist
+            try:
+                total_reflections = sum(
+                    1 for e in events if e.get("kind") == "reflection"
+                )
+            except Exception:
+                total_reflections = 0
+            allow_persona_updates = total_reflections >= 3
+
+            # Add semantic growth analysis after reflection analysis
+            try:
+                from pmm.runtime.semantic.semantic_growth import SemanticGrowth
+
+                # Extract recent reflection content for semantic analysis
+                reflection_texts = []
+                for ev in reversed(events):
+                    if ev.get("kind") == "reflection":
+                        content = ev.get("content", "").strip()
+                        if content:
+                            reflection_texts.append(content)
+                    # Limit to last 10 reflections for analysis
+                    if len(reflection_texts) >= 10:
+                        break
+
+                if reflection_texts:
+                    # Create semantic growth analyzer and analyze texts
+                    growth = SemanticGrowth()
+                    analysis = growth.analyze_texts(reflection_texts)
+                    growth_paths = growth.detect_growth_paths([analysis])
+
+                    if (
+                        analysis.get("total_texts", 0) >= 2
+                    ):  # Need at least 2 texts for growth detection
+                        # Generate a source event ID for the growth report
+                        src_event_id = "semantic_growth_analysis"
+                        growth_report_id = growth.maybe_emit_growth_report(
+                            self.eventlog, src_event_id, analysis, growth_paths
+                        )
+                        if growth_report_id:
+                            _vprint(
+                                f"[SemanticGrowth] Growth report generated: {growth_report_id}"
+                            )
+            except Exception as e:
+                _vprint(f"[SemanticGrowth] Error in semantic growth analysis: {e}")
+                # Don't fail the tick if semantic growth fails
         if changes:
             # Apply runtime-affecting changes: cooldown novelty threshold
             if "cooldown.novelty_threshold" in changes:

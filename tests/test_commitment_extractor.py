@@ -1,13 +1,15 @@
-"""Tests for the embedding-based CommitmentExtractor."""
+"""Tests for the semantic CommitmentExtractor."""
 
-from pmm.commitments.extractor import CommitmentExtractor
+from __future__ import annotations
+
+from pmm.commitments.extractor import CommitmentExtractor, extract_commitments
 
 
 class MockEventLog:
-    """Minimal event log for testing commit extraction emissions."""
+    """Minimal event log stub for verifying emission metadata."""
 
-    def __init__(self):
-        self.events = []
+    def __init__(self) -> None:
+        self.events: list[dict[str, object]] = []
         self._next = 1
 
     def append(self, kind: str, content: str, meta: dict) -> str:
@@ -18,50 +20,93 @@ class MockEventLog:
         )
         return event_id
 
-    def read_all(self):  # pragma: no cover - passthrough helper
-        return self.events
+    def read_all(self) -> list[dict[str, object]]:  # pragma: no cover - passthrough
+        return list(self.events)
 
 
-def test_score_detects_open_intent():
+def test_detect_intent_open_commitment() -> None:
     extractor = CommitmentExtractor()
-    text = "I will complete the quarterly report tomorrow."
-    assert extractor.score(text) >= extractor.commit_thresh
+    analysis = extractor.detect_intent("I will complete the quarterly report tomorrow.")
+
+    assert analysis["intent"] == "open"
+    assert analysis["score"] >= extractor.commit_thresh
+    assert analysis["exemplar"]
 
 
-def test_score_rejects_neutral_text():
+def test_detect_intent_close_commitment() -> None:
     extractor = CommitmentExtractor()
-    text = "The sky is clear and the weather is nice."
-    assert extractor.score(text) < extractor.commit_thresh
-
-
-def test_extract_best_sentence_logs_meta():
-    log = MockEventLog()
-    extractor = CommitmentExtractor(eventlog=log)
-    text = (
-        "The meeting went well. "
-        "I will complete this task tomorrow."
-        " Please review."
+    analysis = extractor.detect_intent(
+        "I have completed this task and I am closing the commitment."
     )
 
-    sentence = extractor.extract_best_sentence(text)
-    assert sentence == "I will complete this task tomorrow"
-    assert len(log.events) == 1
-    meta = log.events[0]["meta"]
-    # Test the fields that the code actually produces
-    assert meta["extracted_sentence"] == "I will complete this task tomorrow"
-    assert meta["score"] >= extractor.commit_thresh
-    assert meta["threshold"] == extractor.commit_thresh
+    assert analysis["intent"] == "close"
+    assert analysis["score"] >= extractor.commit_thresh
 
 
-def test_vector_returns_embedding():
+def test_detect_intent_expire_commitment() -> None:
     extractor = CommitmentExtractor()
-    text = "I will send the update."
-    vec = extractor._vector(text)
+    analysis = extractor.detect_intent(
+        "We can no longer do this goal; it is no longer relevant."
+    )
+
+    assert analysis["intent"] == "expire"
+    assert analysis["score"] >= extractor.commit_thresh
+
+
+def test_detect_intent_rejects_neutral_text() -> None:
+    extractor = CommitmentExtractor()
+    analysis = extractor.detect_intent(
+        "The sky is clear and the weather is pleasant today."
+    )
+
+    assert analysis["intent"] == "none"
+    assert analysis["score"] == 0.0
+
+
+def test_extract_best_sentence_logs_meta() -> None:
+    eventlog = MockEventLog()
+    extractor = CommitmentExtractor(eventlog=eventlog)
+    text = (
+        "The meeting went well. "
+        "I will complete this task tomorrow. "
+        "Please review the notes."
+    )
+
+    best = extractor.extract_best_sentence(text)
+
+    assert best == "I will complete this task tomorrow"
+    assert len(eventlog.events) == 1
+    meta = eventlog.events[0]["meta"]
+    assert meta["intent"] == "open"
+    assert meta["score"] >= extractor.commit_thresh
+    assert meta["exemplar"]
+    assert meta["structure"]
+
+
+def test_vector_returns_embedding() -> None:
+    extractor = CommitmentExtractor()
+    vec = extractor._vector("I will send the update.")
+
     assert isinstance(vec, list)
     assert len(vec) > 0
 
 
-def test_detects_close_intent():
+def test_extract_commitments_batch() -> None:
+    texts = [
+        "I will complete the quarterly report tomorrow.",
+        "I have completed this task and I am closing the commitment.",
+        "The sky is blue today.",
+    ]
+
+    results = extract_commitments(texts)
+
+    intents = {intent for _, intent, _ in results}
+    assert intents == {"open", "close"}
+
+
+def test_structural_soft_gate_allows_short_commitment() -> None:
     extractor = CommitmentExtractor()
-    text = "I finished my goal and am closing the commitment."
-    assert extractor.score(text) >= extractor.commit_thresh
+    analysis = extractor.detect_intent("I'll take this on.")
+
+    assert analysis["intent"] == "open"
+    assert analysis["score"] >= extractor.commit_thresh

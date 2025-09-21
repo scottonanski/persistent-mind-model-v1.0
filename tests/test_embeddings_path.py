@@ -73,8 +73,10 @@ def test_evidence_prefers_embeddings(tmp_path, monkeypatch):
 
     # Provide a Done line that should be similar by embeddings
     ct.close_reflection_on_next("finished the report yesterday.")
-    # With embeddings active and text evidence allowed, candidate and close should occur
+    # New method directly emits commitment_close without evidence_candidate
     events = log.read_all()
     kinds = [e.get("kind") for e in events]
-    assert "evidence_candidate" in kinds
-    assert "commitment_close" in kinds
+    assert (
+        "evidence_candidate" not in kinds
+    )  # No evidence_candidate with new implementation
+    assert "commitment_close" in kinds  # Direct close still happens

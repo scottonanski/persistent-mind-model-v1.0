@@ -13,11 +13,11 @@ def test_text_only_evidence_closes_without_artifact(tmp_path, monkeypatch):
     )
     assert cid
 
-    ok = ct.close_reflection_on_next("wrote the docs")
-    assert ok is True
+    result = ct.close_reflection_on_next("wrote the docs")
+    assert result is None  # New method returns None, not True
 
     model = build_self_model(log.read_all())
-    # Closed via text evidence
+    # Closed via direct commitment close
     assert cid not in model.get("commitments", {}).get("open", {})
 
 

@@ -18,15 +18,13 @@ def test_logs_evidence_before_close(tmp_path, monkeypatch):
     _ = _open_commitment(ct, "write the report today.")
 
     ok = ct.close_reflection_on_next("I wrote the report and pushed it.")
-    assert ok is True
+    assert ok is None  # New method returns None, not True
 
     events = log.read_all()
     kinds = [e.get("kind") for e in events]
-    # Ensure evidence_candidate occurs before commitment_close
-    assert "evidence_candidate" in kinds
-    # Find indices
-    _ = next(i for i, e in enumerate(events) if e.get("kind") == "evidence_candidate")
-    # Close recorded via text evidence
+    # New method directly emits commitment_close without evidence_candidate
+    assert "evidence_candidate" not in kinds
+    # Close recorded via direct commitment close
     assert "commitment_close" in kinds
 
 
@@ -55,12 +53,14 @@ def test_idempotent_candidates(tmp_path, monkeypatch):
 
     # First evidence confirmation via structural helper
     _ = ct.close_reflection_on_next("updated the docs")
-    # Second adjacent call with same snippet -> idempotent candidate
+    # Second adjacent call with same snippet -> idempotent (no additional close events)
     _ = ct.close_reflection_on_next("updated the docs")
 
     kinds = [e.get("kind") for e in log.read_all()]
-    # Only one evidence_candidate despite two adjacent detections
-    assert kinds.count("evidence_candidate") == 1
+    # New method doesn't emit evidence_candidate, only commitment_close
+    assert kinds.count("evidence_candidate") == 0
+    # Should have exactly 1 commitment_close event (idempotent - only one close per commitment)
+    assert kinds.count("commitment_close") == 1
 
 
 def test_deterministic_scoring_and_threshold(tmp_path):
