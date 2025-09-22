@@ -20,7 +20,7 @@ class DirectiveHierarchy:
     # Deterministic priority weights for directive types
     PRIORITY_WEIGHTS = {
         "commitment_open": 1.0,  # Highest priority - active commitments
-        "commitment_closed": 0.8,  # High priority - completed commitments
+        "commitment_close": 0.8,  # High priority - completed commitments
         "reflection": 0.6,  # Medium priority - reflections
         "policy_update": 0.4,  # Lower priority - policy changes
         "stage_update": 0.2,  # Lowest priority - stage transitions
@@ -78,7 +78,8 @@ class DirectiveHierarchy:
 
         # Build directive nodes
         nodes = {}
-        commitment_states = {}  # Track open/closed commitments
+        commitment_states = {}  # Track open/closed commitments by CID
+        cid_to_event_id = {}  # Map CID to event ID for linking
 
         for event in directive_events:
             event_id = event.get("id", "")
@@ -99,18 +100,28 @@ class DirectiveHierarchy:
 
             # Handle commitment state tracking
             if event_kind == "commitment_open":
-                commitment_states[event_id] = "open"
+                commitment_id = meta.get("cid", "")
+                if not commitment_id:
+                    # Fallback for backward compatibility with old commitment_id format
+                    commitment_id = event_id
+                if commitment_id:
+                    commitment_states[commitment_id] = "open"
+                    cid_to_event_id[commitment_id] = event_id
                 node["commitment_state"] = "open"
             elif event_kind == "commitment_close":
                 # Find the corresponding open commitment
-                commitment_id = meta.get("commitment_id", "")
+                commitment_id = meta.get("cid", "")
+                if not commitment_id:
+                    # Fallback for backward compatibility with old commitment_id format
+                    commitment_id = meta.get("commitment_id", "")
                 if commitment_id in commitment_states:
                     commitment_states[commitment_id] = "closed"
-                    # Link close to open
-                    if commitment_id in nodes:
-                        nodes[commitment_id]["commitment_state"] = "closed"
-                        node["parent"] = commitment_id
-                        nodes[commitment_id]["children"].append(event_id)
+                    # Link close to open using the stored mapping
+                    open_event_id = cid_to_event_id.get(commitment_id, "")
+                    if open_event_id and open_event_id in nodes:
+                        nodes[open_event_id]["commitment_state"] = "closed"
+                        node["parent"] = open_event_id
+                        nodes[open_event_id]["children"].append(event_id)
 
             nodes[event_id] = node
 
@@ -158,7 +169,7 @@ class DirectiveHierarchy:
                 if commitment_state == "open":
                     base_priority = self.PRIORITY_WEIGHTS["commitment_open"]
                 else:
-                    base_priority = self.PRIORITY_WEIGHTS["commitment_closed"]
+                    base_priority = self.PRIORITY_WEIGHTS["commitment_close"]
 
             # Boost priority for nodes with children (parent directives)
             children_count = len(node.get("children", []))

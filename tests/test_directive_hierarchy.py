@@ -272,7 +272,7 @@ def test_assign_priorities_commitment_states():
     # Open commitments should have higher priority than closed
     nodes = result["nodes"]
     assert nodes["open_commit"]["priority"] == 1.0  # commitment_open
-    assert nodes["closed_commit"]["priority"] == 0.8  # commitment_closed
+    assert nodes["closed_commit"]["priority"] == 0.8  # commitment_close
 
 
 def test_maybe_emit_update_new():

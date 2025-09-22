@@ -531,20 +531,12 @@ class Runtime:
                     continue
             elif intent == "close":
                 try:
-                    tracker.process_evidence(
-                        commit_text,
-                        evidence_type="done",
-                        event_id=source_event_id,
-                    )
+                    tracker.process_evidence(commit_text)
                 except Exception:
                     continue
             elif intent == "expire":
                 try:
-                    tracker.process_evidence(
-                        commit_text,
-                        evidence_type="blocked",
-                        event_id=source_event_id,
-                    )
+                    tracker.process_evidence(commit_text)
                 except Exception:
                     continue
 
@@ -4375,18 +4367,19 @@ class AutonomyLoop:
                 )
         # 2c) Compute commitment priority ranking (append-only telemetry)
         ranking = rank_commitments(events)
-        top5 = [{"cid": cid, "score": score} for cid, score in ranking[:5]]
-        self.eventlog.append(
-            kind="commitment_priority",
-            content="commitment priority ranking",
-            meta={"ranking": top5},
-        )
-        # Back-compat: emit priority_update event used by tests/metrics
-        self.eventlog.append(
-            kind="priority_update",
-            content="",
-            meta={"ranking": top5},
-        )
+        if ranking:
+            top5 = [{"cid": cid, "score": score} for cid, score in ranking[:5]]
+            self.eventlog.append(
+                kind="commitment_priority",
+                content="commitment priority ranking",
+                meta={"ranking": top5},
+            )
+            # Back-compat: emit priority_update event used by tests/metrics
+            self.eventlog.append(
+                kind="priority_update",
+                content="",
+                meta={"ranking": top5},
+            )
         # Legacy age-based reminders removed: rely on due-based reminders below
         # 2d) Stage tracking (append-only). Infer current stage and emit update on transition.
         # Find last known stage from stage_update events
