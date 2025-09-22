@@ -3,12 +3,10 @@ from __future__ import annotations
 from typing import Dict, List
 
 from pmm.storage.projection import build_self_model, build_identity
-from pmm.runtime.stage_tracker import StageTracker
-from pmm.runtime.loop import (
-    CADENCE_BY_STAGE,
-    DRIFT_MULT_BY_STAGE,
-    _resolve_reflection_cadence,
+from pmm.config import (
+    REFLECTION_SKIPPED,
 )
+from pmm.runtime.stage_tracker import StageTracker
 
 
 class MetricsView:
@@ -29,14 +27,19 @@ class MetricsView:
 
         # Use the new hybrid approach: read from DB first, recompute only if needed
         from pmm.runtime.metrics import get_or_compute_ias_gas
+        from pmm.runtime.loop import (
+            CADENCE_BY_STAGE,
+            DRIFT_MULT_BY_STAGE,
+            _resolve_reflection_cadence,
+        )
 
         ias, gas = get_or_compute_ias_gas(eventlog)
 
         # Walk from tail for other fields
         for ev in reversed(events):
             k = ev.get("kind")
-            if reflect_skip == "none" and k == "debug":
-                rs = (ev.get("meta") or {}).get("reflect_skip")
+            if reflect_skip == "none" and k == REFLECTION_SKIPPED:
+                rs = (ev.get("meta") or {}).get("reason")
                 if rs:
                     reflect_skip = str(rs)
             if stage == "none" and k == "stage_update":
@@ -143,9 +146,9 @@ class MetricsView:
         rs = snap.get("reflect_skip", "none")
         oc = snap.get("open_commitments", {})
         ocn = int(oc.get("count", 0))
-        parts = [
-            f"[METRICS] IAS={ias:.3f} GAS={gas:.3f} | stage={stage} | open={ocn} | reflect_skip={rs}"
-        ]
+        parts = [f"[METRICS] IAS={ias:.3f} GAS={gas:.3f} | stage={stage} | open={ocn}"]
+        if rs != "none":
+            parts.insert(0, f"[REFLECTION] {rs}")
         sm_lines = snap.get("self_model_lines") or []
         for ln in sm_lines:
             if isinstance(ln, str) and ln:

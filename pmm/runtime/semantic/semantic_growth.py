@@ -18,31 +18,47 @@ from pmm.runtime.embeddings import compute_embedding, cosine_similarity, digest_
 # Theme exemplars replace keyword dictionaries; each seed phrase anchors a theme.
 THEME_EXEMPLARS: Dict[str, List[str]] = {
     "growth": [
-        "learning new skills",
-        "self improvement",
-        "evolving identity",
+        "learning new skills keeps my identity evolving",
+        "becoming as an ongoing process",
+        "unfolding identity through time",
+        "growth as transformation of being",
+        "emergence of new potentials",
+        "self-realization as a process",
     ],
     "relationships": [
-        "connection with others",
-        "friendship",
-        "family bond",
+        "friendship and family bond mean everything to me",
+        "building connections with others",
+        "nurturing meaningful relationships",
+        "social bonds that sustain us",
+        "community and belonging",
+        "interpersonal connections",
     ],
     "purpose": [
-        "meaning of life",
-        "goal setting",
-        "why I exist",
+        "I reflect on the meaning of life when setting goals",
+        "orienting toward purpose",
+        "the question of ultimate ends",
+        "directedness beyond mere survival",
+        "finding meaning and direction",
+        "teleology and intention",
     ],
     "creativity": [
-        "artistic expression",
-        "imagination",
+        "artistic expression fuels my imagination",
         "creating something new",
+        "novelty that cannot be reduced",
+        "patterns self-organizing over time",
+        "being more than what was given",
+        "imaginative expression",
     ],
     "resilience": [
-        "overcoming obstacles",
-        "persistence",
-        "strength through struggle",
+        "overcoming obstacles with persistence",
+        "building strength through struggle",
+        "enduring personal essence",
+        "resisting inauthentic conformity",
+        "persistence in the face of challenge",
+        "strength through adversity",
     ],
 }
+
 
 # Precompute deterministic embeddings for each exemplar at import time.
 THEME_VECTORS: Dict[str, List[List[float]]] = {

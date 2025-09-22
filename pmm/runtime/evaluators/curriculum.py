@@ -1,5 +1,4 @@
-from __future__ import annotations
-from typing import Optional, Dict, Any, List
+from typing import List, Dict, Any, Optional
 
 TAIL = 400
 COMP_PERF = "performance"
@@ -130,9 +129,9 @@ def maybe_propose_curriculum(eventlog, *, tick: int) -> Optional[int]:
     ticks = _recent_autonomy_ticks(
         tail, limit=max(SKIP_STREAK_THRESHOLD, PLATEAU_TICKS)
     )
-    # Reflection skip streaks (min_turns / low_novelty)
+    # Reflection skip streaks (due_to_min_turns / due_to_low_novelty)
     if ticks:
-        streak_counts = {"min_turns": 0, "low_novelty": 0}
+        streak_counts = {"due_to_min_turns": 0, "due_to_low_novelty": 0}
         for tinfo in ticks:
             if tinfo["did"]:
                 break
@@ -141,26 +140,26 @@ def maybe_propose_curriculum(eventlog, *, tick: int) -> Optional[int]:
                 streak_counts[reason] += 1
             else:
                 break
-        if streak_counts["min_turns"] >= SKIP_STREAK_THRESHOLD:
+        if streak_counts["due_to_min_turns"] >= SKIP_STREAK_THRESHOLD:
             current = _last_policy_params(tail, "reflection")
             min_turns = int(current.get("min_turns", 2))
             new_params = {"min_turns": max(1, min_turns - 1)}
             if new_params != {k: current.get(k) for k in new_params.keys()}:
                 return _append(
                     eventlog,
-                    kind="curriculum_update",
-                    meta={
+                    "curriculum_update",
+                    {
                         "proposed": {
                             "component": "reflection",
                             "params": new_params,
                         },
                         "reason": (
-                            f"reflect_skip_streak(min_turns)={streak_counts['min_turns']}"
+                            f"reflect_skip_streak(due_to_min_turns)={streak_counts['due_to_min_turns']}"
                         ),
                         "tick": int(tick),
                     },
                 )
-        if streak_counts["low_novelty"] >= SKIP_STREAK_THRESHOLD:
+        if streak_counts["due_to_low_novelty"] >= SKIP_STREAK_THRESHOLD:
             current = _last_policy_params(tail, "cooldown")
             try:
                 thr = float(current.get("novelty_threshold", 0.50))
@@ -171,14 +170,14 @@ def maybe_propose_curriculum(eventlog, *, tick: int) -> Optional[int]:
             if new_params != {k: current.get(k) for k in new_params.keys()}:
                 return _append(
                     eventlog,
-                    kind="curriculum_update",
-                    meta={
+                    "curriculum_update",
+                    {
                         "proposed": {
                             "component": "cooldown",
                             "params": new_params,
                         },
                         "reason": (
-                            f"reflect_skip_streak(low_novelty)={streak_counts['low_novelty']}"
+                            f"reflect_skip_streak(due_to_low_novelty)={streak_counts['due_to_low_novelty']}"
                         ),
                         "tick": int(tick),
                     },

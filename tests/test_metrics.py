@@ -2,6 +2,7 @@ from pmm.runtime.metrics import compute_ias_gas
 from pmm.storage.eventlog import EventLog
 from pmm.runtime.loop import emit_reflection, maybe_reflect
 from pmm.runtime.cooldown import ReflectionCooldown
+from pmm.config import REFLECTION_SKIPPED
 
 
 def test_compute_ias_gas_bounds():
@@ -63,6 +64,9 @@ def test_no_reflect_emits_skip_breadcrumb(tmp_path):
     skip = [
         e
         for e in evs
-        if e["kind"] == "debug" and (e.get("meta") or {}).get("reflect_skip")
+        if e["kind"] == REFLECTION_SKIPPED and (e.get("meta") or {}).get("reason")
     ]
-    assert skip and skip[-1]["meta"]["reflect_skip"] in ("min_turns", "min_time")
+    assert skip and skip[-1]["meta"]["reason"] in (
+        "min_turns",
+        "min_time",
+    )

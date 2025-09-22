@@ -74,6 +74,10 @@ def _append_debug_reflect_skip(log: EventLog, reason: str):
     log.append(kind="debug", content="", meta={"reflect_skip": reason})
 
 
+def _append_reflection_skipped(log: EventLog, reason: str):
+    log.append(kind="reflection_skipped", content="", meta={"reason": reason})
+
+
 def test_autonomy_does_not_auto_propose_identity(tmp_path):
     rt, log = _mk_rt(tmp_path)
     for _ in range(4):
@@ -387,11 +391,17 @@ def test_trait_drift_emits_bounded_events(tmp_path, monkeypatch):
     assert _count("stable_period") == 1
 
     # Novelty push: append three low_novelty debug skips, then tick
-    log.append(kind="debug", content="", meta={"reflect_skip": "low_novelty"})
+    log.append(
+        kind="reflection_skipped", content="", meta={"reason": "due_to_low_novelty"}
+    )
     aloop.tick()
-    log.append(kind="debug", content="", meta={"reflect_skip": "low_novelty"})
+    log.append(
+        kind="reflection_skipped", content="", meta={"reason": "due_to_low_novelty"}
+    )
     aloop.tick()
-    log.append(kind="debug", content="", meta={"reflect_skip": "low_novelty"})
+    log.append(
+        kind="reflection_skipped", content="", meta={"reason": "due_to_low_novelty"}
+    )
     aloop.tick()
     assert _count("novelty_push") == 1
 
@@ -426,7 +436,9 @@ def test_trait_drift_emits_bounded_events(tmp_path, monkeypatch):
 
     # Clamping: push openness upward repeatedly until exceeding 1.0
     for _ in range(10):
-        log.append(kind="debug", content="", meta={"reflect_skip": "low_novelty"})
+        log.append(
+            kind="reflection_skipped", content="", meta={"reason": "due_to_low_novelty"}
+        )
         aloop.tick()
     model = build_self_model(log.read_all())
     assert 0.0 <= model["identity"]["traits"]["openness"] <= 1.0
@@ -445,11 +457,17 @@ def test_no_drift_before_identity_adopt(tmp_path):
         eventlog=log, cooldown=rt.cooldown, interval_seconds=0.1, proposer=lambda: "Ada"
     )
     # Emit sequences similar to drift triggers
-    log.append(kind="debug", content="", meta={"reflect_skip": "low_novelty"})
+    log.append(
+        kind="reflection_skipped", content="", meta={"reason": "due_to_low_novelty"}
+    )
     aloop.tick()
-    log.append(kind="debug", content="", meta={"reflect_skip": "low_novelty"})
+    log.append(
+        kind="reflection_skipped", content="", meta={"reason": "due_to_low_novelty"}
+    )
     aloop.tick()
-    log.append(kind="debug", content="", meta={"reflect_skip": "low_novelty"})
+    log.append(
+        kind="reflection_skipped", content="", meta={"reason": "due_to_low_novelty"}
+    )
     aloop.tick()
     # Bootstrap identity exists; trait updates may occur
     assert any(e.get("kind") == "trait_update" for e in log.read_all())

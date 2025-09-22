@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from typing import Tuple, Dict, Any, List, Optional
+from typing import Dict, List, Optional, Any, Tuple
+
+from pmm.config import (
+    REFLECTION_REJECTED,
+)
 
 # Pure, deterministic acceptance gate for reflections.
 # No I/O, no randomness, no external dependencies. Operates only on provided inputs.
@@ -113,7 +117,7 @@ def _rejection_streak_since(
             continue
         if since_id is not None and eid <= since_id:
             break
-        if e.get("kind") == "debug":
+        if e.get("kind") == REFLECTION_REJECTED:
             meta = e.get("meta") or {}
             if "reflection_reject" in meta:
                 cnt += 1

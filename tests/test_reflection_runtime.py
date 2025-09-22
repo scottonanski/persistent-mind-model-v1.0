@@ -1,6 +1,7 @@
 from pmm.storage.eventlog import EventLog
 from pmm.runtime.cooldown import ReflectionCooldown
 from pmm.runtime.loop import maybe_reflect
+from pmm.config import REFLECTION_SKIPPED, REFLECTION_REJECTED
 
 
 def test_no_reflect_emits_skip_breadcrumb(tmp_path):
@@ -18,8 +19,8 @@ def test_no_reflect_emits_skip_breadcrumb(tmp_path):
     assert reason == "min_time"
 
     evs = log.read_all()
-    skips = [e for e in evs if e["kind"] == "debug"]
-    assert skips and (skips[-1].get("meta") or {}).get("reflect_skip") == "min_time"
+    skips = [e for e in evs if e["kind"] == REFLECTION_SKIPPED]
+    assert skips and (skips[-1].get("meta") or {}).get("reason") == "min_time"
 
 
 def test_reflect_resets_cooldown(tmp_path):
@@ -48,13 +49,13 @@ def test_reflect_resets_cooldown(tmp_path):
         assert 0.0 <= tel.get("IAS", 0.0) <= 1.0
         assert 0.0 <= tel.get("GAS", 0.0) <= 1.0
     else:
-        # If rejected, a debug breadcrumb is emitted
+        # If rejected, a reflection_rejected breadcrumb is emitted
         rejects = [
             e
             for e in events
-            if e.get("kind") == "debug"
-            and (e.get("meta") or {}).get("reflection_reject")
+            if e.get("kind") == REFLECTION_REJECTED
+            and (e.get("meta") or {}).get("reason")
         ]
         assert (
             rejects
-        ), "expected a reflection_reject breadcrumb when no reflection is emitted"
+        ), "expected a reflection_rejected breadcrumb when no reflection is emitted"

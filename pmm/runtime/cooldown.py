@@ -64,5 +64,5 @@ class ReflectionCooldown:
         if (now - self.last_ts) < min_seconds:
             return (False, "min_time")
         if novelty < novelty_thr:
-            return (False, "low_novelty")
+            return (False, "due_to_low_novelty")
         return (True, "ok")

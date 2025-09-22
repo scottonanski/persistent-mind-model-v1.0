@@ -115,24 +115,46 @@ CONTINUITY_INSIGHT_CONFIDENCE_THRESHOLD = 0.70
 # Prioritizer Configuration (constant)
 PRIORITY_THRESHOLD = 0.70
 
-# Evidence policy (module-level constant used by tracker):
-# When False (default), text-only evidence may close commitments.
-# When True, an artifact is required alongside non-empty description.
-require_artifact_evidence: bool = False
+# Event Kind Constants (for refactored debug events)
+# Legacy compatibility flag - set to False after migration is complete
+SUPPORT_LEGACY_DEBUG_EVENTS = False
 
-# Debug Configuration (disabled in core)
-DEBUG_MODE = False
+# New event kinds to replace overloaded 'debug' kind
+NAME_ATTEMPT_USER = "name_attempt_user"
+NAME_ATTEMPT_SYSTEM = "name_attempt_system"
+REFLECTION_SKIPPED = "reflection_skipped"
+REFLECTION_FORCED = "reflection_forced"
+REFLECTION_REJECTED = "reflection_rejected"
 
+# Skip reason constants (normalized from legacy reflect_skip values)
+DUE_TO_CADENCE = "due_to_cadence"
+DUE_TO_LOW_NOVELTY = "due_to_low_novelty"
+DUE_TO_MIN_TIME = "due_to_min_time"
+DUE_TO_MIN_TURNS = "due_to_min_turns"
+DUE_TO_TIME = "due_to_time"
 
-# ---- Lightweight project config (JSON, optional) ----
-# Provides durable policy defaults without environment flags. Values here can be
-# overridden by creating a project-local ".pmm/config.json" file.
+# All configuration constants for the load() function
 _DEFAULTS = {
-    # Tighten reflection cadence so deep reflections occur in short sessions
-    "reflect_min_turns": 1,
-    "reflect_min_seconds": 0,
-    # Repeat per-tick reminders for reflection-driven commitments while overdue
-    "repeat_overdue_reflection_commitment_reminders": True,
+    "DEFAULT_MODEL": DEFAULT_MODEL,
+    "DEFAULT_BASE_URL": DEFAULT_BASE_URL,
+    "DEFAULT_DB_PATH": DEFAULT_DB_PATH,
+    "COMMITMENT_THRESHOLD": COMMITMENT_THRESHOLD,
+    "DUPLICATE_SIM_THRESHOLD": DUPLICATE_SIM_THRESHOLD,
+    "CONTINUITY_REFLECTION_COOLDOWN_HOURS": CONTINUITY_REFLECTION_COOLDOWN_HOURS,
+    "CONTINUITY_LOOKBACK_DAYS": CONTINUITY_LOOKBACK_DAYS,
+    "CONTINUITY_INSIGHT_CONFIDENCE_THRESHOLD": CONTINUITY_INSIGHT_CONFIDENCE_THRESHOLD,
+    "PRIORITY_THRESHOLD": PRIORITY_THRESHOLD,
+    "SUPPORT_LEGACY_DEBUG_EVENTS": SUPPORT_LEGACY_DEBUG_EVENTS,
+    "NAME_ATTEMPT_USER": NAME_ATTEMPT_USER,
+    "NAME_ATTEMPT_SYSTEM": NAME_ATTEMPT_SYSTEM,
+    "REFLECTION_SKIPPED": REFLECTION_SKIPPED,
+    "REFLECTION_FORCED": REFLECTION_FORCED,
+    "REFLECTION_REJECTED": REFLECTION_REJECTED,
+    "DUE_TO_CADENCE": DUE_TO_CADENCE,
+    "DUE_TO_LOW_NOVELTY": DUE_TO_LOW_NOVELTY,
+    "DUE_TO_MIN_TIME": DUE_TO_MIN_TIME,
+    "DUE_TO_MIN_TURNS": DUE_TO_MIN_TURNS,
+    "DUE_TO_TIME": DUE_TO_TIME,
 }
 
 

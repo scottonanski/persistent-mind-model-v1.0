@@ -57,19 +57,21 @@ def get_ias_gas_from_db(eventlog) -> Tuple[float, float, int]:
     try:
         from pmm.constants import EventKinds
 
-        row = eventlog._conn.execute(
-            "SELECT id, meta FROM events WHERE kind=? ORDER BY id DESC LIMIT 1",
-            (EventKinds.METRICS_UPDATE,),
-        ).fetchone()
+        with eventlog._lock:
+            row = eventlog._conn.execute(
+                "SELECT id, meta FROM events WHERE kind=? ORDER BY id DESC LIMIT 1",
+                (EventKinds.METRICS_UPDATE,),
+            ).fetchone()
         if row:
             event_id, meta_str = row
             meta = json.loads(meta_str or "{}")
             ias = float(meta.get("IAS", 0.0))
             gas = float(meta.get("GAS", 0.0))
             return ias, gas, int(event_id)
-    except Exception:
-        pass
-    return 0.0, 0.0, 0
+        return 0.0, 0.0, 0  # No metrics event found
+    except Exception as e:
+        logger.error(f"Error reading metrics from DB: {e}")
+        return 0.0, 0.0, 0
 
 
 def needs_metrics_recomputation(eventlog, last_metrics_id: int) -> bool:
@@ -90,11 +92,12 @@ def needs_metrics_recomputation(eventlog, last_metrics_id: int) -> bool:
         ]
         placeholders = ",".join(["?" for _ in relevant_kinds])
         query = f"""
-            SELECT COUNT(*) FROM events 
+            SELECT COUNT(*) FROM events
             WHERE id > ? AND kind IN ({placeholders})
         """
         params = [last_metrics_id] + relevant_kinds
-        row = eventlog._conn.execute(query, params).fetchone()
+        with eventlog._lock:
+            row = eventlog._conn.execute(query, params).fetchone()
         return row[0] > 0 if row else True
     except Exception:
         return True  # Err on side of recomputation
@@ -232,11 +235,19 @@ def get_or_compute_ias_gas(eventlog) -> Tuple[float, float]:
         logger.info("No metrics found in DB, will compute from scratch")
 
     # Step 2: Check if recomputation is needed
-    if needs_metrics_recomputation(eventlog, last_metrics_id):
+    # Always recompute if cached IAS is 0.0 (indicating stale data from circular dependency bug)
+    force_recompute = ias == 0.0 and last_metrics_id > 0
+
+    if needs_metrics_recomputation(eventlog, last_metrics_id) or force_recompute:
         if last_metrics_id > 0:
-            logger.info(
-                f"New events detected after metrics_id={last_metrics_id}, recomputing..."
-            )
+            if force_recompute:
+                logger.info(
+                    "Stale metrics detected (IAS=0.0), forcing recomputation despite no new events..."
+                )
+            else:
+                logger.info(
+                    f"New events detected after metrics_id={last_metrics_id}, recomputing..."
+                )
         else:
             logger.info("Computing initial metrics from event ledger...")
 
@@ -247,6 +258,9 @@ def get_or_compute_ias_gas(eventlog) -> Tuple[float, float]:
 
         logger.info(
             f"Recomputed metrics: IAS={ias:.3f} (was {old_ias:.3f}), GAS={gas:.3f} (was {old_gas:.3f})"
+        )
+        logger.info(
+            f"These computed metrics will be sent in API headers: IAS={ias}, GAS={gas}"
         )
 
         # Diagnose IAS if it's unexpectedly low
@@ -360,12 +374,13 @@ def compute_ias_gas(events: Iterable[dict]) -> Tuple[float, float]:
         tix = int(tick_index_by_eid.get(eid, 0))
 
         if kind == "identity_adopt":
-            # Name from meta.sanitized, meta.name, or content
             m = ev.get("meta") or {}
             nm = str(
                 m.get("sanitized") or m.get("name") or ev.get("content") or ""
             ).strip()
-            adopt_events.append((tix, nm))
+            confidence = float(m.get("confidence", 0.0))
+            if nm and confidence >= 0.9:  # Only consider high-confidence adoptions
+                adopt_events.append((tix, nm))
 
             # Flip-flop penalty if within the stable window
             if last_adopt_tick is not None and last_adopt_name and nm:
@@ -492,10 +507,11 @@ def adjust_gas_from_text(
     try:
         from pmm.constants import EventKinds
 
-        row = eventlog._conn.execute(
-            "SELECT meta FROM events WHERE kind=? ORDER BY id DESC LIMIT 1",
-            (EventKinds.METRICS_UPDATE,),
-        ).fetchone()
+        with eventlog._lock:
+            row = eventlog._conn.execute(
+                "SELECT meta FROM events WHERE kind=? ORDER BY id DESC LIMIT 1",
+                (EventKinds.METRICS_UPDATE,),
+            ).fetchone()
     except Exception:
         row = None
     gas_prev = 0.0

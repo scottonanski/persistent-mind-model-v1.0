@@ -45,13 +45,7 @@ def test_identity_adoption_flow():
 
         # ✅ Reflection triggered immediately OR forced reflection debug marker present
         reflections = [e for e in events if e["kind"] == "reflection"]
-        debug_forced = [
-            e
-            for e in events
-            if e["kind"] == "debug"
-            and (e.get("meta") or {}).get("forced_reflection_reason")
-            == "identity_adopt"
-        ]
+        debug_forced = [e for e in events if e["kind"] == "reflection_forced"]
         assert (
             reflections or debug_forced
         ), "Should emit reflection or forced reflection debug after adoption"
@@ -105,9 +99,7 @@ def test_identity_adoption_flow():
         debug_after = [
             e
             for e in events
-            if e["kind"] == "debug"
-            and (e.get("meta") or {}).get("forced_reflection_reason")
-            == "identity_adopt"
+            if e["kind"] == "reflection_forced"
             and int(e.get("id") or 0) > int(last_adopt_id)
         ]
         assert reflections_after or debug_after

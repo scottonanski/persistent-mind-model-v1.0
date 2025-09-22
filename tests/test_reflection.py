@@ -39,4 +39,4 @@ def test_cooldown_blocks_low_novelty(tmp_path):
     cd.note_user_turn()
     cd.note_user_turn()
     ok, reason = evaluate_reflection(cd, now=cd.last_ts + 6.0, novelty=0.1)
-    assert (ok, reason) == (False, "low_novelty")
+    assert (ok, reason) == (False, "due_to_low_novelty")

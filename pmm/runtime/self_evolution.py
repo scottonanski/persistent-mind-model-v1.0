@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from typing import Dict, List, Any
 
+from pmm.config import (
+    REFLECTION_SKIPPED,
+)
+
 
 class SelfEvolution:
     """Applies intrinsic, append-only self-evolution policies.
@@ -48,13 +52,9 @@ class SelfEvolution:
 
         # Recognize reflection skip events for novelty_low
         def is_skip_novelty_low(ev: Dict) -> bool:
-            if ev.get("kind") == "reflection_skip":
-                # Optional schema
-                reason = (ev.get("content") or "").split(":", 1)[-1].strip()
-                return reason == "novelty_low"
-            if ev.get("kind") == "debug":
+            if ev.get("kind") == REFLECTION_SKIPPED:
                 meta = ev.get("meta") or {}
-                return meta.get("reflect_skip") == "novelty_low"
+                return meta.get("reason") == "due_to_low_novelty"
             return False
 
         def is_reflection(ev: Dict) -> bool:
@@ -63,9 +63,7 @@ class SelfEvolution:
         # Consider only reflection-relevant events when computing consecutive tails,
         # so unrelated trailing events do not break the streak.
         relevant = [
-            e
-            for e in events
-            if e.get("kind") in {"reflection", "reflection_skip", "debug"}
+            e for e in events if e.get("kind") in {"reflection", REFLECTION_SKIPPED}
         ]
         skips = cls._consecutive_tail(relevant, is_skip_novelty_low)
         succ = cls._consecutive_tail(relevant, is_reflection)

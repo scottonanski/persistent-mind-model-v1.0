@@ -12,9 +12,11 @@ def _ev(kind, content="", meta=None, ts=None):
 def test_adaptive_cooldown_decrease_on_consecutive_novelty_low(tmp_path):
     # 4 consecutive skip:novelty_low => decrease threshold by 0.05 (from default 0.2 -> 0.15)
     log = EventLog(str(tmp_path / "evo1.db"))
-    # Seed 4 consecutive reflection_skip events
+    # Seed 4 consecutive reflection_skipped events
     for _ in range(4):
-        log.append(kind="reflection_skip", content="skip:novelty_low", meta={})
+        log.append(
+            kind="reflection_skipped", content="", meta={"reason": "due_to_low_novelty"}
+        )
     changes, _ = SelfEvolution.apply_policies(log.read_all(), {"IAS": 0.0, "GAS": 0.0})
     assert round(float(changes.get("cooldown.novelty_threshold")), 2) == 0.15
 

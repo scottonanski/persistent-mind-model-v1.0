@@ -7,7 +7,7 @@ from pmm.runtime.stage_tracker import StageTracker
 
 
 class _CDAlwaysSkip:
-    def __init__(self, reason="low_novelty"):
+    def __init__(self, reason="due_to_low_novelty"):
         self.reason = reason
         self.last_ts = 0.0
         self.turns_since = 99
@@ -89,7 +89,7 @@ def test_stage_scaled_deltas(log, monkeypatch):
     _adopt_identity(log)
     # S1 to trigger Rule 2 (three low_novelty skips)
     _monkey_stage(monkeypatch, ["S1"] * 10)
-    cd = _CDAlwaysSkip("low_novelty")
+    cd = _CDAlwaysSkip("due_to_low_novelty")
     loop = AutonomyLoop(eventlog=log, cooldown=cd, interval_seconds=0.01)
 
     # Keep at least one open commitment during S1 ticks to avoid triggering Rule 3 inadvertently
@@ -155,7 +155,7 @@ def test_clamping_still_projection_only(log, monkeypatch):
     _adopt_identity(log)
     # Force repeated Rule 2 to try to push openness over 1.0; projection should clamp
     _monkey_stage(monkeypatch, ["S1"] * 50)
-    cd = _CDAlwaysSkip("low_novelty")
+    cd = _CDAlwaysSkip("due_to_low_novelty")
     loop = AutonomyLoop(eventlog=log, cooldown=cd, interval_seconds=0.01)
 
     # Tick many times to emit multiple Rule 2 updates, spaced by rule's 5-tick guard

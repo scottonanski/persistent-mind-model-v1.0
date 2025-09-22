@@ -1,15 +1,11 @@
 """Tests for identity-linked evolution features."""
 
-import pytest
 import tempfile
 import os
 from pmm.storage.eventlog import EventLog
 from pmm.runtime.loop import Runtime
 from pmm.llm.factory import LLMConfig
-
-# Skip this module if local Ollama client isn't installed.
-# The runtime uses the Ollama adapter for these tests' configuration.
-pytest.importorskip("ollama")
+import pytest
 
 
 def test_identity_checkpoint_emission():
@@ -19,7 +15,7 @@ def test_identity_checkpoint_emission():
         eventlog = EventLog(db_path)
 
         # Create a minimal runtime
-        cfg = LLMConfig(provider="ollama", model="test")
+        cfg = LLMConfig(provider="dummy", model="test")
         runtime = Runtime(cfg, eventlog)
 
         # Adopt an identity
@@ -60,7 +56,7 @@ def test_trait_nudges_on_identity_adopt():
         eventlog.append("response", "That sounds fun!", {})
 
         # Create a minimal runtime
-        cfg = LLMConfig(provider="ollama", model="test")
+        cfg = LLMConfig(provider="dummy", model="test")
         runtime = Runtime(cfg, eventlog)
 
         # Adopt an identity
@@ -86,7 +82,7 @@ def test_commitment_rebinding_on_identity_adopt():
         eventlog = EventLog(db_path)
 
         # Create a minimal runtime
-        cfg = LLMConfig(provider="ollama", model="test")
+        cfg = LLMConfig(provider="dummy", model="test")
         runtime = Runtime(cfg, eventlog)
 
         # First adopt the initial identity
@@ -126,7 +122,7 @@ def test_forced_reflection_after_identity_adopt():
         eventlog = EventLog(db_path)
 
         # Create a minimal runtime
-        cfg = LLMConfig(provider="ollama", model="test")
+        cfg = LLMConfig(provider="dummy", model="test")
         runtime = Runtime(cfg, eventlog)
 
         # Adopt an identity
@@ -157,7 +153,7 @@ def test_min_turns_constraint_between_identity_adopts():
         eventlog = EventLog(db_path)
 
         # Create a minimal runtime
-        cfg = LLMConfig(provider="ollama", model="test")
+        cfg = LLMConfig(provider="dummy", model="test")
         runtime = Runtime(cfg, eventlog)
 
         # Adopt first identity
@@ -189,7 +185,7 @@ def test_ias_gas_response_to_identity_events():
         eventlog = EventLog(db_path)
 
         # Create a minimal runtime
-        cfg = LLMConfig(provider="ollama", model="test")
+        cfg = LLMConfig(provider="dummy", model="test")
         runtime = Runtime(cfg, eventlog)
 
         # Add some commitments to establish baseline
@@ -226,7 +222,7 @@ def test_invariants_verification_for_identity_evolution():
         eventlog = EventLog(db_path)
 
         # Create a minimal runtime
-        cfg = LLMConfig(provider="ollama", model="test")
+        cfg = LLMConfig(provider="dummy", model="test")
         runtime = Runtime(cfg, eventlog)
 
         # Test 1: Identity adopt without proposal should be caught

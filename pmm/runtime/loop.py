@@ -44,7 +44,15 @@ from pmm.runtime.bridge import ResponseRenderer
 from pmm.runtime.introspection import run_audit
 from pmm.runtime.stage_tracker import POLICY_HINTS_BY_STAGE
 import pmm.runtime.embeddings as _emb
-from pmm.config import load as _load_cfg
+from pmm.config import (
+    load as _load_cfg,
+    REFLECTION_REJECTED,
+    REFLECTION_SKIPPED,
+    REFLECTION_FORCED,
+    DUE_TO_CADENCE,
+    NAME_ATTEMPT_USER,
+    NAME_ATTEMPT_SYSTEM,
+)
 from pmm.directives.detector import (
     extract as _extract_directives,
 )
@@ -653,10 +661,9 @@ class Runtime:
         # Debug breadcrumb: audit naming gate (user path)
         try:
             self.eventlog.append(
-                kind="debug",
+                kind=NAME_ATTEMPT_USER,
                 content="",
                 meta={
-                    "naming_gate_check": "user",
                     "intent": intent,
                     "name": candidate_name,
                     "confidence": float(confidence),
@@ -743,7 +750,7 @@ class Runtime:
                     candidate_name = cands[0]
                     try:
                         self.eventlog.append(
-                            kind="debug",
+                            kind=NAME_ATTEMPT_USER,
                             content="naming_fallback_candidate",
                             meta={"name": candidate_name, "path": "user"},
                         )
@@ -789,7 +796,7 @@ class Runtime:
                         self.eventlog.append(
                             kind="identity_adopt",
                             content=sanitized,
-                            meta={"name": sanitized, **meta},
+                            meta={"name": sanitized, **meta, "confidence": 0.9},
                         )
                     except Exception:
                         pass
@@ -932,10 +939,9 @@ class Runtime:
         # Debug breadcrumb: audit naming gate (assistant path)
         try:
             self.eventlog.append(
-                kind="debug",
+                kind=NAME_ATTEMPT_SYSTEM,
                 content="",
                 meta={
-                    "naming_gate_check": "assistant",
                     "intent": intent_reply,
                     "name": candidate_reply,
                     "confidence": float(confidence_reply),
@@ -971,7 +977,7 @@ class Runtime:
                     candidate_reply = cands_r[0]
                     try:
                         self.eventlog.append(
-                            kind="debug",
+                            kind=NAME_ATTEMPT_USER,
                             content="naming_fallback_candidate",
                             meta={"name": candidate_reply, "path": "assistant"},
                         )
@@ -1013,7 +1019,7 @@ class Runtime:
                         self.eventlog.append(
                             kind="identity_adopt",
                             content=sanitized,
-                            meta={"name": sanitized, **meta},
+                            meta={"name": sanitized, **meta, "confidence": 0.9},
                         )
                     except Exception:
                         pass
@@ -1520,7 +1526,7 @@ class Runtime:
             # Authoritative: record diagnostics and skip reflection path this tick
             try:
                 self.eventlog.append(
-                    kind="debug",
+                    kind=NAME_ATTEMPT_USER,
                     content="",
                     meta={
                         "reflection_reject": _reject_reason,
@@ -1612,7 +1618,7 @@ class Runtime:
         if not skip_extra and _emit_audit_debug_post:
             try:
                 self.eventlog.append(
-                    kind="debug",
+                    kind=NAME_ATTEMPT_USER,
                     content="",
                     meta={
                         "reflection_reject": _reject_reason,
@@ -1683,7 +1689,7 @@ class Runtime:
         except Exception as e:
             # Fail-safe: never block reflection flow on growth analysis errors
             self.eventlog.append(
-                kind="debug",
+                kind=NAME_ATTEMPT_USER,
                 content=f"SemanticGrowth skipped: {type(e).__name__} {e}",
                 meta={"source": "semantic_growth"},
             )
@@ -2356,10 +2362,10 @@ def emit_reflection(
     if not _would_accept:
         try:
             eventlog.append(
-                kind="debug",
+                kind=REFLECTION_REJECTED,
                 content="",
                 meta={
-                    "reflection_reject": _reject_reason,
+                    "reason": _reject_reason,
                     "scores": _reject_meta,
                     "accept_mode": "audit",
                     "forced": forced,  # Track if this was a forced reflection
@@ -2397,7 +2403,7 @@ def emit_reflection(
                 else:
                     # Even fallback failed - log and continue with original for forced
                     eventlog.append(
-                        kind="debug",
+                        kind=NAME_ATTEMPT_USER,
                         content="",
                         meta={
                             "forced_fallback_failed": _reject_reason_retry,
@@ -2407,7 +2413,7 @@ def emit_reflection(
             except Exception as e:
                 # Fallback generation failed - log and continue
                 eventlog.append(
-                    kind="debug",
+                    kind=NAME_ATTEMPT_USER,
                     content="",
                     meta={
                         "forced_fallback_error": str(e),
@@ -2588,7 +2594,7 @@ def maybe_reflect(
             # Final fallback: no-arg call
             ok, reason = cooldown.should_reflect()
     if not ok:
-        eventlog.append(kind="debug", content="", meta={"reflect_skip": reason})
+        eventlog.append(kind=REFLECTION_SKIPPED, content="", meta={"reason": reason})
         if reason in _FORCEABLE_SKIP_REASONS:
             streak = _consecutive_reflect_skips(eventlog, reason)
             if streak >= _FORCED_SKIP_THRESHOLD:
@@ -2606,7 +2612,7 @@ def maybe_reflect(
                 except Exception:
                     pass
                 eventlog.append(
-                    kind="debug",
+                    kind=NAME_ATTEMPT_USER,
                     content="",
                     meta={
                         "forced_reflection": {
@@ -2686,8 +2692,13 @@ CADENCE_BY_STAGE = {
     "S4": {"min_turns": 6, "min_time_s": 90, "force_reflect_if_stuck": False},
 }
 
-_STUCK_REASONS = {"min_turns", "min_time", "low_novelty", "cadence"}
-_FORCEABLE_SKIP_REASONS = {"min_turns", "low_novelty"}
+_STUCK_REASONS = {
+    "due_to_min_turns",
+    "due_to_min_time",
+    "due_to_low_novelty",
+    "due_to_cadence",
+}
+_FORCEABLE_SKIP_REASONS = {"due_to_min_turns", "due_to_low_novelty"}
 _FORCED_SKIP_THRESHOLD = 2
 _COMMITMENT_PROTECT_TICKS = 3
 _IDENTITY_REEVAL_WINDOW = 6
@@ -2696,7 +2707,7 @@ _IDENTITY_REEVAL_WINDOW = 6
 def _consecutive_reflect_skips(
     eventlog: EventLog, reason: str, *, lookback: int = 8
 ) -> int:
-    """Count consecutive reflection skip debug events for the same reason."""
+    """Count consecutive reflection skip events for the same reason."""
     try:
         tail = eventlog.read_tail(limit=lookback)
     except Exception:
@@ -2706,10 +2717,10 @@ def _consecutive_reflect_skips(
             return 0
     count = 0
     for ev in reversed(tail):
-        if ev.get("kind") != "debug":
+        if ev.get("kind") != REFLECTION_SKIPPED:
             break
         meta = ev.get("meta") or {}
-        if meta.get("reflect_skip") == reason:
+        if meta.get("reason") == reason:
             count += 1
         else:
             break
@@ -2900,7 +2911,7 @@ class AutonomyLoop:
         # Append a debug marker immediately to make adoption-triggered reflection intent traceable
         try:
             self.eventlog.append(
-                kind="debug",
+                kind=NAME_ATTEMPT_USER,
                 content="Forcing reflection due to identity adoption",
                 meta={
                     "forced_reflection_reason": "identity_adopt",
@@ -2979,7 +2990,7 @@ class AutonomyLoop:
         except Exception:
             try:
                 self.eventlog.append(
-                    kind="debug",
+                    kind=NAME_ATTEMPT_USER,
                     content=f"Failed to create identity_checkpoint for {sanitized}",
                     meta={
                         "error": "checkpoint_creation_failed",
@@ -2995,8 +3006,8 @@ class AutonomyLoop:
             if _has_reflection_since_last_tick(self.eventlog):
                 # Suppress duplicate reflection within same tick
                 self.eventlog.append(
-                    kind="debug",
-                    content="Reflection suppressed: already reflected this tick",
+                    kind=REFLECTION_FORCED,
+                    content="",
                     meta={
                         "forced_reflection_reason": "identity_adopt",
                         "identity_adopt_event_id": adopt_eid,
@@ -3013,7 +3024,7 @@ class AutonomyLoop:
                 )
                 # Always record a debug marker to indicate a forced reflection attempt
                 self.eventlog.append(
-                    kind="debug",
+                    kind=NAME_ATTEMPT_USER,
                     content="Forced reflection after identity adoption",
                     meta={
                         "identity_adopt_event_id": adopt_eid,
@@ -3021,6 +3032,17 @@ class AutonomyLoop:
                         "did_reflect": bool(did_reflect),
                     },
                 )
+                # If reflection failed, emit a forced reflection marker
+                if not did_reflect:
+                    self.eventlog.append(
+                        kind=REFLECTION_FORCED,
+                        content="",
+                        meta={
+                            "forced_reflection_reason": "identity_adopt",
+                            "identity_adopt_event_id": adopt_eid,
+                            "reflection_failed": True,
+                        },
+                    )
                 # Always emit a PMM-native reflection after adoption to ensure ontology-locked content
                 try:
                     from pmm.runtime.emergence import pmm_native_reflection
@@ -3051,11 +3073,22 @@ class AutonomyLoop:
         except Exception:
             try:
                 self.eventlog.append(
-                    kind="debug",
+                    kind=NAME_ATTEMPT_USER,
                     content=f"Failed to force reflection after adopting identity {sanitized}",
                     meta={
                         "error": "forced_reflection_failed",
                         "identity_adopt_event_id": adopt_eid,
+                    },
+                )
+                # Emit forced reflection marker on error
+                self.eventlog.append(
+                    kind=REFLECTION_FORCED,
+                    content="",
+                    meta={
+                        "forced_reflection_reason": "identity_adopt",
+                        "identity_adopt_event_id": adopt_eid,
+                        "reflection_failed": True,
+                        "error": "exception_during_reflection",
                     },
                 )
             except Exception:
@@ -3380,9 +3413,15 @@ class AutonomyLoop:
         self._force_reason_next_tick = None
         # Stabilize telemetry: use stage snapshot means so the tick's own telemetry
         # does not cause unintended stage drift across ticks in tests.
+        # Only use snapshot means if they are non-zero (not stale)
         try:
-            ias = float(snapshot.get("IAS_mean", ias))
-            gas = float(snapshot.get("GAS_mean", gas))
+            snapshot_ias = float(snapshot.get("IAS_mean", 0.0))
+            snapshot_gas = float(snapshot.get("GAS_mean", 0.0))
+            # Only override with snapshot if snapshot has valid values
+            if snapshot_ias > 0.0:
+                ias = snapshot_ias
+            if snapshot_gas > 0.0:
+                gas = snapshot_gas
         except Exception:
             pass
         cadence = CADENCE_BY_STAGE.get(
@@ -3648,7 +3687,7 @@ class AutonomyLoop:
                 except Exception:
                     pass
                 self.eventlog.append(
-                    kind="debug",
+                    kind=NAME_ATTEMPT_USER,
                     content="",
                     meta={
                         "forced_reflection": {
@@ -3677,7 +3716,7 @@ class AutonomyLoop:
                 )
         else:
             self.eventlog.append(
-                kind="debug", content="", meta={"reflect_skip": "cadence"}
+                kind=REFLECTION_SKIPPED, content="", meta={"reason": DUE_TO_CADENCE}
             )
             did, reason = (False, "cadence")
             # Emit bandit breadcrumb even when skipping reflection for observability
@@ -3870,7 +3909,7 @@ class AutonomyLoop:
                                 if did_reflect:
                                     try:
                                         self.eventlog.append(
-                                            kind="debug",
+                                            kind=NAME_ATTEMPT_USER,
                                             content="",
                                             meta={
                                                 "forced_reflection": {
@@ -3894,7 +3933,7 @@ class AutonomyLoop:
                             self._force_reason_next_tick = "commitment_followup"
                         try:
                             self.eventlog.append(
-                                kind="debug",
+                                kind=NAME_ATTEMPT_USER,
                                 content="",
                                 meta={
                                     "commitment_followup": {
@@ -4486,12 +4525,12 @@ class AutonomyLoop:
         # Determine recent novelty gate by inspecting last debug reflect_skip
         last_reflect_skip = None
         for ev in reversed(events):
-            if ev.get("kind") == "debug":
-                rs = (ev.get("meta") or {}).get("reflect_skip")
+            if ev.get("kind") == REFLECTION_SKIPPED:
+                rs = (ev.get("meta") or {}).get("reason")
                 if rs is not None:
                     last_reflect_skip = rs
                     break
-        novelty_ok = last_reflect_skip != "low_novelty"
+        novelty_ok = last_reflect_skip != "due_to_low_novelty"
         # Defer autonomy_tick append until after TTL sweep below to ensure ordering
         tick_no = 1 + sum(1 for ev in events if ev.get("kind") == "autonomy_tick")
         _vprint(
@@ -4617,7 +4656,7 @@ class AutonomyLoop:
                 fallback = candidate_prop or "Persona"
                 try:
                     self.eventlog.append(
-                        kind="debug",
+                        kind=NAME_ATTEMPT_USER,
                         content="",
                         meta={
                             "identity_adopt": "bootstrap",
@@ -4770,10 +4809,10 @@ class AutonomyLoop:
                         continue
                     if end_incl is not None and eid > end_incl:
                         continue
-                    if ev.get("kind") == "debug":
-                        rs = (ev.get("meta") or {}).get("reflect_skip")
+                    if ev.get("kind") == REFLECTION_SKIPPED:
+                        rs = (ev.get("meta") or {}).get("reason")
                         # Treat cadence gating as effectively a novelty-related skip for Rule 2 purposes
-                        if str(rs) in {"low_novelty", "cadence"}:
+                        if str(rs) in {"due_to_low_novelty", "due_to_cadence"}:
                             return True
                 return False
 
@@ -4790,7 +4829,7 @@ class AutonomyLoop:
                 # OR any debug reflect_skip=low_novelty already appeared since A this tick.
                 low_curr = (
                     (not reflect_success)
-                    and (str(reason) in {"low_novelty", "cadence"})
+                    and (str(reason) in {"due_to_low_novelty", "due_to_cadence"})
                 ) or _had_low_between(A, None)
                 if low_curr:
                     low_prev1 = _had_low_between(B, A)
@@ -4856,7 +4895,7 @@ class AutonomyLoop:
             # Debug breadcrumb for diagnostics
             try:
                 self.eventlog.append(
-                    kind="debug",
+                    kind=NAME_ATTEMPT_USER,
                     content="reminder_scan",
                     meta={"open_count": int(len(open_map_due))},
                 )

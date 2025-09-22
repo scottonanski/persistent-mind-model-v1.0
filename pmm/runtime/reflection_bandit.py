@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import List, Dict, Tuple, Optional
 import random as _random
-from pmm.runtime.metrics import compute_ias_gas
+from pmm.runtime.metrics import compute_ias_gas, get_or_compute_ias_gas
+from pmm.storage.eventlog import get_default_eventlog
 
 # Fixed arms and templates (names only used for logging; prompt integration optional)
 ARMS: Tuple[str, ...] = (
@@ -290,3 +291,27 @@ def maybe_log_reward(eventlog, *, horizon: int = 3) -> Optional[int]:
         content="",
         meta={"arm": arm_final, "reward": float(reward), "tick": tick_now},
     )
+
+
+def emit_reflection(
+    self,
+    content: str,
+    refs: List[Dict],
+    stage_level: int,
+    quality_score: float,
+    forced: bool = False,
+) -> None:
+    """Emit a reflection event with telemetry."""
+
+    eventlog = get_default_eventlog()
+    ias, gas = get_or_compute_ias_gas(eventlog)
+
+    meta = {
+        "source": "reflection_bandit",
+        "telemetry": {"IAS": ias, "GAS": gas},
+        "refs": refs,
+        "stage_level": stage_level,
+        "quality_score": quality_score,
+        "forced": forced,
+    }
+    eventlog.append("reflection", content, meta)

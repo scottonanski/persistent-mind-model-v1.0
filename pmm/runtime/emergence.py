@@ -16,6 +16,8 @@ import hashlib
 import json
 import math
 
+from pmm.config import REFLECTION_FORCED
+
 
 class EmergenceScorer:
     """Computes multi-dimensional emergence scores from event ledger."""
@@ -278,7 +280,7 @@ def pmm_native_reflection(
     """
     try:
         # always mark the attempt for traceability
-        eventlog.append("debug", "", {"forced_reflection_reason": reason})
+        eventlog.append(REFLECTION_FORCED, "", {"forced_reflection_reason": reason})
     except Exception:
         pass
 

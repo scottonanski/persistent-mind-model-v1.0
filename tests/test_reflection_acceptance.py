@@ -27,7 +27,8 @@ def test_reflection_accept_is_authoritative_for_emit(tmp_path):
     rejects = [
         e
         for e in evs
-        if e.get("kind") == "debug" and (e.get("meta") or {}).get("reflection_reject")
+        if e.get("kind") == "reflection_rejected"
+        and (e.get("meta") or {}).get("reason")
     ]
     assert len(rejects) >= 1
 
@@ -47,6 +48,7 @@ def test_reflection_forced_path_generates_fallback_when_rejected(tmp_path):
     rejects = [
         e
         for e in evs
-        if e.get("kind") == "debug" and (e.get("meta") or {}).get("reflection_reject")
+        if e.get("kind") == "reflection_rejected"
+        and (e.get("meta") or {}).get("reason")
     ]
     assert isinstance(rejects, list)

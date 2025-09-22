@@ -25,15 +25,44 @@ class OllamaChat:
         self.model = model
         self.base_url = base_url
         self.kw = kw
+        self._server_available = False
         try:
-            import ollama
+            import requests
 
-            self.client = ollama.Client(host=base_url)
+            # Get current metrics
+            from pmm.runtime.metrics import get_or_compute_ias_gas
+            from pmm.storage.eventlog import get_default_eventlog
+
+            eventlog = get_default_eventlog()
+            ias, gas = get_or_compute_ias_gas(eventlog)
+
+            url = f"{self.base_url}/api/chat"
+            payload = {
+                "model": self.model,
+                "messages": [],
+                "options": {},
+                "stream": False,
+            }
+            headers = {
+                "Content-Type": "application/json",
+                "X-PMM-IAS": str(ias),
+                "X-PMM-GAS": str(gas),
+            }
+
+            response = requests.post(url, json=payload, headers=headers, timeout=2)
+            response.raise_for_status()
+
+            logger.info(f"Sent metrics in headers: IAS={ias}, GAS={gas}")
+            self._server_available = True
         except ImportError:
             logger.error(
-                "Ollama library not installed. Please install it with 'pip install ollama'"
+                "requests library not installed. Please install it with 'pip install requests'"
             )
             raise
+        except Exception as e:
+            logger.warning(f"Ollama server not available at {base_url}: {e}")
+            # Don't raise - allow the adapter to be created even if server is down
+            self._server_available = False
 
     def generate(
         self,
@@ -42,19 +71,46 @@ class OllamaChat:
         max_tokens: int = 300,
         **kwargs,
     ) -> str:
-        """Generate response using Ollama."""
+        """Generate response using Ollama via direct HTTP request."""
+        if not self._server_available:
+            raise RuntimeError(
+                f"Ollama server not available at {self.base_url}. Please start the Ollama server or use a different provider."
+            )
+
         try:
-            response = self.client.chat(
-                model=self.model,
-                messages=messages,
-                options={
+            import requests
+
+            # Get current metrics
+            from pmm.runtime.metrics import get_or_compute_ias_gas
+            from pmm.storage.eventlog import get_default_eventlog
+
+            eventlog = get_default_eventlog()
+            ias, gas = get_or_compute_ias_gas(eventlog)
+
+            url = f"{self.base_url}/api/chat"
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "options": {
                     "temperature": temperature,
                     "num_predict": max_tokens,
                     **kwargs,
                 },
-                stream=False,
-            )
-            return response["message"]["content"]
+                "stream": False,
+            }
+            headers = {
+                "Content-Type": "application/json",
+                "X-PMM-IAS": str(ias),
+                "X-PMM-GAS": str(gas),
+            }
+
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Sent metrics in headers: IAS={ias}, GAS={gas}")
+            content = data["message"]["content"]
+            return f"{content}\n[Current Metrics: IAS={ias:.3f}, GAS={gas:.3f}, Temperature={temperature:.3f}, Max Tokens={max_tokens}]"
         except Exception as e:
             logger.error(f"Error generating response from Ollama: {e}")
             raise
@@ -112,7 +168,14 @@ class OllamaChatAdapter:
                     },
                 )
 
-            return content
+            # Get current metrics
+            from pmm.runtime.metrics import get_or_compute_ias_gas
+            from pmm.storage.eventlog import get_default_eventlog
+
+            eventlog = get_default_eventlog()
+            ias, gas = get_or_compute_ias_gas(eventlog)
+
+            return f"{content}\n[Current Metrics: IAS={ias:.3f}, GAS={gas:.3f}, Temperature={temperature:.3f}, Max Tokens={max_tokens}]"
         except Exception as e:
             logger.error(f"Error generating response from Ollama: {e}")
             raise

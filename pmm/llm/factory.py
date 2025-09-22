@@ -10,6 +10,7 @@ from .adapters.base import ChatAdapter, EmbeddingAdapter
 from .adapters.openai_chat import OpenAIChat
 from .adapters.openai_embed import OpenAIEmbed
 from .adapters.ollama_chat import OllamaChat
+from .adapters.dummy_chat import DummyChat
 
 
 @dataclass
@@ -39,6 +40,9 @@ class LLMFactory:
                 raise ValueError(f"Unknown embed provider: {cfg.embed_provider}")
         elif prov == "ollama":
             chat = OllamaChat(model=cfg.model)
+            embed = None
+        elif prov == "dummy":
+            chat = DummyChat(model=cfg.model)
             embed = None
         else:
             raise ValueError(f"Unknown provider: {prov}")
