@@ -349,7 +349,7 @@ def apply_llm_trait_adjustments(
         List of event IDs for applied trait updates
     """
     # Check if LLM trait adjustments are enabled
-    if os.getenv("PMM_LLM_TRAIT_ADJUSTMENTS", "").lower() not in ("1", "true", "yes"):
+    if os.getenv("PMM_LLM_TRAIT_ADJUSTMENTS", "1").lower() not in ("1", "true", "yes"):
         return []
 
     try:
