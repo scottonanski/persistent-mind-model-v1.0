@@ -96,7 +96,7 @@ echo "[*] Header & notices smoke checks…"
 SANITIZED="$LOG_DIR/chat_sanitized.log"
 sed -r 's/\x1B\[[0-9;]*[mK]//g' "$CHAT_LOG" | tr -d '\r' | sed 's/^[[:space:]]*//' > "$SANITIZED"
 
-grep -q "You are .* Speak in first person" "$SANITIZED" \
+grep -q "identity=.* | stage=S[0-9] | traits=" "$SANITIZED" \
   || { echo "FAIL: missing identity header line"; exit 1; }
 grep -q 'Open commitments:' "$SANITIZED" \
   || { echo "FAIL: missing commitments header block"; exit 1; }

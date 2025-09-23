@@ -84,7 +84,8 @@ assert all(cid in pu_srcs for cid in cu_ids), "CU without matching PU.meta.src_i
 
 txt = CHAT_LOG.read_text()
 assert re.search(
-    r"^You are .+\. Speak in first person\.", txt, re.M
+    r"identity=[^ ]+ \| stage=S\d \| traits=\[.*\]",
+    txt,
 ), "identity header missing"
 assert "Open commitments:" in txt, "commitments header missing"
 
