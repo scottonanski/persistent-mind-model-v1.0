@@ -28,7 +28,11 @@ def test_arm_logged_each_reflection(tmp_path, monkeypatch):
     # Provide deterministic reflection content
     monkeypatch.setattr(rt.chat, "generate", lambda msgs, **kw: "Reflection note.")
 
-    did, reason = maybe_reflect(log, rt.cooldown)
+    did, reason = maybe_reflect(
+        log,
+        rt.cooldown,
+        llm_generate=lambda context: "This is a test reflection with sufficient content.\nIt has multiple lines to pass the requirements.",
+    )
     assert did
 
     kinds = [e.get("kind") for e in log.read_all()]

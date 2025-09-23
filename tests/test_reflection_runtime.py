@@ -33,7 +33,13 @@ def test_reflect_resets_cooldown(tmp_path):
     cd.note_user_turn()
 
     # Enough time elapsed to pass time gate
-    did, reason = maybe_reflect(log, cd, now=cd.last_ts + 2.0, novelty=1.0)
+    did, reason = maybe_reflect(
+        log,
+        cd,
+        now=cd.last_ts + 2.0,
+        novelty=1.0,
+        llm_generate=lambda context: "This is a test reflection with sufficient content.\nIt has multiple lines to pass the requirements.",
+    )
     assert did is True and reason == "ok"
 
     # Cooldown should reset turns

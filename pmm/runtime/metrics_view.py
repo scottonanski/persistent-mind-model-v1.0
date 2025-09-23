@@ -9,6 +9,26 @@ from pmm.config import (
 from pmm.runtime.stage_tracker import StageTracker
 
 
+_REFLECTION_REASON_LABELS = {
+    "due_to_cadence": "waiting for reflection cooldown",
+    "due_to_min_time": "waiting for minimum time gap",
+    "due_to_min_turns": "waiting for minimum turn gap",
+    "due_to_time": "waiting for scheduled window",
+    "due_to_low_novelty": "blocked: needs more novelty",
+}
+
+
+def humanize_reflect_reason(reason: str) -> str:
+    raw = "" if reason is None else str(reason)
+    key = raw.strip().lower()
+    human = _REFLECTION_REASON_LABELS.get(key)
+    if human:
+        return human
+    if key:
+        return raw.replace("_", " ")
+    return "waiting to reflect"
+
+
 class MetricsView:
     def __init__(self) -> None:
         self.enabled: bool = False
@@ -148,7 +168,7 @@ class MetricsView:
         ocn = int(oc.get("count", 0))
         parts = [f"[METRICS] IAS={ias:.3f} GAS={gas:.3f} | stage={stage} | open={ocn}"]
         if rs != "none":
-            parts.insert(0, f"[REFLECTION] {rs}")
+            parts.insert(0, f"[REFLECTION] {humanize_reflect_reason(rs)}")
         sm_lines = snap.get("self_model_lines") or []
         for ln in sm_lines:
             if isinstance(ln, str) and ln:

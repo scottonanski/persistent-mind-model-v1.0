@@ -236,6 +236,7 @@ class CommitmentTracker:
 
         # Run evidence finder over a small recent window including this text
         recent_window = 20
+
         # Use only the immediate reply as the recent window to ensure deterministic behavior
         tmp_events = [{"kind": "response", "content": text, "meta": {}}]
         cands = self.find_evidence(tmp_events, open_list, recent_window=recent_window)
@@ -247,6 +248,15 @@ class CommitmentTracker:
             cid, score, snippet = cands_sorted[0]
             # Enforce deterministic threshold
             if float(score) >= 0.70:
+                # Check if this commitment was recently closed by reflection
+                recently_closed_by_reflection = False
+                for ev in reversed(events[-50:]):  # Check last 50 events
+                    if ev.get("kind") == "commitment_close":
+                        m = ev.get("meta") or {}
+                        if m.get("cid") == cid and m.get("source") == "reflection":
+                            recently_closed_by_reflection = True
+                            break
+
                 # Idempotent candidate append: avoid duplicate immediate candidate
                 already = False
                 for ev in reversed(events):
@@ -256,7 +266,7 @@ class CommitmentTracker:
                     if m.get("cid") == cid and m.get("snippet") == snippet:
                         already = True
                         break
-                if not already:
+                if not already and not recently_closed_by_reflection:
                     self.eventlog.append(
                         kind="evidence_candidate",
                         content="",
@@ -284,6 +294,9 @@ class CommitmentTracker:
             reason = str((meta or {}).get("reason") or "")
             if reason == "reflection":
                 # emit close event using the actual CID
+                snippet = (reply or "").strip()
+                if snippet:
+                    snippet = snippet[:240]
                 self.eventlog.append(
                     kind="commitment_close",
                     content="",
@@ -293,6 +306,7 @@ class CommitmentTracker:
                         "description": reply,
                         "source": "reflection",
                         "clean": True,
+                        "snippet": snippet,
                     },
                 )
 
@@ -363,15 +377,23 @@ class CommitmentTracker:
                 else "superseded_by_reflection"
             )
             for cid in open_reflection:
-                # Append evidence candidate before close to satisfy audit ordering
+                # Skip evidence_candidate for reflection-driven closures
+                # Emit close event directly for superseded reflection commitments
                 try:
-                    sc = 0.9 if snippet else 0.75
+                    desc = (
+                        f"superseded_by_reflection#{int(by_reflection_id)}"
+                        if by_reflection_id is not None
+                        else "superseded_by_reflection"
+                    )
                     self.eventlog.append(
-                        kind="evidence_candidate",
+                        kind="commitment_close",
                         content="",
                         meta={
                             "cid": cid,
-                            "score": float(sc),
+                            "evidence_type": "done",
+                            "description": desc,
+                            "source": "reflection",
+                            "clean": True,
                             "snippet": snippet or "superseded by newer reflection",
                         },
                     )

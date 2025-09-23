@@ -108,10 +108,10 @@ IDENTITY_FIRST_PROPOSAL_TURNS: int = 0
 # Set to 0 to avoid phantom auto-adopts; adoption occurs only on explicit intent
 ADOPTION_DEADLINE_TURNS: int = 0
 # Fixed reflection-commit due horizon (hours) — set to 0 for immediate horizon
-REFLECTION_COMMIT_DUE_HOURS: int = 0
+REFLECTION_COMMIT_DUE_HOURS: int = 2
 # Minimum turns between identity adoptions to prevent flip-flopping
 # Set to 0 so the runtime projects ledger truth immediately without spacing gates
-MIN_TURNS_BETWEEN_IDENTITY_ADOPTS: int = 0
+MIN_TURNS_BETWEEN_IDENTITY_ADOPTS: int = 3
 
 
 # ---- Trait nudge configuration ----
@@ -540,6 +540,95 @@ class Runtime:
                 except Exception:
                     continue
 
+    def _apply_policy_from_reflection(
+        self, action_text: str, *, reflection_id: int, stage: str | None
+    ) -> None:
+        """Consume reflection_action text and emit aligned policy updates."""
+
+        text = str(action_text or "").strip()
+        if not text:
+            return
+
+        refl_id = int(reflection_id)
+
+        def _record_discard(reason: str) -> None:
+            try:
+                self.eventlog.append(
+                    kind="reflection_discarded",
+                    content="",
+                    meta={
+                        "reflection_id": refl_id,
+                        "reason": str(reason),
+                        "action": text,
+                    },
+                )
+            except Exception:
+                pass
+
+        lowered = text.lower()
+
+        if "novelty_threshold" in lowered:
+            match = _re.search(r"([01](?:\.\d+)?)", lowered)
+            if not match:
+                _record_discard("no_numeric_value")
+                return
+            try:
+                new_value = float(match.group(1))
+            except Exception:
+                _record_discard("no_numeric_value")
+                return
+
+            new_value = max(0.0, min(1.0, new_value))
+            try:
+                events = self.eventlog.read_all()
+            except Exception:
+                events = []
+
+            params_obj = {"novelty_threshold": new_value}
+            duplicate = False
+            for ev in reversed(events):
+                try:
+                    eid = int(ev.get("id") or 0)
+                except Exception:
+                    continue
+                if eid <= refl_id:
+                    break
+                if ev.get("kind") != "policy_update":
+                    continue
+                meta = ev.get("meta") or {}
+                if (
+                    str(meta.get("component")) == "cooldown"
+                    and dict(meta.get("params") or {}) == params_obj
+                ):
+                    duplicate = True
+                    break
+
+            if duplicate:
+                _record_discard("duplicate_policy_update")
+                return
+
+            extra_meta = {
+                "reason": "reflection",
+                "reflection_id": refl_id,
+            }
+            stage_meta = stage if stage is None else str(stage)
+            try:
+                _append_policy_update(
+                    self.eventlog,
+                    component="cooldown",
+                    params=params_obj,
+                    stage=stage_meta,
+                    tick=None,
+                    extra_meta=extra_meta,
+                    dedupe_with_last=False,
+                )
+            except Exception as exc:
+                _record_discard(f"error:{type(exc).__name__}:{exc}")
+                return
+            return
+
+        _record_discard("unsupported_action")
+
     def _record_embedding_skip(self, eid: int) -> None:
         """Debounced helper for embedding skip events tied to an eid."""
 
@@ -692,7 +781,7 @@ class Runtime:
 
         if user_event_id is not None:
             try:
-                recent = self.eventlog.read_tail(limit=5)
+                recent = self.eventlog.read_all()
             except Exception:
                 recent = []
             if not any(
@@ -1064,12 +1153,10 @@ class Runtime:
                 last_adopt_id = ev.get("id")
             if k == "response" and last_response_id is None:
                 last_response_id = ev.get("id")
-            if last_adopt_id is not None and last_response_id is not None:
-                break
-        if last_adopt_id is not None and (
-            last_response_id is None or last_adopt_id > last_response_id
-        ):
-            ident["_recent_adopt"] = True
+            if last_adopt_id is not None and (
+                last_response_id is None or last_adopt_id > last_response_id
+            ):
+                ident["_recent_adopt"] = True
         prev_provider = None
         if events:
             for ev in reversed(events):
@@ -1345,6 +1432,7 @@ class Runtime:
                     cooldown=self.cooldown,
                     interval_seconds=float(interval_seconds),
                     proposer=self._propose_identity_name,
+                    runtime=self,
                 )
                 self._autonomy.start()
 
@@ -1542,6 +1630,7 @@ class Runtime:
                 "refs": sel,
                 "stage_level": int(stage_level),
                 "prompt_template": label,
+                "text": note,  # Mirror reflection text into meta["text"] for downstream tooling compatibility
             },
         )
         _vprint(f"[Reflection] template={label} novelty={novelty} content={note}")
@@ -1593,6 +1682,14 @@ class Runtime:
                     content=action,
                     meta={"style": label},
                 )
+                try:
+                    self._apply_policy_from_reflection(
+                        action,
+                        reflection_id=int(rid_reflection),
+                        stage=stage_str,
+                    )
+                except Exception:
+                    pass
             self.eventlog.append(
                 kind="reflection_quality",
                 content="",
@@ -2260,14 +2357,11 @@ def emit_reflection(
     force_open_commitment: bool = False,
     open_autonomy_tick: int | None = None,
     commitment_protect_until_tick: int | None = None,
-) -> int:
-    """Emit a simple reflection event (used where real chat isn't wired).
-
-    Returns the new reflection event id.
-    """
+    llm_generate: callable | None = None,
+) -> int | None:
+    """Emit a reflection event; return the event id or ``None`` if rejected."""
     # Compute telemetry first so we can embed in the reflection meta
     ias, gas = compute_ias_gas(eventlog.read_all())
-    # If content is empty and not forced, do NOT synthesize; tests expect a failed check
     synth = None
     try:
         stage_str = stage_override
@@ -2302,10 +2396,57 @@ def emit_reflection(
     tmpl_label, tmpl_instr = _TEMPLATES.get(int(stage_level), _TEMPLATES[0])
     if forced and not (content or "").strip():
         # Generate meaningful fallback content instead of empty placeholder
-        tick_id = len(eventlog.read_all())
-        synth = generate_system_status_reflection(
-            ias, gas, stage_str, eventlog, tick_id
-        )
+        if llm_generate is not None:
+            # Use real LLM generation when available
+            try:
+                context = "System status: IAS={:.3f}, GAS={:.3f}, Stage={}. Reflecting on current state after forced reflection trigger.".format(
+                    ias, gas, stage_str
+                )
+                synth = llm_generate(context)
+            except Exception:
+                # Fall back to synthetic content if LLM generation fails
+                tick_id = len(eventlog.read_all())
+                synth = generate_system_status_reflection(
+                    ias, gas, stage_str, eventlog, tick_id
+                )
+        else:
+            # Use synthetic content when no LLM generator is available
+            tick_id = len(eventlog.read_all())
+            synth = generate_system_status_reflection(
+                ias, gas, stage_str, eventlog, tick_id
+            )
+    elif not forced and not (content or "").strip():
+        # Reject empty reflections unless a generator is explicitly provided
+        if llm_generate is None:
+            return None
+        try:
+            context = "System status: IAS={:.3f}, GAS={:.3f}, Stage={}. Reflecting on current state and proposing next actions.".format(
+                ias, gas, stage_str
+            )
+            synth = llm_generate(context)
+        except Exception:
+            tick_id = len(eventlog.read_all())
+            synth = generate_system_status_reflection(
+                ias, gas, stage_str, eventlog, tick_id
+            )
+    elif forced and not (content or "").strip():
+        # For forced reflections with empty content, generate synthetic content
+        if llm_generate is not None:
+            try:
+                context = "System status: IAS={:.3f}, GAS={:.3f}, Stage={}. Reflecting on current state after forced reflection trigger.".format(
+                    ias, gas, stage_str
+                )
+                synth = llm_generate(context)
+            except Exception:
+                tick_id = len(eventlog.read_all())
+                synth = generate_system_status_reflection(
+                    ias, gas, stage_str, eventlog, tick_id
+                )
+        else:
+            tick_id = len(eventlog.read_all())
+            synth = generate_system_status_reflection(
+                ias, gas, stage_str, eventlog, tick_id
+            )
     # Build deterministic refs for reflection
     try:
         K = 6
@@ -2349,6 +2490,7 @@ def emit_reflection(
             final_text or "(reflection)", _events_for_gate, None, None
         )
     except Exception:
+        # If acceptor unavailable or crashes, default-allow
         _would_accept, _reject_reason, _reject_meta = True, "ok", {"quality_score": 0.8}
     # Apply quality checks to ALL reflections, including forced ones
     if not _would_accept:
@@ -2432,6 +2574,9 @@ def emit_reflection(
         meta_payload["forced"] = True
         if forced_reason:
             meta_payload["forced_reason"] = str(forced_reason)
+    # Mirror reflection text into meta["text"] for downstream tooling compatibility
+    # Always set meta["text"], even if empty, to ensure field consistency
+    meta_payload["text"] = sanitized_text or ""
     rid = eventlog.append(
         kind="reflection",
         content=sanitized_text,
@@ -2554,6 +2699,7 @@ def maybe_reflect(
     guidance_items: list | None = None,
     commitment_protect_until: int | None = None,
     open_autonomy_tick: int | None = None,
+    llm_generate: callable | None = None,
 ) -> tuple[bool, str]:
     """Check cooldown gates with optional per-call overrides; emit reflection or breadcrumb debug event.
 
@@ -2598,6 +2744,7 @@ def maybe_reflect(
                     force_open_commitment=True,
                     open_autonomy_tick=open_autonomy_tick,
                     commitment_protect_until_tick=commitment_protect_until,
+                    llm_generate=llm_generate,
                 )
                 try:
                     cooldown.reset()
@@ -2622,7 +2769,10 @@ def maybe_reflect(
         forced=False,
         open_autonomy_tick=open_autonomy_tick,
         commitment_protect_until_tick=commitment_protect_until,
+        llm_generate=llm_generate,
     )
+    if rid is None:
+        return (False, "rejected")
     cooldown.reset()
     # Bandit integration: choose arm via biased means when provided; otherwise fall back
     try:
@@ -2720,8 +2870,12 @@ def _consecutive_reflect_skips(
 
 
 def _detect_self_named(text: str) -> str | None:
-    try:
+    """Return the name if the text contains a self-named line."""
 
+    if not text:
+        return None
+
+    try:
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
         if lines:
             last = lines[-1]
@@ -2764,6 +2918,46 @@ def _last_policy_params(
     return (None, None)
 
 
+def _append_policy_update(
+    eventlog: EventLog,
+    *,
+    component: str,
+    params: dict | None,
+    stage: str | None = None,
+    tick: int | None = None,
+    extra_meta: dict | None = None,
+    dedupe_with_last: bool = True,
+) -> int | None:
+    """Append a policy_update event with optional dedupe safeguards."""
+
+    try:
+        events = eventlog.read_all()
+    except Exception:
+        events = []
+
+    params_dict = dict(params or {})
+
+    if dedupe_with_last and events:
+        _last_stage, last_params = _last_policy_params(events, component=component)
+        if dict(last_params or {}) == params_dict:
+            return None
+
+    meta: dict[str, object] = {
+        "component": component,
+        "params": params_dict,
+    }
+
+    if stage is not None:
+        meta["stage"] = stage
+    if tick is not None:
+        meta["tick"] = tick
+    if extra_meta:
+        for key, value in extra_meta.items():
+            meta[key] = value
+
+    return eventlog.append(kind="policy_update", content="", meta=meta)
+
+
 class AutonomyLoop:
     """Minimal background autonomy heartbeat.
 
@@ -2780,10 +2974,12 @@ class AutonomyLoop:
         proposer=None,
         allow_affirmation: bool = False,
         bootstrap_identity: bool = True,
+        runtime=None,
     ) -> None:
         self.eventlog = eventlog
         self.cooldown = cooldown
         self.interval = max(0.01, float(interval_seconds))
+        self.runtime = runtime
         self._stop = _threading.Event()
         self._thread: _threading.Thread | None = None
         self._proposer = proposer
@@ -3013,6 +3209,9 @@ class AutonomyLoop:
                     override_min_turns=0,
                     override_min_seconds=0,
                     open_autonomy_tick=adopt_eid,
+                    llm_generate=lambda context: (
+                        self.runtime.reflect(context) if self.runtime else None
+                    ),
                 )
                 # Always record a debug marker to indicate a forced reflection attempt
                 self.eventlog.append(
@@ -3040,7 +3239,12 @@ class AutonomyLoop:
                     from pmm.runtime.emergence import pmm_native_reflection
 
                     def _gen(prompt: str) -> str:
-                        return ""
+                        # Use the Runtime's reflect method for real LLM generation
+                        if self.runtime is not None:
+                            return self.runtime.reflect(prompt)
+                        else:
+                            # Fallback to synthetic content if runtime not available
+                            return f"Identity adopted: {sanitized}. Previous identity: {old_name or 'none'}. Rationale: Establish new identity foundation and reflect on the transition."
 
                     pmm_native_reflection(
                         eventlog=self.eventlog,
@@ -3092,30 +3296,24 @@ class AutonomyLoop:
             if old_name and str(old_name).strip() and old_name != sanitized:
                 # Capture baseline event id to detect new rebind events deterministically
                 try:
-                    last_id_before = int(self.eventlog.read_all()[-1].get("id") or 0)
+                    int(self.eventlog.read_all()[-1].get("id") or 0)
                 except Exception:
-                    last_id_before = int(adopt_eid)  # fallback
+                    pass
                 CommitmentTracker(self.eventlog)._rebind_commitments_on_identity_adopt(
                     old_name, sanitized, identity_adopt_event_id=adopt_eid
                 )
                 # Collect cids from rebind events appended after adopt
                 try:
                     evs_after = self.eventlog.read_all()
-                    for ev in evs_after:
-                        try:
-                            eid = int(ev.get("id") or 0)
-                        except Exception:
-                            continue
-                        if eid <= last_id_before:
-                            continue
-                        if ev.get("kind") != "commitment_rebind":
-                            continue
-                        m = ev.get("meta") or {}
-                        cid = str(m.get("cid") or "")
-                        if cid:
-                            rebind_cids.append(cid)
                 except Exception:
-                    pass
+                    evs_after = []
+                for ev in evs_after:
+                    if ev.get("kind") != "commitment_rebind":
+                        continue
+                    m = ev.get("meta") or {}
+                    cid = str(m.get("cid") or "")
+                    if cid:
+                        rebind_cids.append(cid)
                 # Fallback: if no rebind was detected, do a direct scan and emit rebind(s)
                 if not rebind_cids:
                     try:
@@ -3574,14 +3772,10 @@ class AutonomyLoop:
         turns_since = 0
         if last_ref_id is not None:
             for e in events:
-                try:
-                    if (
-                        int(e.get("id") or 0) > int(last_ref_id)
-                        and e.get("kind") == "response"
-                    ):
-                        turns_since += 1
-                except Exception:
-                    continue
+                if e.get("kind") == "response" and int(e.get("id") or 0) > int(
+                    last_ref_id
+                ):
+                    turns_since += 1
         else:
             turns_since = sum(1 for e in events if e.get("kind") == "response")
         # Last GAS from last autonomy_tick telemetry
@@ -3673,6 +3867,9 @@ class AutonomyLoop:
                     force_open_commitment=True,
                     open_autonomy_tick=tick_no,
                     commitment_protect_until_tick=protect_until_tick,
+                    llm_generate=lambda context: (
+                        self.runtime.reflect(context) if self.runtime else None
+                    ),
                 )
                 try:
                     self.cooldown.reset()
@@ -3705,6 +3902,9 @@ class AutonomyLoop:
                     guidance_items=_guidance_items,
                     commitment_protect_until=protect_until_tick,
                     open_autonomy_tick=tick_no,
+                    llm_generate=lambda context: (
+                        self.runtime.reflect(context) if self.runtime else None
+                    ),
                 )
         else:
             self.eventlog.append(
@@ -3897,6 +4097,11 @@ class AutonomyLoop:
                                     self.cooldown,
                                     override_min_turns=0,
                                     open_autonomy_tick=tick_no,
+                                    llm_generate=lambda context: (
+                                        self.runtime.reflect(context)
+                                        if self.runtime
+                                        else None
+                                    ),
                                 )
                                 if did_reflect:
                                     try:
@@ -4050,7 +4255,7 @@ class AutonomyLoop:
                 if e.get("kind") == "response":
                     last_resp_id = int(e.get("id") or 0)
                     break
-            if last_resp_id is not None and last_resp_id > reflection_id:
+            if last_resp_id is not None and (last_resp_id > reflection_id):
                 return
             # Load content of the reflection to apply cue rule
             content = ""
@@ -4085,7 +4290,12 @@ class AutonomyLoop:
             # Force after 4 consecutive stuck skips within this stage
             if self._stuck_count >= 4:
                 rid_forced = emit_reflection(
-                    self.eventlog, forced=True, stage_override=curr_stage
+                    self.eventlog,
+                    forced=True,
+                    stage_override=curr_stage,
+                    llm_generate=lambda context: (
+                        self.runtime.reflect(context) if self.runtime else None
+                    ),
                 )
                 self._stuck_count = 0
                 self._stuck_stage = curr_stage
@@ -4166,26 +4376,18 @@ class AutonomyLoop:
                     new_thr = None
                 # Emit idempotent policy_update for cooldown params if different from last
                 try:
-                    evs_now = self.eventlog.read_all()
-                    last_stage, last_params = _last_policy_params(
-                        evs_now, component="cooldown"
-                    )
                     params_obj = (
                         {"novelty_threshold": float(new_thr)}
                         if new_thr is not None
                         else {}
                     )
-                    if last_params != params_obj:
-                        self.eventlog.append(
-                            kind="policy_update",
-                            content="",
-                            meta={
-                                "component": "cooldown",
-                                "stage": curr_stage,
-                                "params": params_obj,
-                                "tick": tick_no,
-                            },
-                        )
+                    _append_policy_update(
+                        self.eventlog,
+                        component="cooldown",
+                        params=params_obj,
+                        stage=curr_stage,
+                        tick=tick_no,
+                    )
                 except Exception:
                     pass
             _vprint(f"[SelfEvolution] Policy applied: {evo_details}")
@@ -4245,26 +4447,18 @@ class AutonomyLoop:
                     new_thr = None
                 # Emit idempotent policy_update for cooldown params if different from last
                 try:
-                    evs_now = self.eventlog.read_all()
-                    last_stage, last_params = _last_policy_params(
-                        evs_now, component="cooldown"
-                    )
                     params_obj = (
                         {"novelty_threshold": float(new_thr)}
                         if new_thr is not None
                         else {}
                     )
-                    if last_params != params_obj:
-                        self.eventlog.append(
-                            kind="policy_update",
-                            content="",
-                            meta={
-                                "component": "cooldown",
-                                "stage": curr_stage,
-                                "params": params_obj,
-                                "tick": tick_no,
-                            },
-                        )
+                    _append_policy_update(
+                        self.eventlog,
+                        component="cooldown",
+                        params=params_obj,
+                        stage=curr_stage,
+                        tick=tick_no,
+                    )
                 except Exception:
                     pass
             _vprint(f"[SelfEvolution] Policy applied: {evo_details}")
@@ -4972,7 +5166,7 @@ class AutonomyLoop:
             # Never break tick on reminder logic
             pass
 
-        # 3) Commitment TTL sweep (deterministic by tick count) BEFORE logging this tick
+        # 2f) Commitment TTL sweep (deterministic by tick count) BEFORE logging this tick
         try:
             events_now = self.eventlog.read_all()
             # conservative default TTL of 10 ticks
@@ -5132,7 +5326,7 @@ class AutonomyLoop:
         except Exception:
             # Never allow evaluator to break the tick or ordering
             pass
-        # S4(D) Bridge: apply curriculum_update to policy_update once, idempotently
+        # S4(D): Bridge: apply curriculum_update to policy_update once, idempotently
         try:
             try:
                 _tail = self.eventlog.read_tail(limit=500)

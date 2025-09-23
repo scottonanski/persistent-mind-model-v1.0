@@ -126,6 +126,7 @@ def diagnose_ias_calculation(events: List[dict]) -> dict:
     autonomy_ticks = 0
     invariant_violations = 0
     identity_reflections = 0
+    _inv_seen = set()
 
     # Build tick mapping
     tick_index_by_eid = {}
@@ -161,7 +162,14 @@ def diagnose_ias_calculation(events: List[dict]) -> dict:
         elif kind == "autonomy_tick":
             autonomy_ticks += 1
         elif kind == "invariant_violation":
-            invariant_violations += 1
+            meta = ev.get("meta") or {}
+            code = str(meta.get("code") or "")
+            details = meta.get("details") or {}
+            cid = details.get("commitment_id")
+            key = (code, str(cid) if cid is not None else "")
+            if key not in _inv_seen:
+                _inv_seen.add(key)
+                invariant_violations += 1
         elif kind == "reflection":
             txt = ev.get("content", "").lower()
             if txt and (
@@ -360,6 +368,7 @@ def compute_ias_gas(events: Iterable[dict]) -> Tuple[float, float]:
     adopt_events: List[Tuple[int, str]] = []  # (tick_index, name)
     last_adopt_tick: Optional[int] = None
     last_adopt_name: Optional[str] = None
+    invariant_penalty_keys: set[Tuple[str, str]] = set()
 
     # Single pass: process events in order with proper tick-based logic
     for i, ev in enumerate(evs):
@@ -457,6 +466,14 @@ def compute_ias_gas(events: Iterable[dict]) -> Tuple[float, float]:
                 ]
 
         elif kind == "invariant_violation":
+            meta = ev.get("meta") or {}
+            code = str(meta.get("code") or "")
+            details = meta.get("details") or {}
+            cid = details.get("commitment_id")
+            key = (code, str(cid) if cid is not None else "")
+            if key in invariant_penalty_keys:
+                continue
+            invariant_penalty_keys.add(key)
             ias -= 0.005  # Much gentler penalty (was 0.02)
             gas -= 0.005  # Much gentler penalty (was 0.02)
 

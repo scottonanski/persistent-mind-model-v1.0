@@ -411,4 +411,14 @@ def get_default_eventlog() -> EventLog:
     """Return the default eventlog instance."""
     from pmm.config import DEFAULT_DB_PATH
 
-    return EventLog(DEFAULT_DB_PATH)
+    env_path = _os.getenv("PMM_DB")
+    if env_path:
+        return EventLog(env_path)
+
+    runtime_default = ".data/pmm.db"
+    if DEFAULT_DB_PATH and DEFAULT_DB_PATH != runtime_default:
+        default_path = DEFAULT_DB_PATH
+        if _os.path.exists(default_path) and not _os.path.exists(runtime_default):
+            return EventLog(default_path)
+
+    return EventLog(runtime_default)

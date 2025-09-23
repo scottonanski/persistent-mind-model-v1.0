@@ -1,41 +1,40 @@
 # pmm/cli/chat.py
 from __future__ import annotations
+
+import logging
 import os
 import sys
-import logging
 from pathlib import Path
 
+from rich import box
+from rich.console import Console
+from rich.logging import RichHandler
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
+from pmm.cli.model_select import select_model
 from pmm.config import load_runtime_env
-from pmm.storage.eventlog import EventLog
 from pmm.llm.factory import LLMConfig
 from pmm.runtime.loop import Runtime, maybe_reflect as runtime_maybe_reflect
-from pmm.runtime.metrics_view import MetricsView
+from pmm.runtime.metrics_view import MetricsView, humanize_reflect_reason
+from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_identity
-from pmm.cli.model_select import select_model
 
-
-def _c(s: str, code: str) -> str:
-    """No-op colorizer placeholder for CLI notices.
-
-    Kept to satisfy lint and retain message formatting hooks without ANSI.
-    """
-    return s
+logger = logging.getLogger(__name__)
 
 
 def should_print_identity_notice(events: list[dict]) -> bool:
-    """Return True iff the most recent response event is the first one strictly after
-    the most recent identity_adopt event.
+    """Return True if the first response after an identity adoption should show a banner."""
 
-    Logic: find last identity_adopt id (aid). Find the last two response ids in order
-    of recency: [last, prev]. Print if aid exists and prev is missing or < aid, and aid <= last.
-    """
     last_adopt_id = None
     resp_ids: list[int] = []
     for ev in reversed(events):
-        k = ev.get("kind")
-        if k == "identity_adopt" and last_adopt_id is None:
+        kind = ev.get("kind")
+        if kind == "identity_adopt" and last_adopt_id is None:
             last_adopt_id = int(ev.get("id") or 0)
-        if k == "response":
+        if kind == "response":
             rid = ev.get("id")
             if isinstance(rid, int):
                 resp_ids.append(rid)
@@ -50,147 +49,293 @@ def should_print_identity_notice(events: list[dict]) -> bool:
     return False
 
 
-def main() -> None:
-    # Configure logging for metrics transparency
-    logging.basicConfig(
-        level=logging.INFO,
-        format="[%(levelname)s] %(message)s",
-        handlers=[logging.StreamHandler(sys.stdout)],
+def _configure_logging(log_console: Console) -> None:
+    handler = RichHandler(
+        console=log_console,
+        show_path=False,
+        rich_tracebacks=True,
+        markup=True,
+        omit_repeated_times=False,
     )
+    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+
+def _system_panel(
+    message: str, *, title: str = "system", border_style: str = "cyan"
+) -> Panel:
+    text = Text.from_markup(message.strip() if message else "")
+    return Panel.fit(
+        text,
+        title=f"[{border_style}]{title.upper()}[/]",
+        border_style=border_style,
+        padding=(0, 1),
+    )
+
+
+def _render_assistant(console: Console, reply: str) -> None:
+    content = (reply or "").rstrip()
+    if not content:
+        return
+    try:
+        body = Markdown(content, code_theme="monokai", justify="left")
+    except Exception:
+        body = Text(content)
+    panel = Panel.fit(
+        body,
+        title="[green]ASSISTANT[/]",
+        border_style="green",
+        padding=(1, 2),
+    )
+    console.print(panel)
+
+
+def _metrics_panel(snap: dict) -> Panel:
+    telemetry = snap.get("telemetry", {})
+    ias = float(telemetry.get("IAS", 0.0))
+    gas = float(telemetry.get("GAS", 0.0))
+    stage = str(snap.get("stage", "none"))
+    reflect_skip_raw = snap.get("reflect_skip", "none")
+    reflect_skip = (
+        humanize_reflect_reason(reflect_skip_raw)
+        if str(reflect_skip_raw) != "none"
+        else "none"
+    )
+    open_commitments = snap.get("open_commitments", {})
+    open_count = int(open_commitments.get("count", 0))
+    identity = snap.get("identity", {})
+    name = identity.get("name") or "—"
+    top_traits = identity.get("top_traits", [])
+    priority = snap.get("priority_top5", [])
+    self_lines = snap.get("self_model_lines") or []
+
+    grid = Table.grid(expand=False, padding=(0, 1))
+    summary = Text()
+    summary.append("IAS ", style="bright_cyan")
+    summary.append(f"{ias:.3f}", style="bold white")
+    summary.append("   GAS ", style="bright_cyan")
+    summary.append(f"{gas:.3f}", style="bold white")
+    summary.append("   Stage ", style="bright_cyan")
+    summary.append(stage, style="bold white")
+    grid.add_row(summary)
+
+    if reflect_skip != "none":
+        line = Text("Reflection gate ", style="yellow")
+        line.append(reflect_skip, style="bold white")
+        grid.add_row(line)
+
+    oc_line = Text("Open commitments ", style="bright_blue")
+    oc_line.append(str(open_count), style="bold white")
+    grid.add_row(oc_line)
+
+    ident_line = Text("Identity ", style="green")
+    ident_line.append(name, style="bold white")
+    if top_traits:
+        trait_parts = ", ".join(
+            f"{t['trait']} {t['v']:.2f}" for t in top_traits if isinstance(t, dict)
+        )
+        if trait_parts:
+            ident_line.append("   Traits ", style="green")
+            ident_line.append(trait_parts, style="bold white")
+    grid.add_row(ident_line)
+
+    if priority:
+        pr_line = Text("Priority ", style="magenta")
+        items: list[str] = []
+        for item in priority[:5]:
+            cid = str(item.get("cid") or "?")
+            score = item.get("score")
+            try:
+                score_str = f"{float(score):.2f}"
+            except Exception:
+                score_str = "?"
+            items.append(f"{cid} {score_str}")
+        pr_line.append(" | ".join(items), style="bold white")
+        grid.add_row(pr_line)
+
+    if self_lines:
+        grid.add_row(Text("", style="dim"))
+        for ln in self_lines:
+            grid.add_row(Text(str(ln), style="dim"))
+
+    return Panel(
+        grid,
+        title="[blue]METRICS[/]",
+        border_style="blue",
+        padding=(0, 1),
+        box=box.ROUNDED,
+    )
+
+
+def main() -> None:
+    assistant_console = Console(highlight=False)
+    log_console = Console(stderr=True, highlight=False)
+    _configure_logging(log_console)
 
     env = load_runtime_env(".env")
     Path(env.db_path).parent.mkdir(parents=True, exist_ok=True)
 
-    # Always prompt for model selection at startup
-    print("🚀 Welcome to PMM! Please select your model:")
+    assistant_console.print(
+        _system_panel(
+            "🚀 Welcome to PMM! Please select your model.",
+            title="welcome",
+            border_style="blue",
+        )
+    )
     selection = select_model()
     if not selection:
-        print("👋 Cancelled. Exiting.")
+        assistant_console.print(
+            _system_panel("Cancelled. Exiting.", title="goodbye", border_style="yellow")
+        )
         return
 
     provider, model_name = selection
-    print(f"[INFO] Starting PMM with {model_name} ({provider})")
+    logger.info("[bold cyan]starting[/] PMM with %s (%s)", model_name, provider)
 
-    # Check API key if using OpenAI
     if provider == "openai" and not os.getenv("OPENAI_API_KEY"):
-        print("ERROR: OPENAI_API_KEY not set in environment (.env).", file=sys.stderr)
+        logger.error(
+            "[bold red]OPENAI_API_KEY not set in environment (.env). Exiting.[/]"
+        )
         sys.exit(2)
 
-    log = EventLog(env.db_path)
+    eventlog = EventLog(env.db_path)
     cfg = LLMConfig(
         provider=provider, model=model_name, embed_provider=None, embed_model=None
     )
-    # Load optional n-gram bans
+
     ngram_bans = None
     if env.ngram_ban_file:
         try:
-            from pathlib import Path as _P
-
-            p = _P(env.ngram_ban_file)
-            if p.exists():
+            path_ngram = Path(env.ngram_ban_file)
+            if path_ngram.exists():
                 ngram_bans = [
-                    ln.strip()
-                    for ln in p.read_text(encoding="utf-8").splitlines()
-                    if ln.strip()
+                    line.strip()
+                    for line in path_ngram.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
                 ]
         except Exception:
             ngram_bans = None
 
-    rt = Runtime(cfg, log, ngram_bans=ngram_bans)
+    runtime = Runtime(cfg, eventlog, ngram_bans=ngram_bans)
     metrics_view = MetricsView()
 
-    # Start background autonomy loop (always ON, uses configured interval)
-    rt.start_autonomy(max(0.01, float(env.autonomy_interval or 10)))
+    runtime.start_autonomy(max(0.01, float(env.autonomy_interval or 10)))
 
-    print(
-        f"PMM ready ({provider}/{model_name}) — DB: {env.db_path}. Ctrl+C to exit.",
-        flush=True,
-    )
-    # Startup info banner for evolution mechanisms
-    try:
-        print(
-            f"[INFO] Autonomy: ON — ticks every {int(env.autonomy_interval or 10)}s.",
-            flush=True,
+    assistant_console.print(
+        _system_panel(
+            f"PMM ready ({provider}/{model_name}) — DB: {env.db_path}. Ctrl+C to exit.",
+            title="ready",
+            border_style="blue",
         )
-        print(
-            "[INFO] Reflection: ON — acceptance/cadence gates applied deterministically.",
-            flush=True,
+    )
+
+    try:
+        logger.info(
+            "[bold blue]autonomy[/] ON — ticks every %ss",
+            int(env.autonomy_interval or 10),
+        )
+        logger.info(
+            "[bold blue]reflection[/] ON — acceptance/cadence gates applied deterministically."
         )
     except Exception:
-        # Banner is best-effort; never block REPL
         pass
+
     try:
         while True:
-            user = input("> ").strip()
-            if not user:
-                continue
-            # Handle special commands
-            if user.strip() in {"--@metrics on", "--@metrics off"}:
-                print("[metrics view: ALWAYS ON]", flush=True)
+            user_input = assistant_console.input("[bold blue]> [/] ").strip()
+            if not user_input:
                 continue
 
-            if user.strip() == "--@models":
-                print("\n🔄 Model Selection:")
+            normalized = user_input.strip()
+            if normalized in {"--@metrics on", "--@metrics off"}:
+                assistant_console.print(
+                    _system_panel(
+                        "Metrics view is always on in this build.",
+                        title="metrics",
+                        border_style="cyan",
+                    )
+                )
+                continue
+
+            if normalized == "--@models":
+                assistant_console.print(
+                    _system_panel(
+                        "🔄 Model Selection", title="models", border_style="blue"
+                    )
+                )
                 selection = select_model(force_tty=False)
                 if selection:
                     new_provider, new_model = selection
-                    print(f"[INFO] Switching to {new_model} ({new_provider})...")
-                    rt.set_model(new_provider, new_model)
-                    print("✅ Model switched successfully!")
+                    logger.info(
+                        "[bold cyan]switching[/] to %s (%s)", new_model, new_provider
+                    )
+                    runtime.set_model(new_provider, new_model)
+                    assistant_console.print(
+                        _system_panel(
+                            "Model switched successfully.",
+                            title="models",
+                            border_style="green",
+                        )
+                    )
                 else:
-                    print("❌ Model selection cancelled.")
+                    assistant_console.print(
+                        _system_panel(
+                            "Model selection cancelled.",
+                            title="models",
+                            border_style="yellow",
+                        )
+                    )
                 continue
 
-            if user.lower() in {"exit", "quit", "/q"}:
-                print("bye.")
+            if normalized.lower() in {"exit", "quit", "/q"}:
+                assistant_console.print(
+                    _system_panel("bye.", title="goodbye", border_style="blue")
+                )
                 try:
-                    rt.stop_autonomy()
+                    runtime.stop_autonomy()
                 except Exception:
                     pass
                 return
-            reply = rt.handle_user(user)
-            # Header/banner suppressed: do not print identity/commitment/trait drift lines above replies.
-            print(reply, flush=True)
-            # Optional stage/policy notices for UX clarity (kept behind explicit env flag)
+
+            reply = runtime.handle_user(user_input)
+            _render_assistant(assistant_console, reply)
+
             try:
-                evs = rt.eventlog.read_all()
-                # Track last printed stage and cooldown threshold in function locals via nonlocal closure pattern
+                events = runtime.eventlog.read_all()
                 if not hasattr(main, "_last_stage_label"):
                     setattr(main, "_last_stage_label", None)
                 if not hasattr(main, "_last_cooldown_thr"):
                     setattr(main, "_last_cooldown_thr", None)
 
-                # Resolve most recent stage label from stage_update or policy_update(component="reflection")
                 stage_label = None
-                for e in reversed(evs):
-                    if e.get("kind") == "stage_update":
-                        stage_label = (e.get("meta") or {}).get("to")
+                for event in reversed(events):
+                    if event.get("kind") == "stage_update":
+                        stage_label = (event.get("meta") or {}).get("to")
                         break
-                    if e.get("kind") == "policy_update":
-                        m = e.get("meta") or {}
-                        if str(m.get("component")) == "reflection":
-                            stage_label = m.get("stage") or stage_label
+                    if event.get("kind") == "policy_update":
+                        meta = event.get("meta") or {}
+                        if str(meta.get("component")) == "reflection":
+                            stage_label = meta.get("stage") or stage_label
                             if stage_label:
                                 break
                 prev_stage_label = getattr(main, "_last_stage_label")
                 if stage_label and stage_label != prev_stage_label:
-                    msg = f"[stage] {prev_stage_label or '—'} → {stage_label} (cadence updated)"
-                    try:
-                        msg = _c(msg, "34")
-                    except Exception:
-                        pass
-                    print(msg, flush=True)
+                    logger.info(
+                        "[bold blue][stage][/bold blue] %s → %s (cadence updated)",
+                        prev_stage_label or "—",
+                        stage_label,
+                    )
                     setattr(main, "_last_stage_label", stage_label)
 
-                # Resolve most recent cooldown novelty threshold from policy_update(component="cooldown")
                 cooldown_thr = None
-                for e in reversed(evs):
-                    if e.get("kind") != "policy_update":
+                for event in reversed(events):
+                    if event.get("kind") != "policy_update":
                         continue
-                    m = e.get("meta") or {}
-                    if str(m.get("component")) != "cooldown":
+                    meta = event.get("meta") or {}
+                    if str(meta.get("component")) != "cooldown":
                         continue
-                    params = m.get("params") or {}
+                    params = meta.get("params") or {}
                     if "novelty_threshold" in params:
                         try:
                             cooldown_thr = float(params.get("novelty_threshold"))
@@ -199,114 +344,109 @@ def main() -> None:
                         break
                 prev_thr = getattr(main, "_last_cooldown_thr")
                 if cooldown_thr is not None and cooldown_thr != prev_thr:
-                    msg2 = f"[policy] cooldown.novelty_threshold → {cooldown_thr:.2f}"
-                    try:
-                        msg2 = _c(msg2, "33")
-                    except Exception:
-                        pass
-                    print(msg2, flush=True)
+                    logger.info(
+                        "[bold blue][policy][/bold blue] cooldown.novelty_threshold → %.2f",
+                        cooldown_thr,
+                    )
                     setattr(main, "_last_cooldown_thr", cooldown_thr)
             except Exception:
-                # Never crash REPL on notices
                 pass
-            # Optional: print when a reflection-driven commitment opens
+
             try:
-                evs = rt.eventlog.read_all()
-                last_ev = evs[-1] if evs else None
-                if last_ev and last_ev.get("kind") == "commitment_open":
-                    meta = last_ev.get("meta") or {}
+                events = runtime.eventlog.read_all()
+                last_event = events[-1] if events else None
+                if last_event and last_event.get("kind") == "commitment_open":
+                    meta = last_event.get("meta") or {}
                     if meta.get("reason") == "reflection":
-                        # Track last seen to avoid duplicates
                         if not hasattr(main, "_last_commitment_id"):
                             setattr(main, "_last_commitment_id", None)
                         prev_cid = getattr(main, "_last_commitment_id")
-                        if last_ev.get("id") != prev_cid:
-                            print("[commitment] opened from reflection", flush=True)
-                            setattr(main, "_last_commitment_id", last_ev.get("id"))
+                        if last_event.get("id") != prev_cid:
+                            logger.info(
+                                "[bold blue][commitment][/bold blue] opened from reflection"
+                            )
+                            setattr(main, "_last_commitment_id", last_event.get("id"))
             except Exception:
-                # Never crash REPL on notice
                 pass
-            # Identity lifecycle breadcrumbs removed from CLI to avoid persona leakage in UX.
-            # Bridge observability: print CurriculumUpdate→PolicyUpdate linkage (src_id)
+
             try:
-                evs_b = rt.eventlog.read_all()
+                events = runtime.eventlog.read_all()
                 if not hasattr(main, "_last_bridge_policy_id"):
                     setattr(main, "_last_bridge_policy_id", None)
                 last_bridge_printed = getattr(main, "_last_bridge_policy_id")
-                for e in reversed(evs_b):
-                    if e.get("kind") != "policy_update":
+                for event in reversed(events):
+                    if event.get("kind") != "policy_update":
                         continue
-                    m = e.get("meta") or {}
-                    src = m.get("src_id")
+                    meta = event.get("meta") or {}
+                    src = meta.get("src_id")
                     if src is None:
                         continue
-                    eid = int(e.get("id") or 0)
+                    eid = int(event.get("id") or 0)
                     if eid and eid != last_bridge_printed:
-                        msg = f"[BRIDGE] CurriculumUpdate→PolicyUpdate (pu_id={eid}, src_id={src})"
-                        try:
-                            msg = _c(msg, "35")
-                        except Exception:
-                            pass
-                        print(msg, flush=True)
+                        logger.info(
+                            "[bold blue][bridge][/bold blue] CurriculumUpdate→PolicyUpdate (pu_id=%s, src_id=%s)",
+                            eid,
+                            src,
+                        )
                         setattr(main, "_last_bridge_policy_id", eid)
                     break
             except Exception:
                 pass
-            # Optional reminder notices for commitments due
+
             try:
-                evs2 = rt.eventlog.read_all()
+                events = runtime.eventlog.read_all()
                 if not hasattr(main, "_printed_reminder_ids"):
                     setattr(main, "_printed_reminder_ids", set())
                 printed = getattr(main, "_printed_reminder_ids")
-                # Print any new commitment_reminder since last check
-                for e in evs2:
-                    if e.get("kind") != "commitment_reminder":
+                for event in events:
+                    if event.get("kind") != "commitment_reminder":
                         continue
-                    eid = int(e.get("id") or 0)
+                    eid = int(event.get("id") or 0)
                     if eid in printed:
                         continue
-                    cid = (e.get("meta") or {}).get("cid")
+                    cid = (event.get("meta") or {}).get("cid")
                     if cid:
-                        try:
-                            msg = _c(f"[reminder] Commitment #{cid} is due!", "31")
-                        except Exception:
-                            msg = f"[reminder] Commitment #{cid} is due!"
-                        print(msg, flush=True)
+                        logger.warning(
+                            "[bold yellow][reminder][/bold yellow] Commitment #%s is due!",
+                            cid,
+                        )
                         printed.add(eid)
             except Exception:
                 pass
-            # One-shot continuity notice after first reply following identity_adopt (strict ordering)
+
             try:
-                events = rt.eventlog.read_all()
+                events = runtime.eventlog.read_all()
                 if should_print_identity_notice(events):
                     ident = build_identity(events)
-                    nm = ident.get("name")
-                    if nm:
-                        msg = f"[IDENTITY] adopted name: {nm}"
-                        try:
-                            msg = _c(msg, "36")
-                        except Exception:
-                            pass
-                        print(msg, flush=True)
+                    name = ident.get("name")
+                    if name:
+                        logger.info(
+                            "[bold blue][identity][/bold blue] adopted name: %s",
+                            name,
+                        )
             except Exception:
                 pass
-            # When metrics view is enabled, print a concise snapshot after reply
+
             try:
-                snap = metrics_view.snapshot(rt.eventlog)
-                print(MetricsView.render(snap), flush=True)
+                snapshot = metrics_view.snapshot(runtime.eventlog)
+                assistant_console.print(_metrics_panel(snapshot))
             except Exception:
-                # Never crash REPL for metrics
                 pass
+
             try:
-                runtime_maybe_reflect(rt.eventlog, rt.cooldown)
+                runtime_maybe_reflect(
+                    runtime.eventlog,
+                    runtime.cooldown,
+                    llm_generate=lambda context: runtime.reflect(context),
+                )
             except Exception:
-                # best-effort reflection, never crash REPL
                 pass
     except (EOFError, KeyboardInterrupt):
-        print("\nbye.")
-        # Ensure background autonomy loop is stopped
+        assistant_console.print(
+            _system_panel("bye.", title="goodbye", border_style="blue")
+        )
         try:
-            rt.stop_autonomy()
+            runtime.stop_autonomy()
         except Exception:
             pass
         sys.exit(0)

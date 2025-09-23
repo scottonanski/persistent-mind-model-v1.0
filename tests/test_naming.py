@@ -21,7 +21,7 @@ def _make_runtime() -> Runtime:
     prev = LLMFactory.from_config
     LLMFactory.from_config = staticmethod(lambda cfg: _DummyBundle())
     try:
-        rt = Runtime(cfg, EventLog())
+        rt = Runtime(cfg, EventLog(":memory:"))
     finally:
         LLMFactory.from_config = prev
     rt.chat.generate = lambda *a, **k: ""
