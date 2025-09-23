@@ -3074,6 +3074,12 @@ class AutonomyLoop:
         meta_payload = {"name": str(new_name), "sanitized": sanitized}
         if meta:
             meta_payload.update(meta)
+        # Ensure confidence is present for IAS stability window eligibility
+        # Default to high confidence for canonical adoptions initiated by the autonomy loop
+        try:
+            meta_payload["confidence"] = float(meta_payload.get("confidence", 0.95))
+        except Exception:
+            meta_payload["confidence"] = 0.95
         meta_payload["stable_window"] = True
         adopt_eid = self.eventlog.append(
             kind="identity_adopt",

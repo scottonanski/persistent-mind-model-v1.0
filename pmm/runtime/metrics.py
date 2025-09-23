@@ -122,7 +122,9 @@ def write_metrics_to_db(eventlog, ias: float, gas: float, reason: str = "compute
 
 def diagnose_ias_calculation(events: List[dict]) -> dict:
     """Diagnose why IAS might be low or zero by analyzing relevant events."""
-    identity_adopts = []
+    # Track both total and valid (confidence-gated) adoptions
+    identity_adopts = []  # valid only
+    identity_adopts_all = []  # all adoptions regardless of confidence
     autonomy_ticks = 0
     invariant_violations = 0
     identity_reflections = 0
@@ -158,7 +160,17 @@ def diagnose_ias_calculation(events: List[dict]) -> dict:
             name = str(
                 m.get("sanitized") or m.get("name") or ev.get("content") or ""
             ).strip()
-            identity_adopts.append((tix, name, eid))
+            # Record the raw (all) adoption
+            identity_adopts_all.append(
+                (tix, name, eid, float(m.get("confidence", 0.0)))
+            )
+            # Only treat as valid if confidence gating passes (>=0.9)
+            try:
+                conf = float(m.get("confidence", 0.0))
+            except Exception:
+                conf = 0.0
+            if conf >= 0.9 and name:
+                identity_adopts.append((tix, name, eid))
         elif kind == "autonomy_tick":
             autonomy_ticks += 1
         elif kind == "invariant_violation":
@@ -206,8 +218,12 @@ def diagnose_ias_calculation(events: List[dict]) -> dict:
     decay_factor = (_DECAY_PER_TICK**autonomy_ticks) if autonomy_ticks > 0 else 1.0
 
     return {
+        # Keep identity_adopts as the count of valid, confidence-gated adoptions
         "identity_adopts": len(identity_adopts),
         "identity_adopt_details": identity_adopts,
+        # Provide total as an auxiliary for clarity in logs
+        "identity_adopts_total": len(identity_adopts_all),
+        "identity_adopt_details_all": identity_adopts_all,
         "autonomy_ticks": autonomy_ticks,
         "invariant_violations": invariant_violations,
         "identity_reflections": identity_reflections,
@@ -383,12 +399,12 @@ def compute_ias_gas(events: Iterable[dict]) -> Tuple[float, float]:
             ).strip()
             confidence = float(m.get("confidence", 0.0))
             if nm and confidence >= 0.9:  # Only consider high-confidence adoptions
-                logger.info(
+                logger.debug(
                     f"Valid adoption: name='{nm}', confidence={confidence}, tix={tix}"
                 )
                 adopt_events.append((tix, nm))
             else:
-                logger.info(
+                logger.debug(
                     f"Ignored adoption: name='{nm}', confidence={confidence} < 0.9 (event_id={eid})"
                 )
 
@@ -487,26 +503,28 @@ def compute_ias_gas(events: Iterable[dict]) -> Tuple[float, float]:
             if adopt_events:
                 last_tix, _ = adopt_events[-1]
                 dt = tix - last_tix
-                logger.info(
+                logger.debug(
                     f"Tick {tix}: dt={dt}, adopt_events={len(adopt_events)}, last_tix={last_tix}"
                 )
                 # Award stability bonus every 10th tick after adoption
                 if dt > 0 and dt % _STABLE_IDENTITY_WINDOW_TICKS == 0:
-                    logger.info(
+                    logger.debug(
                         f"Stability bonus firing: dt={dt}, adding {_IAS_PER_STABLE_WINDOW}, IAS before: {ias:.4f}"
                     )
                     ias += _IAS_PER_STABLE_WINDOW
-                    logger.info(f"IAS after stability bonus: {ias:.4f}")
+                    logger.debug(f"IAS after stability bonus: {ias:.4f}")
             else:
-                logger.info(f"Tick {tix}: No adopt_events, no stability bonus possible")
+                logger.debug(
+                    f"Tick {tix}: No adopt_events, no stability bonus possible"
+                )
 
     # Clip to valid ranges - IAS can now be 0.0 on fresh DB
     ias = _clip(ias, 0.0, 1.0)
     gas = _clip(gas, 0.0, 1.0)
 
-    # Log final state for debugging
-    logger.info(f"Final IAS computation: IAS={ias:.4f}, GAS={gas:.4f}")
-    logger.info(
+    # Log final state at debug level to avoid spamming by default
+    logger.debug(f"Final IAS computation: IAS={ias:.4f}, GAS={gas:.4f}")
+    logger.debug(
         f"Valid adopt_events processed: {len(adopt_events)} events: {adopt_events}"
     )
 

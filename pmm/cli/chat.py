@@ -140,6 +140,16 @@ def _metrics_panel(snap: dict) -> Panel:
             ident_line.append(trait_parts, style="bold white")
     grid.add_row(ident_line)
 
+    # Full OCEAN vector
+    traits_full = identity.get("traits_full", {})
+    if traits_full:
+        tf_line = Text("OCEAN ", style="green")
+        tf_line.append(
+            f"O {traits_full.get('O','0.00')}  C {traits_full.get('C','0.00')}  E {traits_full.get('E','0.00')}  A {traits_full.get('A','0.00')}  N {traits_full.get('N','0.00')}",
+            style="bold white",
+        )
+        grid.add_row(tf_line)
+
     if priority:
         pr_line = Text("Priority ", style="magenta")
         items: list[str] = []

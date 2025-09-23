@@ -153,7 +153,7 @@ class MetricsView:
             "stage": stage,
             "open_commitments": {"count": open_count, "top3": top3},
             "priority_top5": priority_top5,
-            "identity": {"name": name, "top_traits": top_traits},
+            "identity": {"name": name, "top_traits": top_traits, "traits_full": tv},
             "self_model_lines": [line1, line2],
         }
 
@@ -179,6 +179,12 @@ class MetricsView:
         if nm or t3:
             tparts = [f"{it['trait']}={it['v']:.2f}" for it in t3]
             parts.append(f"[IDENTITY] name={nm} | " + ", ".join(tparts))
+        # Always render the full OCEAN vector explicitly for clarity
+        tv = ident.get("traits_full", {})
+        if tv:
+            parts.append(
+                f"[TRAITS] O={tv.get('O','0.00')} C={tv.get('C','0.00')} E={tv.get('E','0.00')} A={tv.get('A','0.00')} N={tv.get('N','0.00')}"
+            )
         pr = snap.get("priority_top5", [])
         if pr:
             items = [f"{e['cid'][:4]}… {e['score']:.2f}" for e in pr]

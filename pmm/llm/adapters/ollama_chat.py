@@ -49,7 +49,7 @@ class OllamaChat:
                 "X-PMM-GAS": str(gas),
             }
 
-            response = requests.post(url, json=payload, headers=headers, timeout=10)
+            response = requests.post(url, json=payload, headers=headers, timeout=20)
             response.raise_for_status()
 
             logger.info(f"Sent metrics in headers: IAS={ias}, GAS={gas}")
@@ -104,7 +104,7 @@ class OllamaChat:
                 "X-PMM-GAS": str(gas),
             }
 
-            response = requests.post(url, json=payload, headers=headers, timeout=60)
+            response = requests.post(url, json=payload, headers=headers, timeout=120)
             response.raise_for_status()
             data = response.json()
 
