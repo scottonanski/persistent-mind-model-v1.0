@@ -110,7 +110,10 @@ class OllamaChat:
 
             logger.info(f"Sent metrics in headers: IAS={ias}, GAS={gas}")
             content = data["message"]["content"]
-            return f"{content}\n[Current Metrics: IAS={ias:.3f}, GAS={gas:.3f}, Temperature={temperature:.3f}, Max Tokens={max_tokens}]"
+
+            # Get fresh metrics after response generation (may have changed due to new events)
+            fresh_ias, fresh_gas = get_or_compute_ias_gas(eventlog)
+            return f"{content}\n[Current Metrics: IAS={fresh_ias:.3f}, GAS={fresh_gas:.3f}, Temperature={temperature:.3f}, Max Tokens={max_tokens}]"
         except Exception as e:
             logger.error(f"Error generating response from Ollama: {e}")
             raise
@@ -168,7 +171,7 @@ class OllamaChatAdapter:
                     },
                 )
 
-            # Get current metrics
+            # Get fresh metrics after response generation (may have changed due to new events)
             from pmm.runtime.metrics import get_or_compute_ias_gas
             from pmm.storage.eventlog import get_default_eventlog
 

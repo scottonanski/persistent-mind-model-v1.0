@@ -243,19 +243,13 @@ def get_or_compute_ias_gas(eventlog) -> Tuple[float, float]:
         logger.info("No metrics found in DB, will compute from scratch")
 
     # Step 2: Check if recomputation is needed
-    # Always recompute if cached IAS is 0.0 (indicating stale data from circular dependency bug)
-    force_recompute = ias == 0.0 and last_metrics_id > 0
+    # Note: IAS=0.0 is a legitimate state for new systems, don't force recompute based on this alone
 
-    if needs_metrics_recomputation(eventlog, last_metrics_id) or force_recompute:
+    if needs_metrics_recomputation(eventlog, last_metrics_id):
         if last_metrics_id > 0:
-            if force_recompute:
-                logger.info(
-                    "Stale metrics detected (IAS=0.0), forcing recomputation despite no new events..."
-                )
-            else:
-                logger.info(
-                    f"New events detected after metrics_id={last_metrics_id}, recomputing..."
-                )
+            logger.info(
+                f"New events detected after metrics_id={last_metrics_id}, recomputing..."
+            )
         else:
             logger.info("Computing initial metrics from event ledger...")
 
@@ -389,7 +383,14 @@ def compute_ias_gas(events: Iterable[dict]) -> Tuple[float, float]:
             ).strip()
             confidence = float(m.get("confidence", 0.0))
             if nm and confidence >= 0.9:  # Only consider high-confidence adoptions
+                logger.info(
+                    f"Valid adoption: name='{nm}', confidence={confidence}, tix={tix}"
+                )
                 adopt_events.append((tix, nm))
+            else:
+                logger.info(
+                    f"Ignored adoption: name='{nm}', confidence={confidence} < 0.9 (event_id={eid})"
+                )
 
             # Flip-flop penalty if within the stable window
             if last_adopt_tick is not None and last_adopt_name and nm:
@@ -486,13 +487,28 @@ def compute_ias_gas(events: Iterable[dict]) -> Tuple[float, float]:
             if adopt_events:
                 last_tix, _ = adopt_events[-1]
                 dt = tix - last_tix
+                logger.info(
+                    f"Tick {tix}: dt={dt}, adopt_events={len(adopt_events)}, last_tix={last_tix}"
+                )
                 # Award stability bonus every 10th tick after adoption
                 if dt > 0 and dt % _STABLE_IDENTITY_WINDOW_TICKS == 0:
+                    logger.info(
+                        f"Stability bonus firing: dt={dt}, adding {_IAS_PER_STABLE_WINDOW}, IAS before: {ias:.4f}"
+                    )
                     ias += _IAS_PER_STABLE_WINDOW
+                    logger.info(f"IAS after stability bonus: {ias:.4f}")
+            else:
+                logger.info(f"Tick {tix}: No adopt_events, no stability bonus possible")
 
     # Clip to valid ranges - IAS can now be 0.0 on fresh DB
     ias = _clip(ias, 0.0, 1.0)
     gas = _clip(gas, 0.0, 1.0)
+
+    # Log final state for debugging
+    logger.info(f"Final IAS computation: IAS={ias:.4f}, GAS={gas:.4f}")
+    logger.info(
+        f"Valid adopt_events processed: {len(adopt_events)} events: {adopt_events}"
+    )
 
     return ias, gas
 
