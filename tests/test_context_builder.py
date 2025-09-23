@@ -1,5 +1,6 @@
 from pmm.storage.eventlog import EventLog
-from pmm.runtime.context_builder import build_context_from_ledger
+import re
+from pmm.runtime.context_builder import build_context_from_ledger, build_context
 
 
 def _create_sample_ledger() -> EventLog:
@@ -47,3 +48,23 @@ def test_context_block_deterministic():
     block1 = build_context_from_ledger(log, n_reflections=1)
     block2 = build_context_from_ledger(log, n_reflections=1)
     assert block1 == block2
+
+
+def test_context_builder_includes_trait_suggestion_guidance():
+    """Test that context builder includes trait suggestion guidance."""
+    # Build a minimal context (mock traits + metrics)
+    context = build_context(
+        traits={"O": 0.7, "C": 0.5, "E": 0.4, "A": 0.6, "N": 0.3},
+        metrics={"IAS": 0.1, "GAS": 0.2},
+        stage="S0",
+    )
+
+    # Join context lines into a single string for searching
+    context_text = "\n".join(context)
+
+    # Assert that trait-adjustment guidance appears
+    assert re.search(
+        r"personality adjustments.*I should increase openness by 0\.02",
+        context_text,
+        re.IGNORECASE,
+    ), f"Trait suggestion guidance missing in context: {context_text}"

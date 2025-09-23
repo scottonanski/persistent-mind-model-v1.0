@@ -128,6 +128,12 @@ def build_context_from_ledger(eventlog: EventLog, *, n_reflections: int = 3) -> 
     lines: List[str] = ["[SYSTEM STATE — from ledger]"]
     lines.append(f"Identity: {name}")
     lines.append(f"Traits: {trait_str}")
+    # Guidance for LLM trait suggestions (side layer)
+    lines.append(
+        "You may suggest personality adjustments when context supports it "
+        "(e.g., 'I should increase openness by 0.02'). "
+        "Suggestions should be precise and justified."
+    )
     if ias is not None and gas is not None and stage is not None:
         lines.append(f"IAS={ias:.2f}, GAS={gas:.2f}, Stage={stage}")
     if commitments_block:
@@ -180,3 +186,29 @@ def _short_reflection(txt: str, limit: int = 120) -> str:
         return cut.rstrip() + "…"
     except Exception:
         return (str(txt or "")[:limit]).strip()
+
+
+def build_context(
+    traits: Dict[str, float], metrics: Dict[str, float], stage: str
+) -> List[str]:
+    """Build a minimal context for testing purposes."""
+    lines = []
+    # Add trait info
+    trait_order = [
+        ("openness", "O"),
+        ("conscientiousness", "C"),
+        ("extraversion", "E"),
+        ("agreeableness", "A"),
+        ("neuroticism", "N"),
+    ]
+    trait_str = ", ".join(
+        f"{abbr}={traits.get(key, 0.5):.2f}" for key, abbr in trait_order
+    )
+    lines.append(f"Traits: {trait_str}")
+    # Guidance for LLM trait suggestions (side layer)
+    lines.append(
+        "You may suggest personality adjustments when context supports it "
+        "(e.g., 'I should increase openness by 0.02'). "
+        "Suggestions should be precise and justified."
+    )
+    return lines

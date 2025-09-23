@@ -13,6 +13,7 @@ schedule, acting as a heartbeat. Each tick:
 """
 
 from __future__ import annotations
+from pmm.runtime.llm_trait_adjuster import apply_llm_trait_adjustments
 
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_identity, build_self_model
@@ -992,6 +993,15 @@ class Runtime:
         styled = self.bridge.format_messages(msgs, intent="chat")
         # Keep replies responsive and bounded when using remote providers
         reply = self.chat.generate(styled, temperature=0.3, max_tokens=1024)
+        # NEW: Apply LLM-driven trait adjustments (side layer)
+        # This integrates the LLM trait adjuster without touching foundation code
+        try:
+            applied_events = apply_llm_trait_adjustments(self.eventlog, reply)
+            if applied_events:
+                logger.info(f"Applied {len(applied_events)} LLM trait adjustments")
+        except Exception as e:
+            logger.warning(f"LLM trait adjustment failed: {e}")
+            # Fail-open: errors in this side layer never block main response flow
         # Sanitize raw model output deterministically before any event emission
         try:
             reply = self.bridge.sanitize(
