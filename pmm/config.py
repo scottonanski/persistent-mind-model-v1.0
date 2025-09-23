@@ -49,8 +49,8 @@ def load_runtime_env(dotenv_path: str = ".env") -> RuntimeEnv:
     db_path = os.getenv("PMM_DB", ".data/pmm.db")
     # Reflection is always enabled; no env gate
     reflect_enabled = True
-    # Fixed cadence: background autonomy ticks every 3 seconds for responsive IAS growth
-    autonomy_interval = 3.0
+    # Fixed cadence: background autonomy ticks every 10 seconds for responsive IAS growth without performance issues
+    autonomy_interval = 10.0
     # Truth-first evidence policy: artifact required (no env override)
     require_artifact_evidence = False
     # Commitment TTL and dedup knobs (constants)
