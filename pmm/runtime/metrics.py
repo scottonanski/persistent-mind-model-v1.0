@@ -31,6 +31,9 @@ _DECAY_PER_TICK: float = 0.9995  # slower decay for longer-lived systems
 # Novelty/repeat windows - tick-based for proper timing
 _OPEN_NOVEL_WINDOW_TICKS: int = 20  # ticks since last same-open to count as novel
 _REPEAT_REFLECT_WINDOW_TICKS: int = 8  # ticks since last same-reflection
+# Feedback loop parameters for IAS-GAS interaction
+_FEEDBACK_IAS_TO_GAS_MULT: float = 0.1  # GAS boost when IAS increases
+_FEEDBACK_GAS_TO_IAS_MULT: float = 0.05  # IAS stabilization when GAS grows
 
 
 def _clip(v: float, lo: float, hi: float) -> float:
@@ -517,6 +520,17 @@ def compute_ias_gas(events: Iterable[dict]) -> Tuple[float, float]:
                 logger.debug(
                     f"Tick {tix}: No adopt_events, no stability bonus possible"
                 )
+
+    # Apply feedback loop: IAS and GAS influence each other
+    ias_feedback = (ias - 0.5) * _FEEDBACK_IAS_TO_GAS_MULT  # Positive when IAS > 0.5
+    gas_feedback = (gas - 0.5) * _FEEDBACK_GAS_TO_IAS_MULT  # Positive when GAS > 0.5
+
+    gas += ias_feedback  # GAS gets boost from high IAS
+    ias += gas_feedback  # IAS gets stabilization from high GAS
+
+    logger.debug(
+        f"Feedback adjustments: IAS +{gas_feedback:.4f} from GAS, GAS +{ias_feedback:.4f} from IAS"
+    )
 
     # Clip to valid ranges - IAS can now be 0.0 on fresh DB
     ias = _clip(ias, 0.0, 1.0)

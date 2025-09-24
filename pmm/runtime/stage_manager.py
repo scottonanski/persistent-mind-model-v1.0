@@ -31,6 +31,10 @@ class StageManager:
         gas: float,
         hysteresis: float = 0.03,
     ) -> bool:
+        # Calculate synergy bonus for coherent IAS/GAS alignment
+        synergy_bonus = min(
+            0.1, (ias * gas) ** 0.5 * 0.2
+        )  # Up to 10% bonus when aligned
         """
         Deterministic thresholds for stage advancement.
         No reflection quality scoring — count-based only.
@@ -39,8 +43,8 @@ class StageManager:
             traditional_criteria = (
                 len(refs) >= 2
                 and len(evols) >= 1
-                and ias >= (0.60 + hysteresis)
-                and gas >= (0.20 + hysteresis)
+                and ias >= (0.60 + hysteresis - synergy_bonus)
+                and gas >= (0.20 + hysteresis - synergy_bonus)
             )
             introspective_emergence = (
                 len(refs) >= 2

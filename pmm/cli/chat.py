@@ -60,6 +60,7 @@ def _configure_logging(log_console: Console) -> None:
     logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("pmm.runtime.metrics").setLevel(logging.WARNING)
 
 
 def _system_panel(
@@ -229,6 +230,9 @@ def main() -> None:
 
     runtime = Runtime(cfg, eventlog, ngram_bans=ngram_bans)
     metrics_view = MetricsView()
+    metrics_view_enabled = False
+    metrics_logs_enabled = False
+    metrics_logger = logging.getLogger("pmm.runtime.metrics")
 
     runtime.start_autonomy(max(0.01, float(env.autonomy_interval or 10)))
 
@@ -258,14 +262,100 @@ def main() -> None:
                 continue
 
             normalized = user_input.strip()
-            if normalized in {"--@metrics on", "--@metrics off"}:
-                assistant_console.print(
-                    _system_panel(
-                        "Metrics view is always on in this build.",
-                        title="metrics",
-                        border_style="cyan",
+            if normalized == "--@metrics on":
+                if not metrics_view_enabled:
+                    metrics_view_enabled = True
+                    assistant_console.print(
+                        _system_panel(
+                            "Metrics panel will be shown after each interaction.",
+                            title="metrics",
+                            border_style="green",
+                        )
                     )
-                )
+                else:
+                    assistant_console.print(
+                        _system_panel(
+                            "Metrics panel is already enabled.",
+                            title="metrics",
+                            border_style="cyan",
+                        )
+                    )
+                continue
+
+            if normalized == "--@metrics off":
+                if metrics_view_enabled:
+                    metrics_view_enabled = False
+                    assistant_console.print(
+                        _system_panel(
+                            "Metrics panel disabled.",
+                            title="metrics",
+                            border_style="yellow",
+                        )
+                    )
+                else:
+                    assistant_console.print(
+                        _system_panel(
+                            "Metrics panel is already disabled.",
+                            title="metrics",
+                            border_style="cyan",
+                        )
+                    )
+                continue
+
+            if normalized == "--@metrics":
+                try:
+                    snapshot = metrics_view.snapshot(runtime.eventlog)
+                    assistant_console.print(_metrics_panel(snapshot))
+                except Exception:
+                    assistant_console.print(
+                        _system_panel(
+                            "Unable to load metrics snapshot.",
+                            title="metrics",
+                            border_style="red",
+                        )
+                    )
+                continue
+
+            if normalized == "--@metrics logs on":
+                if not metrics_logs_enabled:
+                    metrics_logger.setLevel(logging.INFO)
+                    metrics_logs_enabled = True
+                    assistant_console.print(
+                        _system_panel(
+                            "Metrics logger set to INFO.",
+                            title="metrics",
+                            border_style="green",
+                        )
+                    )
+                else:
+                    assistant_console.print(
+                        _system_panel(
+                            "Metrics logger already at INFO.",
+                            title="metrics",
+                            border_style="cyan",
+                        )
+                    )
+                continue
+
+            if normalized == "--@metrics logs off":
+                if metrics_logs_enabled:
+                    metrics_logger.setLevel(logging.WARNING)
+                    metrics_logs_enabled = False
+                    assistant_console.print(
+                        _system_panel(
+                            "Metrics logger silenced (WARNING).",
+                            title="metrics",
+                            border_style="yellow",
+                        )
+                    )
+                else:
+                    assistant_console.print(
+                        _system_panel(
+                            "Metrics logger already silenced.",
+                            title="metrics",
+                            border_style="cyan",
+                        )
+                    )
                 continue
 
             if normalized == "--@models":
@@ -437,11 +527,12 @@ def main() -> None:
             except Exception:
                 pass
 
-            try:
-                snapshot = metrics_view.snapshot(runtime.eventlog)
-                assistant_console.print(_metrics_panel(snapshot))
-            except Exception:
-                pass
+            if metrics_view_enabled:
+                try:
+                    snapshot = metrics_view.snapshot(runtime.eventlog)
+                    assistant_console.print(_metrics_panel(snapshot))
+                except Exception:
+                    pass
 
             try:
                 runtime_maybe_reflect(

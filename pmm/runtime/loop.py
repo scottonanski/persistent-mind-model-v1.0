@@ -3605,6 +3605,23 @@ class AutonomyLoop:
         ias, gas = compute_ias_gas(self.eventlog.read_all())
         curr_stage, snapshot = StageTracker.infer_stage(events)
 
+        snapshot_ias = 0.0
+        snapshot_gas = 0.0
+        try:
+            snapshot_ias = float(snapshot.get("IAS_mean", 0.0))
+            snapshot_gas = float(snapshot.get("GAS_mean", 0.0))
+        except Exception:
+            snapshot_ias = snapshot_gas = 0.0
+
+        if (
+            ias <= 1e-6
+            and gas <= 1e-6
+            and float(snapshot.get("count", 0)) > 0
+            and max(snapshot_ias, snapshot_gas) >= 0.05
+        ):
+            ias = snapshot_ias
+            gas = snapshot_gas
+
         identity_snapshot = build_identity(events)
         persona_name = identity_snapshot.get("name")
         # Respect StageTracker.infer_stage() and hysteresis; do not force stage overrides
@@ -3617,19 +3634,8 @@ class AutonomyLoop:
         protect_until_tick = tick_no + _COMMITMENT_PROTECT_TICKS
         force_reason = self._force_reason_next_tick
         self._force_reason_next_tick = None
-        # Stabilize telemetry: use stage snapshot means so the tick's own telemetry
-        # does not cause unintended stage drift across ticks in tests.
-        # Only use snapshot means if they are non-zero (not stale)
-        try:
-            snapshot_ias = float(snapshot.get("IAS_mean", 0.0))
-            snapshot_gas = float(snapshot.get("GAS_mean", 0.0))
-            # Only override with snapshot if snapshot has valid values
-            if snapshot_ias > 0.0:
-                ias = snapshot_ias
-            if snapshot_gas > 0.0:
-                gas = snapshot_gas
-        except Exception:
-            pass
+        # Keep telemetry aligned with freshly computed metrics; snapshot means are
+        # reserved for hysteresis decisions and should not overwrite IAS/GAS here.
         cadence = CADENCE_BY_STAGE.get(
             curr_stage, CADENCE_BY_STAGE["S0"]
         )  # default to S0
@@ -3640,6 +3646,8 @@ class AutonomyLoop:
             "min_time_s": int(cadence["min_time_s"]),
             "force_reflect_if_stuck": bool(cadence["force_reflect_if_stuck"]),
         }
+        last_reflection_policy = getattr(self, "_last_reflection_policy", {})
+        cached_reflection = last_reflection_policy.get(curr_stage)
         exists_reflection = False
         for _ev in reversed(events):
             if _ev.get("kind") != "policy_update":
@@ -3652,7 +3660,7 @@ class AutonomyLoop:
             ):
                 exists_reflection = True
                 break
-        if not exists_reflection:
+        if not exists_reflection and cached_reflection != target_params:
             _vprint(
                 f"[AutonomyLoop] Policy update: Reflection cadence set for stage {curr_stage} (tick {tick_no})"
             )
@@ -3671,9 +3679,6 @@ class AutonomyLoop:
         mult = DRIFT_MULT_BY_STAGE.get(
             curr_stage, DRIFT_MULT_BY_STAGE["S0"]
         )  # default to S0
-        last_stage_drift, last_params_drift = _last_policy_params(
-            events, component="drift"
-        )
         cmp_params_drift = {
             "mult": {
                 "openness": float(mult["openness"]),
@@ -3681,7 +3686,21 @@ class AutonomyLoop:
                 "neuroticism": float(mult["neuroticism"]),
             }
         }
-        if last_params_drift != cmp_params_drift or last_stage_drift != curr_stage:
+        last_drift_policy = getattr(self, "_last_drift_policy", {})
+        cached_drift = last_drift_policy.get(curr_stage)
+        exists_drift = False
+        for _ev in reversed(events):
+            if _ev.get("kind") != "policy_update":
+                continue
+            _m = _ev.get("meta") or {}
+            if (
+                str(_m.get("component")) == "drift"
+                and str(_m.get("stage")) == str(curr_stage)
+                and dict(_m.get("params") or {}) == cmp_params_drift
+            ):
+                exists_drift = True
+                break
+        if not exists_drift and cached_drift != cmp_params_drift:
             self.eventlog.append(
                 kind="policy_update",
                 content="",
@@ -3692,6 +3711,8 @@ class AutonomyLoop:
                     "tick": tick_no,
                 },
             )
+            last_drift_policy[curr_stage] = cmp_params_drift
+            self._last_drift_policy = last_drift_policy
 
         # 1d) Build guidance once per tick and pre-compute a deterministic bias delta
         try:
