@@ -18,7 +18,7 @@ jobs:
         run: black --check .
       - name: Start API server
         run: |
-          python -m uvicorn pmm.api.server:app --port 8000 &
+          python -m uvicorn pmm.api.companion:app --port 8000 &
           for i in {1..30}; do
             if curl -s http://127.0.0.1:8000/snapshot?db=:memory: >/dev/null; then
               echo "API is ready"; break; fi
