@@ -62,8 +62,8 @@ class MetricsView:
                 rs = (ev.get("meta") or {}).get("reason")
                 if rs:
                     reflect_skip = str(rs)
-            if stage == "none" and k == "stage_update":
-                st = (ev.get("meta") or {}).get("to")
+            if stage == "none" and k == "stage_progress":
+                st = (ev.get("meta") or {}).get("stage")
                 if st:
                     stage = str(st)
             if not priority_top5 and k == "priority_update":

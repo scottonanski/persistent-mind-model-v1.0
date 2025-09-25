@@ -14,15 +14,15 @@ def test_snapshot_and_render(tmp_path, capsys):
 
 def test_snapshot_composition(tmp_path):
     log = EventLog(str(tmp_path / "m2.db"))
-    # Seed events: autonomy_tick, debug skip, stage_update, priority_update, and opens
+    # Seed events: autonomy_tick, debug skip, stage_progress, priority_update, and opens
     log.append(
         kind="autonomy_tick", content="", meta={"telemetry": {"IAS": 0.62, "GAS": 0.44}}
     )
     log.append(kind=REFLECTION_SKIPPED, content="", meta={"reason": "novelty_low"})
     log.append(
-        kind="stage_update",
+        kind="stage_progress",
         content="",
-        meta={"from": None, "to": "S1", "snapshot": {}, "reason": "seed"},
+        meta={"from": None, "stage": "S1", "snapshot": {}, "reason": "seed"},
     )
     log.append(
         kind="priority_update",
