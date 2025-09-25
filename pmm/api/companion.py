@@ -36,6 +36,24 @@ def _get_evlog(db: Optional[str]) -> EventLog:
 
 
 @app.get("/events")
+@app.get("/snapshot")
+async def get_snapshot(db: Optional[str] = Query(None)):
+    """Get a comprehensive snapshot of PMM state including identity, events, and directives."""
+    try:
+        evlog = _get_evlog(db)
+
+        # Get the main snapshot from probe
+        snapshot_data = probe.snapshot(evlog)
+
+        # Add directives to the snapshot
+        directives = probe.snapshot_directives(evlog)
+        snapshot_data["directives"] = directives
+
+        return {"version": API_VERSION, **snapshot_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 async def get_events(
     db: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=1000),
