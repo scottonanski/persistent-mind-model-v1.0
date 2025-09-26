@@ -20,7 +20,7 @@ Most AI systems suffer from a fundamental flaw: **they have no memory or continu
 
 ## 🚀 PMM's Solution: Living AI Minds
 
-PMM transforms AI from **stateless calculators** into **living, evolving minds** that:
+PMM transforms AI from **stateless calculators** into **persistent, auditable agents** that:
 
 ### 🧠 **Remember Everything**
 - **Complete conversation history** with cryptographic integrity
@@ -98,7 +98,7 @@ PMM transforms AI from **stateless calculators** into **living, evolving minds**
 - **Research platforms** with continuously improving AI partners
 
 ### 🔬 **Researchers & Developers**
-- **AI consciousness experiments** with observable evolution
+- **Persistent AI behaviour experiments** with observable evolution
 - **Human-AI interaction studies** with persistent relationships
 - **AI safety research** with full behavioral auditability
 

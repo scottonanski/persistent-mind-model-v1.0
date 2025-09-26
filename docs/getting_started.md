@@ -53,32 +53,29 @@ This creates a clean space where PMM can work without messing up your computer.
 
 ### Step 3: Install PMM's Tools 🔧
 
-Now let's install the tools PMM needs to work:
+Now let's install the libraries PMM needs:
 
 ```
 pip install -U pip
-pip install -e .
+pip install -r requirements.txt
 ```
 
-This will download and set up everything PMM needs.
+This installs PMM along with FastAPI, Rich, and the runtime dependencies.
 
-### Step 4: Set Up Your Settings ⚙️
+### Step 4: Configure Model Access ⚙️
 
-PMM needs to know how to connect to AI services. Let's create a settings file:
-
-```
-cp .env .env.local
-```
-
-Now open the `.env.local` file (you can use any text editor like Notepad on Windows, TextEdit on Mac, or gedit on Linux).
-
-Add your OpenAI API key if you want to use OpenAI models:
+PMM needs a language model. Choose whichever option fits you best:
 
 ```
-OPENAI_API_KEY=your_key_here
+# Option A – OpenAI (fastest path if you have a key)
+export OPENAI_API_KEY=your_key_here
+
+# Option B – Local Ollama model (make sure `ollama serve` is running)
+export PMM_PROVIDER=ollama
+export PMM_MODEL=llama3
 ```
 
-**What is an API key?** It's like a password that lets PMM talk to AI services. If you don't have one, PMM can still work with local AI models!
+If you prefer storing settings in a file, copy `.env` to `.env.local`, add the variables there, and PMM will load them automatically.
 
 ### Step 5: Start PMM! 🎉
 

@@ -17,38 +17,35 @@
 echo "🔍 PMM Health Check"
 echo "==================="
 
-# Check if API is running
-if curl -f -s http://localhost:8001/health > /dev/null; then
-    echo "✅ API Server: RUNNING"
-else
-    echo "❌ API Server: DOWN"
-    echo "   → Start with: python scripts/run_companion_server.py"
-    exit 1
+if ! command -v curl >/dev/null 2>&1; then
+  echo "❌ curl is required for this script"
+  exit 1
 fi
 
-# Check database connectivity
-if curl -f -s "http://localhost:8001/events?limit=1" > /dev/null; then
-    echo "✅ Database: CONNECTED"
+# Check if the Companion API responds
+if curl -fs http://localhost:8001/metrics > /dev/null; then
+  echo "✅ Companion API reachable at http://localhost:8001"
 else
-    echo "❌ Database: DISCONNECTED"
-    echo "   → Check database path and permissions"
+  echo "❌ Companion API unreachable"
+  echo "   → Start with: python scripts/run_companion_server.py"
+  exit 1
 fi
 
-# Check consciousness state
-CONSCIOUSNESS=$(curl -s http://localhost:8001/consciousness)
-if echo "$CONSCIOUSNESS" | jq -e '.consciousness' > /dev/null; then
-    echo "✅ Consciousness: ACCESSIBLE"
-
-    # Extract key metrics
-    AUTONOMY=$(echo "$CONSCIOUSNESS" | jq -r '.consciousness.vital_signs.autonomy_level')
-    STAGE=$(echo "$CONSCIOUSNESS" | jq -r '.consciousness.identity.stage')
-    EVENTS=$(echo "$CONSCIOUSNESS" | jq -r '.consciousness.evolution_metrics.total_events')
-
-    echo "   📊 Autonomy: $AUTONOMY"
-    echo "   🎯 Stage: $STAGE"
-    echo "   📝 Events: $EVENTS"
+# Inspect basic snapshot data (events + identity)
+SNAPSHOT=$(curl -fs http://localhost:8001/snapshot)
+if [ -n "$SNAPSHOT" ]; then
+  EVENTS=$(echo "$SNAPSHOT" | jq '.events | length')
+  NAME=$(echo "$SNAPSHOT" | jq -r '.identity.name // "Unnamed"')
+  echo "✅ Snapshot available — events: $EVENTS, identity: $NAME"
 else
-    echo "❌ Consciousness: INACCESSIBLE"
+  echo "❌ Snapshot payload missing"
+fi
+
+# Check that the CLI ledger exists
+if [ -f .data/pmm.db ]; then
+  echo "✅ Ledger found at .data/pmm.db"
+else
+  echo "⚠️  Ledger not found (it will be created on first run)"
 fi
 
 echo ""
@@ -63,12 +60,12 @@ echo "Health check complete."
 # Quick consciousness check
 curl -s http://localhost:8001/consciousness | jq '.consciousness.vital_signs'
 
-# Expected healthy output:
+# Expected output (values vary with experience):
 {
-  "ias": 1.0,
-  "gas": 0.95,
-  "autonomy_level": 0.88,
-  "self_awareness": 0.92
+  "ias": 0.12,
+  "gas": 0.08,
+  "autonomy_level": 0.10,
+  "self_awareness": 0.04
 }
 ```
 
@@ -110,8 +107,8 @@ pip list | grep fastapi
 
 3. **Python version issue:**
    ```bash
-   # Ensure Python 3.8+
-   python3.9 scripts/run_companion_server.py
+   # Ensure Python 3.10+
+   python3.11 scripts/run_companion_server.py
    ```
 
 ### Issue: "Database connection failed"
@@ -168,13 +165,13 @@ stat pmm.db
 **Diagnosis:**
 ```bash
 # Check recent events
-curl -s "http://localhost:8001/events?limit=20" | jq '.events[].kind' | sort | uniq -c
+curl -s http://localhost:8001/snapshot | jq '.events[].kind' | sort | uniq -c
 
 # Check reflection frequency
 curl -s "http://localhost:8001/reflections?limit=5" | jq '.reflections[0].ts'
 
 # Check identity adoption
-curl -s "http://localhost:8001/events?kind=identity_adopt&limit=1"
+curl -s http://localhost:8001/snapshot | jq '.events[] | select(.kind=="identity_adopt")' | head -n 20
 ```
 
 **Solutions:**
@@ -189,11 +186,11 @@ curl -s "http://localhost:8001/events?kind=identity_adopt&limit=1"
 
 2. **Reflection loop not running:**
    ```bash
-   # Check autonomy settings
-   env | grep PMM_AUTONOMY
+   # Keep the CLI open so the 10-second autonomy loop can tick
+   python -m pmm.cli.chat --@metrics on
 
-   # Restart with autonomy enabled
-   PMM_AUTONOMY_ENABLED=true python scripts/run_companion_server.py
+   # Look for `autonomy_tick` and `reflection` lines in the metrics panel
+   # (they appear every 10–30 seconds during active operation)
    ```
 
 3. **Insufficient interaction:**
@@ -205,45 +202,7 @@ curl -s "http://localhost:8001/events?kind=identity_adopt&limit=1"
 
 ### Issue: "WebSocket connections failing"
 
-**Symptoms:**
-- Real-time updates not working
-- WebSocket connection errors in browser console
-
-**Diagnosis:**
-```bash
-# Test WebSocket connection
-websocat ws://localhost:8001/stream
-
-# Check CORS settings
-curl -H "Origin: http://localhost:3000" \
-     -H "Access-Control-Request-Method: GET" \
-     -X OPTIONS http://localhost:8001/stream
-```
-
-**Solutions:**
-
-1. **CORS issues:**
-   ```bash
-   # Set allowed origins
-   PMM_CORS_ORIGINS=http://localhost:3000,http://localhost:3001
-   ```
-
-2. **Firewall blocking:**
-   ```bash
-   # Allow WebSocket connections
-   ufw allow 8001/tcp
-   ```
-
-3. **Proxy configuration:**
-   ```nginx
-   # Nginx WebSocket proxy
-   location /stream {
-       proxy_pass http://localhost:8001;
-       proxy_http_version 1.1;
-       proxy_set_header Upgrade $http_upgrade;
-       proxy_set_header Connection "upgrade";
-   }
-   ```
+The Companion API does not yet expose a `/stream` WebSocket endpoint. Use the REST endpoints (`/snapshot`, `/metrics`, `/reflections`, `/commitments`) for near-real-time data until streaming support is implemented.
 
 ---
 
@@ -754,9 +713,9 @@ fi
 
 # API status
 echo -e "\n🌐 API Status:" >> $REPORT_FILE
-if curl -f -s http://localhost:8001/health > /dev/null; then
+if curl -f -s http://localhost:8001/metrics > /dev/null; then
     echo "API: RUNNING" >> $REPORT_FILE
-    curl -s http://localhost:8001/health >> $REPORT_FILE
+    curl -s http://localhost:8001/metrics >> $REPORT_FILE
 else
     echo "API: DOWN" >> $REPORT_FILE
 fi
@@ -810,7 +769,7 @@ API_URL="http://localhost:8001"
 echo "$(date): Checking PMM health..." >> $HEALTH_LOG
 
 # API connectivity
-if ! curl -f -s --max-time 5 $API_URL/health > /dev/null; then
+if ! curl -f -s --max-time 5 $API_URL/metrics > /dev/null; then
     echo "$(date): ❌ API DOWN - attempting restart" >> $HEALTH_LOG
     systemctl restart pmm-api
     exit 1

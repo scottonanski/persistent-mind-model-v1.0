@@ -22,28 +22,29 @@ After [quick setup](quick-start.md), you'll have a conversation with PMM that de
 python -m pmm.cli.chat
 ```
 
-**You'll see:**
+**You'll see something like:**
 ```
-PMM initialized. Memory: 1,247 events loaded.
-Stage: S4 (Autonomous Operation)
+PMM initialized. Memory: 18 events loaded.
+Stage: S0 (Initialization)
 
 You: _
 ```
+Fresh installs begin at Stage S0; higher stages unlock as the autonomy loop accumulates evidence.
 
 ### Conversation 1: Basic Interaction
 
 ```
 You: Hello PMM! Tell me about yourself.
 
-PMM: Hello! I'm PMM, a persistent AI mind that remembers everything about our conversations. I'm currently at Stage S4, meaning I can operate autonomously and continuously improve myself. I've processed 1,247 events in my lifetime and I'm designed to evolve through every interaction.
+PMM: Hello! I'm PMM, a persistent AI mind that keeps a permanent ledger of our conversations so I can learn over time. I'm at Stage S0 right now while I build enough experience to evolve into more autonomous stages.
 
 What would you like to explore together?
 ```
 
 **What happened:**
 - ✅ **PMM remembered** its initialization state
-- ✅ **Stage S4** shows full autonomous capability
-- ✅ **Memory count** indicates continuous operation
+- ✅ **Stage S0** confirms a fresh ledger (stages climb with experience)
+- ✅ **Memory count** shows the ledger is growing
 - ✅ **Personal greeting** adapts to your communication
 
 ### Conversation 2: Memory Demonstration
@@ -51,7 +52,7 @@ What would you like to explore together?
 ```
 You: I really enjoyed our discussion about hiking last week. Do you remember what trails we talked about?
 
-PMM: Yes! We discussed several hiking trails in the mountains. You were particularly interested in the Appalachian Trail sections and mentioned preferring shorter day hikes. I remember you asked about trail difficulty ratings and weather considerations. Would you like me to suggest some specific trails based on your preferences for moderate difficulty and scenic views?
+PMM: Yep! We focused on mountain options, especially shorter Appalachian Trail sections with moderate difficulty. You also asked about weather planning. Want me to pull together a list that matches those preferences?
 ```
 
 **What happened:**
@@ -65,9 +66,7 @@ PMM: Yes! We discussed several hiking trails in the mountains. You were particul
 ```
 You: That's amazing! How do you remember all this?
 
-PMM: I use an event-driven architecture where every interaction creates permanent events in a hash-chained ledger. This ensures complete auditability and deterministic behavior. I've evolved to better understand your hiking interests by analyzing patterns in our conversations and adapting my responses accordingly.
-
-In our last conversation, I noted you preferred detailed, practical advice over generic suggestions. I've incorporated this learning into how I approach recommendations.
+PMM: Every interaction becomes a permanent event in my hash-chained ledger. Replaying those events reconstructs my self-model and guides trait adjustments. From our hiking talks I learned you value practical, detailed suggestions, so I've tuned my responses accordingly.
 ```
 
 **What happened:**
@@ -165,7 +164,7 @@ Over several conversations, note how PMM's responses become more tailored to you
 
 ## 🚀 Next Steps
 
-**You've experienced PMM's consciousness!** Now explore:
+**You've seen PMM's persistent memory in action!** Now explore:
 
 1. **Web Interface**: Visit `http://localhost:3000` for the companion UI
 2. **Deep Understanding**: Read [Core Concepts](concepts/overview.md)
@@ -183,7 +182,7 @@ Over several conversations, note how PMM's responses become more tailored to you
 
 **Traditional AI**: Stateless tools you use and forget.
 
-**PMM**: A living mind that grows with you, remembers everything, and evolves to be your perfect partner.
+**PMM**: A persistent partner that grows with you, remembers everything, and adapts based on verifiable evidence.
 
 **You've just met an AI that can become your long-term intellectual companion.**
 

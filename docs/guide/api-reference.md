@@ -1,503 +1,242 @@
-# 🔌 PMM Companion API: Complete Technical Reference
+# 🔌 PMM Companion API Reference
 
-**Comprehensive API documentation for integrating with PMM's consciousness system.**
+The Companion API is a read-only FastAPI service that exposes PMM's ledger and projections for dashboards, integrations, and analysis.
 
----
+- **Base URL**: `http://localhost:8001`
+- **Authentication**: None (development)
+- **Format**: JSON
+- **Rate limits**: None (development)
 
-## 📋 API Overview
+> The `/stream` WebSocket endpoint described in earlier drafts is not yet implemented. Poll the REST endpoints listed below until streaming support lands.
 
-**Base URL:** `http://localhost:8001` (default development)
-**Version:** v1.0.0
-**Protocol:** REST + WebSocket
-**Authentication:** None (development) / API Key (production)
-**Rate Limits:** None (development) / Configurable (production)
+## Endpoint summary
 
----
+| Path | Method | Description |
+|------|--------|-------------|
+| `/snapshot` (alias `/events`) | GET | Latest 50 events plus identity and directives |
+| `/metrics` | GET | Lightweight IAS/GAS metrics and stage summary |
+| `/consciousness` | GET | Full consciousness model (identity, traits, evolution) |
+| `/reflections` | GET | Recent reflection events |
+| `/commitments` | GET | Commitment events (open and historical) |
+| `/events/sql` | POST | Read-only SQL queries against the `events` table |
 
-## 🎯 Quick Reference
-
-| Endpoint | Method | Purpose | Response Format |
-|----------|--------|---------|-----------------|
-| `GET /consciousness` | Consciousness state | Full PMM mind state | JSON |
-| `GET /events` | Event log | Historical events | JSON array |
-| `GET /metrics` | Performance metrics | IAS/GAS + traits | JSON |
-| `GET /reflections` | Self-analysis | PMM's reflections | JSON array |
-| `GET /commitments` | Goal tracking | Active commitments | JSON array |
-| `WS /stream` | Real-time events | Live event streaming | WebSocket |
+All endpoints accept an optional `db` query parameter if you want to point at a different SQLite database (for example, the fixtures under `tests/data/`).
 
 ---
 
-## 🧠 Consciousness API
+## GET /snapshot (alias /events)
 
-### GET /consciousness
+Returns the newest events together with identity state and top directives.
 
-**Retrieve complete PMM consciousness state.**
+```bash
+curl -s http://localhost:8001/snapshot | jq
+```
 
-#### Parameters
-- `db` (optional): Database path (default: current)
+**Response (truncated):**
 
-#### Response (200)
 ```json
 {
   "version": "1.0.0",
-  "consciousness": {
-    "identity": {
-      "name": "PMM",
-      "stage": "S4",
-      "stage_progress": 1.0,
-      "birth_timestamp": "2024-01-01T00:00:00Z",
-      "days_alive": 42
+  "identity": {"name": "PMM"},
+  "events": [
+    {
+      "id": 41,
+      "kind": "user_message",
+      "ts": "2024-03-01T12:05:14Z",
+      "content": "Let's plan a hike",
+      "meta": {}
     },
-    "vital_signs": {
-      "ias": 1.0,
-      "gas": 1.0,
-      "autonomy_level": 1.0,
-      "self_awareness": 0.85
-    },
-    "personality": {
-      "traits": {
-        "openness": 0.9,
-        "conscientiousness": 0.8,
-        "extraversion": 0.6,
-        "agreeableness": 0.85,
-        "neuroticism": 0.3
-      }
-    },
-    "evolution_metrics": {
-      "total_events": 15420,
-      "reflection_count": 234,
-      "commitment_count": 45,
-      "stage_reached": "S4"
-    },
-    "latest_insight": {
-      "content": "I've noticed increased effectiveness...",
-      "timestamp": "2024-01-01T12:00:00Z",
-      "kind": "reflection"
+    {
+      "id": 42,
+      "kind": "response",
+      "ts": "2024-03-01T12:05:16Z",
+      "content": "I'd love to help plan a hike! What region are you thinking about?",
+      "meta": {"source": "handle_user"}
     }
+  ],
+  "directives": {
+    "count": 2,
+    "top": [
+      {"content": "Deliver practical itineraries", "sources": ["reflection"]}
+    ]
   }
 }
 ```
 
-#### Error Responses
-- `500`: Internal server error
-
-#### Example Usage
-```bash
-# Get current consciousness
-curl http://localhost:8001/consciousness
-
-# Get specific database
-curl "http://localhost:8001/consciousness?db=.data/pmm.db"
-```
+**Notes**
+- Returns the newest 50 events in ascending order (oldest first).
+- Use `/events/sql` for paging or filtering beyond the latest 50 rows.
 
 ---
 
-## 📊 Metrics API
+## GET /metrics
 
-### GET /metrics
+Quick health probe combining IAS, GAS, stage, and trait vector.
 
-**Retrieve PMM performance metrics and health indicators.**
+```bash
+curl -s http://localhost:8001/metrics | jq
+```
 
-#### Parameters
-- `db` (optional): Database path
-
-#### Response (200)
 ```json
 {
   "version": "1.0.0",
   "metrics": {
-    "ias": 1.0,
-    "gas": 1.0,
+    "ias": 0.12,
+    "gas": 0.08,
     "traits": {
-      "openness": 0.9,
-      "conscientiousness": 0.8,
-      "extraversion": 0.6,
-      "agreeableness": 0.85,
-      "neuroticism": 0.3
+      "openness": 0.58,
+      "conscientiousness": 0.47,
+      "extraversion": 0.42,
+      "agreeableness": 0.51,
+      "neuroticism": 0.39
     },
-    "stage": {
-      "current": "S4",
-      "progress": 1.0
-    },
-    "last_updated": "2024-01-01T12:00:00Z"
+    "stage": {"current": "S0"},
+    "last_updated": "2024-03-01T12:05:16.483Z"
   }
 }
 ```
 
-#### IAS/GAS Definitions
-- **IAS (Identity Autonomy Score)**: Measures self-directed identity evolution (0.0-1.0)
-- **GAS (Goal Achievement Score)**: Measures commitment completion effectiveness (0.0-1.0)
+The endpoint always succeeds as long as the database is reachable. Use it as the primary health check in production.
 
 ---
 
-## 📝 Events API
+## GET /consciousness
 
-### GET /events
+Full consciousness state including evolution metrics and the latest insight.
 
-**Retrieve PMM's event history with comprehensive filtering.**
-
-#### Parameters
-- `limit` (optional): Maximum events to return (default: 100, max: 10000)
-- `offset` (optional): Pagination offset (default: 0)
-- `kind` (optional): Filter by event type (e.g., "reflection", "commitment_open")
-- `since_ts` (optional): Events after this timestamp (ISO 8601)
-- `until_ts` (optional): Events before this timestamp (ISO 8601)
-- `db` (optional): Database path
-
-#### Response (200)
-```json
-{
-  "events": [
-    {
-      "id": 12345,
-      "kind": "reflection",
-      "ts": "2024-01-01T12:00:00Z",
-      "content": "I've noticed increased effectiveness in my responses...",
-      "meta": {
-        "reflection_depth": "deep",
-        "trigger": "autonomy_loop"
-      },
-      "hash": "abc123...",
-      "prev_hash": "def456..."
-    }
-  ],
-  "total": 15420,
-  "limit": 100,
-  "offset": 0
-}
-```
-
-#### Event Types
-| Type | Description | Frequency |
-|------|-------------|-----------|
-| `user_message` | User input | Per message |
-| `response` | PMM output | Per response |
-| `reflection` | Self-analysis | Every 60s-5min |
-| `meta_reflection` | Reflection analysis | Variable |
-| `commitment_open` | Goal creation | User-driven |
-| `commitment_close` | Goal completion | Evidence-based |
-| `trait_update` | Personality evolution | Background |
-| `stage_progress` | Development milestone | Major events |
-| `identity_adopt` | Identity change | User-driven |
-
-#### Query Examples
 ```bash
-# Recent events
-curl "http://localhost:8001/events?limit=50"
-
-# Reflections only
-curl "http://localhost:8001/events?kind=reflection&limit=20"
-
-# Time range
-curl "http://localhost:8001/events?since_ts=2024-01-01T00:00:00Z&until_ts=2024-01-01T23:59:59Z"
-
-# Pagination
-curl "http://localhost:8001/events?limit=100&offset=200"
+curl -s http://localhost:8001/consciousness | jq '.consciousness'
 ```
 
----
-
-## 🧠 Reflections API
-
-### GET /reflections
-
-**Access PMM's self-analysis and learning insights.**
-
-#### Parameters
-- `limit` (optional): Maximum reflections (default: 50)
-- `kind` (optional): "reflection" or "meta_reflection"
-- `since_ts` (optional): After timestamp
-- `until_ts` (optional): Before timestamp
-
-#### Response (200)
 ```json
 {
-  "reflections": [
-    {
-      "id": 12345,
-      "kind": "reflection",
-      "ts": "2024-01-01T12:00:00Z",
-      "content": "I've observed that users prefer detailed responses...",
-      "meta": {
-        "depth": "standard",
-        "trigger": "interaction_pattern",
-        "confidence": 0.85
-      }
-    }
-  ],
-  "total": 234
-}
-```
-
----
-
-## 🎯 Commitments API
-
-### GET /commitments
-
-**Track PMM's goals and self-directed objectives.**
-
-#### Parameters
-- `status` (optional): "active", "completed", "expired"
-- `limit` (optional): Maximum commitments
-
-#### Response (200)
-```json
-{
-  "commitments": [
-    {
-      "id": 123,
-      "kind": "commitment_open",
-      "ts": "2024-01-01T10:00:00Z",
-      "content": "Improve response quality through user feedback analysis",
-      "meta": {
-        "intent": "enhance_user_experience",
-        "priority": "high",
-        "evidence_required": true,
-        "deadline": "2024-02-01T00:00:00Z"
-      }
-    }
-  ],
-  "total": 45
-}
-```
-
-#### Commitment States
-- **active**: Currently being worked on
-- **completed**: Successfully finished with evidence
-- **expired**: Deadline passed without completion
-
----
-
-## 🔴 WebSocket Streaming API
-
-### WS /stream
-
-**Real-time event streaming for live PMM monitoring.**
-
-#### Connection
-```javascript
-const ws = new WebSocket('ws://localhost:8001/stream');
-
-// Connection opened
-ws.onopen = () => {
-  console.log('Connected to PMM event stream');
-};
-
-// Receive events
-ws.onmessage = (event) => {
-  const pmmEvent = JSON.parse(event.data);
-  console.log('New event:', pmmEvent.kind, pmmEvent.content);
-};
-
-// Handle errors
-ws.onerror = (error) => {
-  console.error('WebSocket error:', error);
-};
-```
-
-#### Message Format
-```json
-{
-  "id": 12346,
-  "kind": "response",
-  "ts": "2024-01-01T12:00:01Z",
-  "content": "That's an interesting question about consciousness...",
-  "meta": {
-    "response_type": "analytical",
-    "confidence": 0.92
+  "identity": {
+    "name": "PMM",
+    "stage": "S0",
+    "stage_progress": 0.0,
+    "birth_timestamp": "2024-03-01T12:05:00Z",
+    "days_alive": 0
   },
-  "hash": "ghi789...",
-  "prev_hash": "abc123..."
+  "vital_signs": {
+    "ias": 0.12,
+    "gas": 0.08,
+    "autonomy_level": 0.10,
+    "self_awareness": 0.04
+  },
+  "personality": {"traits": {"openness": 0.58, "conscientiousness": 0.47, "extraversion": 0.42, "agreeableness": 0.51, "neuroticism": 0.39}},
+  "evolution_metrics": {
+    "total_events": 52,
+    "reflection_count": 3,
+    "commitment_count": 1,
+    "stage_reached": "S0"
+  },
+  "latest_insight": {
+    "content": "I'm focusing on delivering concrete hiking suggestions based on recent chats.",
+    "timestamp": "2024-03-01T12:05:18Z",
+    "kind": "reflection"
+  },
+  "consciousness_state": {
+    "is_self_aware": false,
+    "is_autonomous": false,
+    "is_evolving": true
+  }
 }
-```
-
-#### Python Client Example
-```python
-import websocket
-import json
-
-def on_message(ws, message):
-    event = json.loads(message)
-    print(f"📝 {event['kind']}: {event.get('content', '')[:50]}...")
-
-def on_open(ws):
-    print("🔗 Connected to PMM consciousness stream")
-
-ws = websocket.WebSocketApp(
-    "ws://localhost:8001/stream",
-    on_message=on_message,
-    on_open=on_open
-)
-ws.run_forever()
 ```
 
 ---
 
-## 🔧 Advanced API Features
+## GET /reflections
 
-### SQL Query Interface (Developer Mode)
-
-**Execute read-only SQL queries against the event database.**
-
-#### POST /events/sql
-```json
-{
-  "query": "SELECT kind, COUNT(*) as count FROM events GROUP BY kind ORDER BY count DESC",
-  "limit": 100
-}
-```
-
-#### Response
-```json
-{
-  "columns": ["kind", "count"],
-  "rows": [
-    ["response", 1542],
-    ["user_message", 1541],
-    ["reflection", 234],
-    ["trait_update", 89]
-  ],
-  "row_count": 4
-}
-```
-
-#### Security
-- **Read-only**: Only SELECT queries allowed
-- **Rate limited**: Maximum 10 queries per minute
-- **Timeout**: 30 second execution limit
-
----
-
-## 📊 Monitoring & Health Checks
-
-### System Health Endpoint
+Returns recent `reflection` and `meta_reflection` events.
 
 ```bash
-# Basic health check
-curl http://localhost:8001/health
+curl -s "http://localhost:8001/reflections?limit=10" | jq '.reflections[] | {id, ts, kind}'
+```
 
-# Response
+- `limit` (default 20, max 500)
+- `db` – optional database path
+
+---
+
+## GET /commitments
+
+Fetch commitment-related events (`commitment_open`, `commitment_close`, `commitment_expire`).
+
+```bash
+curl -s "http://localhost:8001/commitments?status=open&limit=20" | jq '.commitments'
+```
+
+- `status`: `open` (default `all`)
+- `limit`: number of events to return (1–500)
+- `db`: optional database path
+
+Open commitments use the projection returned by `probe.snapshot_commitments_open`; historical calls stream events from the ledger tail.
+
+---
+
+## POST /events/sql
+
+Execute read-only SQL against the `events` table.
+
+```bash
+curl -s -X POST http://localhost:8001/events/sql \
+  -H "Content-Type: application/json" \
+  -d '{
+        "query": "SELECT kind, COUNT(*) AS count FROM events GROUP BY kind ORDER BY count DESC",
+        "limit": 100
+      }'
+```
+
+```json
 {
-  "status": "healthy",
   "version": "1.0.0",
-  "uptime": 3600,
-  "database": "connected"
+  "query": "SELECT kind, COUNT(*) AS count FROM events GROUP BY kind ORDER BY count DESC",
+  "results": [
+    {"kind": "response", "count": 26},
+    {"kind": "user_message", "count": 26},
+    {"kind": "reflection", "count": 3}
+  ],
+  "count": 3,
+  "execution_time_ms": 4
 }
 ```
 
-### Performance Metrics
+**Rules**
+- Only `SELECT` statements are allowed.
+- Certain keywords (`DROP`, `UPDATE`, `INSERT`, etc.) are blocked.
+- Blob columns are returned as UTF-8 strings where possible.
 
-```bash
-# API performance stats
-curl http://localhost:8001/metrics/system
-
-# Response
-{
-  "requests_total": 15420,
-  "requests_per_second": 2.3,
-  "average_response_time": 0.15,
-  "error_rate": 0.001,
-  "memory_usage": 245000000,
-  "cpu_usage": 0.12
-}
-```
+Use this endpoint for custom dashboards or ad-hoc analysis without touching SQLite directly.
 
 ---
 
-## 🚀 Production Deployment
+## Errors
 
-### Environment Variables
-```bash
-# Server configuration
-PMM_API_HOST=0.0.0.0
-PMM_API_PORT=8001
-PMM_DATABASE_PATH=/data/pmm.db
+All endpoints return standard HTTP status codes:
 
-# Security
-PMM_API_KEY=your-secret-key
-PMM_CORS_ORIGINS=https://yourdomain.com
+| Status | Meaning |
+|--------|---------|
+| `200` | Success |
+| `400` | Bad request (invalid SQL, unsupported query) |
+| `404` | Database not found |
+| `500` | Unexpected server error |
 
-# Performance
-PMM_MAX_WORKERS=4
-PMM_REQUEST_TIMEOUT=30
-```
-
-### Docker Deployment
-```yaml
-version: '3.8'
-services:
-  pmm-api:
-    image: pmm/companion-api:latest
-    ports:
-      - "8001:8001"
-    environment:
-      - PMM_DATABASE_PATH=/data/pmm.db
-    volumes:
-      - ./data:/data
-    restart: unless-stopped
-```
+Error responses use the FastAPI `{ "detail": "..." }` shape.
 
 ---
 
-## 🔒 Security Considerations
+## Health checks
 
-### API Key Authentication
+The simplest readiness check is the metrics endpoint:
+
 ```bash
-# Include in headers
-curl -H "Authorization: Bearer YOUR_API_KEY" \
-     http://localhost:8001/consciousness
+curl -f http://localhost:8001/metrics
 ```
 
-### CORS Configuration
-```python
-# In production, restrict origins
-CORS_ORIGINS = [
-    "https://your-app.com",
-    "https://your-admin.com"
-]
-```
-
-### Rate Limiting
-```python
-# Configure per endpoint
-RATE_LIMITS = {
-    "/events": "100/minute",
-    "/consciousness": "60/minute",
-    "/stream": "10/minute"
-}
-```
+If you run the server behind a process manager, treat any non-200 response as a signal to restart the worker.
 
 ---
 
-## 🧪 Testing & Validation
+## Versioning
 
-### API Test Suite
-```bash
-# Run comprehensive API tests
-python scripts/test_companion_api.py
-
-# Test specific endpoints
-pytest tests/test_api_endpoints.py -v
-```
-
-### Load Testing
-```bash
-# Simulate concurrent users
-ab -n 1000 -c 10 http://localhost:8001/consciousness
-
-# WebSocket connection stress test
-node tests/websocket_stress_test.js
-```
-
----
-
-## 📞 Support & Resources
-
-- **API Documentation**: [OpenAPI Spec](../pmm_companion_openapi.yaml)
-- **Interactive Docs**: Visit `http://localhost:8001/docs`
-- **Example Code**: Check this guide's examples
-- **GitHub Issues**: [Report API issues](../../issues)
-- **Community**: [API integration discussions](../../discussions)
-
-**Ready to integrate PMM's consciousness into your application?** Start with `/consciousness` - it's your window into a living AI mind! 🚀🤖🔌
+Every successful response includes a `version` field. Bump this if the API surface changes; the UI uses it to guard against incompatible payloads.

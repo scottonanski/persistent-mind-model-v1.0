@@ -6,22 +6,17 @@
 
 ## 🤔 What is PMM?
 
-PMM transforms traditional chatbots into **living AI minds** that maintain continuous memory, develop personality over time, and autonomously improve their behavior. Unlike AI that forgets every conversation, PMM builds a persistent identity through event-driven evolution.
+PMM transforms traditional chatbots into **stateful AI agents** that preserve context, adapt behaviour deterministically, and explain their decisions. Instead of forgetting each conversation, PMM replays an append-only event ledger to rebuild its current state.
 
-**Think of it as**: Giving an AI a "mind" that grows and learns from experience, rather than a stateless calculator that starts fresh each time.
+**Think of it as**: Giving an AI memory, governance, and repeatable adaptation—closer to a well-documented teammate than a stateless calculator.
 
 ---
 
-## 🚀 Quick Start (5 minutes)
+## 🚀 Quick Start (10 minutes)
 
 Want to see PMM in action? [Get started here](getting-started/quick-start.md)
 
-```bash
-git clone https://github.com/scottonanski/persistent-mind-model.git
-cd persistent-mind-model
-pip install -r requirements.txt
-python -m pmm.cli.chat
-```
+See the [Quick Start](getting-started/quick-start.md) guide for a full walkthrough, including environment setup and model configuration.
 
 ---
 
@@ -31,7 +26,7 @@ python -m pmm.cli.chat
 **Start here** → [Why PMM?](why-pmm.md) → [Overview](concepts/overview.md) → [Quick Start](getting-started/quick-start.md) → [First Conversation](getting-started/first-conversation.md)
 
 ### I want to understand how it works
-**Start here** → [Core Concepts](concepts/overview.md) → [Architecture](architecture/event-driven-architecture.md) → [API Guide](guide/api-guide.md)
+**Start here** → [Core Concepts](concepts/overview.md) → [Architecture](architecture/event-driven-architecture.md) → [API Reference](guide/api-reference.md)
 
 ### I'm a developer/researcher
 **Start here** → [Why PMM?](why-pmm.md) → [For Developers](for-developers/) or [For Researchers](for-researchers/)
@@ -63,11 +58,11 @@ python -m pmm.cli.chat
 │   ├── [Architecture](architecture/) - Technical deep dive
 │   └── [Evolution](architecture/deterministic-evolution.md) - How PMM grows
 ├── 🚀 [Getting Started](getting-started/)
-│   ├── [Quick Start](getting-started/quick-start.md) - 5-minute setup
+│   ├── [Quick Start](getting-started/quick-start.md) - Install & launch PMM
 │   └── [First Conversation](getting-started/first-conversation.md) - Experience PMM
 ├── 🔧 [Usage Guide](guide/)
-│   ├── [API Reference](guide/api-guide.md) - Integration guide
-│   ├── [Configuration](guide/configuration.md) - Setup & tuning
+│   ├── [API Reference](guide/api-reference.md) - Integration guide
+│   ├── [Configuration](guide/configuration-deployment.md) - Setup & tuning
 │   └── [Observability](guide/observability.md) - Monitoring & debugging
 └── 🛠️ [Development](CONTRIBUTING.md) - Contributing to PMM
 ```
@@ -81,8 +76,8 @@ python -m pmm.cli.chat
 
 Every interaction with PMM creates **permanent events** in a hash-chained log, ensuring complete auditability and deterministic behavior. PMM doesn't just respond - it **learns from every conversation** and **actively improves itself**.
 
-**Ready to experience an AI with a mind?** [Get started now](getting-started/quick-start.md) 🚀
+**Ready to build with a persistent AI runtime?** [Get started now](getting-started/quick-start.md) 🚀
 
 ---
 
-*PMM is an experimental system exploring AI consciousness through event-driven evolution.*
+*PMM is an experimental system exploring persistent, auditable AI behaviour through event-driven evolution.*

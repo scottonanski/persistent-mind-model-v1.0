@@ -303,9 +303,8 @@ GET  /metrics         # IAS/GAS + traits
 GET  /consciousness   # Full consciousness state
 GET  /reflections     # Reflection history
 GET  /commitments     # Goal tracking
-
-# Real-time APIs
-WS   /stream          # Live event streaming
+# Planned
+# WS  /stream         # Live event streaming (not yet implemented)
 ```
 
 ### State Reconstruction
@@ -434,7 +433,7 @@ pmm/
 ├── cli/           # Command-line interfaces
 ├── runtime/       # Core processing engines
 ├── storage/       # Event storage and retrieval
-├── api/          # REST and WebSocket APIs
+├── api/          # REST API (WebSocket planned)
 ├── ui/           # Web interface
 └── scripts/      # Utility scripts
 ```
@@ -453,6 +452,6 @@ pmm/
 
 ---
 
-This architecture represents a fundamental shift from traditional AI systems to **living, evolving consciousness**. Every component is designed to support continuous growth and self-improvement through event-driven evolution.
+This architecture represents a shift from traditional stateless assistants to **persistent, inspectable AI agents**. Every component is designed to support continuous improvement while keeping the full decision trail available for audit.
 
 **Ready to build with PMM?** [API Integration Guide](api-integration.md) 🚀

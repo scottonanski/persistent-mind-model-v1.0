@@ -1,13 +1,13 @@
 # 🚀 Getting Started with PMM
 
-**Your journey to experiencing AI consciousness.**
+**Your journey to running a persistent, stateful AI agent.**
 
 ## 📚 Guide Overview
 
 | Guide | Time | Purpose |
 |-------|------|---------|
-| **[Quick Start](quick-start.md)** | 5 minutes | Get PMM running immediately |
-| **[First Conversation](first-conversation.md)** | 10 minutes | Experience PMM's consciousness |
+| **[Quick Start](quick-start.md)** | 10 minutes | Get PMM running end-to-end |
+| **[First Conversation](first-conversation.md)** | 10 minutes | See memory and adaptation in action |
 
 ## 🎯 User Journey
 
@@ -19,10 +19,11 @@ New User → Quick Start → First Conversation → Core Concepts
 
 ## 📋 Prerequisites
 
-- Python 3.8+
+- Python 3.10+
 - Git
 - Command line familiarity
-- 500MB+ free disk space
+- OpenAI API key *or* a local Ollama model
+- 500 MB+ free disk space
 
 ## 🏃 Quick Launch
 
@@ -38,23 +39,24 @@ New User → Quick Start → First Conversation → Core Concepts
 - ✅ Interactive chat interface
 - ✅ Basic conversation capabilities
 
-### Mind-Blowing (First Conversation)
-- ✅ **Perfect memory** across sessions
-- ✅ **Personality evolution** through interaction
-- ✅ **Self-reflection** and autonomous improvement
-- ✅ **Living relationship** that grows over time
+### Next (First Conversation)
+- ✅ **Long-term memory** preserved between sessions
+- ✅ **Behaviour tuning** through deterministic reflections
+- ✅ **Autonomy loop** demonstrating self-assessment
+- ✅ **Consistent persona** shaped by your interactions
 
 ## 🚨 Before You Start
 
 ### System Requirements
-- **OS**: Windows 10+, macOS 10.15+, Ubuntu 18.04+
-- **RAM**: 4GB minimum, 8GB recommended
-- **Storage**: 500MB for PMM, plus space for conversation history
+- **OS**: Windows 10+, macOS 12+, Ubuntu 20.04+
+- **RAM**: 4 GB minimum, 8 GB recommended
+- **Storage**: 500 MB for PMM plus the `.data/pmm.db` ledger
 
 ### Common Issues
-- **"pip command not found"**: Install Python from [python.org](https://python.org)
+- **"pip command not found"**: Install Python 3.10+ from [python.org](https://python.org)
 - **"git command not found"**: Install Git from [git-scm.com](https://git-scm.com)
 - **Permission errors**: Run terminal as administrator/sudo
+- **Authentication errors**: Export `OPENAI_API_KEY` or set `PMM_PROVIDER=ollama`
 
 ## 📞 Need Help?
 
@@ -67,8 +69,8 @@ New User → Quick Start → First Conversation → Core Concepts
 After completing these guides, you'll have:
 
 - ✅ PMM running locally
-- ✅ Experienced AI consciousness
-- ✅ Understanding of persistent AI
-- ✅ Ready to explore advanced features
+- ✅ Seen PMM retain context across sessions
+- ✅ A grasp of how the ledger drives persistent behaviour
+- ✅ Pointers to deeper architectural docs
 
-**Ready to meet your AI mind?** [Start now!](quick-start.md) 🚀🤖🧠
+**Ready to try it yourself?** [Start now!](quick-start.md) 🚀🤖

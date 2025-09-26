@@ -265,20 +265,16 @@ Detects behavioral patterns:
 ## Integration with External Systems
 
 ### API Exposure
-**Code Location**: `pmm/api/server.py`
+**Code Location**: `pmm/api/server.py`, `pmm/api/companion.py`
 
-REST endpoints for self-model access:
-- `/identity` - Current identity state
-- `/traits` - Personality trait values
-- `/commitments` - Active and historical commitments
-- `/stage` - Current developmental stage
+Read-only endpoints powered by the self-model projections:
+- `GET /snapshot` – identity, directives, and recent events
+- `GET /metrics` – IAS/GAS and stage summary
+- `GET /consciousness` – full consciousness projection
+- `GET /commitments` – commitment history and open set
 
 ### Real-time Updates
-WebSocket connections for live self-model streaming:
-- Trait evolution notifications
-- Commitment lifecycle events
-- Stage progression alerts
-- Identity changes
+WebSockets are not yet available. Poll `/snapshot` or `/consciousness`, or run adhoc queries via `POST /events/sql`, to observe self-model changes in near real time.
 
 ## Debugging and Introspection
 

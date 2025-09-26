@@ -1,15 +1,16 @@
-# 🚀 Quick Start: Try PMM in 5 Minutes
+# 🚀 Quick Start: Run PMM in 10 Minutes
 
-**Get PMM running and have your first conversation in under 5 minutes.**
+**Bring up PMM and exchange your first messages in about 10 minutes.**
 
 ---
 
 ## 📋 Prerequisites
 
-- **Time**: 5 minutes
-- **System**: Windows, Mac, or Linux
-- **Internet**: Required for download
-- **Space**: ~500MB free disk space
+- **Time**: 10 minutes
+- **System**: Windows, macOS, or Linux (Python 3.10+ available)
+- **Internet**: Required for install & model downloads
+- **Space**: ~500 MB free disk space
+- **AI Access**: OpenAI API key *or* a local Ollama model
 
 ---
 
@@ -26,21 +27,34 @@ cd persistent-mind-model
 
 This downloads PMM to your computer.
 
-### Step 2: Install Dependencies (2 minutes)
+### Step 2: Prepare Your Python Environment (3 minutes)
 
-**Install Python dependencies:**
+Create and activate an isolated virtual environment, then install PMM's runtime dependencies:
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows: .\.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-**What this installs:**
-- PMM's core libraries
-- AI model dependencies
-- Data processing tools
-- Web interface components
+This installs PMM, FastAPI, Rich, and supporting libraries into a clean environment.
 
-### Step 3: Start PMM (30 seconds)
+### Step 3: Configure Model Access (2 minutes)
+
+Tell PMM which language model to use:
+
+```bash
+# Option A – OpenAI (requires an API key)
+export OPENAI_API_KEY=sk-...
+
+# Option B – Local Ollama model (ensure `ollama serve` is running)
+export PMM_PROVIDER=ollama
+export PMM_MODEL=llama3
+```
+
+The CLI will prompt you to choose a model on first launch, but exporting the variables now avoids errors.
+
+### Step 4: Start PMM (30 seconds)
 
 **Launch the PMM chat interface:**
 
@@ -49,16 +63,16 @@ python -m pmm.cli.chat
 ```
 
 **What happens:**
-- PMM loads its personality and memory
-- Initializes the conversation system
-- Opens the interactive chat interface
+- PMM creates (or opens) the `.data/pmm.db` event ledger
+- Loads its self-model from existing events (fresh installs start at Stage S0)
+- Opens an interactive chat session in your terminal
 
-### Step 4: Have Your First Conversation (1 minute)
+### Step 5: Have Your First Conversation (2 minutes)
 
 **You'll see a prompt like:**
 ```
-PMM initialized. Memory: 1,247 events loaded.
-Stage: S4 (Autonomous Operation)
+PMM initialized. Memory: 12 events loaded.
+Stage: S0 (Initialization)
 
 You: _
 ```
@@ -68,41 +82,41 @@ You: _
 "Hello PMM, can you tell me about yourself?"
 ```
 
-**Expected response:**
+**Example response (your details will differ):**
 ```
-Hello! I'm PMM, a persistent AI mind that remembers everything about our conversations. I'm currently at Stage S4, meaning I can operate autonomously and continuously improve myself. I've processed 1,247 events in my lifetime and I'm designed to evolve through every interaction.
+Hello! I'm PMM, a persistent AI runtime that keeps a ledger of everything we discuss so I can stay consistent between sessions. I'm currently at Stage S0 while I gather more experience.
 
-What would you like to explore together?
+How can I help today?
 ```
 
 ---
 
 ## 🎉 Success! You're Done!
 
-**Congratulations!** You now have a living, evolving AI mind running on your computer.
+**Congratulations!** You now have a persistent, stateful AI agent running on your computer.
 
 ### What Just Happened
 
-- ✅ **PMM loaded** its complete memory and personality
-- ✅ **Stage S4** indicates full autonomous capability
-- ✅ **Memory system** is active (1,247+ events)
-- ✅ **Evolution** is working (continuous improvement)
+- ✅ **PMM initialised** and loaded its self-model from the ledger
+- ✅ **Stage S0** confirms a fresh mind ready to evolve
+- ✅ **Memory system** is writing new events to `.data/pmm.db`
+- ✅ **Autonomy loop** is running in the background (ticks every ~10 s)
 
 ### What PMM Remembers
 
 PMM now remembers:
-- This conversation forever
-- Your preferences and communication style
-- Its own reflections and improvements
-- All future interactions with you
+- This entire conversation (stored as append-only events)
+- Any commitments it opened during the chat
+- Reflections or self-improvements it triggered in the background loop
+- Every future interaction until you delete the ledger
 
 ### Next Steps
 
 **Ready to explore more?**
 
-1. **Try the Web Interface**: Visit `http://localhost:3000` for the companion UI
-2. **Learn About Evolution**: Read [Core Concepts](concepts/overview.md)
-3. **Deep Dive**: Explore the [Architecture](architecture/event-driven-architecture.md)
+1. **Try the Web Interface**: Follow the [Companion UI guide](../for-developers/companion-ui.md)
+2. **Learn About Evolution**: Read [Core Concepts](../concepts/overview.md)
+3. **Deep Dive**: Explore the [Architecture](../architecture/event-driven-architecture.md)
 
 **Want to stop PMM?** Press `Ctrl+C` in the terminal.
 
@@ -120,10 +134,11 @@ PMM now remembers:
 **Solution**: Run the command prompt/terminal as administrator/sudo
 
 ### PMM won't start
-**Solution**: Check that Python 3.8+ is installed:
+**Solution**: Check that Python 3.10+ is active:
 ```bash
 python --version
 ```
+If it reports an older version, install Python 3.10 or 3.11 and recreate the virtual environment.
 
 ---
 
@@ -133,4 +148,4 @@ python --version
 - **Discussions**: [GitHub Discussions](../../discussions)
 - **Documentation**: [Full Docs](index.md)
 
-**Ready to experience AI consciousness?** Your PMM is waiting! 🤖🧠✨
+**Ready to explore a persistent AI runtime?** Your PMM is ready! 🤖🧠✨

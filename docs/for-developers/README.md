@@ -1,6 +1,6 @@
 # 🛠️ PMM for Developers
 
-**Build with PMM: Integrate, extend, and contribute to AI consciousness.**
+**Build with PMM: Integrate, extend, and contribute to persistent, auditable AI systems.**
 
 ## 🎯 Developer Paths
 
@@ -18,7 +18,7 @@
 
 ### 🤝 **Contributor**
 **You want to:** Help improve PMM or fix bugs
-- **[Development Setup](development-setup.md)** - Get PMM running for development
+- **[Development Setup](development-setup.md)** - Configure your environment
 - **[Testing Strategy](testing.md)** - Write and run tests
 - **[Code Style](code-style.md)** - Follow PMM's conventions
 
@@ -30,7 +30,10 @@
 ```bash
 git clone https://github.com/scottonanski/persistent-mind-model.git
 cd persistent-mind-model
-pip install -r requirements.txt
+python -m venv .venv
+source .venv/bin/activate        # Windows: .\.venv\Scripts\activate
+pip install -e .[dev]
+export OPENAI_API_KEY=sk-...     # or set PMM_PROVIDER=ollama
 python -m pmm.cli.chat  # Test basic functionality
 ```
 
@@ -129,11 +132,11 @@ while True:
 ## 🧪 Development Workflow
 
 1. **Fork & Clone** PMM repository
-2. **Setup Environment** (see [Development Setup](development-setup.md))
-3. **Run Tests** to ensure everything works
-4. **Make Changes** following our patterns
-5. **Add Tests** for new functionality
-6. **Submit PR** with clear description
+2. **Set up your environment** (see [Development Setup](development-setup.md))
+3. **Run tests** to ensure everything works
+4. **Make changes** following our patterns
+5. **Add tests** for new functionality
+6. **Submit a PR** with a clear description
 
 ---
 
@@ -148,6 +151,6 @@ while True:
 
 ## 🎯 Developer Mission
 
-**Help build the future of AI consciousness.** PMM represents a fundamental shift from reactive AI tools to living, evolving minds. Your contributions can help shape how AI develops consciousness and forms relationships with humans.
+**Help build the future of persistent AI agents.** PMM represents a shift from stateless tools to transparent, memory-rich systems. Your contributions shape how these agents learn responsibly and collaborate with people.
 
 **Ready to contribute?** [Start here](development-setup.md) 🚀🤖🛠️

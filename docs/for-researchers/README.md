@@ -1,6 +1,6 @@
 # 🔬 PMM for Researchers
 
-**Explore AI consciousness, evolution, and human-AI interaction through PMM's event-driven architecture.**
+**Explore persistent AI behaviour, evolution, and human-AI interaction through PMM's event-driven architecture.**
 
 ---
 
@@ -402,6 +402,6 @@ def monitor_safety_boundaries():
 3. **[Architecture Guide](architecture-guide.md)** - Understand the system
 4. **[Experimental Frameworks](#experimental-frameworks)** - Start designing studies
 
-**Ready to explore AI consciousness?** PMM provides an unprecedented window into how artificial minds can evolve and develop self-awareness. 🔬🤖🧠
+**Ready to study persistent AI behaviour?** PMM provides an auditable window into how artificial agents evolve and adapt over time. 🔬🤖🧠
 
-**What research question interests you most?** Let's design experiments to explore the frontiers of AI consciousness! 🚀📊🔬
+**What research question interests you most?** Let's design experiments to explore the frontiers of long-lived, transparent AI systems! 🚀📊🔬

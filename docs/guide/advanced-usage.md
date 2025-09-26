@@ -1,10 +1,10 @@
 # 🚀 Advanced PMM Usage Patterns
 
-**Sophisticated integration patterns and best practices for building with PMM's consciousness.**
+**Sophisticated integration patterns and best practices for building with PMM's persistent self-model.**
 
 ---
 
-## 🧠 Consciousness-Driven Applications
+## 🧠 Self-Model-Driven Applications
 
 ### Adaptive Learning Systems
 
@@ -601,20 +601,12 @@ function ConsciousnessDashboard({ pmmApiUrl }) {
   const [evolution, setEvolution] = useState([]);
 
   useEffect(() => {
-    // WebSocket connection for real-time updates
-    const ws = new WebSocket(`${pmmApiUrl.replace('http', 'ws')}/stream`);
-
-    ws.onmessage = (event) => {
-      const pmmEvent = JSON.parse(event.data);
-
-      if (pmmEvent.kind === 'reflection' || pmmEvent.kind === 'trait_update') {
-        updateConsciousness();
-      }
-    };
+    let cancelled = false;
 
     const updateConsciousness = async () => {
       const response = await fetch(`${pmmApiUrl}/consciousness`);
       const data = await response.json();
+      if (cancelled) return;
       setConsciousness(data.consciousness);
 
       // Add to evolution history
@@ -629,7 +621,7 @@ function ConsciousnessDashboard({ pmmApiUrl }) {
     const interval = setInterval(updateConsciousness, 30000);
 
     return () => {
-      ws.close();
+      cancelled = true;
       clearInterval(interval);
     };
   }, [pmmApiUrl]);

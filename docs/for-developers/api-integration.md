@@ -1,6 +1,6 @@
 # 🔌 PMM API Integration Guide
 
-**Connect to PMM programmatically: Monitor consciousness, extract data, and build integrations.**
+**Connect to PMM programmatically: Monitor the self-model, extract data, and build integrations.**
 
 ---
 
@@ -22,15 +22,21 @@ python scripts/run_companion_server.py
 # Check server health
 curl http://localhost:8001/metrics
 
-# Expected response:
+# Sample response (values vary):
 {
   "version": "1.0.0",
   "metrics": {
-    "ias": 1.0,
-    "gas": 1.0,
-    "traits": {...},
-    "stage": {"current": "S4"},
-    "last_updated": "2024-01-01T12:00:00Z"
+    "ias": 0.12,
+    "gas": 0.08,
+    "traits": {
+      "openness": 0.55,
+      "conscientiousness": 0.48,
+      "extraversion": 0.42,
+      "agreeableness": 0.51,
+      "neuroticism": 0.39
+    },
+    "stage": {"current": "S0"},
+    "last_updated": "2024-03-01T12:00:00Z"
   }
 }
 ```
@@ -45,14 +51,14 @@ curl http://localhost:8001/consciousness
 
 ## 📊 API Endpoints Overview
 
-| Endpoint | Method | Purpose | Example Use Case |
-|----------|--------|---------|------------------|
-| `/metrics` | GET | Current IAS/GAS + traits | Health monitoring dashboard |
-| `/consciousness` | GET | Full consciousness state | Identity visualization |
-| `/events` | GET | Event log with filtering | Conversation analysis |
-| `/reflections` | GET | Reflection history | Self-improvement insights |
-| `/commitments` | GET | Goal tracking | Progress monitoring |
-| `/stream` | WebSocket | Real-time events | Live dashboards |
+| Endpoint | Method | Purpose | Notes |
+|----------|--------|---------|-------|
+| `/snapshot` (alias `/events`) | GET | Latest events + identity snapshot | Returns the most recent 50 events in ascending order |
+| `/metrics` | GET | IAS/GAS + stage metadata | Lightweight health probe |
+| `/consciousness` | GET | Detailed consciousness state | Includes evolution metrics and latest reflection |
+| `/reflections` | GET | Recent reflections | Limit parameter supported (`?limit=20`) |
+| `/commitments` | GET | Commitment events | Filter by status with `?status=open` |
+| `/events/sql` | POST | Read-only SQL against the ledger | Accepts `SELECT` queries only |
 
 ---
 
@@ -71,31 +77,31 @@ curl -s "http://localhost:8001/consciousness?db=.data/pmm.db" | jq .
   "consciousness": {
     "identity": {
       "name": "PMM",
-      "stage": "S4",
-      "stage_progress": 1.0,
-      "birth_timestamp": "2024-01-01T00:00:00Z",
-      "days_alive": 42
+      "stage": "S0",
+      "stage_progress": 0.0,
+      "birth_timestamp": "2024-03-01T00:00:00Z",
+      "days_alive": 0
     },
     "vital_signs": {
-      "ias": 1.0,
-      "gas": 1.0,
-      "autonomy_level": 1.0,
-      "self_awareness": 0.85
+      "ias": 0.12,
+      "gas": 0.08,
+      "autonomy_level": 0.10,
+      "self_awareness": 0.04
     },
     "personality": {
       "traits": {
-        "openness": 0.9,
-        "conscientiousness": 0.8,
-        "extraversion": 0.6,
-        "agreeableness": 0.85,
-        "neuroticism": 0.3
+        "openness": 0.58,
+        "conscientiousness": 0.47,
+        "extraversion": 0.42,
+        "agreeableness": 0.51,
+        "neuroticism": 0.39
       }
     },
     "evolution_metrics": {
-      "total_events": 15420,
-      "reflection_count": 234,
-      "commitment_count": 45,
-      "stage_reached": "S4"
+      "total_events": 52,
+      "reflection_count": 3,
+      "commitment_count": 1,
+      "stage_reached": "S0"
     },
     "latest_insight": {
       "content": "I've noticed increased effectiveness...",
@@ -144,71 +150,42 @@ monitor_consciousness()
 
 ## 📝 Event Log Integration
 
-### Query Recent Events
+### Retrieve the latest events
 
 ```bash
-# Get last 10 events
-curl "http://localhost:8001/events?limit=10"
-
-# Get events by type
-curl "http://localhost:8001/events?kind=reflection&limit=5"
-
-# Get events by time range
-curl "http://localhost:8001/events?since_ts=2024-01-01T00:00:00Z&until_ts=2024-01-01T23:59:59Z"
+# Returns identity, directives, and the newest 50 events
+curl -s http://localhost:8001/snapshot | jq '.events'
 ```
 
-### Event Analysis Example
+Filter client-side for the shapes you need:
 
 ```python
 import requests
 from collections import Counter
 
-def analyze_conversation_patterns():
-    response = requests.get('http://localhost:8001/events?limit=1000')
-    events = response.json()['events']
+resp = requests.get('http://localhost:8001/snapshot')
+resp.raise_for_status()
+events = resp.json()['events']
 
-    # Count event types
-    event_types = Counter(event['kind'] for event in events)
-    print("Event Type Distribution:")
-    for event_type, count in event_types.most_common():
-        print(f"  {event_type}: {count}")
-
-    # Analyze conversation flow
-    user_messages = [e for e in events if e['kind'] == 'user_message']
-    responses = [e for e in events if e['kind'] == 'response']
-
-    print(f"\nConversation Stats:")
-    print(f"  User messages: {len(user_messages)}")
-    print(f"  AI responses: {len(responses)}")
-    print(".2f"
-    return events
-
-events = analyze_conversation_patterns()
+distribution = Counter(event['kind'] for event in events)
+for kind, count in distribution.most_common():
+    print(f"{kind:20} {count}")
 ```
 
-### Real-time Event Streaming
+### Advanced filtering via SQL
 
-```python
-import websocket
-import json
+Use the read-only SQL endpoint for targeted analysis:
 
-def on_message(ws, message):
-    event = json.loads(message)
-    print(f"📝 New event: {event['kind']} - {event.get('content', '')[:50]}...")
-
-def on_open(ws):
-    print("🔗 Connected to PMM event stream")
-
-def monitor_events():
-    ws = websocket.WebSocketApp(
-        "ws://localhost:8001/stream",
-        on_message=on_message,
-        on_open=on_open
-    )
-    ws.run_forever()
-
-monitor_events()
+```bash
+curl -s -X POST http://localhost:8001/events/sql \
+  -H "Content-Type: application/json" \
+  -d '{
+        "query": "SELECT kind, COUNT(*) AS count FROM events GROUP BY kind ORDER BY count DESC",
+        "limit": 100
+      }' | jq
 ```
+
+Only `SELECT` queries are allowed. The response contains column names and row data, making it easy to marshal into DataFrames.
 
 ---
 
@@ -265,8 +242,8 @@ for insight in insights[:5]:
 # Get all commitments
 curl "http://localhost:8001/commitments"
 
-# Get commitments by status
-curl "http://localhost:8001/commitments?status=active"
+# Get open commitments
+curl "http://localhost:8001/commitments?status=open"
 ```
 
 ### Goal Achievement Dashboard
@@ -633,4 +610,4 @@ WantedBy=multi-user.target
 - **GitHub Issues**: [Report integration issues](../../issues)
 - **Community**: [GitHub Discussions](../../discussions)
 
-**Ready to build with PMM?** Start with the consciousness endpoint - it's your window into PMM's evolving mind! 🚀🤖🔌
+**Ready to build with PMM?** Start with the consciousness endpoint—it's your window into PMM's current self-model and metrics. 🚀🤖🔌

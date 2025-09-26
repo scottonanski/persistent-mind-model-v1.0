@@ -19,43 +19,28 @@ Environment Variables (highest priority)
 
 ## 🔧 Core Configuration Options
 
-### Runtime Configuration
+### Environment Variables Read by PMM
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PMM_DATABASE_PATH` | `pmm.db` | SQLite database file location |
-| `PMM_LOG_LEVEL` | `INFO` | Logging verbosity (DEBUG, INFO, WARNING, ERROR) |
-| `PMM_LOG_FILE` | `pmm.log` | Log file path (or `stdout` for console) |
-| `PMM_STAGE` | `auto` | Initial stage (S0, S1, S2, S3, S4, or `auto`) |
-| `PMM_IDENTITY_NAME` | `PMM` | AI's self-chosen name |
+The current runtime honours a focused set of environment variables. Anything not listed here is unsupported and will be ignored.
 
-### Autonomy Configuration
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OPENAI_API_KEY` | — | Required when `PMM_PROVIDER=openai` (CLI will warn if missing) |
+| `OPENAI_MODEL` | — | Overrides the OpenAI chat model while keeping `PMM_PROVIDER=openai` |
+| `PMM_PROVIDER` | `openai` | Model provider (`openai` or `ollama`) |
+| `PMM_MODEL` | `gpt-4o-mini` | Preferred model name for the current provider |
+| `PMM_DEFAULT_MODEL` | `llama3` | Default selection shown in the CLI picker |
+| `PMM_DEFAULT_BASE_URL` | `http://localhost:11434` | Base URL for local Ollama models |
+| `PMM_DB` | `.data/pmm.db` | Path to the event ledger used by the CLI/runtime |
+| `PMM_DB_PATH` | `pmm_data.db` | Secondary path used by legacy tooling (keep aligned with `PMM_DB`) |
+| `PMM_DATA_DIR` | `.data` | Directory for runtime caches and allocation logs |
+| `PMM_NGRAM_BAN_FILE` | — | Optional newline-delimited list for the n-gram filter |
+| `OPENAI_BASE_URL` | `https://api.openai.com` | Custom OpenAI endpoint (useful for proxies) |
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PMM_AUTONOMY_ENABLED` | `true` | Enable/disable background autonomy loop |
-| `PMM_REFLECTION_INTERVAL` | `60` | Seconds between reflection cycles |
-| `PMM_TRAIT_UPDATE_ENABLED` | `true` | Allow personality trait evolution |
-| `PMM_COMMITMENT_TRACKING` | `true` | Enable goal-oriented behavior |
+Additional specialist knobs exist for the trait adjuster (`PMM_LLM_TRAIT_*`) and telemetry allocators (`PMM_DATA_DIR`). Unless you are developing new autonomy behaviours, leave them at their defaults.
 
-### API Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PMM_API_HOST` | `localhost` | API server bind address |
-| `PMM_API_PORT` | `8001` | API server port |
-| `PMM_API_WORKERS` | `1` | Number of API worker processes |
-| `PMM_CORS_ORIGINS` | `*` | Allowed CORS origins (comma-separated) |
-| `PMM_API_KEY` | `none` | API authentication key |
-
-### Performance Tuning
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PMM_MAX_EVENTS_CACHE` | `1000` | Events to keep in memory cache |
-| `PMM_REFLECTION_DEPTH` | `standard` | Reflection analysis depth (basic/standard/deep) |
-| `PMM_TRAIT_UPDATE_BATCH` | `10` | Trait updates per batch |
-| `PMM_COMMITMENT_MAX_ACTIVE` | `50` | Maximum concurrent commitments |
+> **Note**
+> The Companion API launcher (`scripts/run_companion_server.py`) does not currently read `PMM_API_HOST` or `PMM_API_PORT`. To bind to a different host/port, run `uvicorn pmm.api.companion:app --host 0.0.0.0 --port 9000` manually or edit the script.
 
 ---
 
@@ -109,7 +94,7 @@ ENV PMM_API_PORT=8001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8001/health || exit 1
+    CMD curl -f http://localhost:8001/metrics || exit 1
 
 EXPOSE 8001
 CMD ["python", "scripts/run_companion_server.py"]
@@ -134,7 +119,7 @@ services:
       - ./logs:/app/logs
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/metrics"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -221,7 +206,7 @@ ingress:
 
 ```bash
 # Basic health
-curl http://localhost:8001/health
+curl http://localhost:8001/metrics
 
 # Response
 {
@@ -555,8 +540,8 @@ def validate_config():
 echo "Testing PMM deployment..."
 
 # Test API health
-if ! curl -f http://localhost:8001/health > /dev/null 2>&1; then
-    echo "❌ API health check failed"
+if ! curl -f http://localhost:8001/metrics > /dev/null 2>&1; then
+    echo "❌ API metrics endpoint failed"
     exit 1
 fi
 
@@ -678,13 +663,9 @@ python -m cProfile scripts/run_companion_server.py
 EXPLAIN QUERY PLAN SELECT * FROM events WHERE kind = 'reflection';
 ```
 
-**WebSocket connection issues:**
-```bash
-# Check WebSocket port
-netstat -tlnp | grep 8001
-
-# Test WebSocket connection
-websocat ws://localhost:8001/stream
+**Streaming support:**
+```text
+WebSockets are not yet supported. Poll `/snapshot`, `/metrics`, or `/consciousness` instead of attempting to open `/stream` connections.
 ```
 
 ---

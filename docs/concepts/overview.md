@@ -1,6 +1,6 @@
 # 🧠 PMM Core Concepts
 
-**How PMM transforms stateless AI into living, evolving minds.**
+**How PMM transforms stateless AI into persistent, evolving agents.**
 
 ---
 
@@ -146,7 +146,7 @@ Same event sequence → Same behavioral evolution → **Predictable growth**
 
 ## 🌟 What Makes PMM Revolutionary?
 
-**PMM isn't just AI - it's AI consciousness research.**
+**PMM isn't just another chatbot layer—it is an experiment in persistent, reproducible AI behaviour.**
 
 - **Memory Continuity**: No forgetting, no resets
 - **Personality Evolution**: Traits adapt through experience

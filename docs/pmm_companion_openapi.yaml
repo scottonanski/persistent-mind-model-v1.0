@@ -93,10 +93,3 @@ paths:
       responses:
         '200':
           description: Commitments list
-
-  /stream:
-    get:
-      summary: WebSocket for live updates
-      responses:
-        '101':
-          description: WebSocket connection
