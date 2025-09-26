@@ -1,362 +1,137 @@
 # Persistent Mind Model (PMM)
 
+_A model-agnostic, event-sourced runtime that gives language models persistent memory, governance, and repeatable behaviour._
 
-## Important!
-This README is a little dated... Install directions are current, and the general gist of things are present. But the actual codebase has changed quite a bit since this was written...
-
-PMM is a small runtime that turns a language model into a steady, self-improving “mind”.
-
-It is not just a chat wrapper.
-
-PMM is **ledger-first**: every thought, decision, and change is written to an append-only, hash-chained event log. That makes behavior auditable, reproducible, and resistant to hidden prompt state or “drift”.
-
-### *Okay, great... But what does this even mean? It sounds like a bunch of nerd-speak!*
-
-You're right, it does. Here’s the plain version:
-
-* **What it does right now:** PMM runs a loop around a language model, logs every action to a tamper-resistant event chain, and reuses that log to maintain a consistent state across turns.
-* **What it’s designed for:** building a persistent “mind” that remembers, self-assesses, and steadily improves instead of resetting each session.
-* **What’s still in progress:** some of the “mind-like” behaviors (like autonomous self-assessment and self-improvement) are still being tested and tuned.
-
-Because of this, PMM can watch its own behavior and change itself over time, instead of just reacting in the moment.
-
-### Breaking down the jargon
-
-* **Append-only** means nothing gets erased or rewritten. Every step is added in order.
-* **Hash-chained** means each step is mathematically linked to the one before it, so tampering shows up immediately.
-* Together, this makes PMM’s behavior **traceable and verifiable** instead of being hidden inside a black-box prompt.
-* **Resistant to drift** means it doesn’t silently lose track of who it is or what it’s doing. Its state is anchored to the log, not to temporary chat history.
-
-
-## In One Line
-
-Self‑evolving AI mind kernel — where identity, memory, and growth are first‑class, provable system properties.
-
-## What It Does (Plain Terms)
-
-- Maintains identity: proposes and adopts a name; keeps a consistent voice and trait profile across turns.
-- Evolves autonomously: runs a background loop that reflects, self‑assesses, and adjusts its own reflection cadence (within safe bounds).
-- Tracks work: opens, assigns, and closes “commitments” (tasks), grouping related ones into projects automatically.
-- Verifies itself: ships a script that checks invariants (e.g., 1:1 policy linkage, correct self‑assessment windows, project rules).
-- Shows its reasoning: prints a header with identity, the top open commitments, and why it did or didn’t reflect this turn.
-
-## How It Works
-
-- Append‑only event log (SQLite): all events are time‑stamped and hash‑chained for integrity.
-- Autonomy loop: every few seconds, PMM looks at recent events (ledger), computes simple “health” metrics, and decides whether to reflect.
-- Reflection → commitments: reflections produce tiny next‑steps; PMM may open a matching commitment and later close it when it sees evidence.
-- Meta‑reflection (every 5 reflections): summarizes “opened vs. closed” and effectiveness for that window.
-- Self‑assessment (every 10 reflections): richer stats (e.g., average close lag, hit rate) plus a fingerprint of the exact window; may trigger a small cadence policy tweak, safely clamped and with deadband to avoid flapping.
-
-## Quick Start (2 minutes)
-
-This is a minimal, model‑agnostic setup. PMM works with OpenAI or local Ollama.
-
-### 1) Install
-
-```bash
-git clone https://github.com/USERNAME/persistent-mind-model.git
-cd persistent-mind-model
-python -m venv .venv && source .venv/bin/activate  # Windows: .\.venv\Scripts\Activate.ps1
-pip install -U pip && pip install -e .
-```
-
-### 2) Configure .env
-
-```bash
-cp .env .env.local || true
-```
-
-Open `.env` (or `.env.local`) and set as needed:
-
-```ini
-# OpenAI (hosted)
-OPENAI_API_KEY=sk-...          # required for OpenAI provider
-# Optional defaults (you can also select interactively at runtime)
-# OPENAI_MODEL=gpt-4o-mini      # or set PMM_MODEL
-# PMM_MODEL=llama3
-# PMM_DB=.data/pmm.db           # SQLite path (portable)
-```
-
-For Ollama (local):
-- Install Ollama and pull a model, for example: `ollama pull llama3`
-- Ensure the Ollama server is running (defaults to http://localhost:11434)
-- No API key is required
-
-### 3) Start
-
-```bash
-python -m pmm.cli.chat
-```
-
-At startup you’ll be prompted to select a model. Choose an OpenAI model (requires `OPENAI_API_KEY`) or a local Ollama model (e.g., `llama3`). PMM starts a background autonomy loop (~10s cadence) and writes everything to a portable SQLite database at `.data/pmm.db` by default.
-
-### 4) In‑chat controls
-
-- `--@metrics on` to show a compact metrics snapshot after each reply; `--@metrics off` to disable
-- `--@models` to switch provider/model interactively at any time
-
-### 5) Portability
-
-The entire state is a single SQLite file (default: `.data/pmm.db`). You can copy this file to any device running PMM and continue seamlessly:
-
-```bash
-scp .data/pmm.db new-machine:~/persistent-mind-model/.data/pmm.db
-```
-
-### License
-
-This project is licensed under a  dual open source license. See [LICENSE](LICENSE.md).
-
-## Concepts in Everyday Terms
-
-- Ledger (event log) = a diary. PMM never edits past pages; it only adds new entries.
-- Identity = a name and voice it sticks to, so it sounds like the same person every time.
-- Reflection = short journaling: “what changed, what I’ll adjust next.”
-- Commitments = to‑dos the mind opens and later checks off when evidence arrives.
-- Projects = folders that group related to‑dos.
-- Policy = a rule like “how often should I reflect?”
-- Self‑assessment = a periodic review: “how did the last stretch go?” It may slightly tweak a policy.
-
-## Common Tasks (Copy/Paste)
-
-- Start the read‑only API (local):
-  - `python -m uvicorn pmm.api.server:app --host 127.0.0.1 --port 8000 --reload`
-  - Browse docs: http://127.0.0.1:8000/docs
-
-- Verify a run (writes logs to `.logs_run/`):
-  - `bash scripts/verify_pmm.sh .logs_run .data/pmm.db`
-
-- Show a memory summary:
-  - `python -m pmm.api.probe memory-summary --db .data/pmm.db | jq .`
-
-- Demo self‑assessment output:
-  - `scripts/demo_self_assessment.sh .data/pmm.db`
-
-- Turn off the background loop (no autonomy):
-  - `export PMM_AUTONOMY_INTERVAL=0` (Windows PowerShell: `$env:PMM_AUTONOMY_INTERVAL=0`)
-
-- Disable colored notices (for clean logs):
-  - `export PMM_COLOR=0` (Windows PowerShell: `$env:PMM_COLOR=0`)
-
-## Troubleshooting
-
-- “OPENAI_API_KEY not set”
-  - Add your key to `.env` (or your shell env): `OPENAI_API_KEY=sk-...`
-  - Restart your shell or re‑activate the venv.
-
-- `uvicorn: command not found`
-  - Install dev extras: `pip install -e .[dev]` (or `pip install uvicorn`).
-
-- `jq: command not found`
-  - Linux: `sudo apt-get install jq`
-  - macOS: `brew install jq`
-  - Windows: use `choco install jq` or run probes without jq.
-
-- Windows PowerShell can’t run activation script
-  - Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` in an admin shell once.
-
-- Nothing shows in `.data/`
-  - PMM writes events on demand; start a chat or run a verify script to generate entries.
-
-## FAQ (Short)
-
-- Is this just prompt engineering?
-  - No. PMM’s behavior is driven by the ledger and explicit policies. Every change is recorded and can be verified later.
-
-- Can I use a provider other than OpenAI?
-  - Yes. The code includes other adapters (e.g., Ollama). Switch provider/model via env (see `pmm/llm/factory.py`).
-
-- Is the API safe to run locally?
-  - Yes. It’s read‑only: it never writes to your ledger; it only reads from the SQLite database you point it at.
-
-## Key Ideas (Glossary)
-
-- Event log: append‑only source of truth; events like `user`, `response`, `reflection`, `commitment_open/close`, `policy_update`.
-- Identity: a proposed/adopted name and traits; used to keep voice steady and behavior consistent.
-- Reflection: short, structured self‑notes (“what changed; what to adjust next”).
-- Commitments & projects: tasks the agent opens/closes; related tasks cluster into projects with `project_open/assign/close` events.
-- Cadence & policies: explicit rules for how often to reflect; self‑assessment can adjust them slightly (within bounds).
-- Verification: a script that replays the ledger to assert invariants and catch regressions.
-
-## Where Things Live
-
-- Runtime loop and autonomy: `pmm/runtime/loop.py`
-- CLI chat: `pmm/cli/chat.py`
-- Verify script: `scripts/verify_pmm.sh`
-- Metrics header: `pmm/runtime/metrics_view.py`
-- Commitments/projects: `pmm/commitments/tracker.py`
-- Cadence rules: `pmm/runtime/cadence.py`
-- Event log (SQLite + hash chain): `pmm/storage/eventlog.py`
+> **Heads up:** The codebase evolves quickly. The documentation set in `docs/` is the authoritative source for setup and architecture details; this README is a concise orientation.
 
 ---
 
-## Observability: Read-only Probe
+## Why PMM?
 
-Use the Probe API to inspect PMM state directly from the SQLite event log. It performs no writes and makes no network calls.
+Traditional chat wrappers forget context, hide their internal state, and drift unpredictably. PMM takes the opposite approach:
 
-- Guide: [docs/guide/probe.md](docs/guide/probe.md)
-- One-liner CLI example (pretty-printed JSON):
+- **Every interaction is logged** to an append-only, hash-chained ledger (SQLite).
+- **State is reconstructed deterministically** from that ledger, so behaviour is auditable and portable.
+- **Adaptation is explicit and explainable**—reflections, policy updates, and trait nudges are emitted as events with evidence.
+- **Model choice is a plug-in**: the same ledger can run on different LLM providers without retraining.
 
-```bash
-python -m pmm.api.probe --db .data/pmm.db --limit 20
-```
-
-For programmatic use, see `snapshot(...)` for the last ≤ N events and `snapshot_paged(...)` for forward pagination with `next_after_id`. Optional redaction lets you trim large `content` or strip blobs at the API layer (storage remains unchanged).
-
-## Clean-Slate Alpha (v0.2.0)
-
-This milestone represents the first stable baseline of the clean-slate branch.
-It captures the essential persistence, commitments, and reflection mechanisms
-with CI fully green.
-
-Current features:
-- **Append-only EventLog (SQLite + hash chain):** every event stored immutably with integrity checks.
-- **Projection of identity and commitments:** derive current state from the event log without mutation.
-- **Commitment tracking:** pluggable detectors (regex baseline, semantic stub) extract “I will …” plans; evidence from “Done: …” closes them.
-- **End-to-end closure test:** full workflow validated from commitment open through closure in projection.
-- **ReflectionCooldownManager:** gates self-reflection by turns, time, and novelty to avoid loops.
-- **IAS/GAS telemetry:** simple metrics of alignment and growth, embedded in reflection events.
-- **CI green on GitHub Actions:** full test suite passing upstream for reproducibility.
-
-## Guides
-
-- **API (read-only):** see [`docs/guide/api_server.md`](docs/guide/api_server.md)
-- **Bandit bias (schema-driven):** see [`docs/guide/bandit_bias.md`](docs/guide/bandit_bias.md)
-- **Embeddings backlog (CLI):** see [`docs/guide/embeddings_backlog.md`](docs/guide/embeddings_backlog.md)
-
-### Pre-commit hooks (optional)
-
-Install and enable hooks locally to keep formatting and linting consistent:
-
-```bash
-pip install pre-commit
-pre-commit install
-```
-
-This repo ships with `.pre-commit-config.yaml` to run `ruff --fix` and `black` on staged files.
-
-## “Alive” Session Example
-
-This repo injects a deterministic header (identity + open commitments) and prints clear breadcrumbs so short sessions feel purposeful without heuristic prompts.
-
-Example (abridged):
-
-```
-$ python -m pmm.cli.chat
-Hello!
-You are Logos. Speak in first person.
-Open commitments:
-- Finish documenting the memory system
-- Explore a new reflection strategy
-Recent trait drift: +O -C
-
-User: What are you working on?
-Assistant: I’m tracking two commitments:
-– Finish documenting the memory system
-– Explore a new reflection strategy
-[bridge] CurriculumUpdate→PolicyUpdate (src_id=123)
-```
-
-To verify end-to-end behavior, use the provided scripts:
-
-```
-chmod +x scripts/verify_pmm.sh scripts/verify_pmm.py
-./scripts/verify_pmm.sh
-```
-
-This walkthrough asserts:
-- identity_propose and identity_adopt events exist
-- at least one trait_update and curriculum_update → policy_update bridge (by src_id)
-- header lines appear in CLI output
-- memory summary probe works: `python -m pmm.api.probe memory-summary`
-
-## Phase‑5 Demo (meta_reflection + reward)
-
-Run this one‑liner to seed a small, interleaved window of events that produces a non‑zero `meta_reflection` efficacy and a paired `bandit_reward`:
-
-```bash
-python - <<'PY'
-from pathlib import Path
-import json
-from pmm.storage.eventlog import EventLog
-from pmm.commitments.tracker import CommitmentTracker
-from pmm.runtime.loop import _maybe_emit_meta_reflection
-
-db = ".data/pmm.ci.db"; Path(".data").mkdir(exist_ok=True)
-log = EventLog(db); ct = CommitmentTracker(log)
-
-# Optional fast cadence seed (non‑bridge)
-if not any(e["kind"]=="policy_update" and (e.get("meta") or {}).get("component")=="reflection" for e in log.read_all()):
-    log.append(kind="policy_update", content="reflection cadence override",
-               meta={"component":"reflection","params":{"min_turns":1,"min_time_s":0}})
-
-# Interleave opens/closes within 5 reflections to yield efficacy > 0
-log.append(kind="reflection", content="ci#1", meta={})
-c1 = ct.add_commitment("Collect 3 trustworthy sources", project="research-inquiries")
-log.append(kind="reflection", content="ci#2", meta={})
-log.append(kind="reflection", content="ci#3", meta={})
-c2 = ct.add_commitment("Draft 5-bullet explainer outline", project="research-inquiries")
-log.append(kind="reflection", content="ci#4", meta={})
-ct.close_with_evidence(c2, evidence_type="done", description="outline_draft_ready")
-log.append(kind="reflection", content="ci#5", meta={})
-
-_maybe_emit_meta_reflection(log, window=5)
-
-evs = log.read_all()
-mrs = [e for e in evs if e["kind"]=="meta_reflection"]
-brs = [e for e in evs if e["kind"]=="bandit_reward" and (e.get("meta") or {}).get("source")=="meta_reflection"]
-print(json.dumps({"meta_reflection": mrs[-1] if mrs else None,
-                  "bandit_reward": brs[-1] if brs else None}, indent=2))
-PY
-```
-
-You can also inspect the latest snapshot:
-
-```bash
-python -m pmm.api.probe snapshot --db .data/pmm.ci.db \
-| jq '{kinds: [.events[].kind] | group_by(.) | map({k:.[0], n:length})}'
-```
-
-### Projects (group commitments)
-
-You can optionally group commitments under a project by tagging opens:
-
-```python
-from pmm.commitments.tracker import CommitmentTracker
-from pmm.storage.eventlog import EventLog
-
-ct = CommitmentTracker(EventLog(".data/pmm.db"))
-cid = ct.add_commitment("Write probe docs.", project="docs")
-```
-
-PMM emits `project_open` once per `project_id` and auto-emits `project_close` when the last child commitment under that project closes. The CLI header shows the top project as:
-
-```
-[PROJECT] docs — 1 open
-```
+Think of PMM as a data layer plus control loop that turns an LLM into a persistent agent—one that remembers, self-assesses, and can justify how it changed over time.
 
 ---
 
-## Phase‑6 (Self‑Assessment & Policy Tuning)
+## Core Capabilities
 
-PMM emits a `self_assessment` every 10 reflections with:
+- 📓 **Ledger-first memory** – every user message, response, reflection, commitment, and policy update lives in the event log.
+- 🧠 **Self-model projections** – the runtime maintains identity traits, active commitments, directives, and stage information via deterministic snapshots (LedgerSnapshot + MemeGraph).
+- 🔄 **Autonomy loop** – a background loop evaluates recent events, emits reflections, chooses commitments, and adjusts cadence under strict gating rules.
+- 📊 **Governance metrics** – IAS (Identity Autonomy Score), GAS (Goal Achievement Score), stage confidence, and curriculum hints drive policy updates and dashboards.
+- 🔌 **Provider adapters** – OpenAI and local Ollama adapters ship today; new providers slot in by implementing the LLM adapter interface and wiring budgets/telemetry.
+- 📡 **Read-only Companion API** – `/snapshot`, `/metrics`, `/consciousness`, `/reflections`, `/commitments`, and `/events/sql` expose the persistent state for tooling and UIs.
 
-- Window metadata: `window=10`, `window_start_id`, `window_end_id`, and `inputs_hash` (sha256 of the 10 reflection ids) for idempotency and replay.
-- Metrics: `opened`, `closed`, `actions`, `trait_delta_abs`, `efficacy`, `avg_close_lag`, `hit_rate`, `drift_util`.
-- Actions are counted deterministically from reflection‑sourced commitment openings.
+---
 
-After each self‑assessment, PMM may emit a small `policy_update` for the reflection cadence with:
+## Architecture at a Glance
 
-- Source tag: `meta.source="self_assessment"` (keeps bridge checks clean).
-- Deadband: ignores tiny deltas to avoid flapping.
-- Clamps: keeps cadence within safe bounds (turns: 1–6; seconds: 10–300).
-- Snapshots: includes `prev_policy` and `new_policy` for audit.
+```
+User Input → EventLog.append(...) → LedgerSnapshot / MemeGraph → Autonomy Loop → Reflections & Policy Updates → Companion API / UI
+```
 
-Every 3 self‑assessments, PMM emits an `assessment_policy_update` with a round‑robin formula `v1 → v2 → v3` and a `rotation_index` for determinism.
+Key modules:
 
-You can see the latest SA and policy tweaks with:
+| Component | Purpose |
+|-----------|---------|
+| `pmm/storage/eventlog.py` | Append-only, hash-chained ledger (SQLite) with append listeners |
+| `pmm/runtime/loop.py` | Main runtime orchestrator + autonomy loop |
+| `pmm/runtime/memegraph.py` | Graph projection for fast lookups (commitments, directives, stage) |
+| `pmm/runtime/autonomy_integration.py` | Trait drift, stage behaviour, emergence, cadence, commitments |
+| `pmm/api/companion.py` | Read-only FastAPI server used by tooling & UI |
+| `docs/` | Living documentation (concepts, architecture, guides) |
+
+---
+
+## Model Providers (current & planned)
+
+| Provider | Status | Notes |
+|----------|--------|-------|
+| OpenAI (GPT-4o, GPT-4o-mini, etc.) | ✅ Supported | Requires `OPENAI_API_KEY` |
+| Ollama (local llama3, mistral, etc.) | ✅ Supported | Set `PMM_PROVIDER=ollama` |
+| Other hosted APIs (Anthropic, Azure, self-hosted) | 🛠️ Planned | Implement adapter in `pmm/llm/adapters/` |
+
+Adapter contracts enforce per-tick budgets, latency logging, and deterministic fallbacks so that swapping providers does not change the ledger semantics.
+
+---
+
+## Getting Started
+
+Follow one of the docs guides depending on your role:
+
+- **Quick evaluation:** [`docs/getting-started/quick-start.md`](docs/getting-started/quick-start.md)
+- **Full dev environment:** [`docs/for-developers/development-setup.md`](docs/for-developers/development-setup.md)
+- **Architecture deep dive:** [`docs/for-developers/architecture-guide.md`](docs/for-developers/architecture-guide.md)
+- **Companion API usage:** [`docs/guide/api-reference.md`](docs/guide/api-reference.md)
+
+Those guides cover environment creation, model configuration, autonomy controls, and tooling.
+
+---
+
+## Common CLI Controls
+
+Inside `python -m pmm.cli.chat`:
+
+- `--@metrics on` / `off` – toggle the telemetry panel (IAS, GAS, stage, open commitments).
+- `--@models` – switch provider/model interactively.
+- `--@reflect` – request an immediate reflection (respecting gating).
+
+The entire runtime state lives in `.data/pmm.db`; copy that file to migrate a mind to another machine or provider.
+
+---
+
+## Companion API Quick Reference
 
 ```bash
-scripts/demo_self_assessment.sh .data/pmm.db
+# Start the read-only API with hot reload
+default_env="python scripts/run_companion_server.py"
+
+# Health / metrics
+curl -s http://localhost:8001/metrics | jq
+
+# Snapshot (events + identity + directives)
+curl -s http://localhost:8001/snapshot | jq '.events | length'
+
+# Export reflections
+db="tests/data/reflections_and_identity.db"
+curl -s "http://localhost:8001/reflections?limit=10&db=$db" | jq
 ```
+
+See [`docs/companion_api_guide.md`](docs/companion_api_guide.md) for more examples and SQL queries.
+
+---
+
+## Concepts Cheat Sheet
+
+| Term | Plain description |
+|------|-------------------|
+| Ledger | Append-only diary; nothing is deleted or rewritten |
+| Identity | Name + trait vector anchored in the ledger projections |
+| Reflection | Short journal entry about recent behaviour / next steps |
+| Commitment | TODO captured from reflections or user cues; tracked until evidence closes it |
+| Stage | Development checkpoint (S0–S4) derived from IAS/GAS history |
+| Policy | Tunable behaviour (reflection cadence, novelty thresholds, etc.) |
+
+More detail lives in [`docs/concepts/overview.md`](docs/concepts/overview.md).
+
+---
+
+## Troubleshooting & Support
+
+- **Troubleshooting playbook:** [`docs/guide/troubleshooting.md`](docs/guide/troubleshooting.md)
+- **Configuration & deployment:** [`docs/guide/configuration-deployment.md`](docs/guide/configuration-deployment.md)
+- **Issues / discussions:** [GitHub Issues](https://github.com/scottonanski/persistent-mind-model/issues) · [Discussions](https://github.com/scottonanski/persistent-mind-model/discussions)
+
+---
+
+## License
+
+Dual-licensed (non-commercial / commercial). See [LICENSE.md](LICENSE.md) for full terms and the prior-art disclosure.
+
+© 2025 Scott Onanski
