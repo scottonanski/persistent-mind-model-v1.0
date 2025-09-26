@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from pmm.storage.projection import build_self_model, build_identity
 from pmm.config import (
@@ -39,11 +39,12 @@ class MetricsView:
     def off(self) -> None:
         self.enabled = False
 
-    def snapshot(self, eventlog) -> Dict:
+    def snapshot(self, eventlog, memegraph=None) -> Dict:
         events: List[Dict] = eventlog.read_all()
         reflect_skip: str = "none"
         stage: str = "none"
         priority_top5: List[Dict] = []
+        memegraph_metrics: Optional[Dict] = None
 
         # Use the new hybrid approach: read from DB first, recompute only if needed
         from pmm.runtime.metrics import get_or_compute_ias_gas
@@ -84,6 +85,14 @@ class MetricsView:
         top3 = []
         for cid, meta in list(open_map.items())[:3]:
             top3.append({"cid": cid, "text": str((meta or {}).get("text") or "")})
+
+        if memegraph is not None:
+            try:
+                metrics = memegraph.last_batch_metrics
+                if isinstance(metrics, dict) and metrics:
+                    memegraph_metrics = dict(metrics)
+            except Exception:
+                memegraph_metrics = None
 
         # Identity snapshot
         ident = build_identity(events)
@@ -155,6 +164,7 @@ class MetricsView:
             "priority_top5": priority_top5,
             "identity": {"name": name, "top_traits": top_traits, "traits_full": tv},
             "self_model_lines": [line1, line2],
+            "memegraph": memegraph_metrics,
         }
 
     @staticmethod
@@ -189,4 +199,28 @@ class MetricsView:
         if pr:
             items = [f"{e['cid'][:4]}… {e['score']:.2f}" for e in pr]
             parts.append("[PRIORITY] " + " | ".join(items))
+
+        graph = snap.get("memegraph")
+        if isinstance(graph, dict) and graph:
+
+            def _fmt_metric(key: str) -> str:
+                try:
+                    val = graph.get(key)
+                    if isinstance(val, float):
+                        return f"{val:.3f}" if key == "duration_ms" else f"{val:.0f}"
+                    if isinstance(val, (int, str)):
+                        return str(val)
+                except Exception:
+                    pass
+                return "?"
+
+            graph_line = (
+                "[MEMEGRAPH] "
+                f"nodes={_fmt_metric('nodes')} "
+                f"edges={_fmt_metric('edges')} "
+                f"batch={_fmt_metric('batch_events')} "
+                f"ms={_fmt_metric('duration_ms')} "
+                f"rss_kb={_fmt_metric('rss_kb')}"
+            )
+            parts.append(graph_line)
         return "\n".join(parts)

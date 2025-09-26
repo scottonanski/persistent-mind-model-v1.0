@@ -165,6 +165,38 @@ def _metrics_panel(snap: dict) -> Panel:
         pr_line.append(" | ".join(items), style="bold white")
         grid.add_row(pr_line)
 
+    memegraph = snap.get("memegraph")
+    if isinstance(memegraph, dict) and memegraph:
+        mg_line = Text("MemeGraph ", style="bright_magenta")
+
+        def _fmt(val, *, digits: int = 0, fallback: str = "?") -> str:
+            try:
+                if isinstance(val, float):
+                    if digits:
+                        return f"{val:.{digits}f}"
+                    return f"{val:.0f}"
+                if isinstance(val, int):
+                    return str(val)
+                if isinstance(val, str):
+                    return val
+                if val is None:
+                    return fallback
+            except Exception:
+                return fallback
+            return fallback
+
+        parts = [
+            f"nodes {_fmt(memegraph.get('nodes'))}",
+            f"edges {_fmt(memegraph.get('edges'))}",
+            f"batch {_fmt(memegraph.get('batch_events'))}",
+            f"ms {_fmt(memegraph.get('duration_ms'), digits=3)}",
+        ]
+        rss = memegraph.get("rss_kb")
+        if rss is not None:
+            parts.append(f"rss_kb {_fmt(rss)}")
+        mg_line.append(" | ".join(parts), style="bold white")
+        grid.add_row(mg_line)
+
     if self_lines:
         grid.add_row(Text("", style="dim"))
         for ln in self_lines:
@@ -243,6 +275,17 @@ def main() -> None:
             border_style="blue",
         )
     )
+    assistant_console.print(
+        _system_panel(
+            "During chat you can type:\n"
+            "  --@metrics on   → show the metrics panel after every turn\n"
+            "  --@metrics off  → stop the live metrics panel\n"
+            "  --@metrics      → print a one-time metrics snapshot\n"
+            "  --@metrics logs on/off → toggle runtime metrics logging",
+            title="commands",
+            border_style="magenta",
+        )
+    )
 
     try:
         logger.info(
@@ -304,7 +347,9 @@ def main() -> None:
 
             if normalized == "--@metrics":
                 try:
-                    snapshot = metrics_view.snapshot(runtime.eventlog)
+                    snapshot = metrics_view.snapshot(
+                        runtime.eventlog, getattr(runtime, "memegraph", None)
+                    )
                     assistant_console.print(_metrics_panel(snapshot))
                 except Exception:
                     assistant_console.print(
@@ -529,7 +574,9 @@ def main() -> None:
 
             if metrics_view_enabled:
                 try:
-                    snapshot = metrics_view.snapshot(runtime.eventlog)
+                    snapshot = metrics_view.snapshot(
+                        runtime.eventlog, getattr(runtime, "memegraph", None)
+                    )
                     assistant_console.print(_metrics_panel(snapshot))
                 except Exception:
                     pass
