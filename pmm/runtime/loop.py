@@ -467,6 +467,85 @@ class Runtime:
             self._snapshot_cache = snapshot
         return snapshot
 
+    # --- Unified generation surface -----------------------------------------
+    def _generate_reply(
+        self,
+        messages: list[dict],
+        *,
+        temperature: float = 0.0,
+        max_tokens: int = 1024,  # kept for future tuning; controller handles target sizing
+        allow_continuation: bool = True,
+    ) -> str:
+        """Controller-backed generation with safe fallback.
+
+        Tries the continuation-aware controller first (respects allocator bands).
+        Falls back to a direct adapter call with one continuation if controller fails.
+        """
+        # Attempt controller path
+        try:
+            cont_cap = 2 if allow_continuation else 0
+            task = "chat" if allow_continuation else "reflect_single"
+            from pmm.runtime.chat_ops import do_chat
+
+            return do_chat(
+                self.chat,
+                model_key=f"{self.cfg.provider}/{self.cfg.model}",
+                messages=messages,
+                tooling_on=False,
+                temperature=temperature,
+                task=task,
+                continuation_cap=cont_cap,
+            )
+        except Exception:
+            pass
+
+        # Fallback: direct adapter call (structured if available)
+        def _unwrap(resp):
+            text = getattr(resp, "text", None)
+            stop = getattr(resp, "stop_reason", None)
+            usage = getattr(resp, "usage", None)
+            if text is None:
+                return str(resp or ""), None, None
+            return str(text or ""), stop, usage
+
+        try:
+            resp1 = self.chat.generate(
+                messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                return_usage=True,
+            )
+        except TypeError:
+            resp1 = self.chat.generate(
+                messages, temperature=temperature, max_tokens=max_tokens
+            )
+        reply1, stop1, _ = _unwrap(resp1)
+        if allow_continuation and (stop1 == "length"):
+            carry = (
+                "Continue the same thought from where you stopped. "
+                "Do not restart. Finish cleanly."
+            )
+            msgs2 = list(messages) + [
+                {"role": "assistant", "content": reply1},
+                {"role": "user", "content": carry},
+            ]
+            cont_tokens = max(512, int(max_tokens * 0.75))
+            try:
+                resp2 = self.chat.generate(
+                    msgs2,
+                    temperature=0.0,
+                    max_tokens=cont_tokens,
+                    return_usage=True,
+                )
+            except TypeError:
+                resp2 = self.chat.generate(
+                    msgs2, temperature=0.0, max_tokens=cont_tokens
+                )
+            reply2, _stop2, _ = _unwrap(resp2)
+            if reply2:
+                return (reply1 + "\n" + reply2).strip()
+        return reply1
+
     def set_model(self, provider: str, model: str) -> None:
         """Switch runtime to a new model at runtime."""
         self.cfg = LLMConfig(
@@ -1048,8 +1127,10 @@ class Runtime:
         except Exception:
             pass
         styled = self.bridge.format_messages(msgs, intent="chat")
-        # Keep replies responsive and bounded when using remote providers
-        reply = self.chat.generate(styled, temperature=0.3, max_tokens=1024)
+        # Generate with higher cap and allow a single safe continuation
+        reply = self._generate_reply(
+            styled, temperature=0.3, max_tokens=2048, allow_continuation=True
+        )
         # NEW: Apply LLM-driven trait adjustments (side layer)
         # This integrates the LLM trait adjuster without touching foundation code
         try:
@@ -1278,17 +1359,14 @@ class Runtime:
                 }
                 msgs2 = list(msgs) + [correction_msg]
                 styled2 = self.bridge.format_messages(msgs2, intent="chat")
-                reply2 = self.chat.generate(styled2, temperature=0.0, max_tokens=1024)
+                reply2 = self._generate_reply(
+                    styled2, temperature=0.0, max_tokens=1536, allow_continuation=False
+                )
                 if reply2:
                     reply = reply2
         except Exception:
             pass
-        # Strip auto-preambles/signatures
-        try:
-            if ident.get("name"):
-                reply = _strip_voice_wrappers(reply, ident.get("name"))
-        except Exception:
-            pass
+        # Strip auto-preambles/signatures handled upstream by BridgeManager.sanitize.
         # Recall suggestion (semantic if available else token overlap). Must precede response append.
         # Use the snapshot captured before we appended any knowledge_asserts for baseline stability.
         evs_before = (
@@ -1562,7 +1640,10 @@ class Runtime:
             _skip_latency_log = False
 
         def _do_reflect():
-            return self.chat.generate(styled, temperature=0.4, max_tokens=1024)
+            # Keep reflection bounded and without continuation to preserve cadence semantics
+            return self._generate_reply(
+                styled, temperature=0.4, max_tokens=1024, allow_continuation=False
+            )
 
         out = chat_with_budget(
             _do_reflect,

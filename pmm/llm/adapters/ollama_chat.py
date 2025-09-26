@@ -70,7 +70,7 @@ class OllamaChat:
         temperature: float = 0.7,
         max_tokens: int = 300,
         **kwargs,
-    ) -> str:
+    ) -> object:
         """Generate response using Ollama via direct HTTP request."""
         if not self._server_available:
             raise RuntimeError(
@@ -110,6 +110,18 @@ class OllamaChat:
 
             logger.info(f"Sent metrics in headers: IAS={ias}, GAS={gas}")
             content = data["message"]["content"]
+
+            # Structured response (controller/probe path): do not append metrics noise
+            if kwargs.get("return_usage"):
+
+                class _Resp:
+                    def __init__(self, text):
+                        self.text = text
+                        self.stop_reason = None
+                        self.usage = None
+                        self.provider_caps = None
+
+                return _Resp(content)
 
             # Get fresh metrics after response generation (may have changed due to new events)
             fresh_ias, fresh_gas = get_or_compute_ias_gas(eventlog)

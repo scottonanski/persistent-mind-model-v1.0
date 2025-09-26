@@ -38,6 +38,13 @@ black --check .
 
 - __Determinism__
   - No runtime clock/RNG/external-state dependencies in decision logic (beyond timestamps recorded in the ledger by append-only writes).
+  - No environment-variable gates for behavior. Credentials and endpoints may use env vars, but policy/logic must come from code, ledger events, or project config files.
+
+## No Env Gates for Behavior
+
+- Use fixed constants or project config files (e.g., `.pmm/config.json`) for non-credential knobs.
+- Do not read env vars to change runtime behavior (budgets, cadence, policies). Behavior must be reproducible from code + ledger.
+- Example: per-tick LLM budgets are fixed in code (`pmm/llm/limits.py`) rather than `PMM_MAX_*` env overrides.
 
 - __No test overfitting__
   - Fix root causes. If a test is brittle, propose a test change rather than warping runtime logic.
@@ -64,5 +71,4 @@ When writing tests for PMM, only test actual implemented code. Do not write spec
 ---
 
 Questions? Open an issue or start a discussion. Thank you for helping improve PMM.
-
 

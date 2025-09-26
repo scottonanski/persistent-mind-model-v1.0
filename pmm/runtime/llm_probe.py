@@ -34,13 +34,17 @@ def make_probe_fn(adapter) -> ProbeFn:
 
     def _probe(model_key: str, messages: list, max_tokens: int) -> dict:
         try:
-            r = adapter.generate(
-                model_key=model_key,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=0.0,
-                return_usage=True,
-            )
+            try:
+                r = adapter.generate(
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=0.0,
+                    return_usage=True,
+                )
+            except TypeError:
+                r = adapter.generate(
+                    messages=messages, max_tokens=max_tokens, temperature=0.0
+                )
             return {
                 "ok": True,
                 "stop_reason": getattr(r, "stop_reason", None),

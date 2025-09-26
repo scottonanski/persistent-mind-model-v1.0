@@ -39,6 +39,7 @@ class GenerationController:
         task: str,
         tooling_on: bool,
         continuation_cap: int = 3,
+        temperature: float = 0.0,
     ):
         # 1) Budget first pass
         prompt_tokens = self._count_prompt_tokens(messages, model_key)
@@ -62,17 +63,32 @@ class GenerationController:
 
         completion_accum = 0
         while True:
-            resp = self.adapter.generate(
-                model_key=model_key,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=0.0,
-                return_usage=True,
-            )
-            text = getattr(resp, "text", "") or ""
+            # Robust call: prefer structured usage, fall back to plain string
+            try:
+                resp = self.adapter.generate(
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    return_usage=True,
+                )
+            except TypeError:
+                resp = self.adapter.generate(
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+
+            # Unwrap response
+            if isinstance(resp, str):
+                text = resp
+                stop_reason = None
+                usage = {}
+            else:
+                text = getattr(resp, "text", "") or ""
+                stop_reason = getattr(resp, "stop_reason", None)
+                usage = getattr(resp, "usage", None) or {}
             chunks.append(text)
-            last_stop = getattr(resp, "stop_reason", None)
-            usage = getattr(resp, "usage", None) or {}
+            last_stop = stop_reason
             last_usage = usage
             completion_accum += int(usage.get("completion_tokens") or 0)
 

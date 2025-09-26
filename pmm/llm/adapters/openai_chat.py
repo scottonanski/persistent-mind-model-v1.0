@@ -24,7 +24,7 @@ class OpenAIChat:
         temperature: float = 1.0,
         max_tokens: int = 512,
         **kw: Any,
-    ) -> str:
+    ) -> Any:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY not set (put it in .env)")
@@ -48,7 +48,23 @@ class OpenAIChat:
         try:
             with urlopen(req, timeout=30) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-            return data["choices"][0]["message"]["content"]
+            content = data["choices"][0]["message"]["content"]
+            finish = data["choices"][0].get("finish_reason")
+            usage = data.get("usage") or {}
+
+            # Structured response when requested
+            if kw.get("return_usage"):
+
+                class _Resp:
+                    def __init__(self, text, stop_reason, usage):
+                        self.text = text
+                        self.stop_reason = stop_reason
+                        self.usage = usage
+                        self.provider_caps = None
+
+                return _Resp(content, finish, usage)
+
+            return content
         except HTTPError as e:
             try:
                 err_body = e.read().decode("utf-8")[:500]
