@@ -74,6 +74,12 @@ Those guides cover environment creation, model configuration, autonomy controls,
 
 ---
 
+## Session Evidence
+
+- 2025-09-26 — “Echo” transcript and analysis: `docs/sessions/2025-09-26-echo-session.md`
+
+---
+
 ## Common CLI Controls
 
 Inside `python -m pmm.cli.chat`:
