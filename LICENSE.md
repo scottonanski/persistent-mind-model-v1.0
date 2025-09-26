@@ -129,37 +129,37 @@ This license may be revised over time. Material changes will be announced in the
 
 ## 📜 Public Disclosure of Invention (Prior Art)
 
-**Title:** System and Method for Model‑Agnostic Persistent Artificial Intelligence Identity and Memory Management
+**Title:** System and Method for Model‑Agnostic Event‑Sourced AI Runtime with Persistent Self‑Model
 
 **Author / Discloser:** Scott Onanski — Published via GitHub (August 2025)
 
 **Abstract / Purpose:**
-A platform‑agnostic system that enables persistence of an AI "mind" across model backends and runs via an append‑only ledger, deterministic reconstruction, and a portable mind schema. The disclosure documents the architecture, core components, and methods to establish prior art and prevent patent claims on the described inventions.
+A model‑agnostic runtime that delivers persistent AI behaviour by combining an event‑sourced ledger, deterministic self‑model reconstruction, and a provider‑neutral execution layer. The system keeps full provenance for every state change, enables replay across heterogeneous LLM backends, and exposes governance signals for safe adaptation. This disclosure documents the architecture and methods to establish prior art and prevent patent claims on these inventions.
 
 ### Key Components (novel elements)
 
-1. **Portable Mind Schema** — a platform‑independent serializable schema that stores identity traits, commitments, priorities, and state values allowing an AI "mind" to be reconstructed deterministically on different LLM backends.
+1. **Event‑Sourced Self‑Model** — an append‑only, hash‑chained ledger that records every user message, response, reflection, trait update, commitment change, policy adjustment, and stage transition as the canonical memory substrate.
 
-2. **Append‑Only Event Ledger** — deterministic, tamper‑evident log of events, commitments, reflections, trait adjustments, and policy updates that serves as canonical memory for the persistent mind.
+2. **Portable Mind Snapshot** — a schema and projection layer (LedgerSnapshot + MemeGraph) that deterministically reconstructs identity traits, priorities, open commitments, and directives from any ledger segment, enabling cache invalidation, audit, and migration.
 
-3. **Deterministic Reconstruction Engine** — a deterministic replay mechanism that rebuilds an AI’s internal state from ledger events without retraining the underlying LLM, enabling reproducible identity transfer between models and hosts.
+3. **Deterministic Autonomy Loop** — a background loop that replays recent events, emits reflections, adjusts behavioural policies, and ratchets traits under strict gating rules (truth‑first, evidence thresholds, cadence limits) without relying on stochastic hidden state.
 
-4. **Model‑Agnostic Execution Layer** — an abstraction that decouples procedural identity and decision logic from any single LLM; the same mind schema and ledger can be executed on multiple LLM backends (local or remote) with consistent behavior.
+4. **Provider‑Neutral Adapter Layer** — a pluggable LLM interface (e.g., OpenAI, Ollama today) that enforces per‑tick budgets, latency logging, and deterministic fallbacks so the same ledger can be executed against different model providers with consistent outcomes.
 
-5. **Reflection & Commitment Cycle** — a built‑in loop where the system records commitments, revisits them, updates traits (e.g., OCEAN‑style), and ratchets capability while enforcing gating checks (truth‑first, safety constraints, reproducibility checks).
+5. **Governance Metrics & Policy Feedback** — continuous computation of identity autonomy (IAS), goal achievement (GAS), stage confidence, and curriculum hints that feed policy updates and reflection cadence, ensuring adaptive behaviour is explainable and auditable.
 
-6. **Encrypted Backup & Transfer Mechanism** — secure export/import of the portable mind schema plus event ledger enabling migration of a persistent mind across machines and clouds while preserving cryptographic integrity and confidentiality.
+6. **Mind Portability & Replay** — export, import, and replay routines that rebuild the entire runtime state on another machine or provider by ingesting the ledger and snapshots—no retraining required.
 
-7. **Metricization & Governance Signals** — continuous metrics (e.g., IAS, GAS) derived from ledger activity to guide policy updates, reflection cadence, and identity adoption heuristics.
+7. **Read‑Only Companion Interfaces** — a dedicated API surface (snapshot, metrics, consciousness, commitments, SQL) that exposes deterministic projections for tooling, monitoring, and third‑party integrations without mutating the ledger.
 
-8. **Sandboxed Measurement & Tracing** — execution sandboxes and tracers for candidate evaluations, ensuring experimental changes are measured and validated without leaking state or causing irreversible changes to the canonical ledger.
+8. **Experimentation Sandboxes** — isolated evaluation paths, budget guards, and append listeners that allow new behaviours or model experiments to run while keeping the canonical ledger intact and fully traceable.
 
 ### Novelty & Advantages
 
-* **Separation of mind and model:** The architecture isolates the persistent identity from any single model instance, enabling porting, long‑term continuity, and deterministic replay.
-* **Ledger‑driven identity:** Identity and commitments are captured as first‑class artifacts in an append‑only ledger, enabling provenance, audit, and deterministic reconstruction.
-* **Reproducible transfer without retraining:** The deterministic reconstruction engine allows restarting or migrating a mind without re‑training, merely by replaying ledger events into a compatible schema and execution layer.
-* **Safety & evaluation gates:** Integrated gates and sandboxing for candidate improvements prevent unchecked capability escalations and prioritize truth and safety.
+* **Separation of self‑model and provider:** The persistent mind lives in the ledger and projections, not in any particular LLM, enabling portability across providers and hosts.
+* **Deterministic adaptation:** Behavioural changes (policy updates, trait drifts, reflections) are derived from explicit evidence in the ledger, producing repeatable runs for audit and testing.
+* **Replay without retraining:** Rehydrating a mind on new hardware or providers requires only ledger replay and projection rebuilds; the underlying LLM remains stateless.
+* **Built‑in governance:** Budget guards, metrics, and sandboxed experimentation keep adaptation explainable and verifiable, reducing risk from uncontrolled capability growth.
 
 ### Purpose of Disclosure
 
