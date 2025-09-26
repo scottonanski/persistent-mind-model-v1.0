@@ -33,3 +33,11 @@ logs/
 *.log
 .logs/
 .logs_run*/
+
+# SQLite database files
+*.db
+*.db-shm
+*.db-wal
+__default__
+__default__-*
+

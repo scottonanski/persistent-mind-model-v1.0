@@ -539,6 +539,7 @@ def main() -> None:
                     runtime.eventlog,
                     runtime.cooldown,
                     llm_generate=lambda context: runtime.reflect(context),
+                    memegraph=getattr(runtime, "memegraph", None),
                 )
             except Exception:
                 pass

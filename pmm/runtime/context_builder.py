@@ -27,6 +27,7 @@ from datetime import datetime as _dt
 
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model, build_identity
+from pmm.runtime.snapshot import LedgerSnapshot
 
 __all__ = ["build_context_from_ledger"]
 
@@ -43,7 +44,12 @@ def _iso_short(ts: str | None) -> str:
         return ts
 
 
-def build_context_from_ledger(eventlog: EventLog, *, n_reflections: int = 3) -> str:
+def build_context_from_ledger(
+    eventlog: EventLog,
+    *,
+    n_reflections: int = 3,
+    snapshot: LedgerSnapshot | None = None,
+) -> str:
     """Return a formatted context block derived from the ledger.
 
     Parameters
@@ -63,13 +69,19 @@ def build_context_from_ledger(eventlog: EventLog, *, n_reflections: int = 3) -> 
     # keeps logic simple/deterministic. If performance becomes an issue we can
     # replace with targeted `read_tail` calls.
     events: List[Dict[str, Any]]
-    try:
-        events = eventlog.read_all()
-    except Exception:  # pragma: no cover — safety net
-        events = []
+    if snapshot is not None:
+        events = snapshot.events
+    else:
+        try:
+            events = eventlog.read_all()
+        except Exception:  # pragma: no cover — safety net
+            events = []
 
     # --- Identity & Traits -------------------------------------------------
-    identity = build_identity(events)
+    if snapshot is not None:
+        identity = snapshot.identity
+    else:
+        identity = build_identity(events)
     name = identity.get("name") or "Unknown"
     traits: Dict[str, float] = identity.get("traits", {})
     # Keep Big-Five order consistent for determinism
@@ -98,7 +110,10 @@ def build_context_from_ledger(eventlog: EventLog, *, n_reflections: int = 3) -> 
     # --- Open Commitments ---------------------------------------------------
     commitments_block: List[str] = []
     try:
-        self_model = build_self_model(events)
+        if snapshot is not None:
+            self_model = snapshot.self_model
+        else:
+            self_model = build_self_model(events)
         open_commitments: Dict[str, Any] = self_model.get("commitments", {}).get(
             "open", {}
         )

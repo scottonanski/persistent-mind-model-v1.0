@@ -25,6 +25,7 @@ from pmm.runtime.adaptive_cadence import AdaptiveReflectionCadence
 from pmm.commitments.manager import ProactiveCommitmentManager
 from pmm.runtime.stage_tracker import StageTracker
 from pmm.storage.projection import build_self_model
+from pmm.runtime.snapshot import LedgerSnapshot
 from typing import Dict, List, Optional
 import time
 
@@ -45,7 +46,12 @@ class AutonomousSystemsManager:
         self.reflection_cadence = AdaptiveReflectionCadence()
         self.commitment_manager = ProactiveCommitmentManager()
 
-    def process_autonomy_tick(self, tick_id: str, context: Dict) -> Dict:
+    def process_autonomy_tick(
+        self,
+        tick_id: str,
+        context: Dict,
+        snapshot: LedgerSnapshot | None = None,
+    ) -> Dict:
         """Process a single autonomy tick through all systems.
 
         Args:
@@ -55,7 +61,10 @@ class AutonomousSystemsManager:
         Returns:
             Dict with processing results and recommendations
         """
-        events = self.eventlog.read_all()
+        if snapshot is not None:
+            events = snapshot.events
+        else:
+            events = self.eventlog.read_all()
         results = {
             "tick_id": tick_id,
             "timestamp": time.time(),
@@ -159,9 +168,12 @@ class AutonomousSystemsManager:
 
         return results
 
-    def get_system_status(self) -> Dict:
+    def get_system_status(self, snapshot: LedgerSnapshot | None = None) -> Dict:
         """Get status of all autonomous systems."""
-        events = self.eventlog.read_all()
+        if snapshot is not None:
+            events = snapshot.events
+        else:
+            events = self.eventlog.read_all()
 
         # Get current stage and model
         current_stage, stage_snapshot = StageTracker.infer_stage(events)

@@ -33,7 +33,7 @@ from pmm.commitments.restructuring import CommitmentRestructurer
 from pmm.commitments import tracker as _commit_tracker  # Step 19 triage helper
 import threading as _threading
 import time as _time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from pmm.runtime.ngram_filter import NGramFilter
 from pmm.runtime.self_evolution import SelfEvolution
 from pmm.runtime.recall import suggest_recall
@@ -45,6 +45,8 @@ from pmm.runtime.bridge import ResponseRenderer
 from pmm.runtime.introspection import run_audit
 from pmm.runtime.stage_tracker import POLICY_HINTS_BY_STAGE
 import pmm.runtime.embeddings as _emb
+from pmm.runtime.snapshot import LedgerSnapshot
+from pmm.runtime.memegraph import MemeGraphProjection
 from pmm.config import (
     load as _load_cfg,
     REFLECTION_REJECTED,
@@ -372,6 +374,14 @@ class Runtime:
         self.cfg = cfg
         self.eventlog = eventlog
         self._ngram_bans = ngram_bans
+        self._snapshot_lock = _threading.RLock()
+        self._snapshot_cache: LedgerSnapshot | None = None
+        self.eventlog.register_append_listener(self._handle_event_appended)
+        try:
+            self.memegraph = MemeGraphProjection(self.eventlog)
+        except Exception:
+            self.memegraph = None
+            logger.exception("MemeGraph projection initialization failed")
         self._init_llm_backend()
 
     def _init_llm_backend(self) -> None:
@@ -407,7 +417,9 @@ class Runtime:
             # Per-tick deterministic LLM usage budget
             self.budget = TickBudget()
             # Commitments tracker (uses default detector)
-            self.tracker = CommitmentTracker(self.eventlog)
+            self.tracker = CommitmentTracker(
+                self.eventlog, memegraph=getattr(self, "memegraph", None)
+            )
             # Autonomy loop handle (started explicitly)
             self._autonomy: AutonomyLoop | None = None
             # Output filter for assistant replies
@@ -425,6 +437,36 @@ class Runtime:
             self.prioritizer = Prioritizer(self.eventlog) if self.eventlog else None
             self.classifier = SemanticDirectiveClassifier(self.eventlog)
 
+    def _handle_event_appended(self, _: Dict[str, Any]) -> None:
+        with self._snapshot_lock:
+            self._snapshot_cache = None
+
+    def _get_snapshot(self) -> LedgerSnapshot:
+        events = self.eventlog.read_all()
+        last_id = int(events[-1]["id"]) if events else 0
+        with self._snapshot_lock:
+            cached = self._snapshot_cache
+            if cached is not None and cached.last_event_id == last_id:
+                return cached
+        events_copy = list(events)
+        identity = build_identity(events_copy)
+        self_model = build_self_model(events_copy)
+        ias, gas = compute_ias_gas(events_copy)
+        stage, stage_snapshot = StageTracker.infer_stage(events_copy)
+        snapshot = LedgerSnapshot(
+            events=events_copy,
+            identity=identity,
+            self_model=self_model,
+            ias=ias,
+            gas=gas,
+            stage=stage,
+            stage_snapshot=stage_snapshot,
+            last_event_id=last_id,
+        )
+        with self._snapshot_lock:
+            self._snapshot_cache = snapshot
+        return snapshot
+
     def set_model(self, provider: str, model: str) -> None:
         """Switch runtime to a new model at runtime."""
         self.cfg = LLMConfig(
@@ -435,7 +477,14 @@ class Runtime:
         )
         self._init_llm_backend()
 
-    def _log_recent_events(self, limit: int = 3) -> List[dict]:
+    def _log_recent_events(
+        self, limit: int = 3, snapshot: LedgerSnapshot | None = None
+    ) -> List[dict]:
+        if snapshot is not None:
+            events = snapshot.events
+            if not events:
+                return []
+            return list(events[-limit:])
         try:
             return self.eventlog.read_tail(limit=limit)
         except Exception:
@@ -503,7 +552,9 @@ class Runtime:
 
         tracker = getattr(self, "tracker", None)
         if tracker is None:
-            tracker = CommitmentTracker(self.eventlog)
+            tracker = CommitmentTracker(
+                self.eventlog, memegraph=getattr(self, "memegraph", None)
+            )
             self.tracker = tracker
 
         for commit_text, intent, score in matches:
@@ -713,7 +764,10 @@ class Runtime:
                 pass
 
     def handle_user(self, user_text: str) -> str:
-        context_block = build_context_from_ledger(self.eventlog, n_reflections=3)
+        snapshot = self._get_snapshot()
+        context_block = build_context_from_ledger(
+            self.eventlog, n_reflections=3, snapshot=snapshot
+        )
         msgs = [
             {"role": "system", "content": context_block},
             {
@@ -727,7 +781,7 @@ class Runtime:
             },
             {"role": "user", "content": user_text},
         ]
-        recent_events = self._log_recent_events(limit=5)
+        recent_events = self._log_recent_events(limit=5, snapshot=snapshot)
 
         try:
             intent, candidate_name, confidence = (
@@ -751,6 +805,7 @@ class Runtime:
                     "confidence": float(confidence),
                 },
             )
+            snapshot = self._get_snapshot()
         except Exception:
             pass
 
@@ -777,14 +832,13 @@ class Runtime:
                 self._extract_commitments_from_text(
                     user_text, source_event_id=int(user_event_id), speaker="user"
                 )
+                snapshot = self._get_snapshot()
         except Exception:
             user_event_id = None
 
         if user_event_id is not None:
-            try:
-                recent = self.eventlog.read_all()
-            except Exception:
-                recent = []
+            snapshot = self._get_snapshot()
+            recent = snapshot.events
             if not any(
                 ev.get("kind") == "embedding_indexed"
                 and (ev.get("meta") or {}).get("eid") == int(user_event_id)
@@ -802,8 +856,10 @@ class Runtime:
                         content="",
                         meta={"eid": int(user_event_id), "digest": digest},
                     )
+                    snapshot = self._get_snapshot()
                 except Exception:
                     self._record_embedding_skip(int(user_event_id))
+            recent_events = snapshot.events[-5:] if snapshot.events else []
 
         # Defensive fallback: derive candidate from unique proper noun when intent is clear
         if intent == "assign_assistant_name" and not candidate_name:
@@ -842,9 +898,10 @@ class Runtime:
                 pass
 
         # Require explicit proposal or very high confidence to prevent "I am going to..." false positives
-        recent_events = (
-            self.eventlog.read_all()[-5:] if hasattr(self, "eventlog") else []
-        )
+        try:
+            recent_events = self.eventlog.read_all()[-5:]
+        except Exception:
+            recent_events = []
         has_proposal = any(e.get("kind") == "identity_propose" for e in recent_events)
 
         if (
@@ -948,7 +1005,7 @@ class Runtime:
             pass
         # Inject a compact pinned context of recent knowledge_asserts into the model prompt
         try:
-            recent = self.eventlog.read_all()[-50:]
+            recent = snapshot.events[-50:]
             pinned: list[str] = []
             for ev in reversed(recent):
                 if ev.get("kind") == "knowledge_assert":
@@ -1454,11 +1511,8 @@ class Runtime:
 
     def reflect(self, context: str) -> str:
         # Deterministic, stage-aware prompt selection (no randomness)
-        events_for_stage = self.eventlog.read_all()
-        try:
-            stage_str, _snap = StageTracker.infer_stage(events_for_stage)
-        except Exception:
-            stage_str = None
+        snapshot = self._get_snapshot()
+        stage_str = snapshot.stage
         stage_level = stage_str_to_level(stage_str)
         # Map stage_level to fixed template label and instruction
         _TEMPLATES = {
@@ -1491,12 +1545,9 @@ class Runtime:
         ]
         styled = self.bridge.format_messages(msgs, intent="reflection")
         # Compute current tick number once for consistent budget key
-        try:
-            _evs_for_tick = self.eventlog.read_all()
-        except Exception:
-            _evs_for_tick = []
+        snap_for_tick = snapshot
         tick_id = 1 + sum(
-            1 for ev in _evs_for_tick if ev.get("kind") == "autonomy_tick"
+            1 for ev in snap_for_tick.events if ev.get("kind") == "autonomy_tick"
         )
         # Detect the special invariants test to avoid disturbing strict event ordering
         try:
@@ -1528,16 +1579,17 @@ class Runtime:
         else:
             note = out
         # Compute novelty (simple uniqueness check)
+        snap_for_reflect = snapshot
         recent = [
-            e["content"]
-            for e in self.eventlog.read_all()[-10:]
+            e.get("content")
+            for e in snap_for_reflect.events[-10:]
             if e.get("kind") == "reflection"
         ]
         novelty = 1.0 if note not in recent else 0.0
         # Build deterministic refs: last K relevant prior event ids
         try:
             K = 6
-            evs_refs = self.eventlog.read_all()
+            evs_refs = snap_for_reflect.events
             # Consider prior events only; we haven't appended this reflection yet
             relevant_kinds = {
                 "user",
@@ -1580,7 +1632,7 @@ class Runtime:
             if lines:
                 action = lines[-1]
 
-        ias, gas = compute_ias_gas(self.eventlog.read_all())
+        ias, gas = snap_for_reflect.ias, snap_for_reflect.gas
         # Detect special test path to avoid suppressing reflection (keeps invariants stable)
         import inspect as _inspect
 
@@ -1590,12 +1642,7 @@ class Runtime:
             for f in _stack
         )
         # Zero-knobs acceptance gating: authoritative in reflect() (normal path)
-        _events_for_gate = self.eventlog.read_all()
-        try:
-            stage_str, _snap = StageTracker.infer_stage(_events_for_gate)
-        except Exception:
-            stage_str = None
-        stage_level = stage_str_to_level(stage_str)
+        _events_for_gate = snap_for_reflect.events
         # Use audit-only gating: never suppress reflections in reflect(); record debug breadcrumbs instead.
         authoritative_mode = False
 
@@ -2710,6 +2757,7 @@ def maybe_reflect(
     commitment_protect_until: int | None = None,
     open_autonomy_tick: int | None = None,
     llm_generate: callable | None = None,
+    memegraph=None,
 ) -> tuple[bool, str]:
     """Check cooldown gates with optional per-call overrides; emit reflection or breadcrumb debug event.
 
@@ -2784,6 +2832,34 @@ def maybe_reflect(
     if rid is None:
         return (False, "rejected")
     cooldown.reset()
+    if memegraph is not None:
+        try:
+            graph_policy_ids = memegraph.policy_updates_for_reflection(int(rid))
+            if logger.isEnabledFor(logging.DEBUG):
+                legacy_policy_ids = []
+                for ev in eventlog.read_all():
+                    if ev.get("kind") != "policy_update":
+                        continue
+                    meta = ev.get("meta") or {}
+                    src = meta.get("src_id") or meta.get("source_event_id")
+                    try:
+                        src_int = int(src)
+                    except Exception:
+                        continue
+                    if src_int == int(rid):
+                        try:
+                            legacy_policy_ids.append(int(ev.get("id") or 0))
+                        except Exception:
+                            continue
+                if set(legacy_policy_ids) != set(graph_policy_ids):
+                    logger.debug(
+                        "memegraph policy mismatch for reflection %s: legacy=%s graph=%s",
+                        rid,
+                        legacy_policy_ids,
+                        graph_policy_ids,
+                    )
+        except Exception:
+            logger.debug("memegraph policy lookup failed", exc_info=True)
     # Bandit integration: choose arm via biased means when provided; otherwise fall back
     try:
         events_now_bt = eventlog.read_all()
@@ -3026,7 +3102,9 @@ class AutonomyLoop:
         # ---- Phase 5: Stage Advancement Integration ----
         from pmm.runtime.stage_manager import StageManager
 
-        self._stage_manager = StageManager(eventlog)
+        self._stage_manager = StageManager(
+            eventlog, getattr(runtime, "memegraph", None)
+        )
 
         # Ensure a deterministic bootstrap identity exists (ledger-backed via canonical handler)
         try:
@@ -3055,6 +3133,32 @@ class AutonomyLoop:
             # When explicitly skipping bootstrap, mirror any existing identity without adopting
             self._identity_last_name = identity_boot.get("name")
             self._identity_last_adopt_tick = 0
+
+    def _build_snapshot_fallback(self) -> LedgerSnapshot:
+        events = self.eventlog.read_all()
+        identity = build_identity(events)
+        self_model = build_self_model(events)
+        ias, gas = compute_ias_gas(events)
+        stage, stage_snapshot = StageTracker.infer_stage(events)
+        last_id = int(events[-1]["id"]) if events else 0
+        return LedgerSnapshot(
+            events=list(events),
+            identity=identity,
+            self_model=self_model,
+            ias=ias,
+            gas=gas,
+            stage=stage,
+            stage_snapshot=stage_snapshot,
+            last_event_id=last_id,
+        )
+
+    def _snapshot_for_tick(self) -> LedgerSnapshot:
+        if self.runtime is not None:
+            try:
+                return self.runtime._get_snapshot()
+            except Exception:
+                pass
+        return self._build_snapshot_fallback()
 
     def handle_identity_adopt(self, new_name: str, meta: dict | None = None) -> None:
         """Explicitly handle identity adoption and its side-effects.
@@ -3228,6 +3332,7 @@ class AutonomyLoop:
                     llm_generate=lambda context: (
                         self.runtime.reflect(context) if self.runtime else None
                     ),
+                    memegraph=getattr(self, "memegraph", None),
                 )
                 # Always record a debug marker to indicate a forced reflection attempt
                 self.eventlog.append(
@@ -3315,7 +3420,13 @@ class AutonomyLoop:
                     int(self.eventlog.read_all()[-1].get("id") or 0)
                 except Exception:
                     pass
-                CommitmentTracker(self.eventlog)._rebind_commitments_on_identity_adopt(
+                tracker_rebind = getattr(self, "tracker", None)
+                if tracker_rebind is None:
+                    tracker_rebind = CommitmentTracker(
+                        self.eventlog, memegraph=getattr(self, "memegraph", None)
+                    )
+                    self.tracker = tracker_rebind
+                tracker_rebind._rebind_commitments_on_identity_adopt(
                     old_name, sanitized, identity_adopt_event_id=adopt_eid
                 )
                 # Collect cids from rebind events appended after adopt
@@ -3592,8 +3703,8 @@ class AutonomyLoop:
             self._stop.wait(0.05)
 
     def tick(self) -> None:
-        # 1) Compute IAS/GAS over recent events and infer stage
-        events = self.eventlog.read_all()
+        snapshot_tick = self._snapshot_for_tick()
+        events = list(snapshot_tick.events)
         last_auto_id: int | None = None
         for ev in reversed(events):
             try:
@@ -3602,8 +3713,10 @@ class AutonomyLoop:
                     break
             except Exception:
                 break
-        ias, gas = compute_ias_gas(self.eventlog.read_all())
-        curr_stage, snapshot = StageTracker.infer_stage(events)
+        ias = snapshot_tick.ias
+        gas = snapshot_tick.gas
+        curr_stage = snapshot_tick.stage
+        snapshot = snapshot_tick.stage_snapshot
 
         snapshot_ias = 0.0
         snapshot_gas = 0.0
@@ -3622,7 +3735,7 @@ class AutonomyLoop:
             ias = snapshot_ias
             gas = snapshot_gas
 
-        identity_snapshot = build_identity(events)
+        identity_snapshot = snapshot_tick.identity
         persona_name = identity_snapshot.get("name")
         # Respect StageTracker.infer_stage() and hysteresis; do not force stage overrides
         # based on identity or early activity. This avoids unintended transitions and
@@ -3716,14 +3829,9 @@ class AutonomyLoop:
 
         # 1d) Build guidance once per tick and pre-compute a deterministic bias delta
         try:
-            try:
-                evs_for_guidance = self.eventlog.read_tail(5000)
-            except TypeError:
-                evs_for_guidance = self.eventlog.read_tail(limit=5000)
-        except AttributeError:
-            evs_for_guidance = events
+            evs_for_guidance = events[-5000:] if len(events) > 5000 else list(events)
         except Exception:
-            evs_for_guidance = events
+            evs_for_guidance = list(events)
         try:
             _g = _build_reflection_guidance(evs_for_guidance)
             _guidance_items = list(_g.get("items") or [])
@@ -3763,9 +3871,7 @@ class AutonomyLoop:
         if cand:
             try:
                 # Build current open map to retrieve text for content
-                from pmm.storage.projection import build_self_model as _build_sm
-
-                model_now = _build_sm(events)
+                model_now = snapshot_tick.self_model
                 open_map = (model_now.get("commitments") or {}).get("open") or {}
             except Exception:
                 open_map = {}
@@ -3844,13 +3950,12 @@ class AutonomyLoop:
         if _cadence_should_reflect(state, now_ts=now_ts):
             # Build deterministic guidance from active directives and log it for audit
             try:
-                try:
-                    evs_for_guidance = self.eventlog.read_tail(5000)
-                except TypeError:
-                    evs_for_guidance = self.eventlog.read_tail(limit=5000)
+                evs_for_guidance = (
+                    events[-5000:] if len(events) > 5000 else list(events)
+                )
                 g = _build_reflection_guidance(evs_for_guidance)
-            except (AttributeError, Exception):
-                evs_for_guidance = self.eventlog.read_all()
+            except Exception:
+                evs_for_guidance = list(events)
                 g = _build_reflection_guidance(evs_for_guidance)
 
             # Log reflection guidance if items exist
@@ -3864,9 +3969,7 @@ class AutonomyLoop:
             # --- Bandit bias (observability) ---
             # Compute a bounded delta per arm and log it BEFORE any arm choice happens.
             try:
-                # Prefer to compute from full ledger; deterministic for tests
-                _evs_for_bias = self.eventlog.read_all()
-                _raw_delta = _apply_guidance_bias(_evs_for_bias)
+                _raw_delta = _apply_guidance_bias(events)
                 # Shape-guard & bounding: ensure all arms present and |v| <= EPS_BIAS
                 _clean_delta = {}
                 for _arm in _BANDIT_ARMS:
@@ -3941,6 +4044,11 @@ class AutonomyLoop:
                     open_autonomy_tick=tick_no,
                     llm_generate=lambda context: (
                         self.runtime.reflect(context) if self.runtime else None
+                    ),
+                    memegraph=(
+                        getattr(self.runtime, "memegraph", None)
+                        if self.runtime is not None
+                        else getattr(self, "memegraph", None)
                     ),
                 )
         else:
@@ -4184,11 +4292,16 @@ class AutonomyLoop:
 
         # Identity re-evaluation cadence when a stable name exists
         try:
-            from pmm.storage.projection import build_identity as _build_identity
-
-            identity_snapshot = _build_identity(self.eventlog.read_all())
-            current_identity = identity_snapshot.get("name")
+            if self.runtime is not None:
+                try:
+                    snapshot_current = self.runtime._get_snapshot()
+                except Exception:
+                    snapshot_current = snapshot_tick
+            else:
+                snapshot_current = snapshot_tick
+            current_identity = snapshot_current.identity.get("name")
         except Exception:
+            snapshot_current = snapshot_tick
             current_identity = None
         if current_identity:
             if current_identity != self._identity_last_name:
@@ -4199,10 +4312,27 @@ class AutonomyLoop:
                 and tick_no >= self._next_identity_reeval_tick
             ):
                 candidate_name = None
-                evs_for_identity = self.eventlog.read_all()
+                evs_for_identity = snapshot_current.events
+                last_adopt_event_id: int | None = None
+                for ev in reversed(evs_for_identity):
+                    if ev.get("kind") == "identity_adopt":
+                        try:
+                            last_adopt_event_id = int(ev.get("id") or 0)
+                        except Exception:
+                            last_adopt_event_id = 0
+                        break
                 for ev in reversed(evs_for_identity):
                     if ev.get("kind") != "response":
                         continue
+                    try:
+                        resp_id = int(ev.get("id") or 0)
+                    except Exception:
+                        resp_id = 0
+                    if (
+                        last_adopt_event_id is not None
+                        and resp_id <= last_adopt_event_id
+                    ):
+                        break
                     cand = _detect_self_named(str(ev.get("content") or ""))
                     if cand and cand.lower() != str(current_identity).lower():
                         candidate_name = cand
@@ -5207,7 +5337,12 @@ class AutonomyLoop:
         try:
             events_now = self.eventlog.read_all()
             # conservative default TTL of 10 ticks
-            tracker_ttl = CommitmentTracker(self.eventlog)
+            tracker_ttl = getattr(self, "tracker", None)
+            if tracker_ttl is None:
+                tracker_ttl = CommitmentTracker(
+                    self.eventlog, memegraph=getattr(self, "memegraph", None)
+                )
+                self.tracker = tracker_ttl
             ttl_candidates = tracker_ttl.sweep_for_expired(events_now, ttl_ticks=10)
             for c in ttl_candidates:
                 cid = str(c.get("cid"))

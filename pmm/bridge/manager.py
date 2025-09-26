@@ -127,12 +127,21 @@ def sanitize(
         s = re.sub(pat, "", s, flags=re.IGNORECASE)
 
     if adopted_name:
-        s = re.sub(
-            r"\bI\s*(?:am|’m|'m)\s+[A-Za-z0-9_\-]+",
-            f"I am {adopted_name}",
-            s,
+        name_text = str(adopted_name)
+        name_lower = name_text.lower()
+
+        pattern = re.compile(
+            r"\bI\s*(?:am|’m|'m)\s+(?P<candidate>[A-Z][A-Za-z0-9_\-]{0,15})(?=(?:\s*(?:[,.;!?]|$)))",
             flags=re.IGNORECASE,
         )
+
+        def _swap_identity(m: re.Match) -> str:
+            candidate = m.group("candidate")
+            if candidate.lower() == name_lower:
+                return m.group(0)
+            return f"I am {name_text}"
+
+        s = pattern.sub(_swap_identity, s)
 
     # 4) Family-specific small trims
     fam = (family or "").lower()

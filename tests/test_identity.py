@@ -145,6 +145,70 @@ def test_identity_commitment_open_and_close_on_adopt(tmp_path, monkeypatch):
     assert len(model2.get("commitments", {}).get("open", {})) == 0
 
 
+def test_identity_reeval_ignores_pre_adopt_responses(tmp_path):
+    from pmm.runtime.cooldown import ReflectionCooldown
+
+    db = tmp_path / "reeval.db"
+    log = EventLog(str(db))
+
+    # Adopt initial identity and emit a response carrying the old signature banner
+    log.append(
+        kind="identity_adopt",
+        content="Persistent",
+        meta={
+            "name": "Persistent",
+            "sanitized": "Persistent",
+            "confidence": 0.95,
+            "stable_window": True,
+        },
+    )
+    log.append(
+        kind="response",
+        content="Acknowledged.\n— Persistent",
+        meta={},
+    )
+    # Adopt a new identity without any intervening responses
+    log.append(
+        kind="identity_adopt",
+        content="Scott",
+        meta={
+            "name": "Scott",
+            "sanitized": "Scott",
+            "confidence": 0.95,
+            "stable_window": True,
+        },
+    )
+
+    loop = AutonomyLoop(
+        eventlog=log,
+        cooldown=ReflectionCooldown(),
+        interval_seconds=0.1,
+        proposer=None,
+        allow_affirmation=False,
+        bootstrap_identity=False,
+        runtime=None,
+    )
+
+    # Force a re-evaluation on the next tick while mirroring the existing identity
+    loop._identity_last_name = "Scott"
+    loop._next_identity_reeval_tick = 0
+
+    existing_event_ids = {int(e.get("id") or 0) for e in log.read_all()}
+    loop.tick()
+    events_after = log.read_all()
+
+    def _new(kind: str) -> list[dict]:
+        return [
+            e
+            for e in events_after
+            if e.get("kind") == kind and int(e.get("id") or 0) not in existing_event_ids
+        ]
+
+    # No new identity proposals or adoptions should be emitted during re-eval
+    assert not _new("identity_propose")
+    assert not _new("identity_adopt")
+
+
 def test_persistence_and_renderer_use_identity(tmp_path, monkeypatch):
     # Persist an adoption, restart runtime, ensure renderer uses signature once
     db = tmp_path / "p.db"

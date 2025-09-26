@@ -9,15 +9,22 @@ Intent:
 from __future__ import annotations
 
 import uuid as _uuid
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 import datetime as _dt
 from typing import Any
 from dataclasses import dataclass
+import logging
 
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
 from pmm.commitments.detectors import CommitmentDetector
 from pmm.runtime.embeddings import compute_embedding as _emb, cosine_similarity as _cos
+
+if TYPE_CHECKING:
+    from pmm.runtime.memegraph import MemeGraphProjection
+
+
+logger = logging.getLogger(__name__)
 
 
 class CommitmentTracker:
@@ -32,11 +39,48 @@ class CommitmentTracker:
     """
 
     def __init__(
-        self, eventlog: EventLog, detector: Optional[CommitmentDetector] = None
+        self,
+        eventlog: EventLog,
+        detector: Optional[CommitmentDetector] = None,
+        memegraph: Optional["MemeGraphProjection"] = None,
     ) -> None:
         self.eventlog = eventlog
         # Free-text detection is disabled by default; detector may be provided explicitly
         self.detector = detector
+        self._memegraph = memegraph
+
+    def _open_commitments_legacy(self) -> Dict[str, Dict[str, Any]]:
+        events = self.eventlog.read_all()
+        model = build_self_model(events)
+        return (model.get("commitments") or {}).get("open", {})
+
+    def _compare_open_maps(
+        self,
+        legacy_map: Dict[str, Dict[str, Any]],
+        graph_map: Dict[str, Dict[str, Any]],
+    ) -> None:
+        try:
+            legacy_keys = set(legacy_map.keys())
+            graph_keys = set(graph_map.keys())
+            if legacy_keys != graph_keys:
+                logger.debug(
+                    "memegraph commitment shadow mismatch keys: legacy=%s graph=%s",
+                    sorted(legacy_keys),
+                    sorted(graph_keys),
+                )
+                return
+            for cid in legacy_keys:
+                legacy_text = str((legacy_map.get(cid) or {}).get("text") or "").strip()
+                graph_text = str(graph_map.get(cid, {}).get("text") or "").strip()
+                if legacy_text != graph_text:
+                    logger.debug(
+                        "memegraph commitment shadow text mismatch for %s: legacy=%r graph=%r",
+                        cid,
+                        legacy_text,
+                        graph_text,
+                    )
+        except Exception:
+            logger.debug("memegraph commitment shadow comparison failed", exc_info=True)
 
     def process_assistant_reply(
         self, text: str, reply_event_id: Optional[int] = None
@@ -73,9 +117,10 @@ class CommitmentTracker:
                 return
             if str(old_name).strip().lower() == str(new_name).strip().lower():
                 return
-            events = self.eventlog.read_all()
-            model = build_self_model(events)
-            open_map: Dict[str, Dict] = (model.get("commitments") or {}).get("open", {})
+            open_map = self._open_commitments_legacy()
+            if self._memegraph is not None:
+                graph_map = self._memegraph.open_commitments_snapshot()
+                self._compare_open_maps(open_map, graph_map)
             # Accumulate a summary of rebinds emitted during this invocation to support
             # a single identity_projection event after processing, idempotently.
             rebind_summaries: List[Dict[str, Any]] = []
@@ -993,73 +1038,6 @@ class CommitmentTracker:
                     )
                 except Exception:
                     continue
-
-    def _rebind_commitments_on_identity_adopt(
-        self, old_name: str, new_name: str
-    ) -> None:
-        """Rebind or close commitments that reference the old identity name.
-
-        When a new identity is adopted, scan open commitments and mark those
-        that conflict semantically with the new name.
-        """
-        if not old_name or not new_name or old_name.lower() == new_name.lower():
-            return
-
-        model = build_self_model(self.eventlog.read_all())
-        open_map: Dict[str, Dict] = model.get("commitments", {}).get("open", {})
-
-        for cid, meta in list(open_map.items()):
-            txt = str((meta or {}).get("text") or "")
-            # Check if commitment text references the old identity name
-            if old_name.lower() in txt.lower():
-                try:
-                    # Emit commitment_rebind event
-                    self.eventlog.append(
-                        kind="commitment_rebind",
-                        content="",
-                        meta={
-                            "cid": cid,
-                            "old_name": old_name,
-                            "new_name": new_name,
-                            "original_text": txt,
-                        },
-                    )
-
-                    # Try to rebind the commitment text to use the new name
-                    # This is a simple string replacement - in a more sophisticated
-                    # implementation, we might use more advanced NLP techniques
-                    new_txt = txt.replace(old_name, new_name)
-
-                    # If the text changed significantly, update the commitment
-                    if new_txt != txt:
-                        self.eventlog.append(
-                            kind="commitment_update",
-                            content=new_txt,
-                            meta={
-                                "cid": cid,
-                                "old_text": txt,
-                                "reason": "identity_rebind",
-                            },
-                        )
-                    else:
-                        # If we can't meaningfully rebind, close the commitment
-                        self.close_with_evidence(
-                            cid,
-                            evidence_type="done",
-                            description=f"commitment closed due to identity change from {old_name} to {new_name}",
-                            artifact=f"identity_change:{old_name}->{new_name}",
-                        )
-                except Exception:
-                    # If rebind fails, just close the commitment
-                    try:
-                        self.close_with_evidence(
-                            cid,
-                            evidence_type="done",
-                            description=f"commitment closed due to identity change from {old_name} to {new_name}",
-                            artifact=f"identity_change:{old_name}->{new_name}",
-                        )
-                    except Exception:
-                        continue
 
     @classmethod
     def close_identity_name_on_adopt(cls, eventlog: EventLog, name: str) -> None:

@@ -1,7 +1,10 @@
+import logging
+
 import pytest
 from pmm.runtime.stage_manager import StageManager
 from pmm.storage.eventlog import EventLog
 from pmm.constants import EventKinds
+from pmm.runtime.memegraph import MemeGraphProjection
 from helpers.stage_seeding import (
     _seed_reflections,
     _seed_restructures,
@@ -69,3 +72,37 @@ def test_hysteresis_buffer_prevents_thrash(eventlog):
     sm = StageManager(eventlog)
     refs, evols, intros, adopts, ias, gas = _collect_inputs(eventlog)
     assert sm._criteria_met("S0", refs, evols, intros, adopts, ias, gas) is False
+
+
+def test_memegraph_stage_shadow(monkeypatch, eventlog):
+    # Append two stage transitions so the graph captures history
+    eventlog.append(
+        EventKinds.STAGE_UPDATE,
+        "",
+        {"from": "S0", "to": "S1", "reason": "bootstrap"},
+    )
+    eventlog.append(
+        EventKinds.STAGE_UPDATE,
+        "",
+        {"from": "S1", "to": "S2", "reason": "progress"},
+    )
+
+    graph = MemeGraphProjection(eventlog)
+    sm = StageManager(eventlog, graph)
+
+    # Ensure the graph path is preferred when available
+    from pmm.runtime import stage_manager as sm_module
+
+    calls: list[str] = []
+
+    def _fail_legacy(self):  # pragma: no cover - defensive guard
+        calls.append("legacy")
+        raise AssertionError(
+            "legacy stage path should not be invoked when graph present"
+        )
+
+    monkeypatch.setattr(sm_module.StageManager, "_current_stage_legacy", _fail_legacy)
+    sm_module.logger.setLevel(logging.INFO)
+
+    assert sm.current_stage() == "S2"
+    assert not calls

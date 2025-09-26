@@ -65,3 +65,31 @@ def test_reflect_resets_cooldown(tmp_path):
         assert (
             rejects
         ), "expected a reflection_rejected breadcrumb when no reflection is emitted"
+
+
+def test_policy_shadow_invokes_graph(tmp_path):
+    class StubGraph:
+        def __init__(self):
+            self.calls = []
+
+        def policy_updates_for_reflection(self, rid: int):
+            self.calls.append(rid)
+            return []
+
+    db = tmp_path / "policy_shadow.db"
+    log = EventLog(str(db))
+    cd = ReflectionCooldown(min_turns=0, min_seconds=0.0)
+    cd.reset()
+
+    graph = StubGraph()
+
+    did, reason = maybe_reflect(
+        log,
+        cd,
+        now=0.0,
+        novelty=1.0,
+        llm_generate=lambda context: "Reflection with enough substance to record.\nLine 2 ensures length.",
+        memegraph=graph,
+    )
+    assert did is True and reason == "ok"
+    assert graph.calls, "expected MemeGraph shadow to be invoked"

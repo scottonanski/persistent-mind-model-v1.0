@@ -25,7 +25,7 @@ import datetime as _dt
 import json as _json
 import os as _os
 import sqlite3 as _sqlite3
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Callable
 import hashlib as _hashlib
 from threading import RLock
 
@@ -43,6 +43,9 @@ class EventLog:
     def __init__(self, path: str = ".data/pmm.db") -> None:
         self.path = path
         self._lock = RLock()
+        self._events_cache: list[Dict[str, Any]] | None = None
+        self._cache_last_id: int = 0
+        self._append_listeners: list[Callable[[Dict[str, Any]], None]] = []
 
         # Ensure parent directory exists
         parent = _os.path.dirname(_os.path.abspath(self.path))
@@ -172,19 +175,18 @@ class EventLog:
         return _json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
     def append(self, kind: str, content: str, meta: Dict | None = None) -> int:
+        event_record: Dict[str, Any] | None = None
         with self._lock:
             ts = _dt.datetime.now(_dt.UTC).isoformat()
             meta_obj: Dict = meta or {}
             meta_json = _json.dumps(meta_obj)
             prev = self._get_last_hash()
             with self._conn:
-                # 1) Insert without hash to obtain id (store prev_hash now)
                 cur = self._conn.execute(
                     "INSERT INTO events(ts, kind, content, meta, prev_hash) VALUES (?, ?, ?, ?, ?)",
                     (ts, kind, content, meta_json, prev),
                 )
                 eid = int(cur.lastrowid)
-                # 2) Compute hash over normalized payload including id and prev_hash
                 payload = {
                     "id": eid,
                     "ts": ts,
@@ -194,12 +196,29 @@ class EventLog:
                     "prev_hash": prev,
                 }
                 digest = _hashlib.sha256(self._canonical_json(payload)).hexdigest()
-                # 3) Update row with hash
                 self._conn.execute("UPDATE events SET hash=? WHERE id=?", (digest, eid))
-                return eid
+                event_record = {
+                    "id": eid,
+                    "ts": ts,
+                    "kind": kind,
+                    "content": content,
+                    "meta": dict(meta_obj),
+                }
+                if self._events_cache is not None:
+                    self._events_cache.append(event_record)
+                    self._cache_last_id = eid
+        if event_record is not None:
+            for callback in list(self._append_listeners):
+                try:
+                    callback(event_record)
+                except Exception:
+                    continue
+        return eid
 
     def read_all(self) -> List[Dict]:
         with self._lock:
+            if self._events_cache is not None:
+                return self._events_cache
             cur = self._conn.execute(
                 "SELECT id, ts, kind, content, meta FROM events ORDER BY id ASC"
             )
@@ -219,10 +238,24 @@ class EventLog:
                         "meta": meta_obj,
                     }
                 )
+            self._events_cache = result
+            if result:
+                self._cache_last_id = int(result[-1]["id"])
+            else:
+                self._cache_last_id = 0
             return result
 
     def read_after_id(self, *, after_id: int, limit: int) -> List[Dict]:
         with self._lock:
+            if self._events_cache is not None:
+                result: List[Dict] = []
+                for ev in self._events_cache:
+                    if int(ev.get("id") or 0) > int(after_id):
+                        result.append(ev)
+                    if len(result) >= int(limit):
+                        break
+                if result:
+                    return result
             cur = self._conn.execute(
                 "SELECT id, ts, kind, content, meta FROM events WHERE id > ? ORDER BY id ASC LIMIT ?",
                 (int(after_id), int(limit)),
@@ -247,6 +280,15 @@ class EventLog:
 
     def read_after_ts(self, *, after_ts: str, limit: int) -> List[Dict]:
         with self._lock:
+            if self._events_cache is not None:
+                result: List[Dict] = []
+                for ev in self._events_cache:
+                    if str(ev.get("ts")) > str(after_ts):
+                        result.append(ev)
+                    if len(result) >= int(limit):
+                        break
+                if result:
+                    return result
             cur = self._conn.execute(
                 "SELECT id, ts, kind, content, meta FROM events WHERE ts > ? ORDER BY id ASC LIMIT ?",
                 (str(after_ts), int(limit)),
@@ -271,6 +313,9 @@ class EventLog:
 
     def read_tail(self, *, limit: int) -> List[Dict]:
         with self._lock:
+            if self._events_cache is not None and self._events_cache:
+                subset = self._events_cache[-int(limit) :]
+                return list(subset)
             cur = self._conn.execute(
                 "SELECT id, ts, kind, content, meta FROM events ORDER BY id DESC LIMIT ?",
                 (int(limit),),
@@ -405,6 +450,13 @@ class EventLog:
                     "meta": meta_obj,
                 }
             return None
+
+    def register_append_listener(
+        self, callback: Callable[[Dict[str, Any]], None]
+    ) -> None:
+        """Register a callback invoked after each successful append."""
+        with self._lock:
+            self._append_listeners.append(callback)
 
 
 def get_default_eventlog() -> EventLog:

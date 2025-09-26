@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pmm.bridge.manager import sanitize
 from pmm.runtime.loop import Runtime
 from pmm.storage.eventlog import EventLog
 from pmm.llm.factory import LLMConfig, LLMFactory
@@ -138,3 +139,13 @@ def test_ambiguous_input_filtered():
         and (e.get("meta") or {}).get("source") == "user"
         for e in relevant_events
     )
+
+
+def test_sanitize_preserves_descriptive_phrase():
+    txt = sanitize("I am capable of adapting swiftly.", adopted_name="Scott")
+    assert txt == "I am capable of adapting swiftly."
+
+
+def test_sanitize_swaps_non_matching_name_clause():
+    txt = sanitize("I am Lex.", adopted_name="Scott")
+    assert txt == "I am Scott."

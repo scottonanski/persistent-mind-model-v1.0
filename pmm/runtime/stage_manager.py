@@ -1,17 +1,42 @@
 # pmm/runtime/stage_manager.py
 
 from __future__ import annotations
-from typing import Any
+from typing import Any, Optional, TYPE_CHECKING
+import logging
+
 from pmm.storage.eventlog import EventLog
+
+if TYPE_CHECKING:
+    from pmm.runtime.memegraph import MemeGraphProjection
+
+logger = logging.getLogger(__name__)
 
 
 class StageManager:
     """Manage stage progression based on deterministic thresholds."""
 
-    def __init__(self, eventlog: EventLog):
+    def __init__(
+        self, eventlog: EventLog, memegraph: Optional["MemeGraphProjection"] = None
+    ):
         self.eventlog = eventlog
+        self._memegraph = memegraph
 
     def current_stage(self) -> str:
+        if self._memegraph is not None:
+            stage_graph = self._memegraph.latest_stage()
+            if stage_graph is not None:
+                if logger.isEnabledFor(logging.DEBUG):
+                    legacy_stage = self._current_stage_legacy()
+                    if legacy_stage != stage_graph:
+                        logger.debug(
+                            "memegraph stage mismatch: legacy=%s graph=%s",
+                            legacy_stage,
+                            stage_graph,
+                        )
+                return stage_graph
+        return self._current_stage_legacy()
+
+    def _current_stage_legacy(self) -> str:
         """Return the latest recorded stage, defaulting to S0 if none."""
         events = [
             e for e in self.eventlog.read_all() if e.get("kind") == "stage_update"

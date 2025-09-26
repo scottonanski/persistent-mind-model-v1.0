@@ -6,6 +6,7 @@ from pmm.commitments.detectors import (
     RegexCommitmentDetector,
     SemanticCommitmentDetector,
 )
+from pmm.runtime.memegraph import MemeGraphProjection
 
 
 def test_open_then_invalid_close_stays_open(tmp_path):
@@ -135,6 +136,34 @@ def test_done_evidence_candidates_by_detail_substring(tmp_path, monkeypatch):
     # Process evidence; include completion cue to be considered
     closed_cids = t.process_evidence("Done: I've completed the quarterly report.")
     assert isinstance(closed_cids, list)
+
+
+def test_commitment_shadow_mode(monkeypatch, tmp_path):
+    db = tmp_path / "shadow.db"
+    log = EventLog(str(db))
+    log.append(
+        "commitment_open",
+        "",
+        {"cid": "C1", "text": "Coordinate with Alpha on rollout."},
+    )
+    graph = MemeGraphProjection(log)
+
+    snapshot_calls: list[dict] = []
+
+    original_snapshot = graph.open_commitments_snapshot
+
+    def _wrapped_snapshot():
+        result = original_snapshot()
+        snapshot_calls.append(result)
+        return result
+
+    monkeypatch.setattr(graph, "open_commitments_snapshot", _wrapped_snapshot)
+    ct = CommitmentTracker(log, memegraph=graph)
+
+    # Rebinding should succeed without raising, comparing graph vs. legacy maps
+    ct._rebind_commitments_on_identity_adopt("Alpha", "Beta")
+    assert snapshot_calls, "expected memegraph snapshot to be used"
+    assert sorted(snapshot_calls[0].keys()) == ["C1"]
 
 
 # Ensure proper statement separation with multiple newlines at the end of the file
