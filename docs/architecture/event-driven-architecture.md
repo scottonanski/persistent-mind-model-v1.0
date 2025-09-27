@@ -33,19 +33,20 @@ rid = self.eventlog.append(
 **Code Location**: `pmm/commitments/tracker.py`
 
 ```python
-# Commitment opening (tracker.py)
-cid = self.eventlog.append(
+# Commitment opening (tracker.add_commitment)
+meta = {
+    "cid": cid,
+    "text": text,
+    "source": source,
+}
+self.eventlog.append(
     kind="commitment_open",
-    content=commitment_text,
-    meta={
-        "cid": commitment_id,
-        "source": "assistant_reply",
-        "detector_confidence": confidence
-    }
+    content=f"Commitment opened: {text}",
+    meta=meta,
 )
 ```
 
-**Flow**: Assistant reply → CommitmentTracker.process_assistant_reply() → Event emission → Lifecycle tracking
+**Flow**: Reflection or assistant reply → `CommitmentTracker.add_commitment()` → Event emission → Lifecycle tracking
 
 ### Trait Changes
 **Event Types**: `trait_update`, `policy_update`
@@ -72,16 +73,18 @@ self.eventlog.append(
 **Code Location**: `pmm/runtime/loop.py`
 
 ```python
-# Reflection emission (loop.py ~1348)
-rid_reflection = self.eventlog.append(
+# Reflection emission (emit_reflection)
+meta_payload = {
+    "source": "emit_reflection",
+    "telemetry": {"IAS": ias, "GAS": gas},
+    "stage_level": int(stage_level),
+    "quality_score": round(quality_score, 3),
+    "text": sanitized_text,
+}
+rid = eventlog.append(
     kind="reflection",
-    content=reflection_text,
-    meta={
-        "source": "autonomy_tick",
-        "ias": current_ias,
-        "gas": current_gas,
-        "stage": current_stage
-    }
+    content=sanitized_text,
+    meta=meta_payload,
 )
 ```
 

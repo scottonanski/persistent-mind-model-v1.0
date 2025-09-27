@@ -206,22 +206,20 @@ STAGE_CRITERIA = {
 
 ### Reflection Cadence
 
-```python
-STAGE_CADENCE = {
-    "S0": 3600,  # 1 hour
-    "S1": 1800,  # 30 minutes
-    "S2": 900,   # 15 minutes
-    "S3": 300,   # 5 minutes
-    "S4": 60     # 1 minute
-}
-```
+Reflections are gated by `ReflectionCooldown` in the runtime. The defaults are:
+
+- `min_turns = 2` — require at least two user turns between reflections.
+- `min_seconds = 60` — enforce a minimum of sixty seconds of wall clock time.
+- `novelty_threshold = 0.2` — pulled from policy updates so cadence can evolve.
+
+Autonomy ticks reuse those gates. When the model returns an empty or too short reflection the loop falls back to `generate_system_status_reflection(...)`, so every tick still emits a ledger-backed reflection.
 
 ### Self-Improvement Loop
 
 ```
-Observe Behavior → Generate Reflection → Update Traits → Adapt Behavior
-      ↑                                                              ↓
-      └──────────────────── Continuous Evolution ────────────────────┘
+Observe behaviour → emit_reflection → apply trait/policy updates → next autonomy tick
+      ↑                                                           ↓
+      └────────────── deterministic ledger replay ───────────────┘
 ```
 
 ---
