@@ -469,7 +469,11 @@ class MemeGraphProjection:
         with self._lock:
             scored: List[tuple[float, MemeNode, MemeEdge, MemeNode]] = []
             for edge in self._edges.values():
-                if edge.label in exclude_labels:
+                # Governance-blind: filter governance-flavored relations
+                elow = (edge.label or "").lower()
+                if edge.label in exclude_labels or any(
+                    tok in elow for tok in ("policy", "stage", "metric")
+                ):
                     continue
                 if (
                     edge.src in recent_digest_blocklist
@@ -488,6 +492,13 @@ class MemeGraphProjection:
 
                 src_label = (src.label or "").lower()
                 dst_label = (dst.label or "").lower()
+                # Skip edges touching governance nodes outright
+                if src_label in {"policy", "stage", "metrics"} or dst_label in {
+                    "policy",
+                    "stage",
+                    "metrics",
+                }:
+                    continue
 
                 # Topic match heuristic: simple containment or token overlap
                 match_bonus = 0.0
@@ -515,7 +526,26 @@ class MemeGraphProjection:
                 if match_bonus == 0.0:
                     continue
 
-                score = edge_conf + match_bonus
+                # Provenance preference: bonus if tied to user/asserted/cross-validated
+                prov_bonus = 0.0
+                try:
+                    # If either endpoint is an event with kind=user or knowledge_assert, prefer it
+                    src_kind = (
+                        (src.attrs or {}).get("kind") if src.label == "event" else None
+                    )
+                    dst_kind = (
+                        (dst.attrs or {}).get("kind") if dst.label == "event" else None
+                    )
+                    if str(src_kind) in {"user", "knowledge_assert"} or str(
+                        dst_kind
+                    ) in {
+                        "user",
+                        "knowledge_assert",
+                    }:
+                        prov_bonus += 0.1
+                except Exception:
+                    pass
+                score = edge_conf + match_bonus + prov_bonus
                 scored.append((score, src, edge, dst))
 
             # Sort by descending score, deterministic tie-break by label text

@@ -48,9 +48,22 @@ class LLMTraitAdjuster:
             ),
         }
 
+        # Feature toggles (default off to preserve existing behavior)
+        self.require_citations: bool = str(
+            os.getenv("PMM_LLM_TRAIT_REQUIRE_CITATIONS", "0")
+        ).lower() in ("1", "true", "yes")
+        self.citations_min: int = int(os.getenv("PMM_LLM_TRAIT_CITATIONS_MIN", "2"))
+        self.require_cooldown: bool = str(
+            os.getenv("PMM_LLM_TRAIT_REQUIRE_COOLDOWN", "0")
+        ).lower() in ("1", "true", "yes")
+        self.cooldown_reflections_min: int = int(
+            os.getenv("PMM_LLM_TRAIT_COOLDOWN_REFLECTIONS_MIN", "3")
+        )
+
         # Track adjustments for rate limiting
         self.session_adjustments = 0
         self.daily_adjustments = {}  # trait -> total_delta_today
+        self.session_trait_deltas: Dict[str, float] = {}  # per-trait |Δ| this session
 
     def parse_trait_suggestions(self, llm_response: str) -> List[Dict[str, Any]]:
         """
@@ -63,6 +76,11 @@ class LLMTraitAdjuster:
             List of suggestion dictionaries with keys: trait, delta, confidence, context, source
         """
         suggestions = []
+        # Extract any ledger citations present in the full response (e####)
+        try:
+            cited_ids = [int(m) for m in re.findall(r"\be(\d{2,})\b", llm_response)]
+        except Exception:
+            cited_ids = []
 
         # Find all matches in the response
         for match in self.TRAIT_ADJUSTMENT_PATTERN.finditer(llm_response):
@@ -92,6 +110,7 @@ class LLMTraitAdjuster:
                             "context": match.group().strip(),
                             "source": "llm_response",
                             "match_position": match.start(),
+                            "citations": list(dict.fromkeys(cited_ids))[:4],
                         }
                     )
 
@@ -189,7 +208,10 @@ class LLMTraitAdjuster:
         return list(seen.values())
 
     def validate_suggestion(
-        self, suggestion: Dict, current_trait_values: Dict
+        self,
+        suggestion: Dict,
+        current_trait_values: Dict,
+        eventlog: Optional[Any] = None,
     ) -> Tuple[bool, str]:
         """
         Validate a trait adjustment suggestion against safety bounds.
@@ -204,6 +226,24 @@ class LLMTraitAdjuster:
         trait = suggestion["trait"]
         delta = suggestion["delta"]
         confidence = suggestion["confidence"]
+
+        # Optional: require ≥N ledger citations supporting change
+        if self.require_citations:
+            citations = [
+                int(x) for x in (suggestion.get("citations") or []) if str(x).isdigit()
+            ]
+            if len(citations) < self.citations_min:
+                return False, "Insufficient citations: need ≥2 eIDs supporting change"
+            if eventlog is None:
+                return False, "Ledger unavailable for citations check"
+            try:
+                events = eventlog.read_all()
+            except Exception:
+                events = []
+            have = {int(ev.get("id") or 0) for ev in events if ev.get("id")}
+            valid_cites = [eid for eid in citations if int(eid) in have]
+            if len(valid_cites) < self.citations_min:
+                return False, "Invalid citations: eIDs not found in ledger"
 
         # Check confidence threshold
         if confidence < self.safety_bounds["confidence_threshold"]:
@@ -255,6 +295,47 @@ class LLMTraitAdjuster:
                 f"Resulting value too high ({new_value} > {self.safety_bounds['max_trait_value']})",
             )
 
+        # Per-trait session throttle: cumulative |Δ| <= 0.05
+        if self.session_trait_deltas.get(trait, 0.0) + abs(delta) > 0.05:
+            return False, "Session per-trait delta limit exceeded (|Δ| > 0.05)"
+
+        # Optional: cooldown — require ≥K reflections since last change of same trait
+        if self.require_cooldown:
+            if eventlog is None:
+                return False, "Ledger unavailable for cooldown check"
+            try:
+                events = eventlog.read_all()
+            except Exception:
+                events = []
+            try:
+                last_change_eid: Optional[int] = None
+                for ev in reversed(events):
+                    if ev.get("kind") != "trait_update":
+                        continue
+                    meta = ev.get("meta") or {}
+                    delta_map = meta.get("delta") or {}
+                    if trait in delta_map:
+                        last_change_eid = int(ev.get("id") or 0)
+                        break
+                if last_change_eid is not None:
+                    reflections_since = 0
+                    for ev in reversed(events):
+                        try:
+                            eidv = int(ev.get("id") or 0)
+                        except Exception:
+                            continue
+                        if eidv <= int(last_change_eid):
+                            break
+                        if ev.get("kind") == "reflection":
+                            reflections_since += 1
+                    if reflections_since < int(self.cooldown_reflections_min):
+                        return (
+                            False,
+                            "Cooldown not satisfied: need more reflections before changing same trait",
+                        )
+            except Exception:
+                return False, "Ledger unavailable for cooldown check"
+
         # Check per-conversation limit
         if self.session_adjustments >= self.safety_bounds["max_per_conversation"]:
             return (
@@ -290,7 +371,7 @@ class LLMTraitAdjuster:
 
         for suggestion in suggestions:
             is_valid, reason = self.validate_suggestion(
-                suggestion, current_trait_values
+                suggestion, current_trait_values, eventlog
             )
             if not is_valid:
                 # Log rejected suggestion
@@ -330,6 +411,9 @@ class LLMTraitAdjuster:
                 if event_id:
                     applied_events.append(event_id)
                     self.session_adjustments += 1
+                    self.session_trait_deltas[trait] = self.session_trait_deltas.get(
+                        trait, 0.0
+                    ) + abs(delta)
                     self.daily_adjustments[trait] = self.daily_adjustments.get(
                         trait, 0
                     ) + abs(delta)
@@ -347,6 +431,7 @@ class LLMTraitAdjuster:
     def reset_session_limits(self):
         """Reset per-session adjustment counter."""
         self.session_adjustments = 0
+        self.session_trait_deltas.clear()
 
     def reset_daily_limits(self):
         """Reset daily adjustment tracking."""

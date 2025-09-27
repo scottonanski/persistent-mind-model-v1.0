@@ -51,6 +51,13 @@ import collections
 from pmm.runtime.memegraph import MemeGraphProjection
 from pmm.runtime.graph_trigger import GraphInsightTrigger
 from pmm.runtime.insight_scorer import COMPOSITE_THRESHOLD, score_insight
+from pmm.runtime.validators import (
+    validate_decision_probe,
+    validate_gate_check,
+    sanitize_language,
+    DECISION_PROBE_PROMPT,
+    GATE_CHECK_PROMPT,
+)
 from pmm.config import (
     load as _load_cfg,
     REFLECTION_REJECTED,
@@ -887,6 +894,20 @@ class Runtime:
             },
             {"role": "user", "content": user_text},
         ]
+        # Strict-operator prompt injection (decision probe / gate check)
+        try:
+            lowq = (user_text or "").lower()
+            wants_decision_probe = bool(
+                _re.search(r"use\s*≤?\s*2\s*(?:memgraph|graph)\s*relations", lowq)
+                or "observation (specific" in lowq
+            )
+            wants_gate_check = "evaluate only these gates" in lowq
+            if wants_decision_probe:
+                msgs.append({"role": "system", "content": DECISION_PROBE_PROMPT})
+            if wants_gate_check:
+                msgs.append({"role": "system", "content": GATE_CHECK_PROMPT})
+        except Exception:
+            pass
         recent_events = self._log_recent_events(limit=5, snapshot=snapshot)
 
         try:
@@ -1458,6 +1479,44 @@ class Runtime:
                 },
             )
         reply = self._renderer.render(reply, ident, stage=None, events=events)
+        # Apply strict validators for operator prompts, with neutral language
+        try:
+            lowq = (user_text or "").lower()
+            dec_probe = bool(
+                _re.search(r"use\s*≤?\s*2\s*(?:memgraph|graph)\s*relations", lowq)
+                or "observation (specific" in lowq
+            )
+            gate_chk = "evaluate only these gates" in lowq
+            if dec_probe or gate_chk:
+                cleaned = sanitize_language(reply)
+                valid = True
+                reason = ""
+                validator_name = ""
+                if dec_probe:
+                    validator_name = "decision_probe"
+                    valid, reason = validate_decision_probe(cleaned, self.eventlog)
+                elif gate_chk:
+                    validator_name = "gate_check"
+                    valid, reason = validate_gate_check(cleaned, self.eventlog)
+                if not valid:
+                    # Fail fast with deterministic message
+                    reply = (
+                        reason
+                        if reason.startswith("INSUFFICIENT EVIDENCE")
+                        else "INSUFFICIENT EVIDENCE — need valid ledger IDs or concrete observable. Provide 2 real e#### and restate."
+                    )
+                    try:
+                        self.eventlog.append(
+                            kind="validator_failed",
+                            content="",
+                            meta={"validator": validator_name, "reason": reason[:160]},
+                        )
+                    except Exception:
+                        pass
+                else:
+                    reply = cleaned
+        except Exception:
+            pass
         # Voice correction: we no longer preprend name; rely on renderer and then strip wrappers
         # Deterministic constraint validator & one-shot correction pass
         try:
