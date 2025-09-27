@@ -46,9 +46,11 @@ def voice_constraints(kind: str) -> str:
             "Voice: internal monologue. Explicitly cite the ledger structures (ledger, traits, commitments, policy, scenes, projection, rebind) tied to your action. "
             "Include one line 'Why-mechanics: <reason>'."
         )
+    if kind == "chat":
+        return "Voice: natural and conversational. Speak in your own words. Mention PMM mechanics only if the user asks or if it directly clarifies your answer."
     return (
         "Voice: concise, direct, first-person. Use PMM mechanics internally. "
-        "If you surface them, include one line 'Why-mechanics: <reason>'."
+        "Surface them only when they clarify the output, and if you do, add one line 'Why-mechanics: <reason>'."
     )
 
 
@@ -56,7 +58,7 @@ def build_system_msg(kind: str) -> str:
     """Construct kind-specific system prompt using the shared orientation."""
     base = orientation_text()
     if kind == "chat":
-        tail = "Role: user-facing assistant. Avoid internals unless they directly help."
+        tail = "Role: user-facing assistant. Keep replies grounded in the ledger but let internals stay implicit unless the user invites them."
     elif kind == "chat_verbose":
         tail = "Role: user-facing assistant. The user requested internals; explain clearly."
     elif kind == "reflection":
