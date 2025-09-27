@@ -46,7 +46,11 @@ from pmm.runtime.introspection import run_audit
 from pmm.runtime.stage_tracker import POLICY_HINTS_BY_STAGE
 import pmm.runtime.embeddings as _emb
 from pmm.runtime.snapshot import LedgerSnapshot
+import collections
+
 from pmm.runtime.memegraph import MemeGraphProjection
+from pmm.runtime.graph_trigger import GraphInsightTrigger
+from pmm.runtime.insight_scorer import COMPOSITE_THRESHOLD, score_insight
 from pmm.config import (
     load as _load_cfg,
     REFLECTION_REJECTED,
@@ -181,6 +185,13 @@ _TRAIT_SAMPLES: Dict[str, List[List[float]]] = {
 
 _TRAIT_NUDGE_THRESHOLD: float = 0.70
 _TRAIT_NUDGE_DELTA: float = 0.01
+
+_GRAPH_EXCLUDE_LABELS = {
+    "references:policy_update",
+    "references:stage_update",
+    "references:metrics",
+    "reflects:stage",
+}
 
 
 def _compute_trait_nudges_from_text(text: str) -> Dict[str, float]:
@@ -382,6 +393,12 @@ class Runtime:
         except Exception:
             self.memegraph = None
             logger.exception("MemeGraph projection initialization failed")
+        self._graph_force_next = False
+        self._graph_suppress_next = False
+        self._graph_cooldown = 0
+        self._graph_recent_edges = collections.deque(maxlen=6)
+        self._graph_recent_nodes = collections.deque(maxlen=12)
+        self._graph_trigger = GraphInsightTrigger()
         self._init_llm_backend()
 
     def _init_llm_backend(self) -> None:
@@ -436,6 +453,16 @@ class Runtime:
             )
             self.prioritizer = Prioritizer(self.eventlog) if self.eventlog else None
             self.classifier = SemanticDirectiveClassifier(self.eventlog)
+
+    # --- Graph directives ----------------------------------------------------
+
+    def force_graph_context(self) -> None:
+        self._graph_force_next = True
+        self._graph_suppress_next = False
+
+    def suppress_graph_context(self) -> None:
+        self._graph_suppress_next = True
+        self._graph_force_next = False
 
     def _handle_event_appended(self, _: Dict[str, Any]) -> None:
         with self._snapshot_lock:
@@ -1083,6 +1110,7 @@ class Runtime:
         except Exception:
             pass
         # Inject a compact pinned context of recent knowledge_asserts into the model prompt
+        graph_context_candidates: list[str] = []
         try:
             recent = snapshot.events[-50:]
             pinned: list[str] = []
@@ -1108,6 +1136,7 @@ class Runtime:
                     f"- {s}" for s in context_lines
                 )
                 msgs.append({"role": "system", "content": context_block})
+                graph_context_candidates = list(context_lines)
         except Exception:
             pass
         # Contextual header removed: do not inject identity/commitments/trait drift into prompts.
@@ -1126,6 +1155,110 @@ class Runtime:
                 )
         except Exception:
             pass
+
+        # Optional graph evidence injection for insight-heavy prompts
+        if self._graph_cooldown > 0:
+            self._graph_cooldown -= 1
+        if self.memegraph is not None:
+            low_user = (user_text or "").lower()
+            inject_reason: str | None = None
+            if self._graph_force_next:
+                inject_reason = "forced"
+            elif not self._graph_suppress_next and self._graph_cooldown <= 0:
+                if self._graph_trigger.should_inject(
+                    user_text, graph_context_candidates
+                ):
+                    inject_reason = "semantic"
+            if self._graph_suppress_next:
+                self._graph_suppress_next = False
+            if inject_reason is not None:
+                blocklist = set(self._graph_recent_edges) | set(
+                    self._graph_recent_nodes
+                )
+                try:
+                    relations = self.memegraph.graph_slice(
+                        topic=low_user,
+                        limit=3,
+                        min_confidence=0.6,
+                        exclude_labels=_GRAPH_EXCLUDE_LABELS,
+                        recent_digest_blocklist=blocklist,
+                    )
+                except Exception:
+                    relations = []
+                if relations:
+                    lines: list[str] = []
+                    event_relations: list[dict] = []
+                    seen_edges = set()
+                    for rel in relations:
+                        edge_digest = rel.get("edge_digest")
+                        if edge_digest in seen_edges:
+                            continue
+                        seen_edges.add(edge_digest)
+                        src_digest = rel.get("src_digest")
+                        dst_digest = rel.get("dst_digest")
+                        if src_digest:
+                            self._graph_recent_nodes.append(src_digest)
+                        if dst_digest:
+                            self._graph_recent_nodes.append(dst_digest)
+                        if edge_digest:
+                            self._graph_recent_edges.append(edge_digest)
+                        cites = [
+                            int(eid)
+                            for eid in [
+                                rel.get("src_event_id"),
+                                rel.get("dst_event_id"),
+                            ]
+                            if isinstance(eid, int) and eid > 0
+                        ]
+                        cite_str = ", ".join(f"e{eid}" for eid in cites)
+                        line = (
+                            f"{rel.get('src')} —[{rel.get('label')}]→ {rel.get('dst')}"
+                        )
+                        if cite_str:
+                            line += f" ({cite_str})"
+                        lines.append(line)
+                        event_relations.append(
+                            {
+                                "src": rel.get("src"),
+                                "dst": rel.get("dst"),
+                                "label": rel.get("label"),
+                                "src_event_id": rel.get("src_event_id"),
+                                "dst_event_id": rel.get("dst_event_id"),
+                                "edge_digest": edge_digest,
+                                "score": rel.get("score"),
+                            }
+                        )
+                        if len(lines) >= 3:
+                            break
+                    if lines:
+                        graph_block = (
+                            "Graph Evidence:\n"
+                            + "\n".join(f"- {ln}" for ln in lines)
+                            + "\nUse up to two of these relations if they help; cite the event ids when you apply them."
+                        )
+                        msgs.append({"role": "system", "content": graph_block})
+                        try:
+                            self.eventlog.append(
+                                kind="graph_context_injected",
+                                content="",
+                                meta={
+                                    "reason": inject_reason,
+                                    "topic": low_user[:160],
+                                    "relations": event_relations,
+                                    "context": graph_context_candidates,
+                                },
+                            )
+                        except Exception:
+                            pass
+                        self._graph_cooldown = 2
+                    else:
+                        self._graph_cooldown = max(self._graph_cooldown, 1)
+                else:
+                    self._graph_cooldown = max(self._graph_cooldown, 1)
+                self._graph_force_next = False
+            else:
+                self._graph_force_next = False
+
         styled = self.bridge.format_messages(msgs, intent="chat")
         # Generate with higher cap and allow a single safe continuation
         reply = self._generate_reply(
@@ -1369,6 +1502,7 @@ class Runtime:
         # Strip auto-preambles/signatures handled upstream by BridgeManager.sanitize.
         # Recall suggestion (semantic if available else token overlap). Must precede response append.
         # Use the snapshot captured before we appended any knowledge_asserts for baseline stability.
+        insight_scores = score_insight(reply)
         evs_before = (
             _events_before_chat
             if locals().get("_events_before_chat") is not None
@@ -1464,6 +1598,21 @@ class Runtime:
         rid = self.eventlog.append(
             kind="response", content=reply, meta={"source": "handle_user"}
         )
+        if insight_scores.get("composite"):
+            try:
+                self.eventlog.append(
+                    kind="insight_scored",
+                    content="",
+                    meta={
+                        "scores": insight_scores,
+                        "response_eid": int(rid) if rid else None,
+                        "passes": bool(
+                            insight_scores.get("composite", 0.0) >= COMPOSITE_THRESHOLD
+                        ),
+                    },
+                )
+            except Exception:
+                pass
         # User-driven one-shot commitment execution path removed.
         # After recording the response, attempt to close any reflection-driven commitment
         # using this reply as evidence.

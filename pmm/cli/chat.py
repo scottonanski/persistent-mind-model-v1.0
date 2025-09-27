@@ -281,7 +281,9 @@ def main() -> None:
             "  --@metrics on   → show the metrics panel after every turn\n"
             "  --@metrics off  → stop the live metrics panel\n"
             "  --@metrics      → print a one-time metrics snapshot\n"
-            "  --@metrics logs on/off → toggle runtime metrics logging",
+            "  --@metrics logs on/off → toggle runtime metrics logging\n"
+            "  --@graph on    → inject graph evidence on the next turn\n"
+            "  --@graph off   → suppress graph evidence on the next turn",
             title="commands",
             border_style="magenta",
         )
@@ -401,6 +403,28 @@ def main() -> None:
                             border_style="cyan",
                         )
                     )
+                continue
+
+            if normalized in {"--@graph", "--@graph on"}:
+                runtime.force_graph_context()
+                assistant_console.print(
+                    _system_panel(
+                        "Graph evidence will be injected on the next turn.",
+                        title="graph",
+                        border_style="green",
+                    )
+                )
+                continue
+
+            if normalized == "--@graph off":
+                runtime.suppress_graph_context()
+                assistant_console.print(
+                    _system_panel(
+                        "Graph evidence suppressed for the next turn.",
+                        title="graph",
+                        border_style="yellow",
+                    )
+                )
                 continue
 
             if normalized == "--@models":

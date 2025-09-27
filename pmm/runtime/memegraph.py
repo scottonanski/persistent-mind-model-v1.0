@@ -438,3 +438,109 @@ class MemeGraphProjection:
                     if dst_id:
                         result.append(dst_id)
             return result
+
+    # --- Graph slice exposure -------------------------------------------------
+
+    def graph_slice(
+        self,
+        topic: str,
+        *,
+        limit: int = 3,
+        min_confidence: float = 0.6,
+        exclude_labels: Optional[set[str]] = None,
+        recent_digest_blocklist: Optional[set[str]] = None,
+    ) -> List[dict]:
+        """Return a small list of high-confidence relations relevant to `topic`.
+
+        Each relation is shaped as {"src_label", "src_event_id", "label", "dst_label", "dst_event_id"}.
+        The heuristic is intentionally simple and deterministic: topic keywords are
+        matched against node labels, and we prefer edges whose provenance stems
+        from user/asserted content. Governance flavored labels (policy/stage/metric)
+        can be excluded via `exclude_labels`.
+        """
+
+        topic = (topic or "").strip().lower()
+        if not topic:
+            return []
+
+        exclude_labels = exclude_labels or set()
+        recent_digest_blocklist = recent_digest_blocklist or set()
+
+        with self._lock:
+            scored: List[tuple[float, MemeNode, MemeEdge, MemeNode]] = []
+            for edge in self._edges.values():
+                if edge.label in exclude_labels:
+                    continue
+                if (
+                    edge.src in recent_digest_blocklist
+                    or edge.dst in recent_digest_blocklist
+                    or edge.digest in recent_digest_blocklist
+                ):
+                    continue
+                edge_conf = float(edge.attrs.get("confidence", 0.5))
+                if edge_conf < float(min_confidence):
+                    continue
+
+                src = self._nodes.get(edge.src)
+                dst = self._nodes.get(edge.dst)
+                if not src or not dst:
+                    continue
+
+                src_label = (src.label or "").lower()
+                dst_label = (dst.label or "").lower()
+
+                # Topic match heuristic: simple containment or token overlap
+                match_bonus = 0.0
+                if topic in src_label or topic in dst_label:
+                    match_bonus = 0.4
+                else:
+                    topic_tokens = {t for t in topic.split() if t}
+                    if topic_tokens and (
+                        topic_tokens.intersection(src_label.split())
+                        or topic_tokens.intersection(dst_label.split())
+                    ):
+                        match_bonus = 0.2
+
+                if match_bonus == 0.0:
+                    # Also consider edges tied to recent assertions (knowledge)
+                    if "autonomy" in topic and "commitment" in src_label:
+                        match_bonus = 0.1
+                    elif "identity" in topic and (
+                        "identity" in src_label or "name" in dst_label
+                    ):
+                        match_bonus = 0.1
+                    elif "metaphor" in topic and "reflection" in src_label:
+                        match_bonus = 0.1
+
+                if match_bonus == 0.0:
+                    continue
+
+                score = edge_conf + match_bonus
+                scored.append((score, src, edge, dst))
+
+            # Sort by descending score, deterministic tie-break by label text
+            scored.sort(
+                key=lambda tpl: (tpl[0], tpl[1].label or "", tpl[3].label or ""),
+                reverse=True,
+            )
+
+            result: List[dict] = []
+            for score, src, edge, dst in scored:
+                if len(result) >= limit:
+                    break
+                src_eid = self._digest_to_event_id.get(src.digest)
+                dst_eid = self._digest_to_event_id.get(dst.digest)
+                relation = {
+                    "src": src.label,
+                    "src_digest": src.digest,
+                    "src_event_id": src_eid,
+                    "label": edge.label,
+                    "dst": dst.label,
+                    "dst_digest": dst.digest,
+                    "dst_event_id": dst_eid,
+                    "score": round(score, 3),
+                    "edge_digest": edge.digest,
+                }
+                result.append(relation)
+
+            return result

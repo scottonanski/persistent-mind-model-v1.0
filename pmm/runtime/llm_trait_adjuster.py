@@ -221,6 +221,26 @@ class LLMTraitAdjuster:
 
         # Check resulting trait value bounds
         current_value = current_trait_values.get(trait, 0.5)
+
+        # Clamp openness nudges near saturation and reject if already maxed
+        projected_value = current_value + delta
+        if projected_value > self.safety_bounds["max_trait_value"]:
+            return (
+                False,
+                f"Resulting value too high ({projected_value} > {self.safety_bounds['max_trait_value']})",
+            )
+
+        if trait == "O" and delta > 0:
+            if current_value >= 0.98:
+                return (
+                    False,
+                    "Openness already near saturation; propose a different trait",
+                )
+            if current_value >= 0.9:
+                max_delta = max(0.005, 0.98 - current_value)
+                if delta > max_delta:
+                    delta = max_delta
+                    suggestion["delta"] = delta
         new_value = current_value + delta
 
         if new_value < self.safety_bounds["min_trait_value"]:
