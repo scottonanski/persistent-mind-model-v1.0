@@ -2,6 +2,8 @@ from __future__ import annotations
 from typing import Callable, Optional
 import re
 
+from pmm.runtime.pmm_prompts import build_system_msg
+
 # Public API:
 # maybe_append_planning_thought(eventlog, chat, *, from_reflection_id, stage, tick, max_tokens=64) -> int | None
 
@@ -76,11 +78,11 @@ def maybe_append_planning_thought(
         reflection_text = ""
     # Minimal, privacy-safe prompt (no raw CoT)
     prompt = (
-        "You are a self-referential, autonomous, evolving AI. "
-        "Output a VERY SHORT plan (max 3 bullets OR <=2 sentences) for how to improve "
-        "the next 1–2 replies.\n"
+        build_system_msg("planning")
+        + "Use that understanding to pick concrete adjustments for your next one or two replies.\n"
+        "Output a VERY SHORT plan (max 3 bullets OR <=2 sentences).\n"
         "Do NOT expose hidden reasoning. No preambles. No explanations.\n"
-        "Only actionable steps tied to the latest reflection outcome.\n\n"
+        "Only actionable steps tied to the latest reflection outcome, and mention PMM mechanics only if the user would need them.\n\n"
         f"Latest reflection:\n{reflection_text}\n"
         "Plan:"
     )

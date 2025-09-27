@@ -1,11 +1,6 @@
-import pytest
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
 from pmm.commitments.tracker import CommitmentTracker
-from pmm.commitments.detectors import (
-    RegexCommitmentDetector,
-    SemanticCommitmentDetector,
-)
 from pmm.runtime.memegraph import MemeGraphProjection
 
 
@@ -78,26 +73,6 @@ def test_reclosing_returns_false(tmp_path, monkeypatch):
     # Attempt to close again
     closed_again = ct.close_with_evidence(cid, "done", "Trying to close again.")
     assert not closed_again
-
-
-# --- New detector DI and evidence tests ---
-
-
-@pytest.mark.parametrize(
-    "detector_cls", [RegexCommitmentDetector, SemanticCommitmentDetector]
-)
-def test_detector_interface_finds_plans(tmp_path, detector_cls, monkeypatch):
-    # Ensure semantic path is selectable but stub defers to regex until embeddings are wired
-    if detector_cls is SemanticCommitmentDetector:
-        monkeypatch.setenv("PMM_DETECTOR", "semantic")
-
-    db = tmp_path / "det.db"
-    log = EventLog(str(db))
-    t = CommitmentTracker(log, detector=detector_cls())
-
-    text = "I plan to finish the documentation by Friday."
-    opened = t.process_assistant_reply(text)
-    assert opened == []  # Detector does not match this phrasing
 
 
 def test_done_evidence_candidates_when_ambiguous(tmp_path, monkeypatch):

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import warnings
 from typing import List
 
+__all__ = ["SubstringFilter", "NGramFilter"]
 
 _DEFAULT_BANS = [
     "as an ai",
@@ -10,7 +12,7 @@ _DEFAULT_BANS = [
 ]
 
 
-class NGramFilter:
+class SubstringFilter:
     def __init__(self, bans: List[str] | None = None) -> None:
         self._bans = [s.lower() for s in (bans or _DEFAULT_BANS) if s]
 
@@ -39,3 +41,16 @@ class NGramFilter:
         while s and (s[0] in ",.;:- "):
             s = s[1:]
         return s
+
+
+class NGramFilter(SubstringFilter):  # type: ignore[valid-type]
+    """Backwards-compatible alias for SubstringFilter."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        warnings.warn(
+            "NGramFilter has been renamed to SubstringFilter; the alias will be "
+            "removed in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__(*args, **kwargs)

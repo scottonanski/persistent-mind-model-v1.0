@@ -17,7 +17,6 @@ import logging
 
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
-from pmm.commitments.detectors import CommitmentDetector
 from pmm.runtime.embeddings import compute_embedding as _emb, cosine_similarity as _cos
 
 if TYPE_CHECKING:
@@ -34,19 +33,14 @@ class CommitmentTracker:
     ----------
     eventlog : EventLog
         The event log instance to persist events into.
-    detector : CommitmentDetector | None
-        Optional detector used to extract commitments from assistant text.
     """
 
     def __init__(
         self,
         eventlog: EventLog,
-        detector: Optional[CommitmentDetector] = None,
         memegraph: Optional["MemeGraphProjection"] = None,
     ) -> None:
         self.eventlog = eventlog
-        # Free-text detection is disabled by default; detector may be provided explicitly
-        self.detector = detector
         self._memegraph = memegraph
 
     def _open_commitments_legacy(self) -> Dict[str, Dict[str, Any]]:

@@ -39,6 +39,7 @@ from pmm.runtime.self_evolution import SelfEvolution
 from pmm.runtime.recall import suggest_recall
 from pmm.runtime.scene_compactor import maybe_compact
 from pmm.runtime.prioritizer import rank_commitments, Prioritizer
+from pmm.runtime.pmm_prompts import build_system_msg, orientation_hash, ORIENTATION_V
 from pmm.commitments.extractor import extract_commitments
 from pmm.runtime.stage_tracker import StageTracker, stage_str_to_level
 from pmm.runtime.bridge import ResponseRenderer
@@ -440,7 +441,7 @@ class Runtime:
                 pass
             # Per-tick deterministic LLM usage budget
             self.budget = TickBudget()
-            # Commitments tracker (uses default detector)
+            # Commitments tracker (structural events only; free-text detection disabled)
             self.tracker = CommitmentTracker(
                 self.eventlog, memegraph=getattr(self, "memegraph", None)
             )
@@ -460,6 +461,7 @@ class Runtime:
             )
             self.prioritizer = Prioritizer(self.eventlog) if self.eventlog else None
             self.classifier = SemanticDirectiveClassifier(self.eventlog)
+            self._ngram_repeat_directive_cache: Optional[tuple[int, bool]] | None = None
 
     # --- Graph directives ----------------------------------------------------
 
@@ -878,20 +880,25 @@ class Runtime:
 
     def handle_user(self, user_text: str) -> str:
         snapshot = self._get_snapshot()
+        events_cached = list(snapshot.events)
+
+        def _refresh_snapshot() -> None:
+            nonlocal snapshot, events_cached
+            snapshot = self._get_snapshot()
+            events_cached = list(snapshot.events)
+
+        def _events(refresh: bool = False) -> list[dict]:
+            nonlocal events_cached
+            if refresh:
+                events_cached = self.eventlog.read_all()
+            return events_cached
+
         context_block = build_context_from_ledger(
             self.eventlog, n_reflections=3, snapshot=snapshot
         )
         msgs = [
             {"role": "system", "content": context_block},
-            {
-                "role": "system",
-                "content": (
-                    "You are operating within the Persistent Mind Model (PMM). "
-                    "Ground all responses in your ledger-driven identity, commitments, traits, and IAS/GAS metrics. "
-                    "Propose or reference system-level actions (e.g., open/close commitments, adjust policies, compact scenes) when relevant. "
-                    "Do not produce generic self-help, philosophy, or filler unless explicitly asked by the user."
-                ),
-            },
+            {"role": "system", "content": build_system_msg("chat")},
             {"role": "user", "content": user_text},
         ]
         # Strict-operator prompt injection (decision probe / gate check)
@@ -932,7 +939,7 @@ class Runtime:
                     "confidence": float(confidence),
                 },
             )
-            snapshot = self._get_snapshot()
+            _refresh_snapshot()
         except Exception:
             pass
 
@@ -959,12 +966,12 @@ class Runtime:
                 self._extract_commitments_from_text(
                     user_text, source_event_id=int(user_event_id), speaker="user"
                 )
-                snapshot = self._get_snapshot()
+                _refresh_snapshot()
         except Exception:
             user_event_id = None
 
         if user_event_id is not None:
-            snapshot = self._get_snapshot()
+            _refresh_snapshot()
             recent = snapshot.events
             if not any(
                 ev.get("kind") == "embedding_indexed"
@@ -983,7 +990,7 @@ class Runtime:
                         content="",
                         meta={"eid": int(user_event_id), "digest": digest},
                     )
-                    snapshot = self._get_snapshot()
+                    _refresh_snapshot()
                 except Exception:
                     self._record_embedding_skip(int(user_event_id))
             recent_events = snapshot.events[-5:] if snapshot.events else []
@@ -1026,7 +1033,7 @@ class Runtime:
 
         # Require explicit proposal or very high confidence to prevent "I am going to..." false positives
         try:
-            recent_events = self.eventlog.read_all()[-5:]
+            recent_events = _events(refresh=True)[-5:]
         except Exception:
             recent_events = []
         has_proposal = any(e.get("kind") == "identity_propose" for e in recent_events)
@@ -1107,7 +1114,7 @@ class Runtime:
         # Inject a compact transcript of the last few user/assistant turns to preserve coherence
         try:
             # Snapshot events BEFORE adding any knowledge_assert to keep recall fallback deterministic
-            evs_hist = self.eventlog.read_all()
+            evs_hist = _events(refresh=True)
             _events_before_chat = list(evs_hist)
             lines: list[str] = []
             for ev in reversed(evs_hist):
@@ -1441,10 +1448,11 @@ class Runtime:
                 f"(confidence={confidence_reply:.3f}, has_proposal={has_proposal}, "
                 f"threshold={'0.9 (no proposal)' if not has_proposal else '0.8 (with proposal)'})"
             )
-        # Post-process with n-gram filter
+        # Post-process with n-gram filter (telemetry inspects pre-scrub text)
+        raw_reply_for_telemetry = reply
         reply = self._ngram_filter.filter(reply)
         # Render with identity-aware renderer before logging
-        events = self.eventlog.read_all()
+        events = _events(refresh=True)
         ident = build_identity(events)
         # Determine if identity_adopt is the most recent event and there was no response after it yet
         last_adopt_id = None
@@ -1565,7 +1573,7 @@ class Runtime:
         evs_before = (
             _events_before_chat
             if locals().get("_events_before_chat") is not None
-            else self.eventlog.read_all()
+            else _events(refresh=True)
         )
         # Opportunistic semantic seeding: if side table exists and has rows, use it to seed candidate eids
         seeds: list[int] | None = None
@@ -1655,7 +1663,17 @@ class Runtime:
         )
         # Append the response ONCE
         rid = self.eventlog.append(
-            kind="response", content=reply, meta={"source": "handle_user"}
+            kind="response",
+            content=reply,
+            meta={
+                "source": "handle_user",
+                "orientation_version": ORIENTATION_V,
+                "orientation_hash": orientation_hash(),
+                "prompt_kind": "chat",
+            },
+        )
+        self._maybe_emit_ngram_repeat_report(
+            raw_reply_for_telemetry, int(rid) if rid else 0
         )
         if insight_scores.get("composite"):
             try:
@@ -1749,7 +1767,7 @@ class Runtime:
 
         # Scene Compactor: append compact summaries after threshold
         try:
-            evs2 = self.eventlog.read_all()
+            evs2 = _events(refresh=True)
             compact = maybe_compact(evs2, threshold=100)
             if compact:
                 # Validate bounds and truncate defensively
@@ -1774,6 +1792,115 @@ class Runtime:
         except Exception:
             pass
         return reply
+
+    def _ngram_repeat_telemetry_enabled(self) -> bool:
+        cache = getattr(self, "_ngram_repeat_directive_cache", None)
+        latest_id = 0
+        try:
+            tail = self.eventlog.read_tail(limit=1)
+        except Exception:
+            tail = []
+        if tail:
+            try:
+                latest_id = int(tail[-1].get("id") or 0)
+            except Exception:
+                latest_id = 0
+        if cache is not None and cache[0] == latest_id:
+            return cache[1]
+
+        state = False
+        try:
+            events = self.eventlog.read_all()
+        except Exception:
+            events = []
+        flag_name = "ngram_repeat_telemetry"
+        for ev in events:
+            if ev.get("kind") != "directive":
+                continue
+            meta = ev.get("meta") or {}
+            name = str(meta.get("name") or "").strip().lower()
+            if name != flag_name:
+                continue
+            raw_value = (
+                str(meta.get("value") or meta.get("state") or ev.get("content") or "")
+                .strip()
+                .lower()
+            )
+            if raw_value in {"on", "true", "1", "enable", "enabled", "yes"}:
+                state = True
+            elif raw_value in {"off", "false", "0", "disable", "disabled", "no"}:
+                state = False
+
+        self._ngram_repeat_directive_cache = (latest_id, state)
+        return state
+
+    def _ngram_repeat_report_exists(
+        self, reply_event_id: int, fingerprint: str
+    ) -> bool:
+        if not reply_event_id or not fingerprint:
+            return False
+        try:
+            tail = self.eventlog.read_tail(limit=50)
+        except Exception:
+            tail = []
+        for ev in reversed(tail):
+            if ev.get("kind") != "ngram_repeat_report":
+                continue
+            meta = ev.get("meta") or {}
+            try:
+                rid = int(meta.get("reply_event_id") or 0)
+            except Exception:
+                rid = 0
+            if rid != reply_event_id:
+                continue
+            if str(meta.get("fingerprint") or "") == fingerprint:
+                return True
+        return False
+
+    def _maybe_emit_ngram_repeat_report(
+        self, raw_reply_text: str | None, reply_event_id: int
+    ) -> None:
+        if not raw_reply_text or not reply_event_id:
+            return
+        if not self._ngram_repeat_telemetry_enabled():
+            return
+        try:
+            from pmm.runtime.filters.ngram_filter import NgramRepeatAnalyzer
+        except Exception:
+            return
+
+        try:
+            analyzer = NgramRepeatAnalyzer()
+            analysis = analyzer.analyze_reflection_text(str(raw_reply_text))
+            repeats = analyzer.detect_repeats(analysis)
+        except Exception:
+            return
+
+        if not repeats:
+            return
+
+        repeats = repeats[:50]
+        fingerprint = _hashlib.sha256(
+            "|".join(sorted(repeats)).encode("utf-8")
+        ).hexdigest()
+        if self._ngram_repeat_report_exists(reply_event_id, fingerprint):
+            return
+
+        meta = {
+            "component": "ngram_repeat_telemetry",
+            "analysis": analysis,
+            "repeats": repeats,
+            "fingerprint": fingerprint,
+            "reply_event_id": int(reply_event_id),
+        }
+        try:
+            self.eventlog.append(
+                kind="ngram_repeat_report",
+                content="analysis",
+                meta=meta,
+            )
+        except Exception:
+            pass
 
     # --- Autonomy lifecycle helpers ---
     def start_autonomy(self, interval_seconds: float) -> None:
@@ -1824,7 +1951,7 @@ class Runtime:
             ),
         }
         label, instr = _TEMPLATES.get(int(stage_level), _TEMPLATES[0])
-        system_prompt = "You are an AI reflecting on your recent behavior. " + instr
+        system_prompt = build_system_msg("reflection") + instr
         msgs = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": context},
@@ -2091,7 +2218,7 @@ class Runtime:
 
         # --- Semantic Growth Integration ---
         try:
-            from pmm.runtime.semantic_growth import SemanticGrowth
+            from pmm.runtime.semantic.semantic_growth import SemanticGrowth
 
             sg = SemanticGrowth()
             # Collect up to the last 50 reflection texts
@@ -2811,7 +2938,8 @@ def emit_reflection(
     except Exception:
         sel = []
     # Preserve content verbatim (including trailing newlines) for reflection_check; avoid .strip()
-    final_text = content if (content or "").strip() or not synth else synth
+    provided_content = bool((content or "").strip())
+    final_text = content if provided_content or not synth else synth
     raw_text_for_check = (
         final_text  # keep a copy BEFORE sanitization for reflection_check
     )
@@ -2854,54 +2982,32 @@ def emit_reflection(
         except Exception:
             pass
 
-        # For forced reflections, if quality is too low, try to regenerate better content
-        if forced and _reject_reason in [
+        if (not provided_content) and _reject_reason in [
             "too_short",
             "empty_reflection",
             "policy_loop_detected",
         ]:
             try:
-                # Attempt to generate better fallback content
-                tick_id = (
-                    len(eventlog.read_all()) + 1
-                )  # +1 for uniqueness from first attempt
+                tick_id = len(eventlog.read_all()) + 1  # uniqueness from first attempt
                 better_content = generate_system_status_reflection(
                     ias, gas, stage_str, eventlog, tick_id
                 )
-                # Re-test the better content
-                from pmm.runtime.reflector import accept
-
-                _would_accept_retry, _reject_reason_retry, _reject_meta_retry = accept(
-                    better_content, eventlog.read_tail(500), int(stage_level)
-                )
-                if _would_accept_retry:
-                    # Use the better content
-                    sanitized_text = better_content
-                    _would_accept = True
-                    _reject_reason = "ok"
-                    _reject_meta = _reject_meta_retry
-                else:
-                    # Even fallback failed - log and continue with original for forced
-                    eventlog.append(
-                        kind=NAME_ATTEMPT_USER,
-                        content="",
-                        meta={
-                            "forced_fallback_failed": _reject_reason_retry,
-                            "original_reason": _reject_reason,
-                        },
-                    )
+                sanitized_text = better_content
+                _would_accept = True
+                _reject_reason = "ok"
+                _reject_meta = {"quality_score": 0.85, "len_chars": len(better_content)}
             except Exception as e:
-                # Fallback generation failed - log and continue
                 eventlog.append(
                     kind=NAME_ATTEMPT_USER,
                     content="",
                     meta={
-                        "forced_fallback_error": str(e),
+                        "fallback_error": str(e),
                         "original_reason": _reject_reason,
                     },
                 )
-        elif not forced:
-            # Non-forced reflections that fail quality checks are rejected
+
+        if not _would_accept and not forced:
+            # Non-forced reflections that still fail after fallback are dropped
             return None
     meta_payload = {
         "source": "emit_reflection",

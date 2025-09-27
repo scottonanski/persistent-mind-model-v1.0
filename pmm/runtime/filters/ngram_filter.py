@@ -5,13 +5,17 @@ in reflection text using n-gram analysis with full ledger integrity.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any, Optional
+
 import hashlib
 import re
+import warnings
 from collections import Counter
+from typing import Any, Dict, List, Optional
+
+__all__ = ["NgramRepeatAnalyzer", "NgramFilter"]
 
 
-class NgramFilter:
+class NgramRepeatAnalyzer:
     """
     Deterministic n-gram filter for detecting repetitive patterns in reflection text.
     Maintains full auditability through the event ledger.
@@ -198,3 +202,16 @@ class NgramFilter:
         parts.append(f"threshold:{self.repeat_threshold}")
 
         return "|".join(parts)
+
+
+class NgramFilter(NgramRepeatAnalyzer):  # type: ignore[valid-type]
+    """Backwards-compatible alias for NgramRepeatAnalyzer."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        warnings.warn(
+            "NgramFilter has been renamed to NgramRepeatAnalyzer; the alias will "
+            "be removed in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__(*args, **kwargs)

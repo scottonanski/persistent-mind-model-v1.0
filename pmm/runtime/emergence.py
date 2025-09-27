@@ -15,8 +15,10 @@ from typing import List, Dict, Tuple, Optional, Any
 import hashlib
 import json
 import math
+from textwrap import dedent
 
 from pmm.config import REFLECTION_FORCED
+from pmm.runtime.pmm_prompts import build_system_msg
 
 
 class EmergenceScorer:
@@ -369,29 +371,36 @@ def pmm_native_reflection(
         pass
 
     # prompt template (ontology-locked)
-    prompt = f"""
-You are {name} in the Persistent Mind Model (PMM). Your identity is defined by a deterministic ledger.
-Current state:
-- Traits: O={openness:.2f}, C={conscientiousness:.2f}, E={extraversion:.2f}, A={agreeableness:.2f}, N={neuroticism:.2f}
-- Metrics: IAS={IAS:.2f}, GAS={GAS:.2f}
-- Open Commitments: {', '.join(open_list) if open_list else 'none'}
-- Reflection Gates: minT={minT}, minS={minS}
-- Policy: novelty_threshold={novelty_threshold:.2f}, drift_mult=O:{drift_mult.get('O',1)},C:{drift_mult.get('C',1)},N:{drift_mult.get('N',1)}
+    prompt = dedent(
+        f"""
+        You are {name}.
+        {build_system_msg('reflection')}
+        Treat this as an internal system reflection: stay ledger-grounded and speak in your own voice.
+        Mention PMM mechanics only when they directly justify the action you propose.
+        Current state:
+        - Traits: O={openness:.2f}, C={conscientiousness:.2f}, E={extraversion:.2f}, A={agreeableness:.2f}, N={neuroticism:.2f}
+        - Metrics: IAS={IAS:.2f}, GAS={GAS:.2f}
+        - Open Commitments: {', '.join(open_list) if open_list else 'none'}
+        - Reflection Gates: minT={minT}, minS={minS}
+        - Policy: novelty_threshold={novelty_threshold:.2f}, drift_mult=O:{drift_mult.get('O',1)},C:{drift_mult.get('C',1)},N:{drift_mult.get('N',1)}
 
-TASK: Reflect ONLY on this ledger state and propose ONE concrete system action:
-- open/close a commitment (e.g., "Open a commitment to review priority queue X every 3 ticks")
-- adjust a trait (|Δ| ≤ 0.05)
-- compact a scene
-- update policy/curriculum (e.g., lower novelty_threshold)
-- rebind a commitment to a new priority
+        TASK: Reflect ONLY on this ledger state and propose ONE concrete system action:
+        - open/close a commitment (e.g., "Open a commitment to review priority queue X every 3 ticks")
+        - adjust a trait (|Δ| ≤ 0.05)
+        - compact a scene
+        - update policy/curriculum (e.g., lower novelty_threshold)
+        - rebind a commitment to a new priority
 
-MANDATES:
-1) Stay within PMM ontology (ledger, traits, commitments, policy, scenes, projection, rebind).
-2) Provide exactly ONE action and a one-sentence rationale tied to IAS/GAS/traits/gates/policy.
-3) Do NOT output generic human self-help (journaling, "learn more") or assistant filler ("How can I assist?").
+        MANDATES:
+        1) Stay within PMM ontology (ledger, traits, commitments, policy, scenes, projection, rebind).
+        2) Provide exactly ONE action and a one-sentence rationale tied to IAS/GAS/traits/gates/policy.
+        3) Do NOT output generic human self-help (journaling, "learn more") or assistant filler ("How can I assist?").
 
-Output format (single paragraph): <Action>. Rationale: <why>.
-""".strip()
+        Output exactly two lines:
+        Line1: Action: <one sentence that references the relevant ledger structures>.
+        Line2: Why-mechanics: <one sentence explaining the ledger-based justification>.
+        """
+    ).strip()
 
     # retry up to 3x if the model drifts from ontology
     for _attempt in range(3):
@@ -415,7 +424,7 @@ Output format (single paragraph): <Action>. Rationale: <why>.
         )
 
     # deterministic fallback (ensures a reflection event exists)
-    fallback = "Policy: lower novelty_threshold to 0.50 to increase reflection frequency. Rationale: Ledger shows low GAS; a policy change should surface higher-novelty commitment adjustments."
+    fallback = "Action: Policy — lower novelty_threshold to 0.50 to increase reflection frequency.\nWhy-mechanics: Ledger shows low GAS and low novelty; adjusting policy should surface higher-novelty commitment adjustments."
     try:
         eventlog.append(
             "reflection",

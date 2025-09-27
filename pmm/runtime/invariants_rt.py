@@ -222,11 +222,6 @@ def check_trait_drift_bounds(events: Iterable[dict]) -> List[Violation]:
     return violations
 
 
-def check_min_turns_between_identity_adopts(events: Iterable[dict]) -> List[Violation]:
-    """Disabled: identity can be adopted immediately without spacing."""
-    return []
-
-
 def check_commitments_rebound_after_identity_adopt(
     events: Iterable[dict],
 ) -> List[Violation]:

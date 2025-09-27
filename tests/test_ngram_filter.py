@@ -1,10 +1,10 @@
-"""Tests for NgramFilter class.
+"""Tests for the NgramRepeatAnalyzer class.
 
 Comprehensive test suite covering deterministic n-gram analysis, repeat detection,
 idempotent event emission, and CONTRIBUTING.md compliance.
 """
 
-from pmm.runtime.filters.ngram_filter import NgramFilter
+from pmm.runtime.filters.ngram_filter import NgramRepeatAnalyzer
 
 
 class MockEventLog:
@@ -27,7 +27,7 @@ class MockEventLog:
 
 def test_analyze_reflection_text_empty():
     """Test analysis of empty/invalid text."""
-    filter_obj = NgramFilter()
+    filter_obj = NgramRepeatAnalyzer()
 
     # Empty string
     result = filter_obj.analyze_reflection_text("")
@@ -44,7 +44,7 @@ def test_analyze_reflection_text_empty():
 
 def test_analyze_reflection_text_basic():
     """Test basic n-gram analysis."""
-    filter_obj = NgramFilter()
+    filter_obj = NgramRepeatAnalyzer()
     text = "I am learning to be better. I am growing."
 
     result = filter_obj.analyze_reflection_text(text)
@@ -74,7 +74,7 @@ def test_analyze_reflection_text_basic():
 
 def test_analyze_reflection_text_normalization():
     """Test text normalization (punctuation, case, whitespace)."""
-    filter_obj = NgramFilter()
+    filter_obj = NgramRepeatAnalyzer()
     text = "Hello, World!   This is... A TEST!!!"
 
     result = filter_obj.analyze_reflection_text(text)
@@ -85,7 +85,7 @@ def test_analyze_reflection_text_normalization():
 
 def test_detect_repeats_none():
     """Test repeat detection with no repeats."""
-    filter_obj = NgramFilter(repeat_threshold=3)
+    filter_obj = NgramRepeatAnalyzer(repeat_threshold=3)
 
     analysis = {
         "ngram_counts": {
@@ -100,7 +100,7 @@ def test_detect_repeats_none():
 
 def test_detect_repeats_found():
     """Test repeat detection with actual repeats."""
-    filter_obj = NgramFilter(repeat_threshold=3)
+    filter_obj = NgramRepeatAnalyzer(repeat_threshold=3)
 
     analysis = {
         "ngram_counts": {
@@ -117,7 +117,7 @@ def test_detect_repeats_found():
 
 def test_detect_repeats_empty_analysis():
     """Test repeat detection with empty analysis."""
-    filter_obj = NgramFilter()
+    filter_obj = NgramRepeatAnalyzer()
 
     repeats = filter_obj.detect_repeats({})
     assert repeats == []
@@ -128,7 +128,7 @@ def test_detect_repeats_empty_analysis():
 
 def test_maybe_emit_filter_event_new():
     """Test emitting new filter event."""
-    filter_obj = NgramFilter()
+    filter_obj = NgramRepeatAnalyzer()
     eventlog = MockEventLog()
 
     analysis = {
@@ -156,7 +156,7 @@ def test_maybe_emit_filter_event_new():
 
 def test_maybe_emit_filter_event_idempotent():
     """Test idempotent event emission (duplicate prevention)."""
-    filter_obj = NgramFilter()
+    filter_obj = NgramRepeatAnalyzer()
     eventlog = MockEventLog()
 
     analysis = {
@@ -183,7 +183,7 @@ def test_maybe_emit_filter_event_idempotent():
 
 def test_maybe_emit_filter_event_different_data():
     """Test that different analysis data produces new events."""
-    filter_obj = NgramFilter()
+    filter_obj = NgramRepeatAnalyzer()
     eventlog = MockEventLog()
 
     analysis1 = {
@@ -209,7 +209,7 @@ def test_maybe_emit_filter_event_different_data():
 
 def test_deterministic_behavior():
     """Test that analysis is deterministic across multiple runs."""
-    filter_obj = NgramFilter()
+    filter_obj = NgramRepeatAnalyzer()
     text = "I am learning to be better. I am growing every day."
 
     # Run analysis multiple times
@@ -225,7 +225,7 @@ def test_deterministic_behavior():
 
 def test_deterministic_digest():
     """Test that digest generation is deterministic."""
-    filter_obj = NgramFilter()
+    filter_obj = NgramRepeatAnalyzer()
 
     analysis = {
         "normalized_text": "hello world",
@@ -247,7 +247,7 @@ def test_deterministic_digest():
 
 def test_custom_ngram_lengths():
     """Test custom n-gram lengths configuration."""
-    filter_obj = NgramFilter(ngram_lengths=[2, 4])
+    filter_obj = NgramRepeatAnalyzer(ngram_lengths=[2, 4])
     text = "one two three four five six"
 
     result = filter_obj.analyze_reflection_text(text)
@@ -267,7 +267,7 @@ def test_custom_ngram_lengths():
 
 def test_custom_repeat_threshold():
     """Test custom repeat threshold configuration."""
-    filter_obj = NgramFilter(repeat_threshold=2)
+    filter_obj = NgramRepeatAnalyzer(repeat_threshold=2)
 
     analysis = {"ngram_counts": {"2gram": {"hello world": 2, "world hello": 1}}}
 
@@ -278,7 +278,7 @@ def test_custom_repeat_threshold():
 
 def test_integration_workflow():
     """Test complete integration workflow: analyze -> detect -> emit."""
-    filter_obj = NgramFilter(repeat_threshold=2)
+    filter_obj = NgramRepeatAnalyzer(repeat_threshold=2)
     eventlog = MockEventLog()
 
     # Text with repetitive patterns
@@ -308,7 +308,7 @@ def test_integration_workflow():
 
 def test_metadata_preservation():
     """Test that all metadata is properly preserved in events."""
-    filter_obj = NgramFilter(repeat_threshold=5, ngram_lengths=[2, 3, 4])
+    filter_obj = NgramRepeatAnalyzer(repeat_threshold=5, ngram_lengths=[2, 3, 4])
     eventlog = MockEventLog()
 
     analysis = {
