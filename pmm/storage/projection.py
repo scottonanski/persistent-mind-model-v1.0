@@ -15,8 +15,8 @@ from typing import Dict, List, Optional, Callable, Any
 # Fold-time guardrail parameters (tunable)
 MAX_TRAIT_DELTA = 0.05  # maximum absolute delta applied per trait_update
 
-# Global projection cache (Phase 2.1 optimization)
-_global_projection_cache = None
+# Global projection cache per EventLog instance (Phase 2.1 optimization)
+_projection_cache_by_eventlog = {}
 
 
 class ProjectionInvariantError(ValueError):
@@ -70,15 +70,19 @@ def build_self_model(
         from pmm.config import USE_PROJECTION_CACHE
 
         if USE_PROJECTION_CACHE:
-            global _global_projection_cache
-            if _global_projection_cache is None:
+            global _projection_cache_by_eventlog
+            # Get or create cache for this specific EventLog instance
+            cache_key = id(eventlog)
+            if cache_key not in _projection_cache_by_eventlog:
                 from pmm.storage.projection_cache import ProjectionCache
 
-                _global_projection_cache = ProjectionCache(
+                _projection_cache_by_eventlog[cache_key] = ProjectionCache(
                     strict=strict,
                     max_trait_delta=max_trait_delta,
                 )
-            return _global_projection_cache.get_model(eventlog, on_warn=on_warn)
+            return _projection_cache_by_eventlog[cache_key].get_model(
+                eventlog, on_warn=on_warn
+            )
 
     model: Dict = {
         "identity": {
