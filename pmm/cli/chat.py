@@ -212,6 +212,17 @@ def _metrics_panel(snap: dict) -> Panel:
 
 
 def main() -> None:
+    # Clear Python bytecode cache on startup to ensure code changes take effect
+    # This allows development without external tools or manual cache clearing
+    import shutil
+
+    cache_dirs = list(Path(__file__).parent.parent.rglob("__pycache__"))
+    for cache_dir in cache_dirs:
+        try:
+            shutil.rmtree(cache_dir)
+        except Exception:
+            pass  # Ignore errors, cache clearing is best-effort
+
     assistant_console = Console(highlight=False)
     log_console = Console(stderr=True, highlight=False)
     _configure_logging(log_console)

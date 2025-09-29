@@ -56,8 +56,9 @@ def test_no_reflect_emits_skip_breadcrumb(tmp_path):
     cd = ReflectionCooldown(min_turns=2, min_seconds=60.0)
 
     # Only one turn -> expect min_turns skip
+    # Use novelty < 0.95 to avoid high-novelty bypass
     cd.note_user_turn()
-    did, reason = maybe_reflect(log, cd, now=0.0, novelty=1.0)
+    did, reason = maybe_reflect(log, cd, now=0.0, novelty=0.8)
     assert did is False and reason == "min_turns"
 
     evs = log.read_all()

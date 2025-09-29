@@ -50,6 +50,7 @@ def build_context_from_ledger(
     n_reflections: int = 3,
     snapshot: LedgerSnapshot | None = None,
     use_tail_optimization: bool = True,
+    memegraph=None,
 ) -> str:
     """Return a formatted context block derived from the ledger.
 
@@ -108,15 +109,29 @@ def build_context_from_ledger(
     )
 
     # --- IAS / GAS / Stage --------------------------------------------------
+    # Compute fresh metrics instead of relying on stale autonomy_tick
+    from pmm.runtime.metrics import compute_ias_gas
+    from pmm.runtime.stage_tracker import StageTracker
+
     ias = gas = stage = None
-    for ev in reversed(events):
-        if ev.get("kind") == "autonomy_tick":
-            meta = ev.get("meta", {})
-            telemetry = meta.get("telemetry", {})
-            ias = telemetry.get("IAS")
-            gas = telemetry.get("GAS")
-            stage = meta.get("stage")
-            break
+    if snapshot is not None:
+        ias = snapshot.ias
+        gas = snapshot.gas
+        stage = snapshot.stage
+    else:
+        try:
+            ias, gas = compute_ias_gas(events)
+            stage, _ = StageTracker.infer_stage(events)
+        except Exception:
+            # Fallback to last autonomy_tick if computation fails
+            for ev in reversed(events):
+                if ev.get("kind") == "autonomy_tick":
+                    meta = ev.get("meta", {})
+                    telemetry = meta.get("telemetry", {})
+                    ias = telemetry.get("IAS")
+                    gas = telemetry.get("GAS")
+                    stage = meta.get("stage")
+                    break
 
     # --- Open Commitments ---------------------------------------------------
     commitments_block: List[str] = []
@@ -150,6 +165,14 @@ def build_context_from_ledger(
                     break
         reflections_block.reverse()  # chronological order older→newer
 
+    # --- MemeGraph Summary (if available) -----------------------------------
+    memegraph_summary: str | None = None
+    if memegraph is not None:
+        try:
+            memegraph_summary = memegraph.get_summary()
+        except Exception:
+            pass
+
     # --- Assemble -----------------------------------------------------------
     lines: List[str] = ["[SYSTEM STATE — from ledger]"]
     lines.append(f"Identity: {name}")
@@ -162,6 +185,8 @@ def build_context_from_ledger(
     )
     if ias is not None and gas is not None and stage is not None:
         lines.append(f"IAS={ias:.2f}, GAS={gas:.2f}, Stage={stage}")
+    if memegraph_summary:
+        lines.append(memegraph_summary)
     if commitments_block:
         lines.append("Open commitments:")
         lines.extend(commitments_block)

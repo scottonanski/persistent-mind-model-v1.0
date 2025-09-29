@@ -70,6 +70,7 @@ from pmm.config import (
 from pmm.directives.detector import (
     extract as _extract_directives,
 )
+from pmm.directives.classifier import SemanticDirectiveClassifier
 from pmm.runtime.invariants_rt import run_invariants_tick as _run_invariants_tick
 from pmm.runtime.cadence import CadenceState as _CadenceState
 from pmm.runtime.cadence import should_reflect as _cadence_should_reflect
@@ -395,6 +396,7 @@ class Runtime:
         self._snapshot_lock = _threading.RLock()
         self._snapshot_cache: LedgerSnapshot | None = None
         self.eventlog.register_append_listener(self._handle_event_appended)
+        self.classifier = SemanticDirectiveClassifier(self.eventlog)
         try:
             self.memegraph = MemeGraphProjection(self.eventlog)
         except Exception:
@@ -455,7 +457,13 @@ class Runtime:
             )
             self._last_embedding_exception: Exception | None = None
 
+    def force_graph_context(self) -> None:
+        """Force graph evidence injection on the next user turn."""
+        self._graph_force_next = True
+        self._graph_suppress_next = False
+
     def suppress_graph_context(self) -> None:
+        """Suppress graph evidence injection on the next user turn."""
         self._graph_suppress_next = True
         self._graph_force_next = False
 
@@ -1078,7 +1086,7 @@ class Runtime:
             return events_cached
 
         context_block = build_context_from_ledger(
-            self.eventlog, n_reflections=3, snapshot=snapshot
+            self.eventlog, n_reflections=3, snapshot=snapshot, memegraph=self.memegraph
         )
         msgs = [
             {"role": "system", "content": context_block},
@@ -1231,10 +1239,12 @@ class Runtime:
             recent_events = []
         has_proposal = any(e.get("kind") == "identity_propose" for e in recent_events)
 
+        # User-initiated naming: lower threshold since users have authority
+        # Classifier returns scores 0.6-1.0 for valid naming intents
         if (
             intent == "assign_assistant_name"
             and candidate_name
-            and ((confidence >= 0.9) or (has_proposal and confidence >= 0.8))
+            and ((confidence >= 0.7) or (has_proposal and confidence >= 0.6))
         ):
             # Canonical adoption path via AutonomyLoop
             sanitized = _sanitize_name(candidate_name)
@@ -1553,10 +1563,22 @@ class Runtime:
                 }
                 cands_r: list[str] = []
                 for tok in tokens_r[1:]:
-                    t = tok.strip('.,!?;:"“”‘’()[]{}<>')
+                    t = tok.strip('.,!?;:"""' "()[]{}<>")
                     if len(t) > 1 and t[0].isupper() and t.lower() not in common:
                         cands_r.append(t)
-                if len(cands_r) == 1:
+                # STRICTER: Only accept if exactly 1 candidate AND it appears in a naming context
+                # This prevents extracting random capitalized words from philosophical discussions
+                naming_phrases = [
+                    "call me",
+                    "i am",
+                    "i'm",
+                    "my name is",
+                    "i'll be",
+                    "i will be",
+                ]
+                if len(cands_r) == 1 and any(
+                    phrase in reply.lower() for phrase in naming_phrases
+                ):
                     candidate_reply = cands_r[0]
                     try:
                         self.eventlog.append(

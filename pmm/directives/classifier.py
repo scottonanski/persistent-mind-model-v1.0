@@ -78,10 +78,9 @@ class SemanticDirectiveClassifier:
                         "confidence": float(confidence),
                         "speaker": speaker,
                         "features": {
-                            "has_naming_context": features["has_naming_context"],
-                            "subject_role": features["subject_role"],
                             "has_proper_noun": features["has_proper_noun"],
-                            "has_linking_verb": features["has_linking_verb"],
+                            "proper_noun_count": features["proper_noun_count"],
+                            "proper_nouns": features.get("proper_nouns", []),
                         },
                     },
                 )
@@ -98,59 +97,71 @@ class SemanticDirectiveClassifier:
         speaker: str,
         recent_events: List[Dict],
     ) -> Dict[str, Any]:
+        """Extract deterministic features indicating a user naming directive.
+
+        Relies on positional heuristics (proper nouns after second-person references
+        or near naming verbs). Avoids specific phrase lists so behavior remains
+        language-flexible and audit-friendly.
+        """
+
         features: Dict[str, Any] = {
-            "has_naming_context": False,
-            "subject_role": None,
             "has_proper_noun": False,
-            "has_linking_verb": False,
+            "proper_noun_count": 0,
+            "proper_nouns": [],
+            "proper_positions": [],
+            "second_person_positions": [],
+            "naming_verb_positions": [],
+            "candidate_name": None,
         }
 
-        # Context from recent events
-        naming_tokens = {"name", "call", "rename", "dub"}
-        for ev in recent_events[-3:]:
-            if ev.get("kind") in {"user", "response"}:
-                content = str(ev.get("content", "")).lower()
-                if any(tok in content for tok in naming_tokens):
-                    features["has_naming_context"] = True
-                    break
-
-        if "name" in words_lower or "call" in words_lower:
-            features["has_naming_context"] = True
-
-        if words_lower:
-            first = words_lower[0]
-            if first in {"you", "your"}:
-                features["subject_role"] = "assistant"
-            elif first in {"i", "i'm", "i’m", "my"}:
-                features["subject_role"] = speaker
-
-        if "your name" in text.lower() or "call you" in text.lower():
-            features["subject_role"] = "assistant"
-        elif "my name" in text.lower() and speaker == "user":
-            features["subject_role"] = "user"
-
-        linking_verbs = {"am", "'m", "’m", "is", "are", "be", "called"}
-        features["has_linking_verb"] = any(w in linking_verbs for w in words_lower)
+        second_person_tokens = {"you", "your", "yours", "yourself", "yourselves"}
+        naming_verbs = {"name", "call", "rename", "dub", "christen"}
 
         common_words = {
             "i",
-            "i'm",
-            "i’m",
             "you",
-            "your",
             "the",
             "a",
             "an",
+            "this",
+            "that",
+            "these",
+            "those",
+            "my",
+            "your",
+            "his",
+            "her",
+            "its",
+            "our",
+            "their",
         }
-        for token in words_raw[1:]:
-            cleaned = token.strip(".,!?;:")
+
+        for index, token in enumerate(words_lower):
+            raw_token = words_raw[index]
+            if token in second_person_tokens:
+                features["second_person_positions"].append(index)
+            if token in naming_verbs:
+                features["naming_verb_positions"].append(index)
+
+            # Skip sentence-initial capitalisation bias by ignoring first token
+            if index == 0:
+                continue
+
+            cleaned = raw_token.strip(".,!?;:\"'()[]{}<>")
             if (
                 len(cleaned) > 1
                 and cleaned[0].isupper()
                 and cleaned.lower() not in common_words
             ):
-                features["has_proper_noun"] = True
-                break
+                features["proper_nouns"].append(cleaned)
+                features["proper_positions"].append(index)
+
+        features["has_proper_noun"] = bool(features["proper_nouns"])
+        features["proper_noun_count"] = len(features["proper_nouns"])
+
+        candidate = self._select_candidate_name(features)
+        if candidate:
+            features["candidate_name"] = candidate
 
         return features
 
@@ -162,150 +173,83 @@ class SemanticDirectiveClassifier:
         features: Dict[str, Any],
         speaker: str = "user",
     ) -> Tuple[str, Optional[str], float]:
-        score = 0.0
-        if features["has_naming_context"]:
-            score += 0.4
-        if features["has_linking_verb"]:
-            score += 0.3
-        if features["has_proper_noun"]:
-            score += 0.2
-        if features["subject_role"] == "assistant":
-            score += 0.3
-        elif features["subject_role"] == "user":
-            score += 0.1
+        """Classify naming intent using positional heuristics."""
 
-        candidate = None
-        intent = "irrelevant"
+        candidate = features.get("candidate_name")
 
-        # Check for assistant self-affirmation first (speaker is assistant + "I am")
+        if speaker == "user" and candidate:
+            has_naming_verb = bool(features.get("naming_verb_positions"))
+            has_second_person = bool(features.get("second_person_positions"))
+
+            # Confidence scales with contextual evidence
+            confidence = 0.9 if has_naming_verb else 0.75
+            if has_naming_verb and has_second_person:
+                confidence = 0.95
+            elif not has_naming_verb and not has_second_person:
+                confidence = 0.7
+
+            return "assign_assistant_name", candidate, confidence
+
+        # Assistant self-identification still honoured
         if (
-            features["subject_role"] == "assistant"
-            and "i am" in text.lower()
-            and speaker == "assistant"
-        ):
-            intent = "affirm_assistant_name"
-            candidate = self._extract_candidate_name(words_raw, words_lower)
-        elif (
-            features["subject_role"] == "assistant"
+            speaker == "assistant"
             and features["has_proper_noun"]
-            and score >= 0.6
+            and " i am " in f" {text.lower()} "
         ):
-            intent = "assign_assistant_name"
-            candidate = self._extract_candidate_name(words_raw, words_lower)
-        elif (
-            features["subject_role"] == "assistant"
-            and not features["has_proper_noun"]
-            and score >= 0.6
-        ):
-            intent = "assign_assistant_name"
-        elif features["subject_role"] == "user" and score >= 0.6:
-            intent = "assign_user_name"
+            # Choose first proper noun after "i am" if present
+            candidate = self._candidate_after_phrase("i am", words_lower, features)
+            if not candidate and features["proper_nouns"]:
+                candidate = features["proper_nouns"][0]
+            return "affirm_assistant_name", candidate, 0.8 if candidate else 0.6
 
-        return intent, candidate, min(score, 1.0)
+        return "irrelevant", None, 0.0
 
-    def _extract_candidate_name(
-        self, words_raw: List[str], words_lower: List[str]
+    def _candidate_after_phrase(
+        self, phrase: str, words_lower: List[str], features: Dict[str, Any]
     ) -> Optional[str]:
-        # Look for names after linking verbs
-        linking_verbs = {"is", "are", "am", "'m", "'m", "called"}
-
-        for i, word_lower in enumerate(words_lower):
-            if word_lower in linking_verbs and i + 1 < len(words_raw):
-                next_word = words_raw[i + 1].strip(".,!?;:")
-                if len(next_word) > 1 and next_word[0].isupper():
-                    # Filter out common words that aren't names
-                    if next_word.lower() not in {
-                        "important",
-                        "critical",
-                        "urgent",
-                        "great",
-                        "good",
-                        "bad",
-                    }:
-                        return next_word
-
-        # Look for "call you/call them X" pattern
-        for i, word_lower in enumerate(words_lower):
-            if word_lower == "call" and i + 1 < len(words_lower):
-                if words_lower[i + 1] in {"you", "them", "him", "her"} and i + 2 < len(
-                    words_raw
-                ):
-                    candidate = words_raw[i + 2].strip(".,!?;:")
-                    if len(candidate) > 1 and candidate[0].isupper():
-                        if candidate.lower() not in {
-                            "important",
-                            "critical",
-                            "urgent",
-                            "great",
-                            "good",
-                            "bad",
-                        }:
-                            return candidate
-
-        # Look for "name is X" or "name you X" patterns
-        for i, word_lower in enumerate(words_lower):
-            if word_lower == "name":
-                # Check "name is X"
-                if (
-                    i + 1 < len(words_lower)
-                    and words_lower[i + 1] == "is"
-                    and i + 2 < len(words_raw)
-                ):
-                    candidate = words_raw[i + 2].strip(".,!?;:")
-                    if len(candidate) > 1 and candidate[0].isupper():
-                        if candidate.lower() not in {
-                            "important",
-                            "critical",
-                            "urgent",
-                            "great",
-                            "good",
-                            "bad",
-                        }:
-                            return candidate
-                # Check "name you X"
-                elif (
-                    i + 1 < len(words_lower)
-                    and words_lower[i + 1] == "you"
-                    and i + 2 < len(words_raw)
-                ):
-                    candidate = words_raw[i + 2].strip(".,!?;:")
-                    if len(candidate) > 1 and candidate[0].isupper():
-                        if candidate.lower() not in {
-                            "important",
-                            "critical",
-                            "urgent",
-                            "great",
-                            "good",
-                            "bad",
-                        }:
-                            return candidate
-
-        # --- Semantic fallback: unique proper noun anywhere in the utterance ---
         try:
-            common_words = {
-                "i",
-                "i'm",
-                "i’m",
-                "you",
-                "your",
-                "the",
-                "a",
-                "an",
-                "assistant",
-                "model",
-                "name",
-            }
-            cands: List[str] = []
-            for tok in words_raw[1:]:  # skip first token to avoid sentence-case bias
-                t = tok.strip('.,!?;:"“”‘’()[]{}<>')
-                if len(t) > 1 and t[0].isupper() and t.lower() not in common_words:
-                    cands.append(t)
-            if len(cands) == 1:
-                return cands[0]
+            phrase_tokens = phrase.split()
+            for idx in range(len(words_lower) - len(phrase_tokens)):
+                if words_lower[idx : idx + len(phrase_tokens)] == phrase_tokens:
+                    for pos, name in zip(
+                        features["proper_positions"], features["proper_nouns"]
+                    ):
+                        if pos > idx + len(phrase_tokens) - 1:
+                            return name
         except Exception:
-            pass
+            return None
+        return None
+
+    def _select_candidate_name(self, features: Dict[str, Any]) -> Optional[str]:
+        """Choose a candidate name based on positional heuristics."""
+
+        proper_positions = features.get("proper_positions", [])
+        proper_nouns = features.get("proper_nouns", [])
+        if not proper_positions:
+            return None
+
+        second_positions = features.get("second_person_positions", [])
+        verb_positions = features.get("naming_verb_positions", [])
+
+        # Prefer nouns that appear shortly after a naming verb
+        for verb_index in verb_positions:
+            window_limit = verb_index + 4
+            for pos, name in zip(proper_positions, proper_nouns):
+                if verb_index < pos <= window_limit:
+                    return name
+
+        # Otherwise, require the noun appear after a second-person reference
+        for pos, name in zip(proper_positions, proper_nouns):
+            if any(sp < pos for sp in second_positions):
+                return name
+
+        # As final fallback, allow single proper noun if the message directly addresses the assistant
+        if len(proper_nouns) == 1 and (second_positions or verb_positions):
+            return proper_nouns[0]
 
         return None
+
+    # _extract_candidate_name removed - proper nouns now extracted in _extract_naming_features
 
     def extract_features(self, text: str) -> DirectiveFeatures:
         """Extract semantic features from directive text."""

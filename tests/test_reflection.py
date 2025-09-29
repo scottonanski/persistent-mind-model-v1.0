@@ -5,12 +5,13 @@ from pmm.runtime.loop import evaluate_reflection
 def test_cooldown_blocks_until_turns_and_time_pass(tmp_path):
     cd = ReflectionCooldown(min_turns=2, min_seconds=5.0)
     # Initially no turns, last_ts=0; should block due to min_turns first
-    ok, reason = evaluate_reflection(cd, now=0.0, novelty=1.0)
+    # Use novelty < 0.95 to avoid high-novelty bypass
+    ok, reason = evaluate_reflection(cd, now=0.0, novelty=0.8)
     assert (ok, reason) == (False, "min_turns")
 
     # Note one user turn; still below min_turns
     cd.note_user_turn()
-    ok, reason = evaluate_reflection(cd, now=10.0, novelty=1.0)
+    ok, reason = evaluate_reflection(cd, now=10.0, novelty=0.8)
     assert (ok, reason) == (False, "min_turns")
 
     # Note second turn
@@ -19,7 +20,7 @@ def test_cooldown_blocks_until_turns_and_time_pass(tmp_path):
     cd.reset()
     cd.note_user_turn()
     cd.note_user_turn()
-    ok, reason = evaluate_reflection(cd, now=cd.last_ts + 1.0, novelty=1.0)
+    ok, reason = evaluate_reflection(cd, now=cd.last_ts + 1.0, novelty=0.8)
     assert (ok, reason) == (False, "min_time")
 
 

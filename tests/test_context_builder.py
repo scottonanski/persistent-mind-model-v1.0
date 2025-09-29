@@ -37,7 +37,8 @@ def test_context_block_contains_core_sections():
     # Ensure deterministic markers
     assert block.startswith("[SYSTEM STATE — from ledger]")
     assert "Identity: Persistent" in block
-    assert "IAS=0.50, GAS=0.02" in block
+    # IAS starts at 0.0 for fresh systems (compute_ias_gas behavior)
+    assert "IAS=0.00, GAS=0.02" in block
     assert "Open commitments:" in block
     assert "Maintain basic conversational responsiveness" in block
     assert "Recent reflections:" in block

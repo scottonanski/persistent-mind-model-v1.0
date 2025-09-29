@@ -12,9 +12,10 @@ def test_no_reflect_emits_skip_breadcrumb(tmp_path):
     # Establish recent baseline time
     cd.reset()
     # Two quick turns, but not enough time
+    # Use novelty < 0.95 to avoid high-novelty bypass
     cd.note_user_turn()
     cd.note_user_turn()
-    did, reason = maybe_reflect(log, cd, now=cd.last_ts + 1.0, novelty=1.0)
+    did, reason = maybe_reflect(log, cd, now=cd.last_ts + 1.0, novelty=0.8)
     assert did is False
     assert reason == "min_time"
 

@@ -66,9 +66,15 @@ class ReflectionCooldown:
         except Exception:
             novelty_thr = 0.8
         self.last_effective_novelty_threshold = float(novelty_thr)
-        if self.turns_since < min_turns:
+
+        # High-novelty bypass: if novelty is very high (≥0.95), allow reflection
+        # even if turn/time gates haven't been met yet. This enables deep
+        # philosophical conversations to trigger reflections naturally.
+        high_novelty_bypass = novelty >= 0.95
+
+        if self.turns_since < min_turns and not high_novelty_bypass:
             return (False, "min_turns")
-        if (now - self.last_ts) < min_seconds:
+        if (now - self.last_ts) < min_seconds and not high_novelty_bypass:
             return (False, "min_time")
         if novelty < novelty_thr:
             return (False, "due_to_low_novelty")

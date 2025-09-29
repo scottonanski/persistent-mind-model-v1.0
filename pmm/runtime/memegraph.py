@@ -98,6 +98,33 @@ class MemeGraphProjection:
         with self._lock:
             return len(self._edges)
 
+    def get_summary(self) -> str:
+        """Return a compact human-readable summary of the graph structure."""
+        with self._lock:
+            node_count = len(self._nodes)
+            edge_count = len(self._edges)
+
+            # Count nodes by type
+            node_types: dict[str, int] = {}
+            for node in self._nodes.values():
+                node_types[node.label] = node_types.get(node.label, 0) + 1
+
+            # Get recent commitments
+            open_commits = sum(
+                1
+                for state in self._commitment_state.values()
+                if state.get("open", False)
+            )
+
+            # Format summary
+            lines = [
+                f"MemeGraph: {node_count} nodes, {edge_count} edges",
+                f"Node types: {', '.join(f'{k}={v}' for k, v in sorted(node_types.items()))}",
+                f"Open commitments tracked: {open_commits}",
+            ]
+
+            return " | ".join(lines)
+
     @property
     def last_batch_metrics(self) -> Dict[str, Any]:
         with self._lock:
