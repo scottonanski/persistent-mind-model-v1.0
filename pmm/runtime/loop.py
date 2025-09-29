@@ -467,7 +467,7 @@ class Runtime:
             events = self.eventlog.read_all()
             last_id = int(events[-1]["id"]) if events else 0
             identity = build_identity(events)
-            self_model = build_self_model(events)
+            self_model = build_self_model(events, eventlog=self.eventlog)
             ias, gas = compute_ias_gas(events)
             stage, stage_snapshot = StageTracker.infer_stage(events)
 
@@ -3731,7 +3731,7 @@ class AutonomyLoop:
     def _build_snapshot_fallback(self) -> LedgerSnapshot:
         events = self.eventlog.read_all()
         identity = build_identity(events)
-        self_model = build_self_model(events)
+        self_model = build_self_model(events, eventlog=self.eventlog)
         ias, gas = compute_ias_gas(events)
         stage, stage_snapshot = StageTracker.infer_stage(events)
         last_id = int(events[-1]["id"]) if events else 0
@@ -3826,7 +3826,7 @@ class AutonomyLoop:
         # Emit an identity_checkpoint snapshot (traits, commitments, stage)
         try:
             evs_now = self.eventlog.read_all()
-            model = build_self_model(evs_now)
+            model = build_self_model(evs_now, eventlog=self.eventlog)
             traits = model.get("traits", {})
             commitments = model.get("commitments", {})
             stage = model.get("stage", "S0")
@@ -4038,7 +4038,9 @@ class AutonomyLoop:
                 # Fallback: if no rebind was detected, do a direct scan and emit rebind(s)
                 if not rebind_cids:
                     try:
-                        model_after = build_self_model(self.eventlog.read_all())
+                        model_after = build_self_model(
+                            self.eventlog.read_all(), eventlog=self.eventlog
+                        )
                         open_map_fb = (model_after.get("commitments") or {}).get(
                             "open", {}
                         )

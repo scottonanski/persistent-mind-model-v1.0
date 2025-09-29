@@ -177,7 +177,7 @@ class AutonomousSystemsManager:
 
         # Get current stage and model
         current_stage, stage_snapshot = StageTracker.infer_stage(events)
-        model = build_self_model(events)
+        model = build_self_model(events, eventlog=self.eventlog)
 
         return {
             "current_stage": current_stage,

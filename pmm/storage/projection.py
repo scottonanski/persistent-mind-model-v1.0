@@ -31,13 +31,25 @@ def build_self_model(
     strict: bool = False,
     max_trait_delta: float = MAX_TRAIT_DELTA,
     on_warn: Optional[Callable[[Dict], None]] = None,
+    eventlog=None,
 ) -> Dict:
     """Build a minimal self-model from an ordered list of events.
+
+    Performance: If eventlog is provided and USE_PROJECTION_CACHE=True,
+    uses incremental cache for 5-50x speedup. Otherwise uses standard projection.
 
     Parameters
     ----------
     events : list[dict]
         Rows from `EventLog.read_all()`, ordered by ascending id.
+    eventlog : EventLog, optional
+        If provided, enables projection cache for performance.
+    strict : bool
+        Enable strict invariant checking.
+    max_trait_delta : float
+        Maximum trait delta per event.
+    on_warn : callable, optional
+        Warning callback for non-strict mode.
 
     Returns
     -------
@@ -53,6 +65,20 @@ def build_self_model(
           "commitments": {"open": {cid: {"text": str, ...}}}
         }
     """
+    # Performance optimization: Use cache if eventlog provided and caching enabled
+    if eventlog is not None:
+        from pmm.config import USE_PROJECTION_CACHE
+
+        if USE_PROJECTION_CACHE:
+            global _global_projection_cache
+            if _global_projection_cache is None:
+                from pmm.storage.projection_cache import ProjectionCache
+
+                _global_projection_cache = ProjectionCache(
+                    strict=strict,
+                    max_trait_delta=max_trait_delta,
+                )
+            return _global_projection_cache.get_model(eventlog, on_warn=on_warn)
 
     model: Dict = {
         "identity": {
@@ -220,57 +246,6 @@ def build_self_model(
         )
 
     return model
-
-
-def build_self_model_cached(
-    eventlog,
-    *,
-    strict: bool = False,
-    max_trait_delta: float = MAX_TRAIT_DELTA,
-    on_warn: Optional[Callable[[Dict], None]] = None,
-) -> Dict:
-    """Build self-model with optional caching for performance.
-
-    If PMM_USE_PROJECTION_CACHE=true, uses incremental cache (5-50x speedup).
-    Otherwise falls back to standard build_self_model().
-
-    Parameters
-    ----------
-    eventlog : EventLog
-        The event log instance (required for caching).
-    strict : bool
-        Enable strict invariant checking.
-    max_trait_delta : float
-        Maximum trait delta per event.
-    on_warn : callable, optional
-        Warning callback for non-strict mode.
-
-    Returns
-    -------
-    dict
-        Self-model with identity and commitments.
-    """
-    from pmm.config import USE_PROJECTION_CACHE
-
-    if USE_PROJECTION_CACHE:
-        global _global_projection_cache
-        if _global_projection_cache is None:
-            from pmm.storage.projection_cache import ProjectionCache
-
-            _global_projection_cache = ProjectionCache(
-                strict=strict,
-                max_trait_delta=max_trait_delta,
-            )
-        return _global_projection_cache.get_model(eventlog, on_warn=on_warn)
-
-    # Fallback to standard projection
-    events = eventlog.read_all()
-    return build_self_model(
-        events,
-        strict=strict,
-        max_trait_delta=max_trait_delta,
-        on_warn=on_warn,
-    )
 
 
 def build_identity(events: List[Dict]) -> Dict:
