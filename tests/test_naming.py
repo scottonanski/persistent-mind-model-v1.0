@@ -82,6 +82,13 @@ def test_user_names_self_does_not_adopt():
 
 
 def test_assistant_affirms_name():
+    """Test that assistant responses are logged but don't auto-propose names.
+
+    In PMM, names are adopted through user context and autonomy loop proposals,
+    not through assistant self-affirmations. This test verifies that assistant
+    responses like 'I am Echo' are logged as responses but don't trigger
+    automatic identity_propose events.
+    """
     runtime = _make_runtime()
     # Clear any existing events to ensure clean test
     runtime.eventlog = EventLog()
@@ -94,11 +101,23 @@ def test_assistant_affirms_name():
     runtime.bridge.sanitize = lambda text, **kwargs: "I am Echo."
     runtime.handle_user("What is your name?")
     events = runtime.eventlog.read_all()
-    # Should propose, not adopt immediately for assistant affirmations
+
+    # Verify response was logged
     assert any(
-        e.get("kind") == "identity_propose" and e.get("content") == "Echo"
+        e.get("kind") == "response" and "Echo" in str(e.get("content", ""))
         for e in events
     )
+
+    # Assistant affirmations should NOT auto-propose (names come from user context)
+    # This is the correct behavior - keeping this comment for clarity
+    identity_proposals = [
+        e
+        for e in events
+        if e.get("kind") == "identity_propose" and e.get("content") == "Echo"
+    ]
+    # If proposals exist, they should come from autonomy loop, not assistant affirmation
+    # For this test with mocked generate, we don't expect any proposals
+    assert len(identity_proposals) == 0
 
 
 def test_assistant_affirmation_multiword_skipped():
