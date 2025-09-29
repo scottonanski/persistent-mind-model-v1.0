@@ -84,6 +84,20 @@ class EventLog:
                 self._conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind);"
                 )
+                # Composite indexes for performance (Phase 1.2 optimization)
+                # Used by: read_after_id with kind filtering, metrics queries
+                self._conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_events_kind_id ON events(kind, id);"
+                )
+                # Used by: read_after_ts queries, temporal filtering
+                self._conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_events_ts_id ON events(ts, id);"
+                )
+                # Partial index for fast metrics lookup (most recent metrics_update)
+                self._conn.execute(
+                    """CREATE INDEX IF NOT EXISTS idx_metrics_lookup 
+                       ON events(id DESC) WHERE kind='metrics_update';"""
+                )
                 # Ensure hash-chain columns exist (idempotent migration)
                 cols = self._get_columns()
                 if "prev_hash" not in cols:
