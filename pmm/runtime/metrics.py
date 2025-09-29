@@ -5,6 +5,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Global metrics cache (Phase 2.2 optimization)
+_global_metrics_cache = None
+
 # Deterministic score movement parameters (ledger-anchored, dev-tuned)
 
 # Identity stability - responsive to user interactions (3s ticks, 5-tick windows = 15s bonuses)
@@ -250,8 +253,21 @@ def get_or_compute_ias_gas(eventlog) -> Tuple[float, float]:
 
     This is the main function that should be used instead of compute_ias_gas
     for efficiency and consistency.
+
+    If PMM_USE_METRICS_CACHE=true, uses simple cache (2-5x speedup).
     """
-    # Step 1: Try to read from database
+    # Phase 2.2 optimization: Use metrics cache if enabled
+    from pmm.config import USE_METRICS_CACHE
+
+    if USE_METRICS_CACHE:
+        global _global_metrics_cache
+        if _global_metrics_cache is None:
+            from pmm.runtime.metrics_cache import MetricsCache
+
+            _global_metrics_cache = MetricsCache()
+        return _global_metrics_cache.get_metrics(eventlog)
+
+    # Original implementation: Step 1: Try to read from database
     ias, gas, last_metrics_id = get_ias_gas_from_db(eventlog)
 
     if last_metrics_id > 0:

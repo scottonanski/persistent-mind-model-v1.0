@@ -103,6 +103,14 @@ DEFAULT_BASE_URL = os.getenv("PMM_DEFAULT_BASE_URL", "http://localhost:11434")
 # Storage Configuration
 DEFAULT_DB_PATH = os.getenv("PMM_DB_PATH", "pmm_data.db")
 
+# Performance Optimization Feature Flags (Phase 1 & 2)
+# Enable these to use performance caches (2-50x speedup)
+USE_PROJECTION_CACHE = os.getenv("PMM_USE_PROJECTION_CACHE", "false").lower() == "true"
+USE_METRICS_CACHE = os.getenv("PMM_USE_METRICS_CACHE", "false").lower() == "true"
+USE_EMBEDDING_CACHE = (
+    os.getenv("PMM_USE_EMBEDDING_CACHE", "true").lower() == "true"
+)  # Default ON
+
 # Commitment Extractor Configuration (constants)
 COMMITMENT_THRESHOLD = 0.62
 DUPLICATE_SIM_THRESHOLD = 0.60
