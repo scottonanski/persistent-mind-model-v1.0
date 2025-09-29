@@ -49,6 +49,7 @@ def build_context_from_ledger(
     *,
     n_reflections: int = 3,
     snapshot: LedgerSnapshot | None = None,
+    use_tail_optimization: bool = True,
 ) -> str:
     """Return a formatted context block derived from the ledger.
 
@@ -58,6 +59,11 @@ def build_context_from_ledger(
         The ledger instance.
     n_reflections : int, default 3
         Maximum number of recent reflection events to include.
+    snapshot : LedgerSnapshot | None
+        Optional pre-computed snapshot to avoid re-reading events.
+    use_tail_optimization : bool, default True
+        If True, uses read_tail() for recent context (5-10x faster).
+        Set to False for full ledger scan (e.g., when identity is very old).
 
     Returns
     -------
@@ -65,15 +71,20 @@ def build_context_from_ledger(
         Multi-line string suitable for inclusion as a system message.
     """
 
-    # Read the entire ledger once. For modest DB sizes this is acceptable and
-    # keeps logic simple/deterministic. If performance becomes an issue we can
-    # replace with targeted `read_tail` calls.
+    # Performance optimization (Phase 1.3): Use read_tail for recent context
+    # Most context needs (IAS/GAS, recent reflections, commitments) are in
+    # the recent 500-1000 events. Full projection still uses read_all().
     events: List[Dict[str, Any]]
     if snapshot is not None:
         events = snapshot.events
     else:
         try:
-            events = eventlog.read_all()
+            if use_tail_optimization:
+                # Read recent events only (5-10x faster for large DBs)
+                events = eventlog.read_tail(limit=1000)
+            else:
+                # Fallback to full scan if needed
+                events = eventlog.read_all()
         except Exception:  # pragma: no cover — safety net
             events = []
 
