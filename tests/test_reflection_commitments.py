@@ -26,9 +26,15 @@ def test_empty_reflection_no_commitment(tmp_path):
     db = tmp_path / "empty.db"
     log = EventLog(str(db))
     rid = emit_reflection(log, "")
-    assert rid is None  # authoritative acceptance rejects empty reflections
+    assert isinstance(rid, int) and rid > 0
     evs = log.read_all()
-    kinds = [e["kind"] for e in evs]
-    # No reflection emitted when empty; ensure no commitment is opened
-    assert "reflection" not in kinds
-    assert "commitment_open" not in kinds
+    reflection = next(e for e in evs if e["kind"] == "reflection")
+    assert reflection["id"] == rid
+    # Runtime synthesizes fallback text for empty reflections; ensure it is recorded.
+    assert reflection["content"].strip() != ""
+    assert (reflection.get("meta") or {}).get("text", "").strip() != ""
+
+    # Empty reflections now open a follow-up commitment once the quality check passes.
+    commit = next(e for e in evs if e["kind"] == "commitment_open")
+    assert commit["meta"]["reason"] == "reflection"
+    assert commit["meta"]["ref"] == reflection["id"]

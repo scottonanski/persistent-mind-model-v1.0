@@ -12,6 +12,7 @@ class ReflectionCooldown:
     last_ts: float = 0.0
     turns_since: int = 0
     novelty_threshold: float = 0.2
+    last_effective_novelty_threshold: float = 0.0
 
     def note_user_turn(self) -> None:
         self.turns_since += 1
@@ -59,6 +60,12 @@ class ReflectionCooldown:
             except Exception:
                 # Never fail gating due to policy parsing issues
                 pass
+        # Clamp to avoid runaway policy values starving reflections.
+        try:
+            novelty_thr = min(0.8, max(0.0, float(novelty_thr)))
+        except Exception:
+            novelty_thr = 0.8
+        self.last_effective_novelty_threshold = float(novelty_thr)
         if self.turns_since < min_turns:
             return (False, "min_turns")
         if (now - self.last_ts) < min_seconds:

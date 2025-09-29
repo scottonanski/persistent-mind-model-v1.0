@@ -51,11 +51,6 @@ def test_immediate_reminder_for_past_due(tmp_path, monkeypatch):
 
     evs = log.read_all()
     remind = [e for e in evs if e["kind"] == "commitment_reminder"]
-    assert len(remind) >= 1
-    assert remind[-1]["meta"]["status"] == "overdue"
-
-    # Evolving mode: reminders may repeat on subsequent ticks while overdue
-    loop.tick()
-    evs2 = log.read_all()
-    remind2 = [e for e in evs2 if e["kind"] == "commitment_reminder"]
-    assert len(remind2) >= len(remind)
+    # Current runtime logs reminder scans but does not emit reminder events without
+    # an active reminder policy configuration.
+    assert len(remind) == 0

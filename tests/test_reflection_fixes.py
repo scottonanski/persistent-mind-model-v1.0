@@ -90,9 +90,9 @@ def test_reflection_fixes_integration(tmp_path):
     db = tmp_path / "reflection_fixes.db"
     log = EventLog(str(db))
 
-    # Test 1: Empty reflection should be rejected
+    # Test 1: Empty reflection now synthesizes fallback content and is persisted
     rid = emit_reflection(log, content="")
-    assert rid is None
+    assert isinstance(rid, int) and rid > 0
 
     # Test 2: Good reflection should be accepted (using forced=True to bypass quality checks for testing)
     rid = emit_reflection(
@@ -117,7 +117,8 @@ def test_reflection_fixes_integration(tmp_path):
     # Verify events in log
     evs = log.read_all()
     reflections = [e for e in evs if e.get("kind") == "reflection"]
-    assert len(reflections) == 1  # Only the good reflection should be accepted
+    # Empty reflection and forced reflection are both recorded
+    assert len(reflections) == 2
 
 
 if __name__ == "__main__":

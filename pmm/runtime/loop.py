@@ -20,7 +20,6 @@ from pmm.storage.projection import build_identity, build_self_model
 from pmm.llm.factory import LLMFactory, LLMConfig, chat_with_budget
 from pmm.llm.limits import TickBudget, RATE_LIMITED
 from pmm.bridge.manager import BridgeManager
-from pmm.directives.classifier import SemanticDirectiveClassifier
 from pmm.runtime.cooldown import ReflectionCooldown
 from pmm.runtime.metrics import compute_ias_gas
 
@@ -38,7 +37,7 @@ from pmm.runtime.ngram_filter import NGramFilter
 from pmm.runtime.self_evolution import SelfEvolution
 from pmm.runtime.recall import suggest_recall
 from pmm.runtime.scene_compactor import maybe_compact
-from pmm.runtime.prioritizer import rank_commitments, Prioritizer
+from pmm.runtime.prioritizer import rank_commitments
 from pmm.runtime.pmm_prompts import build_system_msg, orientation_hash, ORIENTATION_V
 from pmm.commitments.extractor import extract_commitments
 from pmm.runtime.stage_tracker import StageTracker, stage_str_to_level
@@ -404,8 +403,8 @@ class Runtime:
         self._graph_force_next = False
         self._graph_suppress_next = False
         self._graph_cooldown = 0
-        self._graph_recent_edges = collections.deque(maxlen=6)
-        self._graph_recent_nodes = collections.deque(maxlen=12)
+        self._graph_recent_edges: collections.deque[str] = collections.deque(maxlen=6)
+        self._graph_recent_nodes: collections.deque[str] = collections.deque(maxlen=12)
         self._graph_trigger = GraphInsightTrigger()
         self._init_llm_backend()
 
@@ -413,43 +412,38 @@ class Runtime:
         """Initialize or reinitialize the LLM backend from current config."""
         bundle = LLMFactory.from_config(self.cfg)
         self.chat = bundle.chat
+
+        # Rebuild bridge per model to keep sanitizer consistent
         if not hasattr(self, "bridge") or self.bridge is None:
             self.bridge = BridgeManager(model_family=self.cfg.provider)
         else:
-            # Update existing bridge with new model family
             self.bridge = BridgeManager(model_family=self.cfg.provider)
 
-        # Only initialize these once during __init__
         if not hasattr(self, "cooldown"):
             self.cooldown = ReflectionCooldown()
-            # Apply persistent cadence defaults (durable across runs)
             try:
-                _cfg = _load_cfg()
+                cfg = _load_cfg()
                 try:
                     self.cooldown.min_turns = int(
-                        _cfg.get("reflect_min_turns", self.cooldown.min_turns)
+                        cfg.get("reflect_min_turns", self.cooldown.min_turns)
                     )
                 except Exception:
                     pass
                 try:
                     self.cooldown.min_seconds = float(
-                        _cfg.get("reflect_min_seconds", self.cooldown.min_seconds)
+                        cfg.get("reflect_min_seconds", self.cooldown.min_seconds)
                     )
                 except Exception:
                     pass
             except Exception:
                 pass
-            # Per-tick deterministic LLM usage budget
+
             self.budget = TickBudget()
-            # Commitments tracker (structural events only; free-text detection disabled)
             self.tracker = CommitmentTracker(
                 self.eventlog, memegraph=getattr(self, "memegraph", None)
             )
-            # Autonomy loop handle (started explicitly)
             self._autonomy: AutonomyLoop | None = None
-            # Output filter for assistant replies
             self._ngram_filter = NGramFilter(getattr(self, "_ngram_bans", None))
-            # Renderer (bridge-lite)
             self._renderer = ResponseRenderer()
             self.directive_hierarchy = (
                 DirectiveHierarchy(self.eventlog) if self.eventlog else None
@@ -459,49 +453,239 @@ class Runtime:
                 if self.eventlog and self.directive_hierarchy
                 else None
             )
-            self.prioritizer = Prioritizer(self.eventlog) if self.eventlog else None
-            self.classifier = SemanticDirectiveClassifier(self.eventlog)
-            self._ngram_repeat_directive_cache: Optional[tuple[int, bool]] | None = None
-
-    # --- Graph directives ----------------------------------------------------
-
-    def force_graph_context(self) -> None:
-        self._graph_force_next = True
-        self._graph_suppress_next = False
+            self._last_embedding_exception: Exception | None = None
 
     def suppress_graph_context(self) -> None:
         self._graph_suppress_next = True
         self._graph_force_next = False
 
-    def _handle_event_appended(self, _: Dict[str, Any]) -> None:
+    def _get_snapshot(self) -> LedgerSnapshot:
+        with self._snapshot_lock:
+            if self._snapshot_cache is not None:
+                return self._snapshot_cache
+
+            events = self.eventlog.read_all()
+            last_id = int(events[-1]["id"]) if events else 0
+            identity = build_identity(events)
+            self_model = build_self_model(events)
+            ias, gas = compute_ias_gas(events)
+            stage, stage_snapshot = StageTracker.infer_stage(events)
+
+            snapshot = LedgerSnapshot(
+                events=list(events),
+                identity=identity,
+                self_model=self_model,
+                ias=ias,
+                gas=gas,
+                stage=stage,
+                stage_snapshot=stage_snapshot,
+                last_event_id=last_id,
+            )
+            self._snapshot_cache = snapshot
+            return snapshot
+
+    def _handle_event_appended(self, event: dict) -> None:
         with self._snapshot_lock:
             self._snapshot_cache = None
 
-    def _get_snapshot(self) -> LedgerSnapshot:
-        events = self.eventlog.read_all()
-        last_id = int(events[-1]["id"]) if events else 0
-        with self._snapshot_lock:
-            cached = self._snapshot_cache
-            if cached is not None and cached.last_event_id == last_id:
-                return cached
-        events_copy = list(events)
-        identity = build_identity(events_copy)
-        self_model = build_self_model(events_copy)
-        ias, gas = compute_ias_gas(events_copy)
-        stage, stage_snapshot = StageTracker.infer_stage(events_copy)
-        snapshot = LedgerSnapshot(
-            events=events_copy,
-            identity=identity,
-            self_model=self_model,
-            ias=ias,
-            gas=gas,
-            stage=stage,
-            stage_snapshot=stage_snapshot,
-            last_event_id=last_id,
-        )
-        with self._snapshot_lock:
-            self._snapshot_cache = snapshot
-        return snapshot
+    def describe_state(self, *, lookback: int = 400) -> dict[str, Any]:
+        """Summarize recent ledger updates for traits, policies, stage, and reflection."""
+
+        try:
+            events = self.eventlog.read_tail(limit=int(lookback))
+        except Exception:
+            events = self.eventlog.read_all()
+
+        # Collect most recent trait deltas per trait name (first occurrence scanning backwards).
+        trait_updates: list[dict[str, Any]] = []
+        seen_traits: set[str] = set()
+        for ev in reversed(events):
+            if ev.get("kind") != "trait_update":
+                continue
+            meta = ev.get("meta") or {}
+            changes = (
+                meta.get("changes") if isinstance(meta.get("changes"), dict) else None
+            )
+            if changes:
+                for trait_name, delta in changes.items():
+                    trait_key = str(trait_name)
+                    if trait_key in seen_traits:
+                        continue
+                    seen_traits.add(trait_key)
+                    trait_updates.append(
+                        {
+                            "trait": trait_key,
+                            "delta": delta,
+                            "reason": meta.get("reason"),
+                            "ts": ev.get("ts"),
+                            "id": ev.get("id"),
+                        }
+                    )
+            else:
+                trait = meta.get("trait")
+                if not trait or str(trait) in seen_traits:
+                    continue
+                seen_traits.add(str(trait))
+                trait_updates.append(
+                    {
+                        "trait": str(trait),
+                        "delta": meta.get("delta"),
+                        "reason": meta.get("reason"),
+                        "ts": ev.get("ts"),
+                        "id": ev.get("id"),
+                    }
+                )
+
+        # Latest policy update per component.
+        policies: dict[str, dict[str, Any]] = {}
+        for ev in reversed(events):
+            if ev.get("kind") != "policy_update":
+                continue
+            meta = ev.get("meta") or {}
+            component = str(meta.get("component") or "")
+            if not component or component in policies:
+                continue
+            policies[component] = {
+                "component": component,
+                "params": meta.get("params"),
+                "stage": meta.get("stage"),
+                "ts": ev.get("ts"),
+                "id": ev.get("id"),
+            }
+
+        # Latest stage_progress event (if any).
+        stage_info: dict[str, Any] = {}
+        for ev in reversed(events):
+            if ev.get("kind") == "stage_progress":
+                meta = ev.get("meta") or {}
+                stage_info = {
+                    "stage": meta.get("stage"),
+                    "IAS": meta.get("IAS"),
+                    "GAS": meta.get("GAS"),
+                    "commitment_count": meta.get("commitment_count"),
+                    "reflection_count": meta.get("reflection_count"),
+                    "ts": ev.get("ts"),
+                    "id": ev.get("id"),
+                }
+                break
+
+        # Last reflection event (prefer actual reflection, else last skip).
+        last_reflection: dict[str, Any] | None = None
+        for ev in reversed(events):
+            kind = ev.get("kind")
+            if kind == "reflection":
+                last_reflection = {
+                    "kind": kind,
+                    "id": ev.get("id"),
+                    "ts": ev.get("ts"),
+                    "meta": ev.get("meta"),
+                }
+                break
+            if kind == REFLECTION_SKIPPED and last_reflection is None:
+                last_reflection = {
+                    "kind": kind,
+                    "id": ev.get("id"),
+                    "ts": ev.get("ts"),
+                    "meta": ev.get("meta"),
+                }
+
+        return {
+            "traits": trait_updates,
+            "policies": list(policies.values()),
+            "stage": stage_info,
+            "last_reflection": last_reflection or {},
+        }
+
+    def _detect_state_intents(self, text: str | None) -> set[str]:
+        low = (text or "").lower()
+        intents: set[str] = set()
+        if not low:
+            return intents
+        if "trait" in low and any(
+            term in low for term in ("change", "changed", "update", "adjust")
+        ):
+            intents.add("traits")
+        if any(term in low for term in ("policy", "policies", "cadence", "cooldown")):
+            intents.add("policies")
+        if "stage" in low:
+            intents.add("stage")
+        if any(term in low for term in ("reflect", "reflection")):
+            intents.add("reflection")
+        return intents
+
+    def _format_state_summary(self, state: dict[str, Any], intents: set[str]) -> str:
+        lines: list[str] = []
+
+        def _fmt_delta(val: Any) -> str:
+            try:
+                return f"{float(val):+.3f}"
+            except Exception:
+                return str(val)
+
+        if "traits" in intents:
+            traits = state.get("traits", []) or []
+            lines.append("Recent trait updates:")
+            if traits:
+                for entry in traits[:5]:
+                    trait = entry.get("trait", "?")
+                    delta = _fmt_delta(entry.get("delta"))
+                    ts = entry.get("ts", "?")
+                    reason = entry.get("reason")
+                    reason_txt = f" reason={reason}" if reason else ""
+                    lines.append(f"- {trait} {delta} at {ts}{reason_txt}")
+            else:
+                lines.append("- none recorded in recent ledger slice")
+
+        if "policies" in intents:
+            policies = state.get("policies", []) or []
+            lines.append("Latest policy updates:")
+            if policies:
+                for entry in policies[:5]:
+                    component = entry.get("component", "?")
+                    params = entry.get("params")
+                    params_txt = (
+                        _json.dumps(params, sort_keys=True)
+                        if isinstance(params, dict)
+                        else str(params)
+                    )
+                    ts = entry.get("ts", "?")
+                    stage = entry.get("stage")
+                    stage_txt = f" stage={stage}" if stage else ""
+                    lines.append(f"- {component} {params_txt} at {ts}{stage_txt}")
+            else:
+                lines.append("- none recorded in recent ledger slice")
+
+        if "stage" in intents:
+            stage_info = state.get("stage") or {}
+            if stage_info:
+                lines.append(
+                    "Stage status: stage={} IAS={} GAS={} (at {})".format(
+                        stage_info.get("stage", "?"),
+                        stage_info.get("IAS"),
+                        stage_info.get("GAS"),
+                        stage_info.get("ts", "?"),
+                    )
+                )
+            else:
+                lines.append(
+                    "Stage status: no stage_progress events in recent ledger slice"
+                )
+
+        if "reflection" in intents:
+            ref = state.get("last_reflection") or {}
+            if ref:
+                meta = ref.get("meta") or {}
+                reason = meta.get("reason")
+                reason_txt = f" reason={reason}" if reason else ""
+                lines.append(
+                    f"Last reflection event: kind={ref.get('kind')} id={ref.get('id')} at {ref.get('ts')}{reason_txt}"
+                )
+            else:
+                lines.append("Last reflection event: none found in recent ledger slice")
+
+        if not lines:
+            return ""
+        return "Ledger summary:\n" + "\n".join(lines)
 
     # --- Unified generation surface -----------------------------------------
     def _generate_reply(
@@ -901,6 +1085,15 @@ class Runtime:
             {"role": "system", "content": build_system_msg("chat")},
             {"role": "user", "content": user_text},
         ]
+        intents = self._detect_state_intents(user_text)
+        if intents:
+            try:
+                state_summary = self.describe_state()
+                summary_text = self._format_state_summary(state_summary, intents)
+                if summary_text:
+                    msgs.append({"role": "system", "content": summary_text})
+            except Exception:
+                logger.debug("State summary injection failed", exc_info=True)
         # Strict-operator prompt injection (decision probe / gate check)
         try:
             lowq = (user_text or "").lower()
@@ -2867,59 +3060,41 @@ def emit_reflection(
         ),
     }
     tmpl_label, tmpl_instr = _TEMPLATES.get(int(stage_level), _TEMPLATES[0])
-    if forced and not (content or "").strip():
-        # Generate meaningful fallback content instead of empty placeholder
-        if llm_generate is not None:
-            # Use real LLM generation when available
-            try:
-                context = "System status: IAS={:.3f}, GAS={:.3f}, Stage={}. Reflecting on current state after forced reflection trigger.".format(
-                    ias, gas, stage_str
-                )
-                synth = llm_generate(context)
-            except Exception:
-                # Fall back to synthetic content if LLM generation fails
-                tick_id = len(eventlog.read_all())
-                synth = generate_system_status_reflection(
-                    ias, gas, stage_str, eventlog, tick_id
-                )
-        else:
-            # Use synthetic content when no LLM generator is available
-            tick_id = len(eventlog.read_all())
-            synth = generate_system_status_reflection(
-                ias, gas, stage_str, eventlog, tick_id
-            )
-    elif not forced and not (content or "").strip():
-        # Reject empty reflections unless a generator is explicitly provided
-        if llm_generate is None:
-            return None
+    context_forced = "System status: IAS={:.3f}, GAS={:.3f}, Stage={}. Reflecting on current state after forced reflection trigger.".format(
+        ias, gas, stage_str
+    )
+    context_regular = "System status: IAS={:.3f}, GAS={:.3f}, Stage={}. Reflecting on current state and proposing next actions.".format(
+        ias, gas, stage_str
+    )
+
+    def _fallback_text(_: str) -> str:
         try:
-            context = "System status: IAS={:.3f}, GAS={:.3f}, Stage={}. Reflecting on current state and proposing next actions.".format(
-                ias, gas, stage_str
-            )
-            synth = llm_generate(context)
+            tick_local = len(eventlog.read_all())
         except Exception:
-            tick_id = len(eventlog.read_all())
-            synth = generate_system_status_reflection(
-                ias, gas, stage_str, eventlog, tick_id
-            )
-    elif forced and not (content or "").strip():
-        # For forced reflections with empty content, generate synthetic content
-        if llm_generate is not None:
-            try:
-                context = "System status: IAS={:.3f}, GAS={:.3f}, Stage={}. Reflecting on current state after forced reflection trigger.".format(
-                    ias, gas, stage_str
-                )
-                synth = llm_generate(context)
-            except Exception:
-                tick_id = len(eventlog.read_all())
-                synth = generate_system_status_reflection(
-                    ias, gas, stage_str, eventlog, tick_id
-                )
-        else:
-            tick_id = len(eventlog.read_all())
-            synth = generate_system_status_reflection(
-                ias, gas, stage_str, eventlog, tick_id
-            )
+            tick_local = None
+        return generate_system_status_reflection(
+            ias, gas, stage_str, eventlog, tick_local
+        )
+
+    def _call_generator(ctx: str) -> str:
+        generator = llm_generate or _fallback_text
+        try:
+            produced = generator(ctx)
+        except Exception:
+            produced = _fallback_text(ctx)
+        if not isinstance(produced, str):
+            produced = str(produced or "")
+        return produced
+
+    provided_content = bool((content or "").strip())
+    synth = None
+    if not provided_content:
+        synth = _call_generator(context_forced if forced else context_regular)
+
+    final_text = str(content) if provided_content else str(synth or "")
+    if not final_text.strip():
+        final_text = "(empty reflection)"
+
     # Build deterministic refs for reflection
     try:
         K = 6
@@ -2939,7 +3114,6 @@ def emit_reflection(
         sel = []
     # Preserve content verbatim (including trailing newlines) for reflection_check; avoid .strip()
     provided_content = bool((content or "").strip())
-    final_text = content if provided_content or not synth else synth
     raw_text_for_check = (
         final_text  # keep a copy BEFORE sanitization for reflection_check
     )
@@ -3009,6 +3183,9 @@ def emit_reflection(
         if not _would_accept and not forced:
             # Non-forced reflections that still fail after fallback are dropped
             return None
+    if not sanitized_text.strip():
+        sanitized_text = "(empty reflection)"
+        raw_text_for_check = sanitized_text
     meta_payload = {
         "source": "emit_reflection",
         "telemetry": {"IAS": ias, "GAS": gas},
@@ -3162,6 +3339,7 @@ def maybe_reflect(
     if cooldown is None:
         return (False, "disabled")
     # Be resilient to different cooldown stub signatures in tests
+    now_value = float(now) if now is not None else float(_time.time())
     try:
         # Prefer explicit overrides; otherwise, apply policy override only if present.
         _events_for_gate = eventlog.read_all()
@@ -3169,7 +3347,7 @@ def maybe_reflect(
         use_mt = override_min_turns if override_min_turns is not None else pol_mt
         use_ms = override_min_seconds if override_min_seconds is not None else pol_ms
         ok, reason = cooldown.should_reflect(
-            now=now,
+            now=now_value,
             novelty=novelty,
             override_min_turns=use_mt,
             override_min_seconds=use_ms,
@@ -3179,12 +3357,33 @@ def maybe_reflect(
         # Fallback: some stubs accept only (now, novelty)
         try:
             ok, reason = cooldown.should_reflect(
-                now=now, novelty=novelty, events=eventlog.read_all()
+                now=now_value, novelty=novelty, events=eventlog.read_all()
             )
         except TypeError:
             # Final fallback: no-arg call
             ok, reason = cooldown.should_reflect()
     if not ok:
+        threshold = float(
+            getattr(
+                cooldown,
+                "last_effective_novelty_threshold",
+                getattr(cooldown, "novelty_threshold", 0.0),
+            )
+        )
+        turns_since = getattr(cooldown, "turns_since", None)
+        seconds_since = max(0.0, now_value - float(getattr(cooldown, "last_ts", 0.0)))
+        try:
+            novelty_val = float(novelty)
+        except Exception:
+            novelty_val = 0.0
+        logger.info(
+            "Reflection skipped: reason=%s novelty=%.3f threshold=%.3f turns=%s seconds_since=%.1f",
+            reason,
+            novelty_val,
+            threshold,
+            turns_since,
+            seconds_since,
+        )
         eventlog.append(kind=REFLECTION_SKIPPED, content="", meta={"reason": reason})
         if reason in _FORCEABLE_SKIP_REASONS:
             streak = _consecutive_reflect_skips(eventlog, reason)
