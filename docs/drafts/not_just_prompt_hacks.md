@@ -1,7 +1,6 @@
-# 
 # Why PMM Isn’t “Just Prompt Hacks” 🚀
 
-> PMM (Prompted Machine Model) is far more than a collection of clever prompt tricks. It’s a robust, structured system with a ledger-first architecture, autonomous control loops, and rigorous validation mechanisms. Below, we break down the core components and explain why PMM stands apart from simple prompt engineering. 🌟
+> PMM (Prompted Machine Model) is far more than a collection of clever prompt tricks. It’s a robust, structured system with a ledger-first architecture, autonomous control loops, and rigorous validation mechanisms. Below, we break down the core components and explain why PMM isn't just simple prompt engineering. 🌟
 
 ---
 
@@ -42,8 +41,6 @@ Tests referencing these prompts sit in:
 These confirm expectations about prompt shapes and catch drift early. ✅
 
 ---
-
-### Why PMM Isn’t “Just Prompt Hacks”
 
 PMM’s strength lies in its structured, data-driven architecture, not in fragile prompt engineering. Key pillars:
 

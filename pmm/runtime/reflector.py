@@ -25,7 +25,7 @@ from pmm.config import (
 
 DEFAULTS = {
     "min_chars": 30,
-    "max_chars": 1200,
+    "max_chars": 4000,
     "min_lines": 2,
     "ngram_len": 3,
     "ngram_window": 10,
