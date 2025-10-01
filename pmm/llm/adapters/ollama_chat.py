@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Iterator
 import logging
+import json
 
 try:
     from pmm.storage.eventlog import EventLog
@@ -128,6 +129,81 @@ class OllamaChat:
             return f"{content}\n[Current Metrics: IAS={fresh_ias:.3f}, GAS={fresh_gas:.3f}, Temperature={temperature:.3f}, Max Tokens={max_tokens}]"
         except Exception as e:
             logger.error(f"Error generating response from Ollama: {e}")
+            raise
+
+    def generate_stream(
+        self,
+        messages: List[Dict],
+        temperature: float = 0.7,
+        max_tokens: int = 300,
+        **kwargs,
+    ) -> Iterator[str]:
+        """Stream response tokens from Ollama.
+
+        Yields tokens as they arrive from the model, providing real-time feedback.
+        """
+        if not self._server_available:
+            raise RuntimeError(
+                f"Ollama server not available at {self.base_url}. Please start the Ollama server or use a different provider."
+            )
+
+        try:
+            import requests
+
+            # Get current metrics
+            from pmm.runtime.metrics import get_or_compute_ias_gas
+            from pmm.storage.eventlog import get_default_eventlog
+
+            eventlog = get_default_eventlog()
+            ias, gas = get_or_compute_ias_gas(eventlog)
+
+            url = f"{self.base_url}/api/chat"
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                    **kwargs,
+                },
+                "stream": True,  # Enable streaming
+            }
+            headers = {
+                "Content-Type": "application/json",
+                "X-PMM-IAS": str(ias),
+                "X-PMM-GAS": str(gas),
+            }
+
+            response = requests.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=120,
+                stream=True,  # Enable streaming response
+            )
+            response.raise_for_status()
+
+            logger.info(f"Sent metrics in headers: IAS={ias}, GAS={gas}")
+
+            # Stream tokens as they arrive
+            for line in response.iter_lines():
+                if line:
+                    try:
+                        data = json.loads(line)
+                        if "message" in data and "content" in data["message"]:
+                            token = data["message"]["content"]
+                            if token:  # Only yield non-empty tokens
+                                yield token
+
+                        # Check if streaming is done
+                        if data.get("done", False):
+                            break
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to decode streaming response: {line}")
+                        continue
+
+        except Exception as e:
+            logger.error(f"Error streaming response from Ollama: {e}")
             raise
 
 

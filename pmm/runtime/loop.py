@@ -29,10 +29,16 @@ from pmm.commitments.tracker import CommitmentTracker
 from pmm.runtime.self_introspection import SelfIntrospection
 from pmm.runtime.evolution_reporter import EvolutionReporter
 from pmm.commitments.restructuring import CommitmentRestructurer
-from pmm.commitments import tracker as _commit_tracker  # Step 19 triage helper
+
+import collections
+import hashlib as _hashlib
+import json as _json
+import logging
+import re as _re
 import threading as _threading
 import time as _time
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
+
 from pmm.runtime.ngram_filter import NGramFilter
 from pmm.runtime.self_evolution import SelfEvolution
 from pmm.runtime.recall import suggest_recall
@@ -46,7 +52,6 @@ from pmm.runtime.introspection import run_audit
 from pmm.runtime.stage_tracker import POLICY_HINTS_BY_STAGE
 import pmm.runtime.embeddings as _emb
 from pmm.runtime.snapshot import LedgerSnapshot
-import collections
 
 from pmm.runtime.memegraph import MemeGraphProjection
 from pmm.runtime.graph_trigger import GraphInsightTrigger
@@ -58,6 +63,7 @@ from pmm.runtime.validators import (
     DECISION_PROBE_PROMPT,
     GATE_CHECK_PROMPT,
 )
+from pmm.runtime.trace_buffer import TraceBuffer
 from pmm.config import (
     load as _load_cfg,
     REFLECTION_REJECTED,
@@ -66,6 +72,12 @@ from pmm.config import (
     DUE_TO_CADENCE,
     NAME_ATTEMPT_USER,
     NAME_ATTEMPT_SYSTEM,
+    REASONING_TRACE_ENABLED,
+    REASONING_TRACE_SAMPLING_RATE,
+    REASONING_TRACE_MIN_CONFIDENCE,
+    REASONING_TRACE_BUFFER_SIZE,
+    MAX_COMMITMENT_CHARS,
+    MAX_REFLECTION_CHARS,
 )
 from pmm.directives.detector import (
     extract as _extract_directives,
@@ -103,12 +115,8 @@ from pmm.runtime.self_evolution import (
 )
 import datetime as _dt
 import uuid as _uuid
-import re as _re
-import json as _json
-import hashlib as _hashlib
 from pmm.directives.hierarchy import DirectiveHierarchy
 from pmm.continuity.engine import ContinuityEngine
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -408,6 +416,22 @@ class Runtime:
         self._graph_recent_edges: collections.deque[str] = collections.deque(maxlen=6)
         self._graph_recent_nodes: collections.deque[str] = collections.deque(maxlen=12)
         self._graph_trigger = GraphInsightTrigger()
+
+        # Initialize reasoning trace buffer
+        if REASONING_TRACE_ENABLED:
+            self.trace_buffer = TraceBuffer(
+                sampling_rate=REASONING_TRACE_SAMPLING_RATE,
+                min_confidence_always_log=REASONING_TRACE_MIN_CONFIDENCE,
+                buffer_size=REASONING_TRACE_BUFFER_SIZE,
+            )
+            logger.info(
+                f"Reasoning trace enabled: sampling_rate={REASONING_TRACE_SAMPLING_RATE}, "
+                f"min_confidence={REASONING_TRACE_MIN_CONFIDENCE}"
+            )
+        else:
+            self.trace_buffer = None
+            logger.info("Reasoning trace disabled")
+
         self._init_llm_backend()
 
     def _init_llm_backend(self) -> None:
@@ -774,6 +798,57 @@ class Runtime:
                 return (reply1 + "\n" + reply2).strip()
         return reply1
 
+    def _generate_reply_streaming(
+        self,
+        messages: list[dict],
+        *,
+        temperature: float = 0.0,
+        max_tokens: int = 1024,
+    ):
+        """Stream response tokens as they're generated.
+
+        Yields tokens from the LLM as they arrive. Falls back to non-streaming
+        if the backend doesn't support it.
+
+        Args:
+            messages: List of message dictionaries
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+
+        Yields:
+            Individual tokens or token chunks as strings
+        """
+        # Check if backend supports streaming
+        if hasattr(self.chat, "generate_stream") and callable(
+            getattr(self.chat, "generate_stream", None)
+        ):
+            try:
+                # Stream tokens as they arrive
+                for token in self.chat.generate_stream(
+                    messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                ):
+                    yield token
+            except (NotImplementedError, AttributeError, TypeError):
+                # Fallback to non-streaming
+                reply = self._generate_reply(
+                    messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    allow_continuation=False,
+                )
+                yield reply
+        else:
+            # Backend doesn't support streaming - yield entire response
+            reply = self._generate_reply(
+                messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                allow_continuation=False,
+            )
+            yield reply
+
     def set_model(self, provider: str, model: str) -> None:
         """Switch runtime to a new model at runtime."""
         self.cfg = LLMConfig(
@@ -1071,8 +1146,19 @@ class Runtime:
                 pass
 
     def handle_user(self, user_text: str) -> str:
-        snapshot = self._get_snapshot()
-        events_cached = list(snapshot.events)
+        # Phase 1 Optimization: Always-on performance profiler (lightweight)
+        from pmm.runtime.profiler import get_global_profiler
+
+        profiler = get_global_profiler()
+
+        # Phase 1 Optimization: Always-on request cache (eliminates redundant reads)
+        from pmm.runtime.request_cache import CachedEventLog
+
+        request_log = CachedEventLog(self.eventlog)
+
+        with profiler.measure("snapshot_build"):
+            snapshot = self._get_snapshot()
+            events_cached = list(snapshot.events)
 
         def _refresh_snapshot() -> None:
             nonlocal snapshot, events_cached
@@ -1082,12 +1168,28 @@ class Runtime:
         def _events(refresh: bool = False) -> list[dict]:
             nonlocal events_cached
             if refresh:
-                events_cached = self.eventlog.read_all()
+                with profiler.measure("events_refresh"):
+                    events_cached = request_log.read_all()
             return events_cached
 
-        context_block = build_context_from_ledger(
-            self.eventlog, n_reflections=3, snapshot=snapshot, memegraph=self.memegraph
-        )
+        # Start reasoning trace session for this user query
+        if self.trace_buffer:
+            self.trace_buffer.start_session(
+                query=user_text[:200]
+            )  # Truncate long queries
+            self.trace_buffer.add_reasoning_step("Building context from ledger")
+
+        # Phase 1 Optimization: Build context with character budgets (always enabled)
+        with profiler.measure("context_build"):
+            context_block = build_context_from_ledger(
+                self.eventlog,
+                n_reflections=3,
+                snapshot=snapshot,
+                memegraph=self.memegraph,
+                max_commitment_chars=MAX_COMMITMENT_CHARS,
+                max_reflection_chars=MAX_REFLECTION_CHARS,
+                compact_mode=False,  # Standard mode (not compact)
+            )
         msgs = [
             {"role": "system", "content": context_block},
             {"role": "system", "content": build_system_msg("chat")},
@@ -1407,12 +1509,19 @@ class Runtime:
                     self._graph_recent_nodes
                 )
                 try:
+                    # Add reasoning step for graph traversal
+                    if self.trace_buffer:
+                        self.trace_buffer.add_reasoning_step(
+                            f"Querying memegraph for topic: {low_user[:50]}"
+                        )
+
                     relations = self.memegraph.graph_slice(
                         topic=low_user,
                         limit=3,
                         min_confidence=0.6,
                         exclude_labels=_GRAPH_EXCLUDE_LABELS,
                         recent_digest_blocklist=blocklist,
+                        trace_buffer=self.trace_buffer if self.trace_buffer else None,
                     )
                 except Exception:
                     relations = []
@@ -1491,10 +1600,12 @@ class Runtime:
                 self._graph_force_next = False
 
         styled = self.bridge.format_messages(msgs, intent="chat")
-        # Generate with higher cap and allow a single safe continuation
-        reply = self._generate_reply(
-            styled, temperature=0.3, max_tokens=2048, allow_continuation=True
-        )
+        # Phase 1 Optimization: Profile LLM inference time (always enabled)
+        with profiler.measure("llm_inference"):
+            # Generate with higher cap and allow a single safe continuation
+            reply = self._generate_reply(
+                styled, temperature=0.3, max_tokens=2048, allow_continuation=True
+            )
         # NEW: Apply LLM-driven trait adjustments (side layer)
         # This integrates the LLM trait adjuster without touching foundation code
         try:
@@ -2006,7 +2117,212 @@ class Runtime:
                     )
         except Exception:
             pass
+
+        # Flush reasoning trace to eventlog
+        if self.trace_buffer:
+            try:
+                self.trace_buffer.add_reasoning_step("Response generated and processed")
+                self.trace_buffer.flush_to_eventlog(self.eventlog)
+            except Exception:
+                logger.exception("Failed to flush reasoning trace")
+
+        # Phase 1 Optimization: Export performance profile to eventlog (always enabled)
+        try:
+            profiler.export_to_trace_event(self.eventlog)
+            # Log cache stats from request cache
+            cache_stats = request_log.get_cache_stats()
+            logger.debug(
+                f"Request cache: {cache_stats['hits']} hits, "
+                f"{cache_stats['misses']} misses, "
+                f"hit_rate={cache_stats['hit_rate']:.1%}"
+            )
+        except Exception:
+            logger.debug("Failed to export performance profile", exc_info=True)
+
         return reply
+
+    def handle_user_stream(self, user_text: str):
+        """Handle user input with streaming response.
+
+        Yields tokens as they're generated from the LLM, providing real-time feedback.
+        Post-processing (event logging, embeddings, etc.) happens after streaming completes.
+
+        Args:
+            user_text: User's message
+
+        Yields:
+            Individual tokens or token chunks as strings
+        """
+        # Phase 1 Optimization: Always-on performance profiler (lightweight)
+        from pmm.runtime.profiler import get_global_profiler
+
+        profiler = get_global_profiler()
+
+        # Phase 1 Optimization: Always-on request cache (eliminates redundant reads)
+        from pmm.runtime.request_cache import CachedEventLog
+
+        request_log = CachedEventLog(self.eventlog)
+
+        with profiler.measure("snapshot_build"):
+            snapshot = self._get_snapshot()
+            events_cached = list(snapshot.events)
+
+        def _refresh_snapshot() -> None:
+            nonlocal snapshot, events_cached
+            snapshot = self._get_snapshot()
+            events_cached = list(snapshot.events)
+
+        def _events(refresh: bool = False) -> list[dict]:
+            nonlocal events_cached
+            if refresh:
+                with profiler.measure("events_refresh"):
+                    events_cached = request_log.read_all()
+            return events_cached
+
+        # Start reasoning trace session for this user query
+        if self.trace_buffer:
+            self.trace_buffer.start_session(query=user_text[:200])
+            self.trace_buffer.add_reasoning_step("Building context from ledger")
+
+        # Phase 1 Optimization: Build context with character budgets (always enabled)
+        with profiler.measure("context_build"):
+            context_block = build_context_from_ledger(
+                self.eventlog,
+                n_reflections=3,
+                snapshot=snapshot,
+                memegraph=self.memegraph,
+                max_commitment_chars=MAX_COMMITMENT_CHARS,
+                max_reflection_chars=MAX_REFLECTION_CHARS,
+                compact_mode=False,
+            )
+
+        msgs = [
+            {"role": "system", "content": context_block},
+            {"role": "system", "content": build_system_msg("chat")},
+            {"role": "user", "content": user_text},
+        ]
+
+        intents = self._detect_state_intents(user_text)
+        if intents:
+            try:
+                state_summary = self.describe_state()
+                summary_text = self._format_state_summary(state_summary, intents)
+                if summary_text:
+                    msgs.append({"role": "system", "content": summary_text})
+            except Exception:
+                logger.debug("State summary injection failed", exc_info=True)
+
+        # Append user event BEFORE streaming (must be in ledger)
+        user_event_id = None
+        try:
+            user_event_id = self.eventlog.append(
+                kind="user",
+                content=user_text,
+                meta={"ts": _time.time()},
+            )
+        except Exception:
+            logger.exception("Failed to append user event")
+
+        # Index user embedding
+        if user_event_id is not None:
+            eid_int = int(user_event_id)
+            try:
+                vec = _emb.compute_embedding(user_text)
+                if isinstance(vec, list) and vec:
+                    self.eventlog.append(
+                        kind="embedding_indexed",
+                        content="",
+                        meta={"eid": eid_int, "digest": _emb.digest_vector(vec)},
+                    )
+            except Exception:
+                pass
+
+        # Update reasoning trace
+        if self.trace_buffer:
+            self.trace_buffer.add_reasoning_step("Streaming LLM response")
+
+        # Stream LLM response
+        styled = self.bridge.format_messages(msgs, intent="chat")
+        full_response = []
+
+        with profiler.measure("llm_inference_streaming"):
+            for token in self._generate_reply_streaming(
+                styled,
+                temperature=0.3,
+                max_tokens=2048,
+            ):
+                full_response.append(token)
+                yield token  # Stream to user immediately
+
+        # Reconstruct complete response
+        reply = "".join(full_response)
+
+        # Post-processing (synchronous - must complete before next query)
+        with profiler.measure("post_processing"):
+            # Apply trait adjustments
+            try:
+                applied_events = apply_llm_trait_adjustments(self.eventlog, reply)
+                if applied_events:
+                    logger.info(f"Applied {len(applied_events)} LLM trait adjustments")
+            except Exception as e:
+                logger.warning(f"LLM trait adjustment failed: {e}")
+
+            # Sanitize
+            try:
+                reply = self.bridge.sanitize(
+                    reply,
+                    family=self.bridge.model_family,
+                    adopted_name=build_identity(self.eventlog.read_all()).get("name"),
+                )
+            except Exception:
+                pass
+
+            # Append response event
+            response_event_id = None
+            try:
+                response_event_id = self.eventlog.append(
+                    kind="response",
+                    content=reply,
+                    meta={"user_event_id": user_event_id} if user_event_id else {},
+                )
+            except Exception:
+                logger.exception("Failed to append response event")
+
+            # Index response embedding
+            if response_event_id is not None:
+                rid = int(response_event_id)
+                try:
+                    vec = _emb.compute_embedding(reply)
+                    if isinstance(vec, list) and vec:
+                        self.eventlog.append(
+                            kind="embedding_indexed",
+                            content="",
+                            meta={"eid": rid, "digest": _emb.digest_vector(vec)},
+                        )
+                except Exception:
+                    pass
+
+            # Note user turn for reflection cooldown
+            self.cooldown.note_user_turn()
+
+        # Flush traces and profiling
+        if self.trace_buffer:
+            try:
+                self.trace_buffer.add_reasoning_step("Response streamed and processed")
+                self.trace_buffer.flush_to_eventlog(self.eventlog)
+            except Exception:
+                logger.exception("Failed to flush reasoning trace")
+
+        try:
+            profiler.export_to_trace_event(self.eventlog)
+            cache_stats = request_log.get_cache_stats()
+            logger.debug(
+                f"Request cache: {cache_stats['hits']} hits, "
+                f"{cache_stats['misses']} misses, "
+                f"hit_rate={cache_stats['hit_rate']:.1%}"
+            )
+        except Exception:
+            logger.debug("Failed to export performance profile", exc_info=True)
 
     def _ngram_repeat_telemetry_enabled(self) -> bool:
         cache = getattr(self, "_ngram_repeat_directive_cache", None)
@@ -6227,7 +6543,7 @@ class AutonomyLoop:
         except Exception:
             tail = self.eventlog.read_all()[-500:]
         try:
-            _commit_tracker.open_violation_triage(tail, self.eventlog)
+            self._commit_tracker.open_violation_triage(tail, self.eventlog)
         except Exception:
             # Never allow triage emission to affect the loop
             pass

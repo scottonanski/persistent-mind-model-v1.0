@@ -317,6 +317,182 @@ async def get_commitments(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/traces")
+async def get_traces(
+    db: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=500),
+    query_filter: Optional[str] = Query(None, description="Filter by query text"),
+):
+    """Get reasoning trace summaries."""
+    try:
+        evlog = _get_evlog(db)
+        events = evlog.read_all()
+
+        traces = []
+        for event in reversed(events):
+            if event.get("kind") == "reasoning_trace_summary":
+                meta = event.get("meta", {})
+
+                # Apply query filter if provided
+                if query_filter:
+                    query_text = meta.get("query", "").lower()
+                    if query_filter.lower() not in query_text:
+                        continue
+
+                traces.append(
+                    {
+                        "id": event.get("id"),
+                        "timestamp": event.get("ts"),
+                        "session_id": meta.get("session_id"),
+                        "query": meta.get("query"),
+                        "total_nodes_visited": meta.get("total_nodes_visited", 0),
+                        "node_type_distribution": meta.get(
+                            "node_type_distribution", {}
+                        ),
+                        "high_confidence_count": meta.get("high_confidence_count", 0),
+                        "high_confidence_paths": meta.get("high_confidence_paths", []),
+                        "sampled_count": meta.get("sampled_count", 0),
+                        "reasoning_steps": meta.get("reasoning_steps", []),
+                        "duration_ms": meta.get("duration_ms", 0),
+                    }
+                )
+
+                if len(traces) >= limit:
+                    break
+
+        return {
+            "version": API_VERSION,
+            "traces": traces,
+            "count": len(traces),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/traces/{session_id}")
+async def get_trace_details(
+    session_id: str,
+    db: Optional[str] = Query(None),
+):
+    """Get detailed trace information for a specific session."""
+    try:
+        evlog = _get_evlog(db)
+        events = evlog.read_all()
+
+        # Find summary
+        summary = None
+        samples = []
+
+        for event in events:
+            kind = event.get("kind")
+            meta = event.get("meta", {})
+
+            if (
+                kind == "reasoning_trace_summary"
+                and meta.get("session_id") == session_id
+            ):
+                summary = {
+                    "id": event.get("id"),
+                    "timestamp": event.get("ts"),
+                    "session_id": meta.get("session_id"),
+                    "query": meta.get("query"),
+                    "total_nodes_visited": meta.get("total_nodes_visited", 0),
+                    "node_type_distribution": meta.get("node_type_distribution", {}),
+                    "high_confidence_count": meta.get("high_confidence_count", 0),
+                    "high_confidence_paths": meta.get("high_confidence_paths", []),
+                    "sampled_count": meta.get("sampled_count", 0),
+                    "reasoning_steps": meta.get("reasoning_steps", []),
+                    "duration_ms": meta.get("duration_ms", 0),
+                    "start_time_ms": meta.get("start_time_ms"),
+                    "end_time_ms": meta.get("end_time_ms"),
+                }
+            elif (
+                kind == "reasoning_trace_sample"
+                and meta.get("session_id") == session_id
+            ):
+                samples.append(
+                    {
+                        "id": event.get("id"),
+                        "timestamp": event.get("ts"),
+                        "node_digest": meta.get("node_digest"),
+                        "node_type": meta.get("node_type"),
+                        "context_query": meta.get("context_query"),
+                        "traversal_depth": meta.get("traversal_depth", 0),
+                        "confidence": meta.get("confidence", 0.0),
+                        "edge_label": meta.get("edge_label"),
+                        "reasoning_step": meta.get("reasoning_step"),
+                    }
+                )
+
+        if not summary:
+            raise HTTPException(
+                status_code=404, detail=f"Trace session {session_id} not found"
+            )
+
+        return {
+            "version": API_VERSION,
+            "summary": summary,
+            "samples": samples,
+            "sample_count": len(samples),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/traces/stats/overview")
+async def get_trace_stats(
+    db: Optional[str] = Query(None),
+):
+    """Get aggregate statistics about reasoning traces."""
+    try:
+        evlog = _get_evlog(db)
+        events = evlog.read_all()
+
+        total_traces = 0
+        total_nodes_visited = 0
+        avg_duration_ms = 0
+        node_type_totals = {}
+
+        trace_summaries = []
+
+        for event in events:
+            if event.get("kind") == "reasoning_trace_summary":
+                meta = event.get("meta", {})
+                total_traces += 1
+                total_nodes_visited += meta.get("total_nodes_visited", 0)
+                avg_duration_ms += meta.get("duration_ms", 0)
+
+                # Aggregate node types
+                dist = meta.get("node_type_distribution", {})
+                for node_type, count in dist.items():
+                    node_type_totals[node_type] = (
+                        node_type_totals.get(node_type, 0) + count
+                    )
+
+                trace_summaries.append(meta)
+
+        if total_traces > 0:
+            avg_duration_ms = avg_duration_ms / total_traces
+            avg_nodes_per_trace = total_nodes_visited / total_traces
+        else:
+            avg_nodes_per_trace = 0
+
+        return {
+            "version": API_VERSION,
+            "stats": {
+                "total_traces": total_traces,
+                "total_nodes_visited": total_nodes_visited,
+                "avg_nodes_per_trace": round(avg_nodes_per_trace, 1),
+                "avg_duration_ms": round(avg_duration_ms, 1),
+                "node_type_distribution": node_type_totals,
+            },
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/events/sql")
 async def execute_sql(
     request: Dict[str, Any],

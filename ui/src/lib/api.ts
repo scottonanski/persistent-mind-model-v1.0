@@ -117,6 +117,40 @@ export interface ConsciousnessResponse {
   };
 }
 
+export interface TraceResponse {
+  version: string;
+  traces: Array<{
+    id: number;
+    timestamp: string;
+    session_id: string;
+    query: string;
+    total_nodes_visited: number;
+    node_type_distribution: Record<string, number>;
+    high_confidence_count: number;
+    high_confidence_paths: Array<{
+      node_type: string;
+      confidence: number;
+      edge_label?: string;
+      reasoning?: string;
+    }>;
+    sampled_count: number;
+    reasoning_steps: string[];
+    duration_ms: number;
+  }>;
+  count: number;
+}
+
+export interface TraceStatsResponse {
+  version: string;
+  stats: {
+    total_traces: number;
+    total_nodes_visited: number;
+    avg_nodes_per_trace: number;
+    avg_duration_ms: number;
+    node_type_distribution: Record<string, number>;
+  };
+}
+
 class APIClient {
   private baseUrl: string;
 
@@ -206,6 +240,27 @@ class APIClient {
     }
 
     return response.json();
+  }
+
+  async getTraces(db?: string, limit?: number, queryFilter?: string): Promise<TraceResponse> {
+    return this.request<TraceResponse>('/traces', {
+      db,
+      limit: limit?.toString(),
+      query_filter: queryFilter,
+    });
+  }
+
+  async getTraceStats(db?: string): Promise<TraceStatsResponse> {
+    return this.request<TraceStatsResponse>('/traces/stats/overview', { db });
+  }
+
+  async getTraceDetails(sessionId: string, db?: string): Promise<{
+    version: string;
+    summary: any;
+    samples: any[];
+    sample_count: number;
+  }> {
+    return this.request(`/traces/${sessionId}`, { db });
   }
 }
 

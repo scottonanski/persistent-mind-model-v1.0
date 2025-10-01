@@ -476,6 +476,7 @@ class MemeGraphProjection:
         min_confidence: float = 0.6,
         exclude_labels: Optional[set[str]] = None,
         recent_digest_blocklist: Optional[set[str]] = None,
+        trace_buffer: Optional[Any] = None,
     ) -> List[dict]:
         """Return a small list of high-confidence relations relevant to `topic`.
 
@@ -484,6 +485,14 @@ class MemeGraphProjection:
         matched against node labels, and we prefer edges whose provenance stems
         from user/asserted content. Governance flavored labels (policy/stage/metric)
         can be excluded via `exclude_labels`.
+
+        Args:
+            topic: Query topic to search for
+            limit: Maximum number of results
+            min_confidence: Minimum confidence threshold
+            exclude_labels: Labels to exclude from results
+            recent_digest_blocklist: Digests to exclude
+            trace_buffer: Optional TraceBuffer for reasoning trace logging
         """
 
         topic = (topic or "").strip().lower()
@@ -495,6 +504,8 @@ class MemeGraphProjection:
 
         with self._lock:
             scored: List[tuple[float, MemeNode, MemeEdge, MemeNode]] = []
+            traversal_depth = 0
+
             for edge in self._edges.values():
                 # Governance-blind: filter governance-flavored relations
                 elow = (edge.label or "").lower()
@@ -526,6 +537,31 @@ class MemeGraphProjection:
                     "metrics",
                 }:
                     continue
+
+                # Trace: Record node visits during graph traversal
+                if trace_buffer:
+                    # Log source node visit
+                    trace_buffer.record_node_visit(
+                        node_digest=src.digest,
+                        node_type=src.label,
+                        context_query=topic,
+                        traversal_depth=traversal_depth,
+                        confidence=edge_conf,
+                        edge_label=edge.label,
+                        reasoning_step=f"Examining {src.label} node via {edge.label} edge",
+                    )
+                    # Log destination node visit
+                    trace_buffer.record_node_visit(
+                        node_digest=dst.digest,
+                        node_type=dst.label,
+                        context_query=topic,
+                        traversal_depth=traversal_depth + 1,
+                        confidence=edge_conf,
+                        edge_label=edge.label,
+                        reasoning_step=f"Following {edge.label} to {dst.label} node",
+                    )
+
+                traversal_depth += 1
 
                 # Topic match heuristic: simple containment or token overlap
                 match_bonus = 0.0

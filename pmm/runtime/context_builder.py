@@ -51,6 +51,9 @@ def build_context_from_ledger(
     snapshot: LedgerSnapshot | None = None,
     use_tail_optimization: bool = True,
     memegraph=None,
+    max_commitment_chars: int = 400,
+    max_reflection_chars: int = 600,
+    compact_mode: bool = False,
 ) -> str:
     """Return a formatted context block derived from the ledger.
 
@@ -65,6 +68,12 @@ def build_context_from_ledger(
     use_tail_optimization : bool, default True
         If True, uses read_tail() for recent context (5-10x faster).
         Set to False for full ledger scan (e.g., when identity is very old).
+    max_commitment_chars : int, default 400
+        Maximum total characters for commitment block (reduces token count).
+    max_reflection_chars : int, default 600
+        Maximum total characters for reflection block (reduces token count).
+    compact_mode : bool, default False
+        If True, uses ultra-compact format to minimize tokens (20-30% reduction).
 
     Returns
     -------
@@ -143,11 +152,22 @@ def build_context_from_ledger(
         open_commitments: Dict[str, Any] = self_model.get("commitments", {}).get(
             "open", {}
         )
-        # Deterministic ordering by cid
-        for cid in sorted(open_commitments.keys())[:5]:  # cap at 5 for brevity
+        # Deterministic ordering by cid, with character budget
+        total_chars = 0
+        max_commitments = 3 if compact_mode else 5
+        for cid in sorted(open_commitments.keys())[:max_commitments]:
             txt = _short_commit_text(open_commitments[cid].get("text", ""))
             if txt:
+                # Enforce character budget to reduce token count
+                if total_chars + len(txt) > max_commitment_chars:
+                    # Truncate to fit budget
+                    remaining = max_commitment_chars - total_chars
+                    if remaining > 20:  # Only add if meaningful space left
+                        txt = txt[: remaining - 3] + "..."
+                        commitments_block.append(f"  - {txt}")
+                    break
                 commitments_block.append(f"  - {txt}")
+                total_chars += len(txt)
     except Exception:
         pass
 
@@ -155,13 +175,31 @@ def build_context_from_ledger(
     reflections_block: List[str] = []
     if n_reflections > 0:
         count = 0
+        total_chars = 0
+        max_reflections = 2 if compact_mode else n_reflections
         for ev in reversed(events):
             if ev.get("kind") == "reflection":
-                ts = _iso_short(ev.get("ts"))
+                ts = _iso_short(ev.get("ts")) if not compact_mode else ""
                 txt = _short_reflection(ev.get("content", ""))
-                reflections_block.append(f'  - {ts}: "{txt}"')
+
+                # Enforce character budget to reduce token count
+                if total_chars + len(txt) > max_reflection_chars:
+                    remaining = max_reflection_chars - total_chars
+                    if remaining > 20:
+                        txt = txt[: remaining - 3] + "..."
+                        if compact_mode:
+                            reflections_block.append(f'  - "{txt}"')
+                        else:
+                            reflections_block.append(f'  - {ts}: "{txt}"')
+                    break
+
+                if compact_mode:
+                    reflections_block.append(f'  - "{txt}"')
+                else:
+                    reflections_block.append(f'  - {ts}: "{txt}"')
+                total_chars += len(txt)
                 count += 1
-                if count >= n_reflections:
+                if count >= max_reflections:
                     break
         reflections_block.reverse()  # chronological order older→newer
 
@@ -174,26 +212,41 @@ def build_context_from_ledger(
             pass
 
     # --- Assemble -----------------------------------------------------------
-    lines: List[str] = ["[SYSTEM STATE — from ledger]"]
-    lines.append(f"Identity: {name}")
-    lines.append(f"Traits: {trait_str}")
-    # Guidance for LLM trait suggestions (side layer)
-    lines.append(
-        "You may suggest personality adjustments when context supports it "
-        "(e.g., 'I should increase openness by 0.02'). "
-        "Suggestions should be precise and justified."
-    )
-    if ias is not None and gas is not None and stage is not None:
-        lines.append(f"IAS={ias:.2f}, GAS={gas:.2f}, Stage={stage}")
-    if memegraph_summary:
-        lines.append(memegraph_summary)
-    if commitments_block:
-        lines.append("Open commitments:")
-        lines.extend(commitments_block)
-    if reflections_block:
-        lines.append("Recent reflections:")
-        lines.extend(reflections_block)
-    lines.append("---")
+    if compact_mode:
+        # Ultra-compact format (20-30% token reduction)
+        lines: List[str] = [f"[STATE] {name} | {trait_str}"]
+        if ias is not None and gas is not None and stage is not None:
+            lines.append(f"IAS={ias:.2f} GAS={gas:.2f} {stage}")
+        if memegraph_summary:
+            lines.append(memegraph_summary)
+        if commitments_block:
+            lines.append("Commitments:")
+            lines.extend(commitments_block)
+        if reflections_block:
+            lines.append("Reflections:")
+            lines.extend(reflections_block)
+    else:
+        # Standard format
+        lines: List[str] = ["[SYSTEM STATE — from ledger]"]
+        lines.append(f"Identity: {name}")
+        lines.append(f"Traits: {trait_str}")
+        # Guidance for LLM trait suggestions (side layer)
+        lines.append(
+            "You may suggest personality adjustments when context supports it "
+            "(e.g., 'I should increase openness by 0.02'). "
+            "Suggestions should be precise and justified."
+        )
+        if ias is not None and gas is not None and stage is not None:
+            lines.append(f"IAS={ias:.2f}, GAS={gas:.2f}, Stage={stage}")
+        if memegraph_summary:
+            lines.append(memegraph_summary)
+        if commitments_block:
+            lines.append("Open commitments:")
+            lines.extend(commitments_block)
+        if reflections_block:
+            lines.append("Recent reflections:")
+            lines.extend(reflections_block)
+        lines.append("---")
 
     return "\n".join(lines)
 

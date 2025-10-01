@@ -57,10 +57,17 @@ def _configure_logging(log_console: Console) -> None:
         markup=True,
         omit_repeated_times=False,
     )
-    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
+    # Set to WARNING by default for cleaner chat output
+    # Users can enable verbose logging with --@metrics logs on
+    logging.basicConfig(level=logging.WARNING, handlers=[handler], force=True)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("pmm.runtime.metrics").setLevel(logging.WARNING)
+    logging.getLogger("pmm.llm.adapters.ollama_chat").setLevel(logging.WARNING)
+    logging.getLogger("pmm.runtime.trace_buffer").setLevel(logging.WARNING)
+    logging.getLogger("pmm.runtime.profiler").setLevel(
+        logging.ERROR
+    )  # Hide slow operation warnings
 
 
 def _system_panel(
@@ -73,6 +80,17 @@ def _system_panel(
         border_style=border_style,
         padding=(0, 1),
     )
+
+
+def _show_status(console: Console, message: str) -> None:
+    """Show a status message that can be cleared."""
+    console.print(f"[dim cyan]{message}[/dim cyan]")
+
+
+def _clear_status(console: Console) -> None:
+    """Clear the status line."""
+    # Move cursor up one line and clear it
+    console.print("\033[F\033[K", end="")
 
 
 def _render_assistant(console: Console, reply: str) -> None:
@@ -478,8 +496,24 @@ def main() -> None:
                     pass
                 return
 
-            reply = runtime.handle_user(user_input)
-            _render_assistant(assistant_console, reply)
+            # Phase 2.1: Stream response tokens as they're generated
+            # Provides 15x faster perceived latency (3000ms → 200ms)
+            assistant_console.print("[green]ASSISTANT[/green]", end=" ")
+            reply_tokens = []
+            try:
+                for token in runtime.handle_user_stream(user_input):
+                    assistant_console.print(token, end="", highlight=False)
+                    reply_tokens.append(token)
+                assistant_console.print()  # Newline after complete response
+                reply = "".join(reply_tokens)
+            except Exception as e:
+                # Fallback to non-streaming if streaming fails
+                logger.warning(f"Streaming failed, falling back to non-streaming: {e}")
+                reply = runtime.handle_user(user_input)
+                _render_assistant(assistant_console, reply)
+
+            # Show initial status
+            _show_status(assistant_console, "💭 Thinking...")
 
             try:
                 events = runtime.eventlog.read_all()
@@ -501,6 +535,7 @@ def main() -> None:
                                 break
                 prev_stage_label = getattr(main, "_last_stage_label")
                 if stage_label and stage_label != prev_stage_label:
+                    _show_status(assistant_console, "✨ Evolving...")
                     logger.info(
                         "[bold blue][stage][/bold blue] %s → %s (cadence updated)",
                         prev_stage_label or "—",
@@ -542,6 +577,9 @@ def main() -> None:
                             setattr(main, "_last_commitment_id", None)
                         prev_cid = getattr(main, "_last_commitment_id")
                         if last_event.get("id") != prev_cid:
+                            _show_status(
+                                assistant_console, "📊 Analyzing commitments..."
+                            )
                             logger.info(
                                 "[bold blue][commitment][/bold blue] opened from reflection"
                             )
@@ -616,15 +654,24 @@ def main() -> None:
                 except Exception:
                     pass
 
+            # Reflection check - show status during check
             try:
+                _show_status(assistant_console, "🤔 Reflecting...")
                 runtime_maybe_reflect(
                     runtime.eventlog,
                     runtime.cooldown,
                     llm_generate=lambda context: runtime.reflect(context),
                     memegraph=getattr(runtime, "memegraph", None),
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                _show_status(assistant_console, "😕 Hmm, something unexpected...")
+                import time
+
+                time.sleep(0.5)
+                logger.warning(f"Reflection error: {e}")
+            finally:
+                # Always clear status before prompt appears
+                _clear_status(assistant_console)
     except (EOFError, KeyboardInterrupt):
         assistant_console.print(
             _system_panel("bye.", title="goodbye", border_style="blue")

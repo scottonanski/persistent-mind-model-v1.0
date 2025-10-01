@@ -13,6 +13,7 @@ const navigationItems = [
   { href: '/ledger', label: 'Ledger' },
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/visualize', label: 'Visualize' },
+  { href: '/traces', label: 'Traces' },
   { href: '/settings', label: 'Settings' },
 ];
 
@@ -32,7 +33,7 @@ export function Navigation() {
             </Link>
             
             <Tabs value={activeTab} className="w-auto">
-              <TabsList className="grid w-full grid-cols-5">
+              <TabsList className="grid w-full grid-cols-6">
                 {navigationItems.map((item) => (
                   <TabsTrigger key={item.href} value={item.href} asChild>
                     <Link href={item.href}>
