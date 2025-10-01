@@ -143,31 +143,80 @@ def build_context_from_ledger(
                     break
 
     # --- Open Commitments ---------------------------------------------------
+    # Anti-hallucination: Inject actual commitment IDs and text from ledger
+    # This anchors the LLM with ground truth and prevents fabrication
     commitments_block: List[str] = []
+    commitment_events: List[Dict[str, Any]] = []
     try:
-        if snapshot is not None:
-            self_model = snapshot.self_model
-        else:
-            self_model = build_self_model(events)
-        open_commitments: Dict[str, Any] = self_model.get("commitments", {}).get(
-            "open", {}
-        )
-        # Deterministic ordering by cid, with character budget
-        total_chars = 0
-        max_commitments = 3 if compact_mode else 5
-        for cid in sorted(open_commitments.keys())[:max_commitments]:
-            txt = _short_commit_text(open_commitments[cid].get("text", ""))
-            if txt:
-                # Enforce character budget to reduce token count
-                if total_chars + len(txt) > max_commitment_chars:
-                    # Truncate to fit budget
-                    remaining = max_commitment_chars - total_chars
-                    if remaining > 20:  # Only add if meaningful space left
-                        txt = txt[: remaining - 3] + "..."
-                        commitments_block.append(f"  - {txt}")
-                    break
-                commitments_block.append(f"  - {txt}")
-                total_chars += len(txt)
+        # First, get actual commitment_open events from ledger (last 10)
+        closed_cids = set()
+        for ev in reversed(events):
+            if ev.get("kind") == "commitment_close":
+                cid = (ev.get("meta") or {}).get("cid")
+                if cid:
+                    closed_cids.add(cid)
+
+        # Collect open commitments with their event IDs
+        for ev in reversed(events):
+            if ev.get("kind") == "commitment_open":
+                cid = (ev.get("meta") or {}).get("cid")
+                if cid and cid not in closed_cids:
+                    commitment_events.append(ev)
+                    if len(commitment_events) >= 10:
+                        break
+
+        commitment_events.reverse()  # Chronological order
+
+        # Build commitment block with event IDs for verification
+        if commitment_events:
+            total_chars = 0
+            max_commitments = 3 if compact_mode else 5
+            for ev in commitment_events[:max_commitments]:
+                eid = ev.get("id", "?")
+                cid = (ev.get("meta") or {}).get("cid", "")[:8]
+                txt = _short_commit_text((ev.get("meta") or {}).get("text", ""))
+
+                if txt:
+                    # Format: [event_id:cid] text
+                    formatted = f"[{eid}:{cid}] {txt}"
+
+                    # Enforce character budget
+                    if total_chars + len(formatted) > max_commitment_chars:
+                        remaining = max_commitment_chars - total_chars
+                        if remaining > 30:  # Need space for ID + some text
+                            txt_truncated = (
+                                txt[: remaining - len(f"[{eid}:{cid}] ") - 3] + "..."
+                            )
+                            commitments_block.append(
+                                f"  - [{eid}:{cid}] {txt_truncated}"
+                            )
+                        break
+
+                    commitments_block.append(f"  - {formatted}")
+                    total_chars += len(formatted)
+
+        # Fallback to projection if no events found (shouldn't happen)
+        if not commitments_block:
+            if snapshot is not None:
+                self_model = snapshot.self_model
+            else:
+                self_model = build_self_model(events)
+            open_commitments: Dict[str, Any] = self_model.get("commitments", {}).get(
+                "open", {}
+            )
+            total_chars = 0
+            max_commitments = 3 if compact_mode else 5
+            for cid in sorted(open_commitments.keys())[:max_commitments]:
+                txt = _short_commit_text(open_commitments[cid].get("text", ""))
+                if txt:
+                    if total_chars + len(txt) > max_commitment_chars:
+                        remaining = max_commitment_chars - total_chars
+                        if remaining > 20:
+                            txt = txt[: remaining - 3] + "..."
+                            commitments_block.append(f"  - {txt}")
+                        break
+                    commitments_block.append(f"  - {txt}")
+                    total_chars += len(txt)
     except Exception:
         pass
 
@@ -257,19 +306,64 @@ def build_context_from_ledger(
 
 
 def _short_commit_text(txt: str, limit: int = 80) -> str:
-    """Normalise commitment text to a concise single-sentence bullet."""
+    """Extract the actual commitment/action from reflection text."""
     try:
         t = str(txt or "")
-        # Remove markdown and list markers
-        t = _re.sub(r"[`*_#>]+", " ", t)
-        t = _re.sub(r"^\s*(?:[-*•]+|\(?[A-Za-z]\)|\(?\d+\)|\d+\.)\s*", "", t)
+
+        # Try to extract the actual commitment/action line
+        # Look for patterns like "Action:", "Commitment:", "Action Proposal:", etc.
+        action_patterns = [
+            r"(?:Action|Commitment|Action Proposal):\s*([^\n]+)",
+            r"\*\*(?:Action|Commitment)\*\*:\s*([^\n]+)",
+        ]
+
+        for pattern in action_patterns:
+            match = _re.search(pattern, t, _re.IGNORECASE)
+            if match:
+                action_text = match.group(1).strip()
+                # Clean up the extracted text
+                action_text = _re.sub(r"[`*_#>]+", " ", action_text)
+                action_text = _re.sub(r"\s+", " ", action_text).strip()
+
+                # Take first sentence if multiple
+                parts = _re.split(r"(?<=[\.!?])\s+", action_text, maxsplit=1)
+                s = (parts[0] or action_text).strip()
+
+                if len(s) <= limit:
+                    return s
+                # Truncate at word boundary
+                cut = s[: limit - 1]
+                if " " in cut:
+                    cut = cut.rsplit(" ", 1)[0]
+                return cut.rstrip() + "…"
+
+        # Fallback: skip IAS/GAS lines and take first meaningful sentence
+        lines = [line.strip() for line in t.split("\n") if line.strip()]
+        for line in lines:
+            # Skip lines that are just metrics
+            if _re.match(
+                r"^IAS[:\s]|^GAS[:\s]|^Stage[:\s]|^Reflection:", line, _re.IGNORECASE
+            ):
+                continue
+            if line:
+                # Clean and truncate
+                line = _re.sub(r"[`*_#>]+", " ", line)
+                line = _re.sub(r"\s+", " ", line).strip()
+                parts = _re.split(r"(?<=[\.!?])\s+", line, maxsplit=1)
+                s = (parts[0] or line).strip()
+                if len(s) <= limit:
+                    return s
+                cut = s[: limit - 1]
+                if " " in cut:
+                    cut = cut.rsplit(" ", 1)[0]
+                return cut.rstrip() + "…"
+
+        # Last resort: just take first sentence
         t = _re.sub(r"\s+", " ", t).strip()
-        # Take first sentence
         parts = _re.split(r"(?<=[\.!?])\s+", t, maxsplit=1)
         s = (parts[0] or t).strip()
         if len(s) <= limit:
             return s
-        # Ellipsise at word boundary
         cut = s[: limit - 1]
         if " " in cut:
             cut = cut.rsplit(" ", 1)[0]
