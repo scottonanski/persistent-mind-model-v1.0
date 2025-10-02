@@ -445,7 +445,8 @@ def compute_ias_gas(events: Iterable[dict]) -> Tuple[float, float]:
             last_adopt_name = nm
 
         elif kind == "commitment_open":
-            txt = _norm_text(ev.get("content"))
+            meta = ev.get("meta") or {}
+            txt = _norm_text(ev.get("content") or meta.get("text"))
             if txt:
                 # Check novelty using tick-based window (not count-based)
                 is_novel = True

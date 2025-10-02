@@ -63,6 +63,90 @@ class EventLog:
         except Exception:
             self._embeddings_index_available = False
 
+    # ------------------------------------------------------------------
+    # Cache coordination helpers
+    # ------------------------------------------------------------------
+
+    def get_max_id(self) -> int:
+        """Return the largest event ID currently persisted."""
+        with self._lock:
+            return self._get_max_id_unlocked()
+
+    def _get_max_id_unlocked(self) -> int:
+        cur = self._conn.execute("SELECT MAX(id) FROM events")
+        row = cur.fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
+
+    def _refresh_cache_locked(self) -> None:
+        """Synchronize the in-memory cache with the backing database."""
+
+        max_id = self._get_max_id_unlocked()
+
+        # Cache already mirrors the ledger tail.
+        if self._events_cache is not None and self._cache_last_id == max_id:
+            return
+
+        if max_id == 0:
+            self._events_cache = []
+            self._cache_last_id = 0
+            return
+
+        if self._events_cache is None or self._cache_last_id == 0:
+            # Cold start: rebuild cache from scratch.
+            cur = self._conn.execute(
+                "SELECT id, ts, kind, content, meta FROM events ORDER BY id ASC"
+            )
+            rows = cur.fetchall()
+            cache: List[Dict] = []
+            for rid, ts, kind, content, meta_json in rows:
+                try:
+                    meta_obj = _json.loads(meta_json) if meta_json else {}
+                except Exception:
+                    meta_obj = {}
+                cache.append(
+                    {
+                        "id": int(rid),
+                        "ts": str(ts),
+                        "kind": str(kind),
+                        "content": str(content),
+                        "meta": meta_obj,
+                    }
+                )
+            self._events_cache = cache
+            self._cache_last_id = max_id
+            return
+
+        # Incremental refresh: append rows beyond the cached tail.
+        cur = self._conn.execute(
+            "SELECT id, ts, kind, content, meta FROM events WHERE id > ? ORDER BY id ASC",
+            (self._cache_last_id,),
+        )
+        rows = cur.fetchall()
+
+        if not rows:
+            # Defensive rebuild if cache diverged (should be rare).
+            self._events_cache = None
+            self._cache_last_id = 0
+            self._refresh_cache_locked()
+            return
+
+        for rid, ts, kind, content, meta_json in rows:
+            try:
+                meta_obj = _json.loads(meta_json) if meta_json else {}
+            except Exception:
+                meta_obj = {}
+            self._events_cache.append(
+                {
+                    "id": int(rid),
+                    "ts": str(ts),
+                    "kind": str(kind),
+                    "content": str(content),
+                    "meta": meta_obj,
+                }
+            )
+
+        self._cache_last_id = max_id
+
     def _create_tables(self) -> None:
         with self._lock:
             with self._conn:  # implicit transaction
@@ -231,43 +315,21 @@ class EventLog:
 
     def read_all(self) -> List[Dict]:
         with self._lock:
+            self._refresh_cache_locked()
             if self._events_cache is not None:
-                return self._events_cache
-            cur = self._conn.execute(
-                "SELECT id, ts, kind, content, meta FROM events ORDER BY id ASC"
-            )
-            rows = cur.fetchall()
-            result: List[Dict] = []
-            for rid, ts, kind, content, meta_json in rows:
-                try:
-                    meta_obj = _json.loads(meta_json) if meta_json else {}
-                except Exception:
-                    meta_obj = {}
-                result.append(
-                    {
-                        "id": int(rid),
-                        "ts": str(ts),
-                        "kind": str(kind),
-                        "content": str(content),
-                        "meta": meta_obj,
-                    }
-                )
-            self._events_cache = result
-            if result:
-                self._cache_last_id = int(result[-1]["id"])
-            else:
-                self._cache_last_id = 0
-            return result
+                return self._events_cache[:]
+            return []
 
     def read_after_id(self, *, after_id: int, limit: int) -> List[Dict]:
         with self._lock:
+            self._refresh_cache_locked()
             if self._events_cache is not None:
                 result: List[Dict] = []
                 for ev in self._events_cache:
                     if int(ev.get("id") or 0) > int(after_id):
                         result.append(ev)
-                    if len(result) >= int(limit):
-                        break
+                        if len(result) >= int(limit):
+                            break
                 if result:
                     return result
             cur = self._conn.execute(
@@ -294,13 +356,14 @@ class EventLog:
 
     def read_after_ts(self, *, after_ts: str, limit: int) -> List[Dict]:
         with self._lock:
+            self._refresh_cache_locked()
             if self._events_cache is not None:
                 result: List[Dict] = []
                 for ev in self._events_cache:
                     if str(ev.get("ts")) > str(after_ts):
                         result.append(ev)
-                    if len(result) >= int(limit):
-                        break
+                        if len(result) >= int(limit):
+                            break
                 if result:
                     return result
             cur = self._conn.execute(
@@ -327,7 +390,8 @@ class EventLog:
 
     def read_tail(self, *, limit: int) -> List[Dict]:
         with self._lock:
-            if self._events_cache is not None and self._events_cache:
+            self._refresh_cache_locked()
+            if self._events_cache:
                 subset = self._events_cache[-int(limit) :]
                 return list(subset)
             cur = self._conn.execute(
@@ -335,7 +399,6 @@ class EventLog:
                 (int(limit),),
             )
             rows = cur.fetchall()
-            # rows are newest-first; reverse to ascending by id (newest last)
             rows.reverse()
             result: List[Dict] = []
             for rid, ts, kind, content, meta_json in rows:

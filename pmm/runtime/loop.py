@@ -230,6 +230,139 @@ def _verify_commitment_claims(reply: str, events: List[Dict[str, Any]]) -> bool:
     return False
 
 
+def _verify_commitment_status(reply: str, eventlog: EventLog) -> tuple[bool, list[str]]:
+    """Verify that commitment status claims (open/closed) match ledger reality.
+
+    Catches semantic hallucinations where the model claims a commitment is closed
+    when it's actually still open, or vice versa.
+
+    Returns:
+        (is_valid, mismatched_cids): True if all status claims are accurate.
+    """
+    import re
+    from pmm.storage.projection import build_self_model
+
+    # Build current state to see what's actually open
+    events = eventlog.read_all()
+    model = build_self_model(events, eventlog=eventlog)
+    open_cids = set(model.get("commitments", {}).get("open", {}).keys())
+
+    # Patterns for status claims
+    # Match: "closed commitment [2674:6ffe0e34]", "commitment 2468 is closed", etc.
+    closed_patterns = [
+        r"\[(\d+):([a-f0-9]{8})\].*?(?:closed|completed|done)",
+        r"(?:closed|completed|done).*?\[(\d+):([a-f0-9]{8})\]",
+        r"commitment.*?(\d+).*?(?:closed|completed|done)",
+        r"(?:closed|completed|done).*?commitment.*?(\d+)",
+        r"Status.*?Closed.*?\[(\d+):([a-f0-9]{8})\]",
+    ]
+
+    mismatched = []
+    for pattern in closed_patterns:
+        matches = re.findall(pattern, reply, re.IGNORECASE)
+        for match in matches:
+            # Extract CID (could be full hash or just prefix)
+            if isinstance(match, tuple) and len(match) >= 2:
+                cid_prefix = match[1] if match[1] else match[0]
+            else:
+                continue
+
+            # Check if any open CID starts with this prefix
+            for open_cid in open_cids:
+                if open_cid.startswith(cid_prefix):
+                    mismatched.append(f"{cid_prefix} (claimed closed, actually open)")
+                    break
+
+    return len(mismatched) == 0, mismatched
+
+
+def _verify_event_ids(reply: str, eventlog: EventLog) -> tuple[bool, list[int]]:
+    """Verify that event ID references in LLM response exist in the ledger.
+
+    This validator catches hallucinated event IDs (e.g., "event 7892" when
+    only events 1-3000 exist). It scans for numeric patterns that look like
+    event IDs and cross-checks against the ledger.
+
+    Uses adaptive two-tier validation that scales with ledger size:
+    1. Fast path: check recent window (scales with ledger size, min 1K, max 10K)
+    2. Slow path: full ledger scan only if needed (for historical references)
+
+    Args:
+        reply: The LLM's response text
+        eventlog: EventLog instance to query for real IDs
+
+    Returns:
+        (is_valid, fake_ids): True if all IDs are real, False otherwise.
+                              fake_ids lists any hallucinated IDs found.
+
+    Side effects:
+        None (pure validation function)
+    """
+    import re
+
+    # Patterns that indicate event ID references
+    # Match: "event 123", "ID: 456", "562:bab3a368" (commitment format)
+    patterns = [
+        r"\bevent\s+(\d+)\b",
+        r"\bID[:\s]+(\d+)\b",
+        r"\bid[:\s]+(\d+)\b",
+        r"\b(\d{2,5}):[a-f0-9]{8}\b",  # commitment format like "562:bab3a368"
+    ]
+
+    mentioned_ids = set()
+    for pattern in patterns:
+        matches = re.findall(pattern, reply, re.IGNORECASE)
+        for match in matches:
+            try:
+                mentioned_ids.add(int(match))
+            except (ValueError, TypeError):
+                continue
+
+    if not mentioned_ids:
+        return True, []
+
+    # Determine adaptive window size based on ledger scale
+    # For small ledgers (<10K): use 40% of ledger (min 1K)
+    # For large ledgers (>10K): cap at 10K to maintain performance
+    try:
+        # Quick peek at ledger size via tail
+        tail_sample = eventlog.read_tail(limit=1)
+        if tail_sample:
+            max_event_id = tail_sample[-1].get("id", 1000)
+            # Adaptive window: 40% of ledger, bounded [1K, 10K]
+            window_size = max(1000, min(10000, int(max_event_id * 0.4)))
+        else:
+            window_size = 1000
+    except Exception:
+        window_size = 1000
+
+    # Tier 1: Fast check (recent events - adaptive window)
+    try:
+        recent_events = eventlog.read_tail(limit=window_size)
+        recent_ids = {e["id"] for e in recent_events}
+    except Exception:
+        # If query fails, assume valid to avoid false positives
+        logger.warning("Failed to query recent events for ID validation")
+        return True, []
+
+    # Check against recent window first
+    potential_fakes = [eid for eid in mentioned_ids if eid not in recent_ids]
+
+    # Tier 2: Full validation only if needed (historical references)
+    if potential_fakes:
+        try:
+            all_events = eventlog.read_all()
+            all_ids = {e["id"] for e in all_events}
+            fake_ids = sorted([eid for eid in potential_fakes if eid not in all_ids])
+        except Exception:
+            logger.warning("Failed to query full ledger for ID validation")
+            return True, []
+    else:
+        fake_ids = []
+
+    return len(fake_ids) == 0, fake_ids
+
+
 # ---- Turn-based cadence constants (no env flags) ----
 # Evolving Mode default: ON (no environment flags). All evolving features are active by default.
 EVOLVING_MODE: bool = True
@@ -521,6 +654,7 @@ class Runtime:
         except Exception:
             self.memegraph = None
             logger.exception("MemeGraph projection initialization failed")
+        self._snapshot_last_max: int = 0
         self._graph_force_next = False
         self._graph_suppress_next = False
         self._graph_cooldown = 0
@@ -604,7 +738,11 @@ class Runtime:
 
     def _get_snapshot(self) -> LedgerSnapshot:
         with self._snapshot_lock:
-            if self._snapshot_cache is not None:
+            current_max = self.eventlog.get_max_id()
+            if (
+                self._snapshot_cache is not None
+                and current_max == self._snapshot_last_max
+            ):
                 return self._snapshot_cache
 
             events = self.eventlog.read_all()
@@ -625,11 +763,13 @@ class Runtime:
                 last_event_id=last_id,
             )
             self._snapshot_cache = snapshot
+            self._snapshot_last_max = last_id
             return snapshot
 
     def _handle_event_appended(self, event: dict) -> None:
         with self._snapshot_lock:
             self._snapshot_cache = None
+            self._snapshot_last_max = 0
 
     def describe_state(self, *, lookback: int = 400) -> dict[str, Any]:
         """Summarize recent ledger updates for traits, policies, stage, and reflection."""
@@ -2447,6 +2587,40 @@ class Runtime:
         except Exception:
             logger.debug("Commitment verification failed", exc_info=True)
 
+        # Anti-hallucination: Verify commitment status claims (open vs closed)
+        try:
+            status_valid, mismatched_cids = _verify_commitment_status(
+                reply, self.eventlog
+            )
+            if not status_valid:
+                # Store for chat UI to display in status sequence
+                self._last_status_mismatches = mismatched_cids
+                logger.debug(
+                    f"⚠️  Commitment status hallucination detected: "
+                    f"LLM claimed wrong status for: {mismatched_cids}"
+                )
+            else:
+                self._last_status_mismatches = None
+        except Exception:
+            logger.debug("Commitment status verification failed", exc_info=True)
+
+        # Anti-hallucination: Verify event ID references against ledger
+        try:
+            is_valid, fake_ids = _verify_event_ids(reply, self.eventlog)
+            if not is_valid:
+                # Store for chat UI to display in status sequence
+                self._last_hallucination_ids = fake_ids
+                logger.debug(
+                    f"⚠️  Event ID hallucination detected: "
+                    f"LLM referenced non-existent event IDs: {fake_ids}"
+                )
+                # Note: We log but don't modify the reply to preserve user experience.
+                # The warning helps developers track hallucination frequency.
+            else:
+                self._last_hallucination_ids = None
+        except Exception:
+            logger.debug("Event ID verification failed", exc_info=True)
+
     def _ngram_repeat_telemetry_enabled(self) -> bool:
         cache = getattr(self, "_ngram_repeat_directive_cache", None)
         latest_id = 0
@@ -2788,13 +2962,17 @@ class Runtime:
                     and last_check.get("kind") == "reflection_check"
                     and (last_check.get("meta") or {}).get("ok") is True
                 ):
+                    ref_text = (last_ref.get("content") or "").strip()
+                    snippet = (
+                        ref_text[:240] if ref_text else "Reflection-sourced commitment"
+                    )
                     self.eventlog.append(
                         kind="commitment_open",
-                        content="",
+                        content=f"Commitment opened: {snippet}",
                         meta={
                             "cid": _uuid.uuid4().hex,
                             "reason": "reflection",
-                            "text": (last_ref.get("content") or "").strip(),
+                            "text": ref_text,
                             "ref": last_ref.get("id"),
                             "due": _compute_reflection_due_epoch(),
                         },
@@ -3488,16 +3666,56 @@ def emit_reflection(
 ) -> int | None:
     """Emit a reflection event; return the event id or ``None`` if rejected."""
     # Compute telemetry first so we can embed in the reflection meta
-    ias, gas = compute_ias_gas(eventlog.read_all())
+    events = eventlog.read_all()
+    ias, gas = compute_ias_gas(events)
     synth = None
     try:
         stage_str = stage_override
         _snap = None
         if stage_str is None:
-            stage_str, _snap = StageTracker.infer_stage(eventlog.read_all())
+            stage_str, _snap = StageTracker.infer_stage(events)
     except Exception:
         stage_str = None
     stage_level = stage_str_to_level(stage_str)
+
+    trait_map: dict[str, float] = {}
+    try:
+        model_snapshot = build_self_model(events, eventlog=eventlog)
+        trait_map = dict((model_snapshot.get("identity") or {}).get("traits") or {})
+    except Exception:
+        trait_map = {}
+
+    novelty_threshold: float | None = None
+    try:
+        _stage_last, cooldown_params = _last_policy_params(events, "cooldown")
+        if isinstance(cooldown_params, dict) and "novelty_threshold" in cooldown_params:
+            novelty_threshold = float(cooldown_params.get("novelty_threshold"))
+    except Exception:
+        novelty_threshold = None
+
+    def _format_traits(traits: dict[str, float]) -> str:
+        axis = [
+            ("openness", "O"),
+            ("conscientiousness", "C"),
+            ("extraversion", "E"),
+            ("agreeableness", "A"),
+            ("neuroticism", "N"),
+        ]
+        parts: list[str] = []
+        for key, label in axis:
+            try:
+                val = float(traits.get(key, "nan"))
+                parts.append(f"{label}:{val:.2f}")
+            except Exception:
+                parts.append(f"{label}:n/a")
+        return ", ".join(parts)
+
+    trait_summary = _format_traits(trait_map)
+    policy_summary = (
+        f"cooldown.novelty_threshold={novelty_threshold:.2f}"
+        if isinstance(novelty_threshold, float)
+        else "cooldown.novelty_threshold=unset"
+    )
     _TEMPLATES = {
         0: (
             "succinct",
@@ -3521,11 +3739,18 @@ def emit_reflection(
         ),
     }
     tmpl_label, tmpl_instr = _TEMPLATES.get(int(stage_level), _TEMPLATES[0])
-    context_forced = "System status: IAS={:.3f}, GAS={:.3f}, Stage={}. Reflecting on current state after forced reflection trigger.".format(
-        ias, gas, stage_str
+    telemetry_preamble = (
+        "System status: IAS={ias:.3f}, GAS={gas:.3f}, Stage={stage}. Traits (OCEAN): {traits}. Policy knobs: {policy}."
+    ).format(
+        ias=ias,
+        gas=gas,
+        stage=stage_str,
+        traits=trait_summary,
+        policy=policy_summary,
     )
-    context_regular = "System status: IAS={:.3f}, GAS={:.3f}, Stage={}. Reflecting on current state and proposing next actions.".format(
-        ias, gas, stage_str
+    context_forced = f"{telemetry_preamble} Reflecting on current state after forced reflection trigger."
+    context_regular = (
+        f"{telemetry_preamble} Reflecting on current state and proposing next actions."
     )
 
     def _fallback_text(_: str) -> str:
@@ -3649,7 +3874,16 @@ def emit_reflection(
         raw_text_for_check = sanitized_text
     meta_payload = {
         "source": "emit_reflection",
-        "telemetry": {"IAS": ias, "GAS": gas},
+        "telemetry": {
+            "IAS": ias,
+            "GAS": gas,
+            "traits": trait_map,
+            "policies": {
+                "cooldown": {
+                    "novelty_threshold": novelty_threshold,
+                }
+            },
+        },
         "refs": sel,
         "stage_level": int(stage_level),
         "prompt_template": tmpl_label,
@@ -3716,11 +3950,15 @@ def emit_reflection(
                     )
                 except Exception:
                     pass
+                ref_text = (last_ref.get("content") or "").strip()
+                snippet = (
+                    ref_text[:240] if ref_text else "Reflection-sourced commitment"
+                )
                 _new_cid = _uuid.uuid4().hex
                 open_meta = {
                     "cid": _new_cid,
                     "reason": "reflection",
-                    "text": (last_ref.get("content") or "").strip(),
+                    "text": ref_text,
                     "ref": last_ref.get("id"),
                     "due": _compute_reflection_due_epoch(),
                 }
@@ -3730,7 +3968,7 @@ def emit_reflection(
                     open_meta["open_autonomy_tick"] = int(open_autonomy_tick)
                 eventlog.append(
                     kind="commitment_open",
-                    content="",
+                    content=f"Commitment opened: {snippet}",
                     meta=open_meta,
                 )
     except Exception:
@@ -4147,6 +4385,10 @@ class AutonomyLoop:
             )
         except Exception:
             self._repeat_overdue_reflection_commitments = True
+
+        # ---- Policy update caches for idempotency ----
+        self._last_reflection_policy: dict[str, dict] = {}
+        self._last_drift_policy: dict[str, dict] = {}
 
         # ---- Introspective Agency Integration ----
         self._introspection_cadence = 5  # Run introspection every N ticks (15s with 3s ticks for responsive stage advancement)
@@ -4844,6 +5086,8 @@ class AutonomyLoop:
                     "tick": tick_no,
                 },
             )
+            last_reflection_policy[curr_stage] = target_params
+            self._last_reflection_policy = last_reflection_policy
 
         # 1b) Determine current drift multipliers and emit idempotent policy_update on change
         mult = DRIFT_MULT_BY_STAGE.get(

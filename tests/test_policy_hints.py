@@ -77,21 +77,38 @@ def test_idempotent_policy_updates(tmp_path):
     db = tmp_path / "policy3.db"
     log = EventLog(str(db))
 
-    # Preload telemetry to yield S3 after tick adds computed values
-    for _ in range(2):
-        _append_auto_tick(log, ias=0.85, gas=0.75)
+    # Preload many ticks with stable metrics to ensure stage doesn't change
+    # Use S0-level metrics (low IAS/GAS) to stay in S0
+    for _ in range(10):
+        _append_auto_tick(log, ias=0.15, gas=0.10)
 
     loop = AutonomyLoop(
         eventlog=log, cooldown=ReflectionCooldown(), interval_seconds=0.01
     )
     loop.tick()
+
+    # Verify stage after first tick
+    from pmm.runtime.stage_tracker import StageTracker
+
+    events_after_1 = log.read_all()
+    stage_1, _ = StageTracker.infer_stage(events_after_1)
+
     # Run tick again without changing stage; should not emit duplicate identical policy_update
     loop.tick()
 
-    events = log.read_all()
-    refl_pols = _list_policy_updates(events, component="reflection")
-    recall_pols = _list_policy_updates(events, component="drift")
+    events_after_2 = log.read_all()
+    stage_2, _ = StageTracker.infer_stage(events_after_2)
+
+    # Verify stage didn't change
+    assert (
+        stage_1 == stage_2
+    ), f"Stage changed from {stage_1} to {stage_2}, invalidating idempotency test"
+
+    refl_pols = _list_policy_updates(events_after_2, component="reflection")
+    recall_pols = _list_policy_updates(events_after_2, component="drift")
 
     # Only one per component after two ticks if stage unchanged
-    assert len(refl_pols) == 1
-    assert len(recall_pols) == 1
+    assert (
+        len(refl_pols) == 1
+    ), f"Expected 1 reflection policy, got {len(refl_pols)}: {[p['meta'] for p in refl_pols]}"
+    assert len(recall_pols) == 1, f"Expected 1 drift policy, got {len(recall_pols)}"

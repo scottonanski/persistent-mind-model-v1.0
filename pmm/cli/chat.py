@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import termios
 from pathlib import Path
 
 from rich import box
@@ -91,6 +92,30 @@ def _clear_status(console: Console) -> None:
     """Clear the status line."""
     # Move cursor up one line and clear it
     console.print("\033[F\033[K", end="")
+
+
+def _disable_input() -> tuple:
+    """Disable terminal input and return old settings for restoration."""
+    try:
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        new_settings = termios.tcgetattr(fd)
+        # Disable canonical mode and echo
+        new_settings[3] = new_settings[3] & ~(termios.ICANON | termios.ECHO)
+        termios.tcsetattr(fd, termios.TCSADRAIN, new_settings)
+        return (fd, old_settings)
+    except Exception:
+        return (None, None)
+
+
+def _enable_input(settings: tuple) -> None:
+    """Restore terminal input settings."""
+    fd, old_settings = settings
+    if fd is not None and old_settings is not None:
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        except Exception:
+            pass
 
 
 def _render_assistant(console: Console, reply: str) -> None:
@@ -512,8 +537,40 @@ def main() -> None:
                 reply = runtime.handle_user(user_input)
                 _render_assistant(assistant_console, reply)
 
+            # Disable input during processing
+            input_settings = _disable_input()
+
             # Show initial status
             _show_status(assistant_console, "💭 Thinking...")
+
+            # Check for hallucination detection
+            try:
+                hallucination_ids = getattr(runtime, "_last_hallucination_ids", None)
+                if hallucination_ids:
+                    _show_status(
+                        assistant_console,
+                        f"⚠️  Hallucination detected: {hallucination_ids}",
+                    )
+                    logger.warning(
+                        "[bold yellow][hallucination][/bold yellow] "
+                        f"LLM referenced non-existent event IDs: {hallucination_ids}"
+                    )
+            except Exception:
+                pass
+
+            # Check for commitment status mismatches
+            try:
+                status_mismatches = getattr(runtime, "_last_status_mismatches", None)
+                if status_mismatches:
+                    _show_status(
+                        assistant_console, f"⚠️  Status mismatch: {status_mismatches}"
+                    )
+                    logger.warning(
+                        "[bold yellow][status-mismatch][/bold yellow] "
+                        f"LLM claimed wrong commitment status: {status_mismatches}"
+                    )
+            except Exception:
+                pass
 
             try:
                 events = runtime.eventlog.read_all()
@@ -672,6 +729,8 @@ def main() -> None:
             finally:
                 # Always clear status before prompt appears
                 _clear_status(assistant_console)
+                # Re-enable input for next prompt
+                _enable_input(input_settings)
     except (EOFError, KeyboardInterrupt):
         assistant_console.print(
             _system_panel("bye.", title="goodbye", border_style="blue")

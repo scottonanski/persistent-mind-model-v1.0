@@ -28,15 +28,22 @@ def test_expire_after_ttl(tmp_path, monkeypatch):
     from pmm.commitments.tracker import CommitmentTracker
 
     CommitmentTracker(log).add_commitment("write the report", source="test")
+
+    # Get the CID of the test commitment before ticks
+    model_before = build_self_model(log.read_all())
+    test_cid = list(model_before["commitments"]["open"].keys())[0]
+
     # Advance > TTL (default 10 ticks)
     _run_ticks(log, rt, 11)
 
     evs = log.read_all()
     kinds = [e.get("kind") for e in evs]
     assert "commitment_expire" in kinds
+
+    # Check that our specific test commitment expired
     model = build_self_model(evs)
-    assert len(model.get("commitments", {}).get("open", {})) == 0
-    assert len(model.get("commitments", {}).get("expired", {})) >= 1
+    assert test_cid not in model.get("commitments", {}).get("open", {})
+    assert test_cid in model.get("commitments", {}).get("expired", {})
 
 
 def test_no_expire_if_recent_activity(tmp_path, monkeypatch):
@@ -61,21 +68,27 @@ def test_snooze_delays_expire(tmp_path, monkeypatch):
     from pmm.commitments.tracker import CommitmentTracker
 
     CommitmentTracker(log).add_commitment("update the docs", source="test")
+
+    # Get the CID of the test commitment
+    model_before = build_self_model(log.read_all())
+    test_cid = list(model_before["commitments"]["open"].keys())[0]
+
     # Add snooze until tick 15
     log.append(
         kind="commitment_snooze",
         content="",
         meta={
-            "cid": list(build_self_model(log.read_all())["commitments"]["open"].keys())[
-                0
-            ],
+            "cid": test_cid,
             "until_tick": 15,
         },
     )
     _run_ticks(log, rt, 12)  # now tick ~12
-    kinds = [e.get("kind") for e in log.read_all()]
-    # Snooze markers are currently informational; TTL continues to apply.
-    assert "commitment_expire" in kinds
+
+    # Check that our specific commitment did NOT expire (snoozed until tick 15)
+    model_after = build_self_model(log.read_all())
+    assert test_cid in model_after.get("commitments", {}).get(
+        "open", {}
+    ), "Snoozed commitment should still be open at tick 12 (snoozed until tick 15)"
 
 
 def test_no_premature_expire_if_evidence_within_ttl(tmp_path, monkeypatch):
