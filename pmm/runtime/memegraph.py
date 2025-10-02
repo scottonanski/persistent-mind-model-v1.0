@@ -637,3 +637,94 @@ class MemeGraphProjection:
                 result.append(relation)
 
             return result
+
+    def export_state(self) -> Dict[str, Any]:
+        """Export MemeGraph state for snapshotting.
+
+        Returns a serializable dict containing all graph state that can be
+        restored later without replaying events.
+        """
+        with self._lock:
+            # Convert nodes to serializable format
+            nodes_data = {}
+            for digest, node in self._nodes.items():
+                nodes_data[digest] = {
+                    "label": node.label,
+                    "attrs": node.attrs,
+                }
+
+            # Convert edges to serializable format
+            edges_data = {}
+            for digest, edge in self._edges.items():
+                edges_data[digest] = {
+                    "label": edge.label,
+                    "src": edge.src,
+                    "dst": edge.dst,
+                    "attrs": edge.attrs,
+                }
+
+            return {
+                "nodes": nodes_data,
+                "edges": edges_data,
+                "event_index": self._event_index.copy(),
+                "digest_to_event_id": self._digest_to_event_id.copy(),
+                "identity_index": self._identity_index.copy(),
+                "commitment_index": self._commitment_index.copy(),
+                "latest_stage": self._latest_stage,
+                "stage_history": self._stage_history.copy(),
+                "commitment_state": self._commitment_state.copy(),
+                "metrics": self._metrics.copy(),
+            }
+
+    def import_state(self, state: Dict[str, Any]) -> None:
+        """Import MemeGraph state from snapshot.
+
+        Restores graph state without replaying events. Used when loading
+        from a snapshot to avoid O(n) reconstruction.
+
+        Args:
+            state: State dict from export_state()
+        """
+        with self._lock:
+            # Restore nodes
+            self._nodes.clear()
+            for digest, node_data in state.get("nodes", {}).items():
+                self._nodes[digest] = MemeNode(
+                    digest=digest,
+                    label=node_data["label"],
+                    attrs=node_data["attrs"],
+                )
+
+            # Restore edges
+            self._edges.clear()
+            for digest, edge_data in state.get("edges", {}).items():
+                self._edges[digest] = MemeEdge(
+                    digest=digest,
+                    label=edge_data["label"],
+                    src=edge_data["src"],
+                    dst=edge_data["dst"],
+                    attrs=edge_data["attrs"],
+                )
+
+            # Restore indexes
+            self._event_index = state.get("event_index", {}).copy()
+            self._digest_to_event_id = state.get("digest_to_event_id", {}).copy()
+            self._identity_index = state.get("identity_index", {}).copy()
+            self._commitment_index = state.get("commitment_index", {}).copy()
+            self._latest_stage = state.get("latest_stage")
+            self._stage_history = state.get("stage_history", []).copy()
+            self._commitment_state = state.get("commitment_state", {}).copy()
+            self._metrics = state.get(
+                "metrics",
+                {
+                    "batch_events": 0,
+                    "duration_ms": 0.0,
+                    "nodes": 0,
+                    "edges": 0,
+                    "rss_kb": None,
+                },
+            ).copy()
+
+            # Update metrics to reflect current state
+            self._metrics["nodes"] = len(self._nodes)
+            self._metrics["edges"] = len(self._edges)

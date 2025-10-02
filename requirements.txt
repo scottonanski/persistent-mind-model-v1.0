@@ -3,6 +3,7 @@ requests>=2.32.0
 rich>=13.7.0
 fastapi>=0.110.0
 python-dotenv>=1.0.0
+zstandard>=0.22.0  # Snapshot compression
 
 # LLM providers
 httpx>=0.24.0

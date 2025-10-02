@@ -2453,11 +2453,26 @@ class Runtime:
                 compact_mode=False,
             )
 
+        # CRITICAL: Ontology must come FIRST, before context data
+        # This ensures the identity anchor isn't buried under ledger details
         msgs = [
-            {"role": "system", "content": context_block},
-            {"role": "system", "content": build_system_msg("chat")},
-            {"role": "user", "content": user_text},
+            {"role": "system", "content": build_system_msg("chat")},  # Ontology FIRST
+            {"role": "system", "content": context_block},  # Context SECOND
         ]
+
+        # Inject hallucination correction if detected in previous turn
+        if hasattr(self, "_last_hallucination_ids") and self._last_hallucination_ids:
+            correction_msg = (
+                f"CRITICAL CORRECTION: In your previous response, you fabricated event IDs: {self._last_hallucination_ids}. "
+                f"These events do not exist in the ledger. For new commitments that haven't been persisted yet, "
+                f"you MUST use 'pending' instead of inventing event IDs. Never fabricate event IDs."
+            )
+            msgs.append({"role": "system", "content": correction_msg})
+            logger.info(
+                f"Injected hallucination correction into prompt for IDs: {self._last_hallucination_ids}"
+            )
+
+        msgs.append({"role": "user", "content": user_text})
 
         intents = self._detect_state_intents(user_text)
         if intents:
@@ -2610,12 +2625,22 @@ class Runtime:
             if not is_valid:
                 # Store for chat UI to display in status sequence
                 self._last_hallucination_ids = fake_ids
-                logger.debug(
+                logger.warning(
                     f"⚠️  Event ID hallucination detected: "
                     f"LLM referenced non-existent event IDs: {fake_ids}"
                 )
-                # Note: We log but don't modify the reply to preserve user experience.
-                # The warning helps developers track hallucination frequency.
+                # Append a correction event to the ledger
+                self.eventlog.append(
+                    kind="hallucination_detected",
+                    content=f"Fabricated event IDs: {fake_ids}",
+                    meta={
+                        "fake_ids": fake_ids,
+                        "correction": "Use 'pending' for uncommitted events",
+                    },
+                )
+                logger.info(
+                    "Hallucination logged to ledger. System will self-correct on next interaction."
+                )
             else:
                 self._last_hallucination_ids = None
         except Exception:

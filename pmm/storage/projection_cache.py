@@ -22,6 +22,20 @@ from pmm.storage.projection import (
     ProjectionInvariantError,
 )
 
+# Import snapshot support (optional - graceful degradation if not available)
+try:
+    from pmm.storage.snapshot import (
+        build_self_model_optimized,
+        should_create_snapshot,
+        create_snapshot,
+        SNAPSHOT_ENABLED,
+    )
+
+    _SNAPSHOT_AVAILABLE = True
+except ImportError:
+    _SNAPSHOT_AVAILABLE = False
+    SNAPSHOT_ENABLED = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -111,12 +125,32 @@ class ProjectionCache:
                 f"ProjectionCache: Initial build from {len(new_events)} events"
             )
             all_events = eventlog.read_all()
-            self._cached_model = build_self_model(
-                all_events,
-                strict=self._strict,
-                max_trait_delta=self._max_trait_delta,
-                on_warn=on_warn,
-            )
+
+            # Use snapshot-optimized build if available
+            if _SNAPSHOT_AVAILABLE and SNAPSHOT_ENABLED:
+                self._cached_model = build_self_model_optimized(
+                    all_events,
+                    eventlog=eventlog,
+                    strict=self._strict,
+                    max_trait_delta=self._max_trait_delta,
+                    on_warn=on_warn,
+                )
+
+                # Check if we should create a new snapshot
+                should_snap, target_id = should_create_snapshot(eventlog)
+                if should_snap:
+                    try:
+                        create_snapshot(eventlog, target_id)
+                        logger.info(f"Created snapshot at event {target_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to create snapshot: {e}")
+            else:
+                self._cached_model = build_self_model(
+                    all_events,
+                    strict=self._strict,
+                    max_trait_delta=self._max_trait_delta,
+                    on_warn=on_warn,
+                )
             self._last_id = all_events[-1]["id"] if all_events else 0
             self._events_processed = len(all_events)
             return copy.deepcopy(self._cached_model)
