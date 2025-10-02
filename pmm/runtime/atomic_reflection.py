@@ -7,10 +7,11 @@ Each sub-step is ledger-replayable, idempotent, and auditable.
 """
 
 from __future__ import annotations
-from typing import List, Dict, Any
+
 import hashlib
 import json
 from collections import defaultdict
+from typing import Any
 
 
 class AtomicReflection:
@@ -22,7 +23,7 @@ class AtomicReflection:
     def __init__(self, window_size: int = 100):
         self.window_size = window_size
 
-    def analyze(self, events: List[Dict]) -> Dict[str, Any]:
+    def analyze(self, events: list[dict]) -> dict[str, Any]:
         """
         Pure function. Analyze recent events, extract deterministic signals:
           - commitment stats (open/close counts, streaks)
@@ -70,7 +71,7 @@ class AtomicReflection:
             "events": window,  # Store events for proposal logic
         }
 
-    def propose(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
+    def propose(self, analysis: dict[str, Any]) -> dict[str, Any]:
         """
         Pure function. Deterministically propose changes based on analysis:
           - open/close commitments
@@ -175,8 +176,8 @@ class AtomicReflection:
         return proposals
 
     def commit(
-        self, eventlog, proposals: Dict[str, Any], src_event_id: str
-    ) -> List[str]:
+        self, eventlog, proposals: dict[str, Any], src_event_id: str
+    ) -> list[str]:
         """
         Append atomic reflection events:
           kind="atomic_reflection_step"
@@ -262,7 +263,7 @@ class AtomicReflection:
 
         return appended_ids
 
-    def _analyze_commitments(self, events: List[Dict]) -> Dict[str, Any]:
+    def _analyze_commitments(self, events: list[dict]) -> dict[str, Any]:
         """Analyze commitment patterns in event window."""
         opens = sum(1 for e in events if e.get("kind") == "commitment_open")
         closes = sum(1 for e in events if e.get("kind") == "commitment_close")
@@ -284,7 +285,7 @@ class AtomicReflection:
             "streak": streak,
         }
 
-    def _analyze_trait_deltas(self, events: List[Dict]) -> Dict[str, float]:
+    def _analyze_trait_deltas(self, events: list[dict]) -> dict[str, float]:
         """Analyze trait drift patterns in event window."""
         trait_updates = []
 
@@ -322,7 +323,7 @@ class AtomicReflection:
 
         return trait_deltas
 
-    def _analyze_novelty_patterns(self, events: List[Dict]) -> Dict[str, float]:
+    def _analyze_novelty_patterns(self, events: list[dict]) -> dict[str, float]:
         """Analyze novelty and emergence patterns in event window."""
         # Calculate reflection diversity
         reflection_texts = []
@@ -358,8 +359,8 @@ class AtomicReflection:
         }
 
     def run_full_cycle(
-        self, eventlog, events: List[Dict], src_event_id: str
-    ) -> Dict[str, Any]:
+        self, eventlog, events: list[dict], src_event_id: str
+    ) -> dict[str, Any]:
         """
         Run complete analyze → propose → commit cycle.
         Returns dict with analysis, proposals, and committed event IDs.

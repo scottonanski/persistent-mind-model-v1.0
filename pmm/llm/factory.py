@@ -2,29 +2,31 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import NamedTuple, Optional, Dict, Callable
+from typing import NamedTuple
+
 from pmm.llm.limits import RATE_LIMITED, TickBudget, timed_call
 
 from .adapters.base import ChatAdapter, EmbeddingAdapter
+from .adapters.dummy_chat import DummyChat
+from .adapters.ollama_chat import OllamaChat
 from .adapters.openai_chat import OpenAIChat
 from .adapters.openai_embed import OpenAIEmbed
-from .adapters.ollama_chat import OllamaChat
-from .adapters.dummy_chat import DummyChat
 
 
 @dataclass
 class LLMConfig:
     provider: str
     model: str
-    embed_provider: Optional[str] = None
-    embed_model: Optional[str] = None
-    api_keys: Optional[Dict[str, str]] = None
+    embed_provider: str | None = None
+    embed_model: str | None = None
+    api_keys: dict[str, str] | None = None
 
 
 class LLMBundle(NamedTuple):
     chat: ChatAdapter
-    embed: Optional[EmbeddingAdapter]
+    embed: EmbeddingAdapter | None
 
 
 class LLMFactory:
@@ -35,7 +37,7 @@ class LLMFactory:
         if prov == "openai":
             chat: ChatAdapter = OpenAIChat(model=cfg.model)
             if cfg.embed_provider is None or cfg.embed_provider == "openai":
-                embed: Optional[EmbeddingAdapter] = OpenAIEmbed(model=cfg.embed_model)
+                embed: EmbeddingAdapter | None = OpenAIEmbed(model=cfg.embed_model)
             else:
                 raise ValueError(f"Unknown embed provider: {cfg.embed_provider}")
         elif prov == "ollama":

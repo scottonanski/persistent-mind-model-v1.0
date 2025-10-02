@@ -17,8 +17,8 @@ from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
 from pmm.storage.snapshot import (
     SNAPSHOT_INTERVAL,
-    SNAPSHOT_SCHEMA_VERSION,
     SNAPSHOT_RETENTION_COUNT,
+    SNAPSHOT_SCHEMA_VERSION,
     build_self_model_optimized,
     create_snapshot,
     prune_old_snapshots,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Dict, Any
+from typing import Any
 
 from pmm.storage.projection import build_directives_active_set
 
@@ -8,8 +8,8 @@ GUIDANCE_MAX = 5  # small, fixed; no flags
 
 
 def build_reflection_guidance(
-    events: List[dict], top_k: int = GUIDANCE_MAX
-) -> Dict[str, Any]:
+    events: list[dict], top_k: int = GUIDANCE_MAX
+) -> dict[str, Any]:
     """
     Deterministic guidance for reflection, based on active directives.
     Returns {"text": str, "items": [{"content", "score"}...]}.

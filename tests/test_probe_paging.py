@@ -1,5 +1,5 @@
-from pmm.storage.eventlog import EventLog
 from pmm.api.probe import snapshot_paged
+from pmm.storage.eventlog import EventLog
 
 
 def _populate_db(log: EventLog):

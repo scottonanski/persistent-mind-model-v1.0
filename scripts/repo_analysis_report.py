@@ -1,5 +1,5 @@
-import os
 import ast
+import os
 from collections import defaultdict
 
 ROOT_DIR = "pmm"
@@ -9,7 +9,7 @@ OUTPUT_FILE = "analysis_report.md"
 
 def get_defs(path):
     """Extract top-level class and function names from a Python file."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         try:
             tree = ast.parse(f.read(), filename=path)
         except SyntaxError:

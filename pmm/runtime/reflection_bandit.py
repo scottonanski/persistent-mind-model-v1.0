@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import List, Dict, Tuple, Optional
 import random as _random
+
 from pmm.runtime.metrics import compute_ias_gas, get_or_compute_ias_gas
 from pmm.storage.eventlog import get_default_eventlog
 
 # Fixed arms and templates (names only used for logging; prompt integration optional)
-ARMS: Tuple[str, ...] = (
+ARMS: tuple[str, ...] = (
     "succinct",
     "question_form",
     "narrative",
@@ -21,7 +21,7 @@ _rng = _random.Random(42)  # deterministic RNG
 EPS_BIAS: float = 0.03
 
 # Structured mapping from guidance type -> arm label
-ARM_FROM_GUIDANCE_TYPE: Dict[str, str] = {
+ARM_FROM_GUIDANCE_TYPE: dict[str, str] = {
     "checklist": "checklist",
     "succinct": "succinct",
     "narrative": "narrative",
@@ -30,12 +30,12 @@ ARM_FROM_GUIDANCE_TYPE: Dict[str, str] = {
 }
 
 
-def _current_tick(events: List[Dict]) -> int:
+def _current_tick(events: list[dict]) -> int:
     return 1 + sum(1 for ev in events if ev.get("kind") == "autonomy_tick")
 
 
-def _arm_rewards(events: List[Dict]) -> Dict[str, List[float]]:
-    scores: Dict[str, List[float]] = {a: [] for a in ARMS}
+def _arm_rewards(events: list[dict]) -> dict[str, list[float]]:
+    scores: dict[str, list[float]] = {a: [] for a in ARMS}
     for ev in events:
         if ev.get("kind") != "bandit_reward":
             continue
@@ -50,7 +50,7 @@ def _arm_rewards(events: List[Dict]) -> Dict[str, List[float]]:
     return scores
 
 
-def _best_arm_by_mean(rew: Dict[str, List[float]]) -> str:
+def _best_arm_by_mean(rew: dict[str, list[float]]) -> str:
     best = None
     best_mean = -1.0
     for arm in ARMS:
@@ -62,7 +62,7 @@ def _best_arm_by_mean(rew: Dict[str, List[float]]) -> str:
     return best or ARMS[0]
 
 
-def choose_arm(events: List[Dict]) -> Tuple[str, int]:
+def choose_arm(events: list[dict]) -> tuple[str, int]:
     """
     Deterministic epsilon-greedy arm selection.
     Returns (arm, tick).
@@ -81,8 +81,8 @@ def choose_arm(events: List[Dict]) -> Tuple[str, int]:
 # ---------------- Directive-guided bias (deterministic, bounded) ----------------
 
 
-def _arm_means_from_rewards(rew: Dict[str, List[float]]) -> Dict[str, float]:
-    means: Dict[str, float] = {}
+def _arm_means_from_rewards(rew: dict[str, list[float]]) -> dict[str, float]:
+    means: dict[str, float] = {}
     for arm in ARMS:
         vals = rew.get(arm) or []
         means[arm] = (sum(vals) / len(vals)) if vals else 0.0
@@ -90,8 +90,8 @@ def _arm_means_from_rewards(rew: Dict[str, List[float]]) -> Dict[str, float]:
 
 
 def apply_guidance_bias(
-    arm_means: Dict[str, float], guidance_items: List[Dict], eps_bias: float = EPS_BIAS
-) -> Tuple[Dict[str, float], Dict[str, float]]:
+    arm_means: dict[str, float], guidance_items: list[dict], eps_bias: float = EPS_BIAS
+) -> tuple[dict[str, float], dict[str, float]]:
     """Apply a small, clamped bias to arm means using only structured fields.
 
     Inputs: guidance_items = [{"type": str, "score": float}, ...]
@@ -101,7 +101,7 @@ def apply_guidance_bias(
     Returns (biased_means, delta_by_arm).
     Missing/unknown type or score -> ignored.
     """
-    delta: Dict[str, float] = {a: 0.0 for a in ARMS}
+    delta: dict[str, float] = {a: 0.0 for a in ARMS}
     for it in guidance_items or []:
         arm = ARM_FROM_GUIDANCE_TYPE.get(str(it.get("type") or ""))
         if not arm:
@@ -116,13 +116,13 @@ def apply_guidance_bias(
         # clamp per-arm to ±eps_bias
         delta[arm] = max(-float(eps_bias), min(float(eps_bias), new_d))
 
-    biased: Dict[str, float] = {
+    biased: dict[str, float] = {
         a: float(arm_means.get(a, 0.0)) + float(delta[a]) for a in ARMS
     }
     return biased, delta
 
 
-def _best_arm_from_means(means: Dict[str, float]) -> str:
+def _best_arm_from_means(means: dict[str, float]) -> str:
     best = None
     best_v = -1.0
     for arm in ARMS:
@@ -134,11 +134,11 @@ def _best_arm_from_means(means: Dict[str, float]) -> str:
 
 
 def choose_arm_biased(
-    arm_means: Dict[str, float],
-    guidance_items: List[Dict],
+    arm_means: dict[str, float],
+    guidance_items: list[dict],
     *,
     eps_bias: float = EPS_BIAS,
-) -> Tuple[str, Dict[str, float]]:
+) -> tuple[str, dict[str, float]]:
     """Deterministic selection using biased means (no exploration in this helper).
 
     Returns (arm, delta_by_arm).
@@ -153,7 +153,7 @@ def choose_arm_biased(
 # Reward computation helpers
 
 
-def _ias_at_tick(events: List[Dict], tick_no: int) -> float:
+def _ias_at_tick(events: list[dict], tick_no: int) -> float:
     # Find latest reflection up to that tick and extract IAS embedded in meta.telemetry
     # If none, compute on the fly from events up to that point
     # First, find the event id of the given autonomy tick
@@ -174,7 +174,7 @@ def _ias_at_tick(events: List[Dict], tick_no: int) -> float:
 
 
 def _count_between_ticks(
-    events: List[Dict], kind: str, start_tick: int, end_tick: int
+    events: list[dict], kind: str, start_tick: int, end_tick: int
 ) -> int:
     # Determine id ranges
     tick_ids = [
@@ -183,7 +183,7 @@ def _count_between_ticks(
     if not tick_ids:
         return 0
 
-    def _tick_to_id(t: int) -> Optional[int]:
+    def _tick_to_id(t: int) -> int | None:
         if t <= 0:
             return None
         if t > len(tick_ids):
@@ -205,8 +205,8 @@ def _count_between_ticks(
 
 
 def compute_reward(
-    events: List[Dict], *, horizon: int = 3
-) -> Tuple[float, Optional[str], Optional[int]]:
+    events: list[dict], *, horizon: int = 3
+) -> tuple[float, str | None, int | None]:
     """Return (reward, arm, chosen_tick) or (0.0, None, None) if insufficient context.
     Reward = 0.5 * max(0, ΔIAS) + 0.5 * close_ratio, clipped [0,1].
     """
@@ -244,7 +244,7 @@ def compute_reward(
     return (float(raw), arm or None, tick_chosen)
 
 
-def maybe_log_reward(eventlog, *, horizon: int = 3) -> Optional[int]:
+def maybe_log_reward(eventlog, *, horizon: int = 3) -> int | None:
     """If sufficient ticks have passed since the last bandit_arm_chosen, append bandit_reward.
     Returns new event id or None if not emitted.
     """
@@ -252,8 +252,8 @@ def maybe_log_reward(eventlog, *, horizon: int = 3) -> Optional[int]:
     # Current tick
     tick_now = _current_tick(events)
     # Build FIFO of chosen arms with ticks and mark rewards to find the oldest unmatched choice
-    chosen_queue: List[Tuple[str, int]] = []
-    rewarded_counts: List[str] = []
+    chosen_queue: list[tuple[str, int]] = []
+    rewarded_counts: list[str] = []
     for ev in events:
         k = ev.get("kind")
         if k == "bandit_arm_chosen":
@@ -269,8 +269,8 @@ def maybe_log_reward(eventlog, *, horizon: int = 3) -> Optional[int]:
             arm = str(m.get("arm") or "")
             rewarded_counts.append(arm)
     # Pop off matched choices one-by-one by arm occurrence order
-    unmatched: Optional[Tuple[str, int]] = None
-    arm_match_progress: Dict[str, int] = {}
+    unmatched: tuple[str, int] | None = None
+    arm_match_progress: dict[str, int] = {}
     for arm, t in chosen_queue:
         count_used = arm_match_progress.get(arm, 0)
         if rewarded_counts.count(arm) > count_used:
@@ -296,7 +296,7 @@ def maybe_log_reward(eventlog, *, horizon: int = 3) -> Optional[int]:
 def emit_reflection(
     self,
     content: str,
-    refs: List[Dict],
+    refs: list[dict],
     stage_level: int,
     quality_score: float,
     forced: bool = False,

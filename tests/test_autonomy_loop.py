@@ -2,8 +2,8 @@ import time
 
 import pytest
 
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.loop import AutonomyLoop
+from pmm.storage.eventlog import EventLog
 
 
 def test_autonomy_loop_integration_real(tmp_path):

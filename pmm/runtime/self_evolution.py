@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Any
+from typing import Any
 
 from pmm.config import (
     REFLECTION_SKIPPED,
@@ -23,7 +23,7 @@ class SelfEvolution:
     DEFAULT_CONSCIENTIOUSNESS = 0.5
 
     @staticmethod
-    def _last_setting_from_evolution(events: List[Dict], key: str, default: Any) -> Any:
+    def _last_setting_from_evolution(events: list[dict], key: str, default: Any) -> Any:
         """Scan evolution events to retrieve the last known value for `key`.
         key examples: 'cooldown.novelty_threshold', 'traits.Conscientiousness'
         """
@@ -37,7 +37,7 @@ class SelfEvolution:
         return val
 
     @staticmethod
-    def _consecutive_tail(events: List[Dict], predicate) -> int:
+    def _consecutive_tail(events: list[dict], predicate) -> int:
         cnt = 0
         for ev in reversed(events):
             if predicate(ev):
@@ -47,17 +47,17 @@ class SelfEvolution:
         return cnt
 
     @classmethod
-    def _adaptive_cooldown(cls, events: List[Dict]) -> Dict[str, Any]:
-        changes: Dict[str, Any] = {}
+    def _adaptive_cooldown(cls, events: list[dict]) -> dict[str, Any]:
+        changes: dict[str, Any] = {}
 
         # Recognize reflection skip events for novelty_low
-        def is_skip_novelty_low(ev: Dict) -> bool:
+        def is_skip_novelty_low(ev: dict) -> bool:
             if ev.get("kind") == REFLECTION_SKIPPED:
                 meta = ev.get("meta") or {}
                 return meta.get("reason") == "due_to_low_novelty"
             return False
 
-        def is_reflection(ev: Dict) -> bool:
+        def is_reflection(ev: dict) -> bool:
             return ev.get("kind") == "reflection"
 
         # Consider only reflection-relevant events when computing consecutive tails,
@@ -82,10 +82,10 @@ class SelfEvolution:
         return changes
 
     @classmethod
-    def _commitment_drift(cls, events: List[Dict]) -> Dict[str, Any]:
-        changes: Dict[str, Any] = {}
+    def _commitment_drift(cls, events: list[dict]) -> dict[str, Any]:
+        changes: dict[str, Any] = {}
         # Collect the last 10 commitment_open cids (in order)
-        opens: List[str] = []
+        opens: list[str] = []
         for ev in events:
             if ev.get("kind") == "commitment_open":
                 cid = (ev.get("meta") or {}).get("cid")
@@ -120,12 +120,12 @@ class SelfEvolution:
 
     @classmethod
     def apply_policies(
-        cls, events: List[Dict], metrics: Dict[str, float]
-    ) -> tuple[Dict[str, Any], str]:
+        cls, events: list[dict], metrics: dict[str, float]
+    ) -> tuple[dict[str, Any], str]:
         """Apply self-evolution rules based on recent events and metrics.
         Return (dict of changes applied, details string for telemetry).
         """
-        changes: Dict[str, Any] = {}
+        changes: dict[str, Any] = {}
         details = []
         # Adaptive reflection cooldown
         cooldown_changes = cls._adaptive_cooldown(events)
@@ -200,14 +200,14 @@ RATCHET_BOUNDS = {
 }
 
 
-def _read_tail(evlog, n: int = 600) -> List[dict]:
+def _read_tail(evlog, n: int = 600) -> list[dict]:
     try:
         return evlog.read_tail(limit=n)
     except TypeError:  # legacy signature fallback
         return evlog.read_tail(n)  # type: ignore[arg-type]
 
 
-def _latest_perf_report(tail: List[dict]) -> dict | None:
+def _latest_perf_report(tail: list[dict]) -> dict | None:
     for e in reversed(tail):
         if e.get("kind") != "evaluation_report":
             continue
@@ -217,7 +217,7 @@ def _latest_perf_report(tail: List[dict]) -> dict | None:
     return None
 
 
-def _last_trait_update_tick(tail: List[dict]) -> int:
+def _last_trait_update_tick(tail: list[dict]) -> int:
     for e in reversed(tail):
         if e.get("kind") == "trait_update":
             try:
@@ -227,7 +227,7 @@ def _last_trait_update_tick(tail: List[dict]) -> int:
     return 0
 
 
-def _last_autonomy_tick_id(tail: List[dict]) -> int:
+def _last_autonomy_tick_id(tail: list[dict]) -> int:
     for e in reversed(tail):
         if e.get("kind") == "autonomy_tick":
             try:
@@ -237,7 +237,7 @@ def _last_autonomy_tick_id(tail: List[dict]) -> int:
     return 0
 
 
-def _ratchet_emitted_this_tick(tail: List[dict]) -> bool:
+def _ratchet_emitted_this_tick(tail: list[dict]) -> bool:
     last_auto_id = _last_autonomy_tick_id(tail)
     for e in reversed(tail):
         try:

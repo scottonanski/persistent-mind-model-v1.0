@@ -1,5 +1,5 @@
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.loop import emit_reflection
+from pmm.storage.eventlog import EventLog
 
 
 def _has_kind(evs, kind):

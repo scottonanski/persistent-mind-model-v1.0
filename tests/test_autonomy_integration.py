@@ -4,14 +4,15 @@ Validates that all autonomous systems work together correctly and emit
 events according to CONTRIBUTING.md guidelines.
 """
 
-import tempfile
 import os
-from pmm.storage.eventlog import EventLog
+import tempfile
+
 from pmm.runtime.autonomy_integration import (
     AutonomousSystemsManager,
     integrate_autonomous_systems_into_tick,
     validate_autonomous_event_emissions,
 )
+from pmm.storage.eventlog import EventLog
 
 
 class TestAutonomousSystemsManager:

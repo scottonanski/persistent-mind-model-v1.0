@@ -1,6 +1,6 @@
-from pmm.storage.eventlog import EventLog
 from pmm.commitments.tracker import CommitmentTracker
 from pmm.runtime.recall import suggest_recall
+from pmm.storage.eventlog import EventLog
 
 
 def test_suggests_relevant_prior_events(tmp_path):

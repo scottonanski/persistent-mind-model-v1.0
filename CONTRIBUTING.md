@@ -64,6 +64,22 @@ black --check .
 - Ensure CI passes (tests, lint, formatting).
 - Use clear, imperative commit messages and reference issues where relevant (e.g., "Fix: stabilize stage transitions near S1/S2 boundary").
 
+## No Regular Expressions in Runtime Logic
+
+Regex patterns must not be used in PMM runtime code (ledger parsing, metrics, event validation, etc.).  
+Reasons:
+- Regex introduces fragile edge cases (e.g., mistaking `Event 2025-10-02` as `Event 2025`).
+- Regex undermines determinism and auditability.
+- Regex is hard to audit and conflicts with PMM’s kernel invariants (truth-first, reproducibility).
+
+Instead:
+- Use explicit parsers (string scanning, schema-based validation, deterministic FSM).
+- Always prefer clarity and reproducibility over brevity.
+
+Exceptions:
+- Regex may be used in **testing utilities** or **one-off developer tools**, but never in core runtime or ledger-affecting logic.
+
+
 ---
 
 When writing tests for PMM, only test actual implemented code. Do not write speculative tests for planned features, placeholders, stubs, or imagined behaviors. All tests must directly exercise existing functions, classes, or modules in the codebase, and assert against concrete, deterministic outputs or logged events.

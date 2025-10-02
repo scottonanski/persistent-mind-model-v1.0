@@ -1,6 +1,6 @@
+from pmm.llm.factory import LLMConfig
 from pmm.runtime.loop import Runtime
 from pmm.storage.eventlog import EventLog
-from pmm.llm.factory import LLMConfig
 
 
 def test_handle_user_injects_pmm_prompt(monkeypatch):

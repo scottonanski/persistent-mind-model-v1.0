@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 # ---- constants (no env flags) ----
 MIN_TURNS_BETWEEN_REFLECTIONS = 2  # require N assistant replies between reflections
@@ -11,7 +10,7 @@ NOVELTY_EPS = 0.05  # minimal delta in GAS to qualify as "novel"
 
 @dataclass(frozen=True)
 class CadenceState:
-    last_reflect_ts: Optional[float]
+    last_reflect_ts: float | None
     turns_since_reflect: int
     last_gas: float
     current_gas: float
@@ -21,7 +20,7 @@ def _enough_turns(turns_since_reflect: int) -> bool:
     return int(turns_since_reflect) >= int(MIN_TURNS_BETWEEN_REFLECTIONS)
 
 
-def _enough_seconds(now_ts: Optional[float], last_ts: Optional[float]) -> bool:
+def _enough_seconds(now_ts: float | None, last_ts: float | None) -> bool:
     if now_ts is None or last_ts is None:
         return True  # if no timestamps, don't block
     try:
@@ -39,7 +38,7 @@ def _has_novelty(prev: float, cur: float) -> bool:
         return False
 
 
-def should_reflect(state: CadenceState, *, now_ts: Optional[float]) -> bool:
+def should_reflect(state: CadenceState, *, now_ts: float | None) -> bool:
     """
     Deterministic gating:
       - require min turns AND min seconds; OR

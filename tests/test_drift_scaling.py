@@ -1,9 +1,9 @@
 import pytest
 
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.loop import AutonomyLoop
-from pmm.storage.projection import build_identity
 from pmm.runtime.stage_tracker import StageTracker
+from pmm.storage.eventlog import EventLog
+from pmm.storage.projection import build_identity
 
 
 class _CDAlwaysSkip:

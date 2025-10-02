@@ -8,13 +8,13 @@ Validates:
 4. Trace summaries contain expected data
 """
 
-import time
 import tempfile
+import time
 from pathlib import Path
 
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.trace_buffer import TraceBuffer
 from pmm.runtime.memegraph import MemeGraphProjection
+from pmm.runtime.trace_buffer import TraceBuffer
+from pmm.storage.eventlog import EventLog
 
 
 def test_trace_buffer_basic():

@@ -1,6 +1,6 @@
-from typing import Dict, Any, Optional, List, Tuple
 import logging
 from dataclasses import dataclass
+from typing import Any, Optional
 
 try:
     from pmm.storage.eventlog import EventLog
@@ -40,7 +40,7 @@ class SemanticDirectiveClassifier:
     """
 
     def __init__(self, eventlog: Optional["EventLog"] = None):
-        self.classification_history: Dict[str, str] = {}
+        self.classification_history: dict[str, str] = {}
         self.eventlog = eventlog  # Store EventLog instance for logging
 
     # ---- Identity intent classification -------------------------------------------------
@@ -49,8 +49,8 @@ class SemanticDirectiveClassifier:
         self,
         text: str,
         speaker: str,
-        recent_events: List[Dict],
-    ) -> Tuple[str, Optional[str], float]:
+        recent_events: list[dict],
+    ) -> tuple[str, str | None, float]:
         """Return (intent, candidate_name, confidence)."""
 
         raw = (text or "").strip()
@@ -92,11 +92,11 @@ class SemanticDirectiveClassifier:
     def _extract_naming_features(
         self,
         text: str,
-        words_raw: List[str],
-        words_lower: List[str],
+        words_raw: list[str],
+        words_lower: list[str],
         speaker: str,
-        recent_events: List[Dict],
-    ) -> Dict[str, Any]:
+        recent_events: list[dict],
+    ) -> dict[str, Any]:
         """Extract deterministic features indicating a user naming directive.
 
         Relies on positional heuristics (proper nouns after second-person references
@@ -104,7 +104,7 @@ class SemanticDirectiveClassifier:
         language-flexible and audit-friendly.
         """
 
-        features: Dict[str, Any] = {
+        features: dict[str, Any] = {
             "has_proper_noun": False,
             "proper_noun_count": 0,
             "proper_nouns": [],
@@ -168,11 +168,11 @@ class SemanticDirectiveClassifier:
     def _classify_naming_intent(
         self,
         text: str,
-        words_raw: List[str],
-        words_lower: List[str],
-        features: Dict[str, Any],
+        words_raw: list[str],
+        words_lower: list[str],
+        features: dict[str, Any],
         speaker: str = "user",
-    ) -> Tuple[str, Optional[str], float]:
+    ) -> tuple[str, str | None, float]:
         """Classify naming intent using positional heuristics."""
 
         candidate = features.get("candidate_name")
@@ -205,8 +205,8 @@ class SemanticDirectiveClassifier:
         return "irrelevant", None, 0.0
 
     def _candidate_after_phrase(
-        self, phrase: str, words_lower: List[str], features: Dict[str, Any]
-    ) -> Optional[str]:
+        self, phrase: str, words_lower: list[str], features: dict[str, Any]
+    ) -> str | None:
         try:
             phrase_tokens = phrase.split()
             for idx in range(len(words_lower) - len(phrase_tokens)):
@@ -220,7 +220,7 @@ class SemanticDirectiveClassifier:
             return None
         return None
 
-    def _select_candidate_name(self, features: Dict[str, Any]) -> Optional[str]:
+    def _select_candidate_name(self, features: dict[str, Any]) -> str | None:
         """Choose a candidate name based on positional heuristics."""
 
         proper_positions = features.get("proper_positions", [])
@@ -279,7 +279,7 @@ class SemanticDirectiveClassifier:
             self_reference_type=self_reference_type,
         )
 
-    def _analyze_temporal_scope(self, text: str, words: List[str]) -> str:
+    def _analyze_temporal_scope(self, text: str, words: list[str]) -> str:
         """Determine temporal scope from linguistic patterns."""
 
         # Immediate scope indicators (specific actions)
@@ -319,7 +319,7 @@ class SemanticDirectiveClassifier:
 
         return max(scores.items(), key=lambda x: x[1])[0]
 
-    def _analyze_abstraction_level(self, text: str, words: List[str]) -> str:
+    def _analyze_abstraction_level(self, text: str, words: list[str]) -> str:
         """Determine abstraction level from concept density and specificity."""
 
         # Concrete indicators (specific actions/objects)
@@ -360,7 +360,7 @@ class SemanticDirectiveClassifier:
 
         return max(scores.items(), key=lambda x: x[1])[0]
 
-    def _analyze_agency_type(self, text: str, words: List[str]) -> str:
+    def _analyze_agency_type(self, text: str, words: list[str]) -> str:
         """Determine type of agency being expressed."""
 
         # Behavioral agency (doing things)
@@ -402,7 +402,7 @@ class SemanticDirectiveClassifier:
 
         return max(scores.items(), key=lambda x: x[1])[0]
 
-    def _calculate_semantic_density(self, text: str, words: List[str]) -> float:
+    def _calculate_semantic_density(self, text: str, words: list[str]) -> float:
         """Calculate semantic density (abstract concepts per word)."""
         if not words:
             return 0.0
@@ -431,7 +431,7 @@ class SemanticDirectiveClassifier:
         abstract_count = sum(1 for word in words if word in abstract_words)
         return abstract_count / len(words)
 
-    def _analyze_self_reference(self, text: str, words: List[str]) -> str:
+    def _analyze_self_reference(self, text: str, words: list[str]) -> str:
         """Analyze how the AI refers to itself."""
 
         # Action self-reference (I will do X)
@@ -457,7 +457,7 @@ class SemanticDirectiveClassifier:
         return "none"
 
     def _score_indicators(
-        self, text: str, words: List[str], indicators: Dict[str, List[str]]
+        self, text: str, words: list[str], indicators: dict[str, list[str]]
     ) -> float:
         """Score text against indicator categories."""
         total_score = 0.0
@@ -473,7 +473,7 @@ class SemanticDirectiveClassifier:
 
         return total_score / total_possible if total_possible > 0 else 0.0
 
-    def classify_directive(self, text: str) -> Dict[str, Any]:
+    def classify_directive(self, text: str) -> dict[str, Any]:
         """
         Classify a directive text into a type and associated metadata.
 

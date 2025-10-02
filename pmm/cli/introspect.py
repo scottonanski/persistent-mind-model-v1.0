@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import argparse
-from typing import Optional
 
-from pmm.config import load_runtime_env
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.introspection import build_prompt
-from pmm.llm.factory import LLMFactory, LLMConfig
 from pmm.bridge.manager import sanitize
+from pmm.config import load_runtime_env
+from pmm.llm.factory import LLMConfig, LLMFactory
+from pmm.runtime.introspection import build_prompt
+from pmm.storage.eventlog import EventLog
 
 
-def _gen_summary(chat, prompt: str, provider_family: Optional[str]) -> str:
+def _gen_summary(chat, prompt: str, provider_family: str | None) -> str:
     # Deterministic call: temp=0, bounded tokens
     messages = [{"role": "user", "content": prompt}]
     raw = chat.generate(messages, temperature=0.0, max_tokens=256)

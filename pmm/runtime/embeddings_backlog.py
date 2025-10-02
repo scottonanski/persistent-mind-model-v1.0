@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
-
 import struct as _struct
 
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.embeddings import (
     compute_embedding as _emb_compute,
+)
+from pmm.runtime.embeddings import (
     digest_vector as _emb_digest,
 )
+from pmm.storage.eventlog import EventLog
 
 
-def _response_events(events: List[Dict]) -> List[Tuple[int, str]]:
-    out: List[Tuple[int, str]] = []
+def _response_events(events: list[dict]) -> list[tuple[int, str]]:
+    out: list[tuple[int, str]] = []
     for ev in events:
         if ev.get("kind") == "response":
             try:
@@ -25,7 +25,7 @@ def _response_events(events: List[Dict]) -> List[Tuple[int, str]]:
     return out
 
 
-def _processed_eids(events: List[Dict]) -> set[int]:
+def _processed_eids(events: list[dict]) -> set[int]:
     """Return eids that have been indexed already.
 
     Only "embedding_indexed" counts as processed. "embedding_skipped" does NOT
@@ -45,7 +45,7 @@ def _processed_eids(events: List[Dict]) -> set[int]:
     return have
 
 
-def find_missing_response_eids(eventlog: EventLog) -> List[int]:
+def find_missing_response_eids(eventlog: EventLog) -> list[int]:
     """Return response event ids that have no corresponding embedding_indexed event.
 
     Deterministic: uses a single read_all pass and returns ids in ascending order.
@@ -60,7 +60,7 @@ def find_missing_response_eids(eventlog: EventLog) -> List[int]:
 
 def process_backlog(
     eventlog: EventLog, *, batch_limit: int | None = None, use_real: bool = False
-) -> Dict:
+) -> dict:
     """Catch up on missing embeddings for response events.
 
     For each missing response eid:
@@ -75,7 +75,7 @@ def process_backlog(
         missing = missing[: max(0, int(batch_limit))]
     counts = {"indexed": 0, "skipped": 0, "processed": 0}
     # Build a map from id to content for deterministic lookup
-    content_by_id: Dict[int, str] = {}
+    content_by_id: dict[int, str] = {}
     for eid, text in _response_events(eventlog.read_all()):
         content_by_id[int(eid)] = str(text or "")
     for eid in missing:

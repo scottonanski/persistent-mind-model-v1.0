@@ -2,7 +2,7 @@
 
 from unittest.mock import Mock
 
-from pmm.runtime.emergence import EmergenceScorer, EmergenceManager
+from pmm.runtime.emergence import EmergenceManager, EmergenceScorer
 
 
 class TestEmergenceScorer:

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import List, Dict, Any, Optional, Iterator
-import logging
 import json
+import logging
+from collections.abc import Iterator
+from typing import Any
 
 try:
     from pmm.storage.eventlog import EventLog
@@ -67,7 +68,7 @@ class OllamaChat:
 
     def generate(
         self,
-        messages: List[Dict],
+        messages: list[dict],
         temperature: float = 0.7,
         max_tokens: int = 300,
         **kwargs,
@@ -75,7 +76,8 @@ class OllamaChat:
         """Generate response using Ollama via direct HTTP request."""
         if not self._server_available:
             raise RuntimeError(
-                f"Ollama server not available at {self.base_url}. Please start the Ollama server or use a different provider."
+                f"Ollama server not available at {self.base_url}. Please start "
+                f"the Ollama server or use a different provider."
             )
 
         try:
@@ -126,14 +128,18 @@ class OllamaChat:
 
             # Get fresh metrics after response generation (may have changed due to new events)
             fresh_ias, fresh_gas = get_or_compute_ias_gas(eventlog)
-            return f"{content}\n[Current Metrics: IAS={fresh_ias:.3f}, GAS={fresh_gas:.3f}, Temperature={temperature:.3f}, Max Tokens={max_tokens}]"
+            return (
+                f"{content}\n[Current Metrics: IAS={fresh_ias:.3f}, "
+                f"GAS={fresh_gas:.3f}, Temperature={temperature:.3f}, "
+                f"Max Tokens={max_tokens}]"
+            )
         except Exception as e:
             logger.error(f"Error generating response from Ollama: {e}")
             raise
 
     def generate_stream(
         self,
-        messages: List[Dict],
+        messages: list[dict],
         temperature: float = 0.7,
         max_tokens: int = 300,
         **kwargs,
@@ -144,7 +150,8 @@ class OllamaChat:
         """
         if not self._server_available:
             raise RuntimeError(
-                f"Ollama server not available at {self.base_url}. Please start the Ollama server or use a different provider."
+                f"Ollama server not available at {self.base_url}. Please start "
+                f"the Ollama server or use a different provider."
             )
 
         try:
@@ -212,7 +219,7 @@ class OllamaChatAdapter:
         self,
         model: str = "llama3",
         base_url: str = "http://localhost:11434",
-        eventlog: Optional["EventLog"] = None,
+        eventlog: EventLog | None = None,
     ):
         self.model = model
         self.base_url = base_url
@@ -229,7 +236,7 @@ class OllamaChatAdapter:
 
     async def generate(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         temperature: float = 0.7,
         max_tokens: int = 300,
     ) -> str:
@@ -266,7 +273,10 @@ class OllamaChatAdapter:
             eventlog = get_default_eventlog()
             ias, gas = get_or_compute_ias_gas(eventlog)
 
-            return f"{content}\n[Current Metrics: IAS={ias:.3f}, GAS={gas:.3f}, Temperature={temperature:.3f}, Max Tokens={max_tokens}]"
+            return (
+                f"{content}\n[Current Metrics: IAS={ias:.3f}, GAS={gas:.3f}, "
+                f"Temperature={temperature:.3f}, Max Tokens={max_tokens}]"
+            )
         except Exception as e:
             logger.error(f"Error generating response from Ollama: {e}")
             raise

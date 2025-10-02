@@ -1,11 +1,6 @@
 from __future__ import annotations
 
-import re
-from typing import Dict
-
 COMPOSITE_THRESHOLD = 0.6
-
-_CITATION_PATTERN = re.compile(r"e(\d+)")
 
 _ACTION_TOKENS = {
     "action",
@@ -39,7 +34,7 @@ _NOVELTY_TOKENS = {
 }
 
 
-def score_insight(text: str) -> Dict[str, float]:
+def score_insight(text: str) -> dict[str, float]:
     """Crude heuristic scorer for assistant insights."""
     if not text or not text.strip():
         return {
@@ -54,7 +49,10 @@ def score_insight(text: str) -> Dict[str, float]:
 
     lower = text.lower()
 
-    citations = len(set(_CITATION_PATTERN.findall(lower)))
+    # Extract citations deterministically (e#### format)
+    from pmm.utils.parsers import extract_event_ids_from_evidence
+
+    citations = len(set(extract_event_ids_from_evidence(lower)))
     specificity = min(1.0, citations * 0.3)
 
     actionability = 0.2

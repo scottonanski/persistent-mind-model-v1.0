@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal
 
 # Where the directive text came from.
 Source = Literal["reply", "reflection"]
@@ -14,6 +14,6 @@ class DirectiveCandidate:
 
     content: str  # normalized directive text (whitespace-collapsed)
     source: Source  # "reply" | "reflection"
-    origin_eid: Optional[int] = (
+    origin_eid: int | None = (
         None  # event_id of the originating reply/reflection (if known)
     )

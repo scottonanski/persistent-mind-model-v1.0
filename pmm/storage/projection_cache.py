@@ -12,23 +12,24 @@ full event log scans on every call.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Callable, Any, Set, Tuple
-import logging
 import copy
+import logging
+from collections.abc import Callable
+from typing import Any
 
 from pmm.storage.projection import (
-    build_self_model,
     MAX_TRAIT_DELTA,
     ProjectionInvariantError,
+    build_self_model,
 )
 
 # Import snapshot support (optional - graceful degradation if not available)
 try:
     from pmm.storage.snapshot import (
-        build_self_model_optimized,
-        should_create_snapshot,
-        create_snapshot,
         SNAPSHOT_ENABLED,
+        build_self_model_optimized,
+        create_snapshot,
+        should_create_snapshot,
     )
 
     _SNAPSHOT_AVAILABLE = True
@@ -68,10 +69,10 @@ class ProjectionCache:
             Maximum trait delta per event.
         """
         self._last_id: int = 0
-        self._cached_model: Optional[Dict] = None
+        self._cached_model: dict | None = None
 
         # Stateful tracking that must be preserved across incremental updates
-        self._evidence_seen: Set[Tuple[str, str]] = set()  # (cid, evidence_type)
+        self._evidence_seen: set[tuple[str, str]] = set()  # (cid, evidence_type)
         self._identity_adopted: bool = False
         self._last_eid: int = 0
 
@@ -88,8 +89,8 @@ class ProjectionCache:
         self._verifications_failed = 0
 
     def get_model(
-        self, eventlog, *, on_warn: Optional[Callable[[Dict], None]] = None
-    ) -> Dict:
+        self, eventlog, *, on_warn: Callable[[dict], None] | None = None
+    ) -> dict:
         """Get cached model, applying only new events.
 
         Parameters
@@ -177,8 +178,8 @@ class ProjectionCache:
         return copy.deepcopy(self._cached_model)
 
     def get_identity(
-        self, eventlog, *, on_warn: Optional[Callable[[Dict], None]] = None
-    ) -> Dict:
+        self, eventlog, *, on_warn: Callable[[dict], None] | None = None
+    ) -> dict:
         """Get cached identity only (faster than full model).
 
         Returns
@@ -189,7 +190,7 @@ class ProjectionCache:
         model = self.get_model(eventlog, on_warn=on_warn)
         return model.get("identity", {})
 
-    def _initialize_empty_model(self) -> Dict:
+    def _initialize_empty_model(self) -> dict:
         """Initialize empty model for empty database."""
         return {
             "identity": {
@@ -206,18 +207,14 @@ class ProjectionCache:
         }
 
     def _apply_events_incremental(
-        self, events: List[Dict], *, on_warn: Optional[Callable[[Dict], None]] = None
+        self, events: list[dict], *, on_warn: Callable[[dict], None] | None = None
     ) -> None:
         """Apply new events to cached model incrementally.
 
         This replicates the logic from build_self_model() but operates on
         the cached state instead of rebuilding from scratch.
         """
-        import re as _re
-
-        name_pattern = _re.compile(
-            r"Name\s+changed\s+to:\s*(?P<name>.+)", _re.IGNORECASE
-        )
+        from pmm.utils.parsers import extract_name_from_change_event
 
         key_map = {
             "o": "openness",
@@ -245,9 +242,8 @@ class ProjectionCache:
             if kind == "identity_change":
                 new_name = meta.get("name")
                 if not new_name:
-                    m = name_pattern.search(content or "")
-                    if m:
-                        new_name = m.group("name").strip()
+                    # Use deterministic parser
+                    new_name = extract_name_from_change_event(content or "")
                 if new_name:
                     self._cached_model["identity"]["name"] = new_name
 
@@ -329,7 +325,9 @@ class ProjectionCache:
                         if (cid, "done") not in self._evidence_seen:
                             if self._strict:
                                 raise ProjectionInvariantError(
-                                    f"commitment_close without prior evidence_candidate (cid={cid}, eid={self._last_eid})"
+                                    f"commitment_close without prior "
+                                    f"evidence_candidate (cid={cid}, "
+                                    f"eid={self._last_eid})"
                                 )
                             # Non-strict: proceed with close but emit warning
                             if callable(on_warn):
@@ -382,7 +380,7 @@ class ProjectionCache:
             )
 
     def _verify_against_full_rebuild(
-        self, eventlog, *, on_warn: Optional[Callable[[Dict], None]] = None
+        self, eventlog, *, on_warn: Callable[[dict], None] | None = None
     ) -> None:
         """Verify cached model matches full rebuild.
 
@@ -424,7 +422,7 @@ class ProjectionCache:
         self._events_processed = 0
         logger.debug("ProjectionCache cleared")
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get cache statistics for monitoring.
 
         Returns

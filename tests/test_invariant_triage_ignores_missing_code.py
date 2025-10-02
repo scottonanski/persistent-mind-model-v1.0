@@ -1,8 +1,8 @@
 import os
 import tempfile
 
-from pmm.storage.eventlog import EventLog
 from pmm.commitments.tracker import open_violation_triage
+from pmm.storage.eventlog import EventLog
 
 
 def _new_db() -> str:

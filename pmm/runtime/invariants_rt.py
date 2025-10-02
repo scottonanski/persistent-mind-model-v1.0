@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterable, List, Dict, Any, Optional
 import time
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any
 
 # ---- Gate constants (no env flags) ----
 MAX_SCAN_EVENTS = 500  # bounded lookback to keep cost stable
@@ -12,7 +13,7 @@ MAX_SCAN_EVENTS = 500  # bounded lookback to keep cost stable
 class Violation:
     code: str  # e.g., "HASH_CHAIN", "CANDIDATE_BEFORE_CLOSE", "TTL_OPEN_COMMITMENTS", "PROJECTION_EQUIV"
     message: str
-    details: Dict[str, Any]
+    details: dict[str, Any]
 
 
 def _kind(ev: dict) -> str:
@@ -38,7 +39,7 @@ def _ts(ev: dict) -> float:
 # ---- Checks ----
 
 
-def check_hash_chain(evlog) -> List[Violation]:
+def check_hash_chain(evlog) -> list[Violation]:
     if hasattr(evlog, "verify_chain"):
         ok = bool(evlog.verify_chain())
         if not ok:
@@ -46,9 +47,9 @@ def check_hash_chain(evlog) -> List[Violation]:
     return []
 
 
-def check_candidate_before_close(events: Iterable[dict]) -> List[Violation]:
+def check_candidate_before_close(events: Iterable[dict]) -> list[Violation]:
     seen_candidate_for: set[str] = set()
-    out: List[Violation] = []
+    out: list[Violation] = []
     for ev in events:
         k = _kind(ev)
         pay, meta = _payload(ev), _meta(ev)
@@ -71,12 +72,12 @@ def check_candidate_before_close(events: Iterable[dict]) -> List[Violation]:
 
 
 def check_ttl_open_commitments(
-    events: Iterable[dict], now_ts: Optional[float] = None
-) -> List[Violation]:
+    events: Iterable[dict], now_ts: float | None = None
+) -> list[Violation]:
     now = float(now_ts if now_ts is not None else time.time())
-    opens: Dict[str, Dict[str, Any]] = {}
+    opens: dict[str, dict[str, Any]] = {}
     closed: set[str] = set()
-    out: List[Violation] = []
+    out: list[Violation] = []
 
     for ev in events:
         k = _kind(ev)
@@ -130,7 +131,7 @@ def check_ttl_open_commitments(
 # Optional light determinism probe using your existing directives view (cheap)
 
 
-def check_projection_equiv(build_directives, events: Iterable[dict]) -> List[Violation]:
+def check_projection_equiv(build_directives, events: Iterable[dict]) -> list[Violation]:
     e1 = list(events)
     v1 = build_directives(e1)
     v2 = build_directives(list(e1))
@@ -143,7 +144,7 @@ def check_projection_equiv(build_directives, events: Iterable[dict]) -> List[Vio
     return []
 
 
-def check_identity_propose_before_adopt(events: Iterable[dict]) -> List[Violation]:
+def check_identity_propose_before_adopt(events: Iterable[dict]) -> list[Violation]:
     """Check that every identity_adopt has a preceding identity_propose."""
     adopts = []
     proposes = []
@@ -194,7 +195,7 @@ def check_identity_propose_before_adopt(events: Iterable[dict]) -> List[Violatio
     return violations
 
 
-def check_trait_drift_bounds(events: Iterable[dict]) -> List[Violation]:
+def check_trait_drift_bounds(events: Iterable[dict]) -> list[Violation]:
     """Check that trait updates are within [-0.05, +0.05]."""
     violations = []
 
@@ -224,7 +225,7 @@ def check_trait_drift_bounds(events: Iterable[dict]) -> List[Violation]:
 
 def check_commitments_rebound_after_identity_adopt(
     events: Iterable[dict],
-) -> List[Violation]:
+) -> list[Violation]:
     """Check that commitments referencing old identity are closed or rebound after identity adoption."""
     adopts = []
     commitments = []
@@ -297,7 +298,7 @@ def check_commitments_rebound_after_identity_adopt(
 # ---- Orchestrator ----
 
 
-def run_invariants_tick(*, evlog, build_directives) -> List[Dict[str, Any]]:
+def run_invariants_tick(*, evlog, build_directives) -> list[dict[str, Any]]:
     """
     Read a bounded tail of events, run checks, and return a list of
     'invariant_violation' events to append. Non-blocking; no raises.
@@ -315,7 +316,7 @@ def run_invariants_tick(*, evlog, build_directives) -> List[Dict[str, Any]]:
                 if len(all_events) > MAX_SCAN_EVENTS
                 else all_events
             )
-        violations: List[Violation] = []
+        violations: list[Violation] = []
         violations += check_hash_chain(evlog)
         violations += check_candidate_before_close(tail)
         violations += check_ttl_open_commitments(tail)
@@ -325,7 +326,7 @@ def run_invariants_tick(*, evlog, build_directives) -> List[Dict[str, Any]]:
         # Spacing check removed: immediate identity adoption allowed
         violations += check_commitments_rebound_after_identity_adopt(tail)
 
-        out_events: List[Dict[str, Any]] = []
+        out_events: list[dict[str, Any]] = []
         for v in violations:
             out_events.append(
                 {

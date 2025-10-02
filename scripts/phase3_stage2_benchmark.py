@@ -4,16 +4,16 @@
 Measures actual GPU speedup and PMM performance improvements.
 """
 
-import time
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 # Add project to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from pmm.runtime.loop import Runtime
 from pmm.llm.factory import LLMConfig
+from pmm.runtime.loop import Runtime
 from pmm.storage.eventlog import EventLog
 
 

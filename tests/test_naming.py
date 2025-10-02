@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from pmm.bridge.manager import sanitize
+from pmm.llm.factory import LLMConfig, LLMFactory
 from pmm.runtime.loop import Runtime
 from pmm.storage.eventlog import EventLog
-from pmm.llm.factory import LLMConfig, LLMFactory
 
 
 class _DummyChat:
@@ -39,8 +39,8 @@ def test_user_assigns_assistant_name():
 
 
 def test_user_assigns_with_context():
-    import tempfile
     import os
+    import tempfile
 
     # Create a runtime with a temporary database file to ensure clean state
     with tempfile.TemporaryDirectory() as tmpdir:

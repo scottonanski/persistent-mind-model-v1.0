@@ -1,7 +1,8 @@
 import tempfile
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.loop import AutonomyLoop
+
 from pmm.runtime.cooldown import ReflectionCooldown
+from pmm.runtime.loop import AutonomyLoop
+from pmm.storage.eventlog import EventLog
 
 
 def test_pmm_native_reflection_is_emitted_and_ontology_locked():

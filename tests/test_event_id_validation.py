@@ -1,10 +1,10 @@
 """Test event ID hallucination detection."""
 
-import tempfile
 import os
+import tempfile
 
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.loop import _verify_event_ids
+from pmm.storage.eventlog import EventLog
 
 
 def test_verify_event_ids_valid():

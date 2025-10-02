@@ -10,6 +10,7 @@ Tests streaming functionality across:
 from __future__ import annotations
 
 import pytest
+
 from pmm.llm.adapters.dummy_chat import DummyChat
 from pmm.llm.adapters.ollama_chat import OllamaChat
 from pmm.llm.adapters.openai_chat import OpenAIChat

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 import json
-import sys
+import pathlib
 import re
 import subprocess
-import pathlib
+import sys
 
 LOG_DIR = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else ".logs")
 DB_PATH = pathlib.Path(sys.argv[2] if len(sys.argv) > 2 else ".data/pmm.db")

@@ -1,14 +1,20 @@
 # Re-export public API for convenience.
-from .types import DirectiveCandidate, Source  # noqa: F401
-from .detector import extract  # noqa: F401
-
 # Initialize the directives module
-
 from .classifier import SemanticDirectiveClassifier as SemanticDirectiveClassifier
+from .detector import extract  # noqa: F401
 from .hierarchy import (
-    DirectiveHierarchy as DirectiveHierarchy,
-    Directive as Directive,
-    MetaPrinciple as MetaPrinciple,
-    Principle as Principle,
     Commitment as Commitment,
 )
+from .hierarchy import (
+    Directive as Directive,
+)
+from .hierarchy import (
+    DirectiveHierarchy as DirectiveHierarchy,
+)
+from .hierarchy import (
+    MetaPrinciple as MetaPrinciple,
+)
+from .hierarchy import (
+    Principle as Principle,
+)
+from .types import DirectiveCandidate, Source  # noqa: F401

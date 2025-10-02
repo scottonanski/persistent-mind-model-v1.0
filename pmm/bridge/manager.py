@@ -9,15 +9,12 @@ Intent:
 
 from __future__ import annotations
 
-from typing import List, Dict, Optional
-import re
-
 
 class BridgeManager:
     def __init__(self, model_family: str | None = None) -> None:
         self.model_family = (model_family or "").lower()
 
-    def format_messages(self, messages: List[Dict], *, intent: str) -> List[Dict]:
+    def format_messages(self, messages: list[dict], *, intent: str) -> list[dict]:
         """Return a new list of messages, potentially applying style rules."""
         return [dict(m) for m in messages]
 
@@ -25,8 +22,8 @@ class BridgeManager:
         self,
         text: str,
         *,
-        family: Optional[str] = None,
-        adopted_name: Optional[str] = None,
+        family: str | None = None,
+        adopted_name: str | None = None,
     ) -> str:
         fam = (family or self.model_family) or None
         return sanitize(text, family=fam, adopted_name=adopted_name)
@@ -34,11 +31,11 @@ class BridgeManager:
 
 # ---- Deterministic sanitizer (flag-less, table-driven) ----
 
-_WS = re.compile(r"\s+")
-
 
 def _collapse_ws(s: str) -> str:
-    return _WS.sub(" ", (s or "").strip())
+    from pmm.utils.parsers import normalize_whitespace
+
+    return normalize_whitespace(s or "")
 
 
 def _normalize_ws_preserve_lines(s: str) -> str:
@@ -52,7 +49,15 @@ def _normalize_ws_preserve_lines(s: str) -> str:
         return s
     txt = str(s).strip()
     lines = txt.splitlines()
-    norm_lines = [re.sub(r"[ \t]+", " ", ln.strip()) for ln in lines]
+    # Normalize spaces/tabs on each line deterministically
+    norm_lines = []
+    for ln in lines:
+        # Replace tabs with spaces and collapse multiple spaces
+        cleaned = ln.replace("\t", " ").strip()
+        # Collapse multiple spaces
+        while "  " in cleaned:
+            cleaned = cleaned.replace("  ", " ")
+        norm_lines.append(cleaned)
     out: list[str] = []
     prev_blank = False
     for ln in norm_lines:
@@ -66,33 +71,49 @@ def _normalize_ws_preserve_lines(s: str) -> str:
     return "\n".join(out).strip()
 
 
-_STRIP_PREFIXES = (
-    # e.g., "As an AI language model, ..." or "As a language model, ..."
-    r"^\s*as\s+(?:an?|the)\s+(?:ai\s+language\s+model|language\s+model|ai|assistant)\b[:,]?\s*",
-    # e.g., "I am ChatGPT, ..." / "I am a large language model, ..."
-    r"^\s*i\s*am\s+(?:chatgpt|an\s+ai|a\s+large\s+language\s+model)\b[:,]?\s*",
-)
+# Deterministic string patterns (no regex)
+_STRIP_PREFIX_PHRASES = [
+    "as an ai language model",
+    "as a language model",
+    "as an ai",
+    "as an assistant",
+    "as the assistant",
+    "i am chatgpt",
+    "i am an ai",
+    "i am a large language model",
+]
 
-_STRIP_LINES_CONTAINS = (
-    r"^\s*system\s*:\s*.*$",
-    r"^\s*assistant\s*:\s*.*$",
-    r"^\s*(?:note|disclaimer)\s*:\s*.*$",
-    # Common self-awareness disclaimers that harm persona/continuity
-    r"^\s*i\s+don'?t\s+(?:have|possess)\s+(?:self[- ]awareness|consciousness|personal\s+experiences|subjective\s+experience)\b.*$",
-    r"^\s*i\s+do\s+not\s+(?:have|possess)\s+(?:self[- ]awareness|consciousness|personal\s+experiences|subjective\s+experience)\b.*$",
-)
+_STRIP_LINE_STARTS = [
+    "system:",
+    "assistant:",
+    "note:",
+    "disclaimer:",
+    "i don't have self-awareness",
+    "i don't have consciousness",
+    "i don't possess self-awareness",
+    "i don't possess consciousness",
+    "i do not have self-awareness",
+    "i do not have consciousness",
+    "i do not possess self-awareness",
+    "i do not possess consciousness",
+]
 
-_IDENTITY_PHRASES = (
-    r"\bmy\s+name\s+is\s+[^\.\!\?]+[\.\!\?]?",
-    r"\bi(?:'|\s*a)m\s+(?:chatgpt|an\s+ai|a\s+large\s+language\s+model)\b[\.\!\?]?",
-)
+_IDENTITY_REMOVE_PHRASES = [
+    "my name is",
+    "i'm chatgpt",
+    "i am chatgpt",
+    "i'm an ai",
+    "i am an ai",
+    "i'm a large language model",
+    "i am a large language model",
+]
 
 
 def sanitize(
     text: str,
     *,
-    family: Optional[str] = None,
-    adopted_name: Optional[str] = None,
+    family: str | None = None,
+    adopted_name: str | None = None,
 ) -> str:
     """Deterministically sanitize raw model output.
 
@@ -106,50 +127,110 @@ def sanitize(
 
     s = str(text)
 
-    # 1) Strip known provider prefaces at the start
-    for pat in _STRIP_PREFIXES:
-        s = re.sub(pat, "", s, flags=re.IGNORECASE)
+    # 1) Strip known provider prefaces at the start (deterministic)
+    s_lower = s.lower().lstrip()
+    for phrase in _STRIP_PREFIX_PHRASES:
+        if s_lower.startswith(phrase):
+            # Find where the phrase ends and skip past any punctuation
+            rest = s[len(phrase) :]
+            # Skip past optional punctuation (: , or space)
+            rest = rest.lstrip(":, ")
+            s = rest
+            s_lower = s.lower().lstrip()
+            break
 
-    # 2) Drop entire lines of role/boilerplate markers
-    kept: List[str] = []
+    # 2) Drop entire lines of role/boilerplate markers (deterministic)
+    kept: list[str] = []
     for line in s.splitlines():
-        drop = False
-        for pat in _STRIP_LINES_CONTAINS:
-            if re.search(pat, line, flags=re.IGNORECASE):
-                drop = True
-                break
+        line_lower = line.lower().lstrip()
+        drop = any(line_lower.startswith(phrase) for phrase in _STRIP_LINE_STARTS)
         if not drop:
             kept.append(line)
     s = "\n".join(kept)
 
-    # 3) Remove identity-claim phrases anywhere
-    for pat in _IDENTITY_PHRASES:
-        s = re.sub(pat, "", s, flags=re.IGNORECASE)
+    # 3) Remove identity-claim phrases anywhere (deterministic)
+    for phrase in _IDENTITY_REMOVE_PHRASES:
+        # Simple case-insensitive removal
+        while phrase in s.lower():
+            idx = s.lower().find(phrase)
+            if idx >= 0:
+                # Remove the phrase and any following text until punctuation
+                end_idx = idx + len(phrase)
+                # Find next sentence terminator
+                rest = s[end_idx:]
+                term_idx = -1
+                for i, char in enumerate(rest):
+                    if char in ".!?":
+                        term_idx = i + 1
+                        break
+                if term_idx > 0:
+                    s = s[:idx] + rest[term_idx:]
+                else:
+                    s = s[:idx]
+            else:
+                break
 
     if adopted_name:
         name_text = str(adopted_name)
         name_lower = name_text.lower()
 
-        pattern = re.compile(
-            r"\bI\s*(?:am|’m|'m)\s+(?P<candidate>[A-Z][A-Za-z0-9_\-]{0,15})(?=(?:\s*(?:[,.;!?]|$)))",
-            flags=re.IGNORECASE,
-        )
+        # Deterministic identity swapping: find "I am/I'm <Name>" patterns
+        # and replace non-matching names with adopted name
+        patterns_to_check = ["i am ", "i'm ", "i'm "]
+        for pattern in patterns_to_check:
+            idx = 0
+            while idx < len(s):
+                idx = s.lower().find(pattern, idx)
+                if idx < 0:
+                    break
 
-        def _swap_identity(m: re.Match) -> str:
-            candidate = m.group("candidate")
-            if candidate.lower() == name_lower:
-                return m.group(0)
-            return f"I am {name_text}"
+                # Check word boundary before "I"
+                if idx > 0 and s[idx - 1].isalnum():
+                    idx += 1
+                    continue
 
-        s = pattern.sub(_swap_identity, s)
+                # Extract candidate name after pattern
+                start = idx + len(pattern)
+                end = start
+                # Find end of name (alphanumeric, dash, underscore, max 16 chars)
+                while end < len(s) and end - start < 16:
+                    if s[end].isalnum() or s[end] in "_-":
+                        end += 1
+                    else:
+                        break
 
-    # 4) Family-specific small trims
+                if end > start:
+                    candidate = s[start:end]
+                    # Check if followed by punctuation or end
+                    if end < len(s) and s[end] not in " ,.;.;.;.;!?":
+                        idx = end
+                        continue
+
+                    # If candidate doesn't match adopted name, replace it
+                    if candidate.lower() != name_lower and candidate[0].isupper():
+                        s = s[:start] + name_text + s[end:]
+                        idx = start + len(name_text)
+                    else:
+                        idx = end
+                else:
+                    idx += 1
+
+    # 4) Family-specific small trims (deterministic)
     fam = (family or "").lower()
     if fam:
         if "openai" in fam:
-            s = re.sub(r"^\s*assistant:\s*", "", s, flags=re.IGNORECASE)
+            # Remove "assistant:" prefix
+            if s.lower().lstrip().startswith("assistant:"):
+                s = s.lstrip()[len("assistant:") :].lstrip()
         if ("anthropic" in fam) or ("claude" in fam):
-            s = re.sub(r"^\s*helpful\s+assistant[:,]?\s*", "", s, flags=re.IGNORECASE)
+            # Remove "helpful assistant:" prefix
+            s_lower = s.lower().lstrip()
+            if s_lower.startswith("helpful assistant"):
+                rest = s.lstrip()[len("helpful assistant") :]
+                if rest and rest[0] in ":,":
+                    s = rest[1:].lstrip()
+                elif rest:
+                    s = rest.lstrip()
 
     # 5) Whitespace normalization strategy: single-line collapse (no env gate)
     s = _collapse_ws(s)

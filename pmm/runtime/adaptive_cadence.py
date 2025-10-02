@@ -5,9 +5,9 @@ stage progression, and commitment state. All logic is pure and side-effect free.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Literal, Optional, Tuple
-import math
 
+import math
+from typing import Literal
 
 StageName = Literal["S0", "S1", "S2", "S3", "S4"]
 
@@ -32,11 +32,11 @@ class AdaptiveReflectionCadence:
         confidence: float,
         base_min_turns: int,
         base_min_seconds: float,
-        ias: List[float],
-        gas: List[float],
-        recent_kinds: List[str],
+        ias: list[float],
+        gas: list[float],
+        recent_kinds: list[str],
         open_commitments: int,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """
         Returns (decision, reason_code) where reason_code ∈ {
           "time_gate","turn_gate","plateau_booster","low_diversity_booster",
@@ -85,8 +85,8 @@ class AdaptiveReflectionCadence:
         return (True, "ok")
 
     def maybe_emit_decision(
-        self, eventlog, ctx: Dict, decision: Tuple[bool, str]
-    ) -> Optional[str]:
+        self, eventlog, ctx: dict, decision: tuple[bool, str]
+    ) -> str | None:
         """
         Append exactly one event per unique ctx['tick_id'] if provided.
         If ctx lacks 'tick_id', emit unconditionally.
@@ -117,7 +117,7 @@ class AdaptiveReflectionCadence:
         return str(event_id)
 
     def _get_stage_multiplier(
-        self, stage: StageName, confidence: float, mult_table: Dict[str, float]
+        self, stage: StageName, confidence: float, mult_table: dict[str, float]
     ) -> float:
         """Calculate stage multiplier with confidence modulation."""
         base_mult = mult_table[stage]
@@ -129,7 +129,7 @@ class AdaptiveReflectionCadence:
         # Clamp to [0.5, 2.0]
         return max(0.5, min(2.0, adjusted_mult))
 
-    def _is_plateau(self, ias: List[float], gas: List[float]) -> bool:
+    def _is_plateau(self, ias: list[float], gas: list[float]) -> bool:
         """Check if recent IAS/GAS values indicate a plateau."""
         if len(ias) < 5 or len(gas) < 5:
             return False
@@ -141,7 +141,7 @@ class AdaptiveReflectionCadence:
         # All deltas must be < 0.01
         return all(delta < 0.01 for delta in ias_deltas + gas_deltas)
 
-    def _is_low_diversity(self, recent_kinds: List[str]) -> bool:
+    def _is_low_diversity(self, recent_kinds: list[str]) -> bool:
         """Check if recent event kinds show low diversity."""
         if len(recent_kinds) < 10:
             return False
@@ -159,7 +159,7 @@ class AdaptiveReflectionCadence:
         max_run = self._calculate_max_run_length(tail_10)
         return max_run >= 4
 
-    def _calculate_max_run_length(self, kinds: List[str]) -> int:
+    def _calculate_max_run_length(self, kinds: list[str]) -> int:
         """Calculate the longest streak of consecutive same-kind events."""
         if not kinds:
             return 0
@@ -178,7 +178,7 @@ class AdaptiveReflectionCadence:
 
         return max_run
 
-    def _compact_context(self, ctx: Dict) -> Dict:
+    def _compact_context(self, ctx: dict) -> dict:
         """Create compact context excluding large arrays, including lengths + last values."""
         compact = {}
 

@@ -7,32 +7,32 @@ validation. The live server returns exactly what probe helpers return.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 
 class SnapshotIdentity(BaseModel):
-    name: Optional[str] = None
-    traits: Dict[str, float] = Field(default_factory=dict)
+    name: str | None = None
+    traits: dict[str, float] = Field(default_factory=dict)
 
 
 class SnapshotModel(BaseModel):
     identity: SnapshotIdentity
-    commitments: Dict[str, Any]
-    events: List[Dict[str, Any]]
-    directives: Dict[str, Any] | None = None
+    commitments: dict[str, Any]
+    events: list[dict[str, Any]]
+    directives: dict[str, Any] | None = None
 
 
 class DirectiveRow(BaseModel):
     content: str
-    first_seen_ts: Optional[str] = None
-    last_seen_ts: Optional[str] = None
-    first_seen_id: Optional[int] = None
-    last_seen_id: Optional[int] = None
+    first_seen_ts: str | None = None
+    last_seen_ts: str | None = None
+    first_seen_id: int | None = None
+    last_seen_id: int | None = None
     seen_count: int
-    sources: List[str] = Field(default_factory=list)
-    last_origin_eid: Optional[int] = None
+    sources: list[str] = Field(default_factory=list)
+    last_origin_eid: int | None = None
 
 
 class DirectiveActiveRow(BaseModel):
@@ -40,22 +40,22 @@ class DirectiveActiveRow(BaseModel):
     seen_count: int
     recent_hits: int
     score: float
-    first_seen_id: Optional[int] = None
-    last_seen_id: Optional[int] = None
-    sources: List[str] = Field(default_factory=list)
+    first_seen_id: int | None = None
+    last_seen_id: int | None = None
+    sources: list[str] = Field(default_factory=list)
 
 
 class ViolationRow(BaseModel):
-    ts: Optional[str]
-    id: Optional[int]
-    code: Optional[str]
+    ts: str | None
+    id: int | None
+    code: str | None
     message: str = ""
-    details: Dict[str, Any] = Field(default_factory=dict)
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class OpenCommitmentRow(BaseModel):
-    id: Optional[int]
-    ts: Optional[str]
+    id: int | None
+    ts: str | None
     cid: str = ""
-    content: Optional[str] = None
-    origin_eid: Optional[int] = None
+    content: str | None = None
+    origin_eid: int | None = None

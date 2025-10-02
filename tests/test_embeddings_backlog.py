@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.embeddings_backlog import find_missing_response_eids, process_backlog
+from pmm.storage.eventlog import EventLog
 
 
 def test_find_missing_sorted_and_specific(tmp_path):

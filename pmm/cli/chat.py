@@ -18,7 +18,8 @@ from rich.text import Text
 from pmm.cli.model_select import select_model
 from pmm.config import load_runtime_env
 from pmm.llm.factory import LLMConfig
-from pmm.runtime.loop import Runtime, maybe_reflect as runtime_maybe_reflect
+from pmm.runtime.loop import Runtime
+from pmm.runtime.loop import maybe_reflect as runtime_maybe_reflect
 from pmm.runtime.metrics_view import MetricsView, humanize_reflect_reason
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_identity
@@ -189,7 +190,9 @@ def _metrics_panel(snap: dict) -> Panel:
     if traits_full:
         tf_line = Text("OCEAN ", style="green")
         tf_line.append(
-            f"O {traits_full.get('O','0.00')}  C {traits_full.get('C','0.00')}  E {traits_full.get('E','0.00')}  A {traits_full.get('A','0.00')}  N {traits_full.get('N','0.00')}",
+            f"O {traits_full.get('O','0.00')}  C {traits_full.get('C','0.00')}  "
+            f"E {traits_full.get('E','0.00')}  A {traits_full.get('A','0.00')}  "
+            f"N {traits_full.get('N','0.00')}",
             style="bold white",
         )
         grid.add_row(tf_line)
@@ -550,10 +553,6 @@ def main() -> None:
                     _show_status(
                         assistant_console,
                         f"⚠️  Hallucination detected: {hallucination_ids}",
-                    )
-                    logger.warning(
-                        "[bold yellow][hallucination][/bold yellow] "
-                        f"LLM referenced non-existent event IDs: {hallucination_ids}"
                     )
             except Exception:
                 pass

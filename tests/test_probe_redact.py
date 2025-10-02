@@ -1,5 +1,5 @@
-from pmm.storage.eventlog import EventLog
 from pmm.api.probe import snapshot, snapshot_paged
+from pmm.storage.eventlog import EventLog
 
 
 def test_probe_snapshot_redaction_applies_to_events(tmp_path):

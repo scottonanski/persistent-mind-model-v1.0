@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import json
-from typing import List, Dict, Any, Iterator
-from urllib.request import Request, urlopen
+import os
+from collections.abc import Iterator
+from typing import Any
 from urllib.error import HTTPError, URLError
-
+from urllib.request import Request, urlopen
 
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 
@@ -20,7 +20,7 @@ class OpenAIChat:
 
     def generate(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         temperature: float = 1.0,
         max_tokens: int = 512,
         **kw: Any,
@@ -80,7 +80,7 @@ class OpenAIChat:
 
     def generate_stream(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         temperature: float = 1.0,
         max_tokens: int = 512,
         **kw: Any,

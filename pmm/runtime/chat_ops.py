@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from .llm_probe import make_probe_fn
 from .capability_resolver import CapabilityResolver
 from .generation_controller import GenerationController
+from .llm_probe import make_probe_fn
 
 _resolver: CapabilityResolver | None = None
 _controller: GenerationController | None = None

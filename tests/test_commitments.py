@@ -1,7 +1,7 @@
-from pmm.storage.eventlog import EventLog
-from pmm.storage.projection import build_self_model
 from pmm.commitments.tracker import CommitmentTracker
 from pmm.runtime.memegraph import MemeGraphProjection
+from pmm.storage.eventlog import EventLog
+from pmm.storage.projection import build_self_model
 
 
 def test_open_then_invalid_close_stays_open(tmp_path):

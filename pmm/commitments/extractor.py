@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from pmm.runtime.embeddings import compute_embedding, cosine_similarity, digest_vector
 
@@ -29,7 +29,7 @@ COMMITMENT_THRESHOLD = (
 )
 
 
-COMMITMENT_EXEMPLARS: Dict[str, List[str]] = {
+COMMITMENT_EXEMPLARS: dict[str, list[str]] = {
     "open": [
         "I will complete this task",
         "I plan to work on this",
@@ -50,7 +50,7 @@ COMMITMENT_EXEMPLARS: Dict[str, List[str]] = {
 }
 
 
-STRUCTURAL_EXEMPLARS: Dict[str, List[str]] = {
+STRUCTURAL_EXEMPLARS: dict[str, list[str]] = {
     "first_person": [
         "I will",
         "we will",
@@ -74,22 +74,22 @@ STRUCTURAL_EXEMPLARS: Dict[str, List[str]] = {
 }
 
 
-INTENT_STRUCTURE_REQUIREMENTS: Dict[str, Dict[str, float]] = {
+INTENT_STRUCTURE_REQUIREMENTS: dict[str, dict[str, float]] = {
     "open": {"first_person": 0.45, "future_focus": 0.45},
     "close": {"completion": 0.45},
     "expire": {"abandonment": 0.45},
 }
 
 
-def _embedding(text: str) -> List[float]:
+def _embedding(text: str) -> list[float]:
     vec = compute_embedding(text or "")
     return vec if isinstance(vec, list) else []
 
 
 def _prepare_samples(
-    exemplars: Dict[str, List[str]],
-) -> Dict[str, List[Dict[str, Any]]]:
-    samples: Dict[str, List[Dict[str, Any]]] = {}
+    exemplars: dict[str, list[str]],
+) -> dict[str, list[dict[str, Any]]]:
+    samples: dict[str, list[dict[str, Any]]] = {}
     for label, texts in exemplars.items():
         vectors = []
         for text in texts:
@@ -105,8 +105,8 @@ STRUCTURAL_SAMPLES = _prepare_samples(STRUCTURAL_EXEMPLARS)
 
 
 def _max_similarity(
-    vec: List[float], samples: List[Dict[str, Any]]
-) -> Tuple[float, str]:
+    vec: list[float], samples: list[dict[str, Any]]
+) -> tuple[float, str]:
     if not vec or not samples:
         return 0.0, ""
     best_score = 0.0
@@ -119,7 +119,7 @@ def _max_similarity(
     return best_score, best_text
 
 
-def _best_intent(vec: List[float]) -> Tuple[str, float, str]:
+def _best_intent(vec: list[float]) -> tuple[str, float, str]:
     best_intent = "none"
     best_score = 0.0
     best_exemplar = ""
@@ -132,8 +132,8 @@ def _best_intent(vec: List[float]) -> Tuple[str, float, str]:
     return best_intent, best_score, best_exemplar
 
 
-def _structural_scores(vec: List[float]) -> Dict[str, float]:
-    scores: Dict[str, float] = {}
+def _structural_scores(vec: list[float]) -> dict[str, float]:
+    scores: dict[str, float] = {}
     for key, samples in STRUCTURAL_SAMPLES.items():
         score, _ = _max_similarity(vec, samples)
         scores[key] = score
@@ -142,7 +142,7 @@ def _structural_scores(vec: List[float]) -> Dict[str, float]:
 
 def detect_commitment(
     text: str, threshold: float = COMMITMENT_THRESHOLD
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Detect semantic commitment intent for the given text via embeddings.
 
     Structural exemplars act as a soft boost rather than a hard requirement.
@@ -194,10 +194,10 @@ def detect_commitment(
 
 
 def extract_commitments(
-    texts: List[str], threshold: float = COMMITMENT_THRESHOLD
-) -> List[Tuple[str, str, float]]:
+    texts: list[str], threshold: float = COMMITMENT_THRESHOLD
+) -> list[tuple[str, str, float]]:
     """Return ``(text, intent, score)`` for all detected commitments in ``texts``."""
-    results: List[Tuple[str, str, float]] = []
+    results: list[tuple[str, str, float]] = []
     for text in texts or []:
         analysis = detect_commitment(text, threshold=threshold)
         if analysis["intent"] != "none":
@@ -208,11 +208,11 @@ def extract_commitments(
 class CommitmentExtractor:
     """Embedding-backed commitment intent detector."""
 
-    def __init__(self, eventlog: Optional["EventLog"] = None) -> None:
+    def __init__(self, eventlog: EventLog | None = None) -> None:
         self.eventlog = eventlog
         self.commit_thresh = COMMITMENT_THRESHOLD
 
-    def detect_intent(self, text: str) -> Dict[str, Any]:
+    def detect_intent(self, text: str) -> dict[str, Any]:
         """Analyze text and return semantic commitment metadata."""
         return detect_commitment(text, threshold=self.commit_thresh)
 
@@ -221,7 +221,7 @@ class CommitmentExtractor:
         analysis = self.detect_intent(text)
         return float(analysis["score"])
 
-    def extract_best_sentence(self, text: str) -> Optional[str]:
+    def extract_best_sentence(self, text: str) -> str | None:
         """Return the highest scoring commitment sentence from the input text."""
         if not isinstance(text, str) or not text.strip():
             return None
@@ -229,8 +229,8 @@ class CommitmentExtractor:
         sentences = [segment.strip() for segment in text.replace("\n", " ").split(".")]
         sentences = [s for s in sentences if s]
 
-        best_sentence: Optional[str] = None
-        best_analysis: Optional[Dict[str, Any]] = None
+        best_sentence: str | None = None
+        best_analysis: dict[str, Any] | None = None
 
         for sentence in sentences:
             analysis = self.detect_intent(sentence)
@@ -261,6 +261,6 @@ class CommitmentExtractor:
 
         return best_sentence
 
-    def _vector(self, text: str) -> List[float]:
+    def _vector(self, text: str) -> list[float]:
         """Expose the deterministic embedding used for semantic detection."""
         return _embedding(text)

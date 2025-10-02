@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Dict, List, Optional
 
 # Stable analysis windows (no env flags)
 EVAL_TAIL_EVENTS: int = 400
@@ -7,7 +6,7 @@ METRICS_WINDOW: int = 200  # last-N events considered for metrics
 COMPONENT_PERFORMANCE: str = "performance"
 
 
-def _last_n(events: List[dict], n: int) -> List[dict]:
+def _last_n(events: list[dict], n: int) -> list[dict]:
     if n <= 0:
         return []
     return events[-n:] if len(events) > n else list(events)
@@ -23,8 +22,8 @@ def _get_meta(e: dict) -> dict:
 
 
 def compute_performance_metrics(
-    events: List[dict], window: int = METRICS_WINDOW
-) -> Dict[str, float]:
+    events: list[dict], window: int = METRICS_WINDOW
+) -> dict[str, float]:
     """
     Deterministic, order-insensitive metrics computed over the last `window` events.
     Inputs are raw event dicts already from a tail read. No wall-clock used.
@@ -89,7 +88,7 @@ def compute_performance_metrics(
     }
 
 
-def _find_existing_report_for_tick(events_tail: List[dict], tick: int) -> Optional[int]:
+def _find_existing_report_for_tick(events_tail: list[dict], tick: int) -> int | None:
     # Scan a bounded tail for an existing evaluation_report for this tick.
     for e in reversed(_last_n(events_tail, EVAL_TAIL_EVENTS)):
         if e.get("kind") != "evaluation_report":
@@ -109,10 +108,10 @@ def _find_existing_report_for_tick(events_tail: List[dict], tick: int) -> Option
 def emit_evaluation_report(
     eventlog,
     *,
-    metrics: Dict[str, float],
+    metrics: dict[str, float],
     tick: int,
     component: str = COMPONENT_PERFORMANCE,
-) -> Optional[int]:
+) -> int | None:
     """
     Append evaluation_report once per tick (idempotent per (component, tick)).
     Returns the new event id or the existing one if already emitted; None on no-op.

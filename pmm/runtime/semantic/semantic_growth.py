@@ -7,16 +7,14 @@ the event ledger stable and auditable.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
-
 import hashlib
 from collections import defaultdict
+from typing import Any
 
 from pmm.runtime.embeddings import compute_embedding, cosine_similarity, digest_vector
 
-
 # Theme exemplars replace keyword dictionaries; each seed phrase anchors a theme.
-THEME_EXEMPLARS: Dict[str, List[str]] = {
+THEME_EXEMPLARS: dict[str, list[str]] = {
     "growth": [
         "learning new skills keeps my identity evolving",
         "becoming as an ongoing process",
@@ -61,7 +59,7 @@ THEME_EXEMPLARS: Dict[str, List[str]] = {
 
 
 # Precompute deterministic embeddings for each exemplar at import time.
-THEME_VECTORS: Dict[str, List[List[float]]] = {
+THEME_VECTORS: dict[str, list[list[float]]] = {
     theme: [compute_embedding(text) for text in examples]
     for theme, examples in THEME_EXEMPLARS.items()
 }
@@ -70,19 +68,19 @@ THEME_VECTORS: Dict[str, List[List[float]]] = {
 SEMANTIC_THRESHOLD = 0.65
 
 
-def _embedding_for_text(text: str) -> List[float]:
+def _embedding_for_text(text: str) -> list[float]:
     """Compute an embedding for text, returning an empty vector on failure."""
     vec = compute_embedding(text or "")
     return vec if isinstance(vec, list) else []
 
 
-def score_themes(text: str, threshold: float = SEMANTIC_THRESHOLD) -> Dict[str, float]:
+def score_themes(text: str, threshold: float = SEMANTIC_THRESHOLD) -> dict[str, float]:
     """Score text against semantic themes using exemplar similarity."""
     text_vec = _embedding_for_text(text)
     if not text_vec:
         return {}
 
-    scores: Dict[str, float] = {}
+    scores: dict[str, float] = {}
     for theme, vectors in THEME_VECTORS.items():
         sims = [cosine_similarity(text_vec, exemplar_vec) for exemplar_vec in vectors]
         best = max(sims) if sims else 0.0
@@ -92,10 +90,10 @@ def score_themes(text: str, threshold: float = SEMANTIC_THRESHOLD) -> Dict[str, 
 
 
 def detect_growth_themes(
-    reflections: List[str], threshold: float = SEMANTIC_THRESHOLD
-) -> List[Tuple[str, Dict[str, float]]]:
+    reflections: list[str], threshold: float = SEMANTIC_THRESHOLD
+) -> list[tuple[str, dict[str, float]]]:
     """Return semantic theme scores for each reflection."""
-    output: List[Tuple[str, Dict[str, float]]] = []
+    output: list[tuple[str, dict[str, float]]] = []
     for reflection in reflections or []:
         if not isinstance(reflection, str) or not reflection.strip():
             continue
@@ -119,7 +117,7 @@ class SemanticGrowth:
         self.window_size = window_size
         self.semantic_threshold = semantic_threshold
 
-    def analyze_texts(self, texts: List[str]) -> Dict[str, Any]:
+    def analyze_texts(self, texts: list[str]) -> dict[str, Any]:
         """Pure deterministic analysis for a batch of reflections."""
         if not isinstance(texts, list) or not texts:
             return self._empty_analysis()
@@ -128,8 +126,8 @@ class SemanticGrowth:
         if not valid_texts:
             return self._empty_analysis()
 
-        aggregated: Dict[str, List[float]] = defaultdict(list)
-        reflections: List[Dict[str, Any]] = []
+        aggregated: dict[str, list[float]] = defaultdict(list)
+        reflections: list[dict[str, Any]] = []
 
         for text in valid_texts:
             theme_scores = score_themes(text, threshold=self.semantic_threshold)
@@ -180,8 +178,8 @@ class SemanticGrowth:
         return analysis
 
     def detect_growth_paths(
-        self, historical_analyses: List[Dict[str, Any]]
-    ) -> List[str]:
+        self, historical_analyses: list[dict[str, Any]]
+    ) -> list[str]:
         """Detect emerging or declining semantic themes across analyses."""
         if not historical_analyses or len(historical_analyses) < 2:
             return []
@@ -205,7 +203,7 @@ class SemanticGrowth:
         )
 
         all_themes = set(baseline_scores.keys()) | set(current_scores.keys())
-        growth_flags: List[str] = []
+        growth_flags: list[str] = []
 
         for theme in sorted(all_themes):
             baseline_score = float(baseline_scores.get(theme, 0.0))
@@ -238,9 +236,9 @@ class SemanticGrowth:
         self,
         eventlog,
         src_event_id: str,
-        analysis: Dict[str, Any],
-        growth_paths: List[str],
-    ) -> Optional[str]:
+        analysis: dict[str, Any],
+        growth_paths: list[str],
+    ) -> str | None:
         """Emit semantic growth report if digest not already present."""
         digest_data = self._serialize_for_digest(analysis, growth_paths)
         digest = hashlib.sha256(digest_data.encode()).hexdigest()
@@ -273,7 +271,7 @@ class SemanticGrowth:
             kind="semantic_growth_report", content="analysis", meta=meta
         )
 
-    def _empty_analysis(self) -> Dict[str, Any]:
+    def _empty_analysis(self) -> dict[str, Any]:
         """Return a baseline analysis payload for empty inputs."""
         return {
             "total_texts": 0,
@@ -298,10 +296,10 @@ class SemanticGrowth:
         }
 
     def _serialize_for_digest(
-        self, analysis: Dict[str, Any], growth_paths: List[str]
+        self, analysis: dict[str, Any], growth_paths: list[str]
     ) -> str:
         """Serialize analysis payload deterministically for digest generation."""
-        parts: List[str] = []
+        parts: list[str] = []
         parts.append(f"texts:{analysis.get('total_texts', 0)}")
 
         theme_scores = analysis.get("theme_scores", {})

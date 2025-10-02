@@ -1,10 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable, List, Optional
 
 from pmm.runtime.embeddings import compute_embedding, cosine_similarity
-
 
 _TARGET_PHRASES = (
     "personal ontology",
@@ -32,9 +31,9 @@ class GraphInsightTrigger:
 
     threshold: float = 0.33
     context_threshold: float = 0.28
-    _target_vectors: dict[str, List[float]] = field(default_factory=dict)
+    _target_vectors: dict[str, list[float]] = field(default_factory=dict)
 
-    def _embed(self, text: str) -> Optional[List[float]]:
+    def _embed(self, text: str) -> list[float] | None:
         try:
             vec = compute_embedding(text)
             if isinstance(vec, list) and vec:
@@ -43,7 +42,7 @@ class GraphInsightTrigger:
             return None
         return None
 
-    def _target_vector(self, phrase: str) -> Optional[List[float]]:
+    def _target_vector(self, phrase: str) -> list[float] | None:
         if phrase in self._target_vectors:
             return self._target_vectors[phrase]
         vec = self._embed(phrase)
@@ -54,7 +53,7 @@ class GraphInsightTrigger:
     def should_inject(
         self,
         user_text: str,
-        context_lines: Optional[Iterable[str]] = None,
+        context_lines: Iterable[str] | None = None,
     ) -> bool:
         payload = (user_text or "").strip()
         if not payload:

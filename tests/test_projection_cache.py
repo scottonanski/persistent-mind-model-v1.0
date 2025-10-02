@@ -1,7 +1,7 @@
 """Tests for incremental projection cache (Phase 2.1)."""
 
-import tempfile
 import os
+import tempfile
 
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model

@@ -1,6 +1,7 @@
-from pmm.storage.eventlog import EventLog
 import re
-from pmm.runtime.context_builder import build_context_from_ledger, build_context
+
+from pmm.runtime.context_builder import build_context, build_context_from_ledger
+from pmm.storage.eventlog import EventLog
 
 
 def _create_sample_ledger() -> EventLog:

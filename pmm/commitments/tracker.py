@@ -8,16 +8,16 @@ Intent:
 
 from __future__ import annotations
 
-import uuid as _uuid
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 import datetime as _dt
-from typing import Any
-from dataclasses import dataclass
 import logging
+import uuid as _uuid
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
+from pmm.runtime.embeddings import compute_embedding as _emb
+from pmm.runtime.embeddings import cosine_similarity as _cos
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
-from pmm.runtime.embeddings import compute_embedding as _emb, cosine_similarity as _cos
 
 if TYPE_CHECKING:
     from pmm.runtime.memegraph import MemeGraphProjection
@@ -38,20 +38,20 @@ class CommitmentTracker:
     def __init__(
         self,
         eventlog: EventLog,
-        memegraph: Optional["MemeGraphProjection"] = None,
+        memegraph: MemeGraphProjection | None = None,
     ) -> None:
         self.eventlog = eventlog
         self._memegraph = memegraph
 
-    def _open_commitments_legacy(self) -> Dict[str, Dict[str, Any]]:
+    def _open_commitments_legacy(self) -> dict[str, dict[str, Any]]:
         events = self.eventlog.read_all()
         model = build_self_model(events)
         return (model.get("commitments") or {}).get("open", {})
 
     def _compare_open_maps(
         self,
-        legacy_map: Dict[str, Dict[str, Any]],
-        graph_map: Dict[str, Dict[str, Any]],
+        legacy_map: dict[str, dict[str, Any]],
+        graph_map: dict[str, dict[str, Any]],
     ) -> None:
         try:
             legacy_keys = set(legacy_map.keys())
@@ -77,8 +77,8 @@ class CommitmentTracker:
             logger.debug("memegraph commitment shadow comparison failed", exc_info=True)
 
     def process_assistant_reply(
-        self, text: str, reply_event_id: Optional[int] = None
-    ) -> List[str]:
+        self, text: str, reply_event_id: int | None = None
+    ) -> list[str]:
         """Detect commitments in assistant replies and open them.
 
         Returns list of newly opened commitment ids (cids).
@@ -117,7 +117,7 @@ class CommitmentTracker:
                 self._compare_open_maps(open_map, graph_map)
             # Accumulate a summary of rebinds emitted during this invocation to support
             # a single identity_projection event after processing, idempotently.
-            rebind_summaries: List[Dict[str, Any]] = []
+            rebind_summaries: list[dict[str, Any]] = []
             for cid, meta in list(open_map.items()):
                 txt = str((meta or {}).get("text") or "")
                 if not txt:
@@ -247,7 +247,7 @@ class CommitmentTracker:
         except Exception:
             return
 
-    def process_evidence(self, text: str) -> List[str]:
+    def process_evidence(self, text: str) -> list[str]:
         """Detect "Done:" style evidence and emit candidate then close with confirmation.
 
         NOTE: This legacy helper now follows the event-native flow:
@@ -264,7 +264,7 @@ class CommitmentTracker:
         # Build recent events slice and open commitments list
         events = self.eventlog.read_all()
         model = build_self_model(events)
-        open_map: Dict[str, Dict] = model.get("commitments", {}).get("open", {})
+        open_map: dict[str, dict] = model.get("commitments", {}).get("open", {})
         if not open_map:
             return []
 
@@ -280,7 +280,7 @@ class CommitmentTracker:
         tmp_events = [{"kind": "response", "content": text, "meta": {}}]
         cands = self.find_evidence(tmp_events, open_list, recent_window=recent_window)
         # Append top candidate (if any) and then close deterministically
-        closed: List[str] = []
+        closed: list[str] = []
         if cands:
             # choose best by score then stable by cid
             cands_sorted = sorted(cands, key=lambda t: (-float(t[1]), str(t[0])))
@@ -364,7 +364,7 @@ class CommitmentTracker:
                 1 for e in events if e.get("kind") == "autonomy_tick"
             )
             # Track open reflection commitments via their open events
-            open_reflection: List[str] = []
+            open_reflection: list[str] = []
             closed_or_expired: set[str] = set()
             for ev in events:
                 if ev.get("kind") in {"commitment_close", "commitment_expire"}:
@@ -452,8 +452,8 @@ class CommitmentTracker:
         self,
         text: str,
         source: str | None = None,
-        extra_meta: Optional[Dict] = None,
-        project: Optional[str] = None,
+        extra_meta: dict | None = None,
+        project: str | None = None,
     ) -> str:
         """Open a new commitment and return its cid.
 
@@ -464,7 +464,7 @@ class CommitmentTracker:
             # No-op: return a stable cid-like marker to reflect dedup action
             return ""
         cid = _uuid.uuid4().hex
-        meta: Dict = {"cid": cid, "text": text}
+        meta: dict = {"cid": cid, "text": text}
         if source is not None:
             meta["source"] = source
         if isinstance(extra_meta, dict):
@@ -474,14 +474,14 @@ class CommitmentTracker:
                     meta[k] = v
         # Optional project grouping: explicit or auto-detected
         # 1) Explicit project argument or meta.project_id
-        explicit_pid: Optional[str] = None
+        explicit_pid: str | None = None
         if project and isinstance(project, str):
             explicit_pid = str(project).strip()
         elif isinstance(meta.get("project_id"), str):
             explicit_pid = str(meta.get("project_id")).strip()
 
         # 2) Auto-detect project tag if not explicitly provided
-        auto_pid: Optional[str] = None
+        auto_pid: str | None = None
         if not explicit_pid:
             auto_pid = self._auto_project_id(text)
             # Only promote to active project if at least one other OPEN commitment shares the same tag
@@ -489,7 +489,7 @@ class CommitmentTracker:
                 try:
                     evs = self.eventlog.read_all()
                     model0 = build_self_model(evs)
-                    open_map0: Dict[str, Dict] = (model0.get("commitments") or {}).get(
+                    open_map0: dict[str, dict] = (model0.get("commitments") or {}).get(
                         "open", {}
                     )
                     # Find already-open cids with same auto tag
@@ -571,14 +571,14 @@ class CommitmentTracker:
             return
 
     # --- Auto-project tag extraction ---
-    def _auto_project_id(self, text: str) -> Optional[str]:
+    def _auto_project_id(self, text: str) -> str | None:
         """Derive a stable, short project id from commitment text.
 
         Heuristic: tokenize, drop stopwords and common verbs, take first 1–2 tokens, join with '-'.
         Returns None if insufficient signal.
         """
         try:
-            import re as _re_local
+            from pmm.utils.parsers import tokenize_alnum
 
             stop = {
                 "i",
@@ -603,32 +603,9 @@ class CommitmentTracker:
                 "be",
                 "it",
             }
-            verbs = {
-                "write",
-                "document",
-                "doc",
-                "prepare",
-                "summarize",
-                "summarise",
-                "refactor",
-                "ship",
-                "finish",
-                "finalize",
-                "improve",
-                "help",
-                "assist",
-                "investigate",
-                "research",
-                "explore",
-                "review",
-                "add",
-                "create",
-                "make",
-                "do",
-                "update",
-            }
             s = (text or "").lower()
-            toks = [t for t in _re_local.findall(r"[a-z0-9]+", s) if t]
+            toks = tokenize_alnum(s)
+            verbs = {"do", "make", "get", "take", "go", "come", "see", "know"}
 
             # crude singularization for plural nouns
             def _sing(w: str) -> str:
@@ -656,10 +633,10 @@ class CommitmentTracker:
     # --- Evidence finding (deterministic, rule-based) ---
     def find_evidence(
         self,
-        events: List[Dict],
-        open_commitments: List[Dict],
+        events: list[dict],
+        open_commitments: list[dict],
         recent_window: int = 20,
-    ) -> List[tuple[str, float, str]]:
+    ) -> list[tuple[str, float, str]]:
         """
         Returns a list of (cid, score, snippet) for candidate evidence found in the
         recent window. Deterministic scoring; no side effects.
@@ -676,7 +653,7 @@ class CommitmentTracker:
 
         # Build recent text corpus from last `recent_window` assistant/user-like events
         # In this codebase, assistant replies are `response`; tests may inject plain events
-        tail: List[Dict] = []
+        tail: list[dict] = []
         for ev in reversed(events):
             if ev.get("kind") in {"response", "user", "reflection"}:
                 tail.append(ev)
@@ -690,11 +667,11 @@ class CommitmentTracker:
         emb_low = _emb(low)
 
         # Lightweight token normalization helpers for approximate overlap
-        def _tok_stem(s: str) -> List[str]:
-            import re as _re2
+        def _tok_stem(s: str) -> list[str]:
+            from pmm.utils.parsers import split_non_alnum
 
-            toks = [t for t in _re2.split(r"[^a-z0-9]+", (s or "").lower()) if t]
-            out: List[str] = []
+            toks = split_non_alnum(s or "")
+            out: list[str] = []
             for t in toks:
                 # Minimal stemming and a few irregulars to improve robustness
                 if t == "wrote":
@@ -747,7 +724,7 @@ class CommitmentTracker:
                     matched += 1
             return float(matched) / float(len(at))
 
-        results: List[tuple[str, float, str]] = []
+        results: list[tuple[str, float, str]] = []
         for item in open_commitments:
             cid = str(item.get("cid"))
             text = _norm(str(item.get("text") or ""))
@@ -817,12 +794,14 @@ class CommitmentTracker:
 
         # Require artifact only when configured; otherwise allow non-empty text
         try:
-            from pmm.config import require_artifact_evidence as REQUIRE_ARTIFACT
+            from pmm.config import require_artifact_evidence
+
+            require_artifact = require_artifact_evidence
         except Exception:
-            REQUIRE_ARTIFACT = False
+            require_artifact = False
         has_text = isinstance(description, str) and bool(description.strip())
         has_art = isinstance(artifact, str) and bool(artifact.strip())
-        if REQUIRE_ARTIFACT:
+        if require_artifact:
             if not (has_text and has_art):
                 return False
         else:
@@ -831,12 +810,12 @@ class CommitmentTracker:
 
         # Derive open commitments from projection
         model = build_self_model(self.eventlog.read_all())
-        open_map: Dict[str, Dict] = model.get("commitments", {}).get("open", {})
+        open_map: dict[str, dict] = model.get("commitments", {}).get("open", {})
         if cid not in open_map:
             # Unknown or already closed
             return False
 
-        meta: Dict = {
+        meta: dict = {
             "cid": cid,
             "evidence_type": evidence_type,
             "description": description,
@@ -881,11 +860,11 @@ class CommitmentTracker:
                 # Recompute open view after closing this cid
                 evs_after = self.eventlog.read_all()
                 model_after = build_self_model(evs_after)
-                open_map_after: Dict[str, Dict] = (
+                open_map_after: dict[str, dict] = (
                     model_after.get("commitments", {}) or {}
                 ).get("open", {})
                 # Build assignment map for open cids
-                assign: Dict[str, str] = {}
+                assign: dict[str, str] = {}
                 for e in reversed(evs_after):
                     if e.get("kind") != "project_assign":
                         continue
@@ -919,12 +898,12 @@ class CommitmentTracker:
             pass
         return True
 
-    def _resolve_project_for_cid(self, cid: str) -> Optional[str]:
+    def _resolve_project_for_cid(self, cid: str) -> str | None:
         """Return project_id for an open or recently-closed cid via meta or assignment events."""
         try:
             evs = self.eventlog.read_all()
             model = build_self_model(evs)
-            open_map: Dict[str, Dict] = model.get("commitments", {}).get("open", {})
+            open_map: dict[str, dict] = model.get("commitments", {}).get("open", {})
             if cid in open_map:
                 pid = (open_map.get(cid) or {}).get("project_id")
                 if isinstance(pid, str) and pid:
@@ -943,7 +922,7 @@ class CommitmentTracker:
             return None
 
     # --- TTL / Aging sweep ---
-    def sweep_for_expired(self, events: List[Dict], ttl_ticks: int = 10) -> List[Dict]:
+    def sweep_for_expired(self, events: list[dict], ttl_ticks: int = 10) -> list[dict]:
         """
         Return a list of expiration candidates as dicts {"cid": str, "reason": "timeout"}.
         Rules (deterministic):
@@ -958,7 +937,7 @@ class CommitmentTracker:
         # Current tick
         curr_tick = sum(1 for ev in events if ev.get("kind") == "autonomy_tick")
         # Track opens and closes/expires by cid
-        open_event_by_cid: Dict[str, Dict] = {}
+        open_event_by_cid: dict[str, dict] = {}
         closed_or_expired: set[str] = set()
         for ev in events:
             k = ev.get("kind")
@@ -972,7 +951,7 @@ class CommitmentTracker:
                 if cid:
                     closed_or_expired.add(str(cid))
         # Build snooze map (latest wins)
-        snooze_until: Dict[str, int] = {}
+        snooze_until: dict[str, int] = {}
         for ev in events:
             if ev.get("kind") == "commitment_snooze":
                 m = ev.get("meta") or {}
@@ -994,7 +973,7 @@ class CommitmentTracker:
                     break
             return t
 
-        out: List[Dict] = []
+        out: list[dict] = []
         for cid, ev in open_event_by_cid.items():
             if cid in closed_or_expired:
                 continue
@@ -1018,7 +997,7 @@ class CommitmentTracker:
         """
         target_txt = f"identity:name:{name}"
         model = build_self_model(self.eventlog.read_all())
-        open_map: Dict[str, Dict] = model.get("commitments", {}).get("open", {})
+        open_map: dict[str, dict] = model.get("commitments", {}).get("open", {})
         for cid, meta in list(open_map.items()):
             txt = str((meta or {}).get("text") or "")
             if txt == target_txt:
@@ -1042,7 +1021,7 @@ class CommitmentTracker:
         except Exception:
             return
 
-    def list_open(self) -> Dict[str, Dict]:
+    def list_open(self) -> dict[str, dict]:
         """Return mapping of cid -> meta for open commitments via projection."""
         model = build_self_model(self.eventlog.read_all())
         return model.get("commitments", {}).get("open", {})
@@ -1052,12 +1031,12 @@ class CommitmentTracker:
     def _normalize_text(s: str) -> str:
         return " ".join((s or "").strip().lower().split())
 
-    def _recent_open_cids(self, n: int) -> List[Tuple[str, int]]:
+    def _recent_open_cids(self, n: int) -> list[tuple[str, int]]:
         # Return list of (cid, open_event_id) for currently open commitments, ordered by recency of open
         model = build_self_model(self.eventlog.read_all())
-        open_map: Dict[str, Dict] = model.get("commitments", {}).get("open") or {}
+        open_map: dict[str, dict] = model.get("commitments", {}).get("open") or {}
         open_cids = set(open_map.keys())
-        last_open_event_id: Dict[str, int] = {cid: -1 for cid in open_cids}
+        last_open_event_id: dict[str, int] = {cid: -1 for cid in open_cids}
         for ev in self.eventlog.read_all():  # ascending id
             if ev.get("kind") == "commitment_open":
                 cid = (ev.get("meta") or {}).get("cid")
@@ -1073,14 +1052,14 @@ class CommitmentTracker:
         dedup_n = 5
         cand_norm = self._normalize_text(text)
         model = build_self_model(self.eventlog.read_all())
-        open_map: Dict[str, Dict] = model.get("commitments", {}).get("open", {})
+        open_map: dict[str, dict] = model.get("commitments", {}).get("open", {})
         for cid, _eid in self._recent_open_cids(dedup_n):
             txt = str((open_map.get(cid) or {}).get("text") or "")
             if self._normalize_text(txt) == cand_norm:
                 return True
         return False
 
-    def expire_old_commitments(self, *, now_iso: str | None = None) -> List[str]:
+    def expire_old_commitments(self, *, now_iso: str | None = None) -> list[str]:
         """Expire open commitments older than TTL hours.
 
         Returns list of expired cids.
@@ -1093,12 +1072,12 @@ class CommitmentTracker:
         # Build maps of open cids and find their open timestamps by scanning events
         events = self.eventlog.read_all()
         model = build_self_model(events)
-        open_map: Dict[str, Dict] = model.get("commitments", {}).get("open", {})
+        open_map: dict[str, dict] = model.get("commitments", {}).get("open", {})
         if not open_map:
             return []
 
         # Map cid -> first open event ts (ISO string)
-        opened_ts: Dict[str, str] = {}
+        opened_ts: dict[str, str] = {}
         for ev in events:
             if ev.get("kind") == "commitment_open":
                 m = ev.get("meta") or {}
@@ -1111,7 +1090,7 @@ class CommitmentTracker:
             now_iso = _dt.datetime.now(_dt.UTC).isoformat()
         now_dt = _dt.datetime.fromisoformat(now_iso.replace("Z", "+00:00"))
 
-        expired: List[str] = []
+        expired: list[str] = []
         for cid, ts in opened_ts.items():
             try:
                 open_dt = _dt.datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
@@ -1142,10 +1121,10 @@ TRIAGE_TEXT_TMPL: str = "Investigate invariant violation CODE={code}"
 
 
 def open_violation_triage(
-    events_tail: List[Dict],
+    events_tail: list[dict],
     evlog: EventLog,
     window_eids: int = TRIAGE_WINDOW_EIDS,
-) -> Dict[str, List[str]]:
+) -> dict[str, list[str]]:
     """
     Idempotently open at most one low-priority triage commitment per unique
     invariant_violation 'code' visible in the tail window.
@@ -1155,7 +1134,7 @@ def open_violation_triage(
     """
     try:
         # 1) Collect violation codes present in the tail
-        codes: List[str] = []
+        codes: list[str] = []
         for e in events_tail or []:
             if e.get("kind") == "invariant_violation":
                 m = e.get("meta") or {}
@@ -1169,7 +1148,7 @@ def open_violation_triage(
         # 2) Detect triages already open/closed within the tail
         triage_prefix = "Investigate invariant violation CODE="
         open_by_code: set[str] = set()
-        triage_cid_by_code: Dict[str, str] = {}
+        triage_cid_by_code: dict[str, str] = {}
         closed_cids: set[str] = set()
         for e in events_tail:
             k = e.get("kind")
@@ -1197,8 +1176,8 @@ def open_violation_triage(
                 closed_by_code.add(code)
 
         # 3) Open for codes with violations but no open/closed triage in-window
-        opened: List[str] = []
-        skipped: List[str] = []
+        opened: list[str] = []
+        skipped: list[str] = []
         tracker = CommitmentTracker(evlog)
         for code in sorted(recent_codes):
             if code in open_by_code or code in closed_by_code:
@@ -1235,17 +1214,17 @@ class Commitment:
     status: str = "open"  # open, closed, expired, tentative, ongoing
     # Tier indicates permanence; tentative items can be promoted on reinforcement/evidence
     tier: str = "permanent"  # permanent, tentative, ongoing
-    due: Optional[str] = None
-    closed_at: Optional[str] = None
-    close_note: Optional[str] = None
-    ngrams: List[str] = None  # 3-grams for matching
+    due: str | None = None
+    closed_at: str | None = None
+    close_note: str | None = None
+    ngrams: list[str] = None  # 3-grams for matching
     # Hash of the associated 'commitment' event in the SQLite chain
     # If present, this becomes the canonical reference for evidence
-    event_hash: Optional[str] = None
+    event_hash: str | None = None
     # Reinforcement tracking
     attempts: int = 1
     reinforcements: int = 0
-    last_reinforcement_ts: Optional[str] = None
+    last_reinforcement_ts: str | None = None
     _just_reinforced: bool = False
 
 

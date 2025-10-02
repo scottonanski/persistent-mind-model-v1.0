@@ -1,8 +1,8 @@
 import re
 
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.loop import emit_reflection, AutonomyLoop
 from pmm.runtime.bridge import ResponseRenderer
+from pmm.runtime.loop import AutonomyLoop, emit_reflection
+from pmm.storage.eventlog import EventLog
 
 
 def _last(events, kind):
@@ -46,15 +46,13 @@ def test_one_shot_append_and_no_duplicates(tmp_path):
 
     # First render should append the insight
     events = log.read_all()
-    text1 = renderer.render(
-        "Here is my reply.", {"name": None}, stage=None, events=events
-    )
+    text1 = renderer.render("Here is my reply.", identity={"name": None}, events=events)
     assert re.search(r"_Insight:_ ", text1) is not None
 
     # After appending a response event, the next render should not add it again
     log.append(kind="response", content=text1, meta={})
     events2 = log.read_all()
-    text2 = renderer.render("Second reply.", {"name": None}, stage=None, events=events2)
+    text2 = renderer.render("Second reply.", identity={"name": None}, events=events2)
     assert "_Insight:_" not in text2
 
 
@@ -68,7 +66,7 @@ def test_paraphrase_is_deterministic_and_bounded(tmp_path):
     )
     log.append(kind="insight_ready", content="", meta={"from_event": rid, "tick": 1})
     events = log.read_all()
-    out = renderer.render("OK", {"name": None}, stage=None, events=events)
+    out = renderer.render("OK", identity={"name": None}, events=events)
 
     # Should start with plain 'I will explore alternatives next time'
     assert "_Insight:_ I will explore alternatives next time" in out

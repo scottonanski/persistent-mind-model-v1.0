@@ -16,7 +16,8 @@ def test_cooldown_blocks_until_turns_and_time_pass(tmp_path):
 
     # Note second turn
     cd.note_user_turn()
-    # To test time blocking, we reset (which also clears turns), then add turns again and check with insufficient time
+    # To test time blocking, we reset (which also clears turns),
+    # then add turns again and check with insufficient time
     cd.reset()
     cd.note_user_turn()
     cd.note_user_turn()

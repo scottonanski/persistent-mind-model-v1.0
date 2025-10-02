@@ -1,7 +1,7 @@
-from pmm.storage.eventlog import EventLog
 from pmm.llm.factory import LLMConfig
-from pmm.runtime.loop import Runtime
 from pmm.runtime.invariants import check_invariants
+from pmm.runtime.loop import Runtime
+from pmm.storage.eventlog import EventLog
 
 
 def test_runtime_uses_same_chat_for_both_paths(monkeypatch, tmp_path):

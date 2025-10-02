@@ -1,9 +1,10 @@
 from __future__ import annotations
+
 import argparse
 
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.canaries import run_canaries
 from pmm.llm.factory import LLMConfig, build_chat
+from pmm.runtime.canaries import run_canaries
+from pmm.storage.eventlog import EventLog
 
 
 def main() -> None:

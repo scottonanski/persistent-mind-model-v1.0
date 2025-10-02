@@ -1,5 +1,7 @@
 from __future__ import annotations
-from typing import Callable, Any, Dict, List
+
+from collections.abc import Callable
+from typing import Any
 
 # This module provides a provider-agnostic probe wrapper around your existing
 # ChatAdapter.generate(...) implementation, so CapabilityResolver can discover caps.
@@ -22,7 +24,7 @@ from typing import Callable, Any, Dict, List
 # If your adapter currently omits any of these fields, you already noted you'll
 # enhance it — this wrapper simply passes them through to the resolver.
 
-ProbeFn = Callable[[str, List[dict], int], Dict[str, Any]]
+ProbeFn = Callable[[str, list[dict], int], dict[str, Any]]
 
 
 def make_probe_fn(adapter) -> ProbeFn:

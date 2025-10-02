@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Dict, List, Tuple, Optional
 from enum import IntEnum
 
 N_WINDOW = 10
@@ -25,7 +24,7 @@ class StageLevel(IntEnum):
     UNKNOWN = -1
 
 
-_STR_TO_LEVEL: Dict[str, StageLevel] = {
+_STR_TO_LEVEL: dict[str, StageLevel] = {
     "S0": StageLevel.S0,
     "S1": StageLevel.S1,
     "S2": StageLevel.S2,
@@ -34,7 +33,7 @@ _STR_TO_LEVEL: Dict[str, StageLevel] = {
 }
 
 
-def stage_str_to_level(stage_str: Optional[str]) -> int:
+def stage_str_to_level(stage_str: str | None) -> int:
     """Map 'S0'..'S4' to 0..4; anything else => -1. Safe for None inputs."""
     if not stage_str:
         return int(StageLevel.UNKNOWN)
@@ -63,7 +62,7 @@ POLICY_HINTS_BY_STAGE = {
 }
 
 
-def _telemetry_from_event(ev: Dict) -> Optional[Tuple[float, float]]:
+def _telemetry_from_event(ev: dict) -> tuple[float, float] | None:
     if ev.get("kind") == "autonomy_tick":
         tel = (ev.get("meta") or {}).get("telemetry") or {}
         if "IAS" in tel and "GAS" in tel:
@@ -75,7 +74,7 @@ def _telemetry_from_event(ev: Dict) -> Optional[Tuple[float, float]]:
     return None
 
 
-def _mean(nums: List[float]) -> float:
+def _mean(nums: list[float]) -> float:
     return sum(nums) / float(len(nums)) if nums else 0.0
 
 
@@ -98,10 +97,10 @@ def _bucket(ias: float, gas: float) -> str:
 
 class StageTracker:
     @staticmethod
-    def infer_stage(events: List[Dict]) -> Tuple[str, Dict[str, float]]:
+    def infer_stage(events: list[dict]) -> tuple[str, dict[str, float]]:
         # Prefer autonomy_tick telemetry; if less than N, fill with reflection telemetry
-        autos: List[Tuple[float, float]] = []
-        refls: List[Tuple[float, float]] = []
+        autos: list[tuple[float, float]] = []
+        refls: list[tuple[float, float]] = []
         for ev in events:
             t = _telemetry_from_event(ev)
             if not t:
@@ -129,16 +128,16 @@ class StageTracker:
         return stage, snapshot
 
     @staticmethod
-    def _bounds(stage: str) -> Tuple[Optional[float], Optional[float]]:
+    def _bounds(stage: str) -> tuple[float | None, float | None]:
         return STAGES.get(stage, (None, None))
 
     @classmethod
     def with_hysteresis(
         cls,
-        prev_stage: Optional[str],
+        prev_stage: str | None,
         next_stage: str,
-        snapshot: Dict[str, float],
-        events: List[Dict],
+        snapshot: dict[str, float],
+        events: list[dict],
     ) -> bool:
         count = int(snapshot.get("count", 0))
         if count < 3:

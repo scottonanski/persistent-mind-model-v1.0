@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import argparse
 import json
-from typing import Dict, List, Any
+from typing import Any
 
-from pmm.storage.eventlog import EventLog
 from pmm.storage._shape import get_content_meta as _get_content_meta
+from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import (
-    build_self_model,
     build_directives,
     build_directives_active_set,
+    build_self_model,
 )
 
 # Tail scan windows (flag-less)
@@ -24,7 +24,7 @@ COMMITMENTS_TAIL_WINDOW = 1000
 DIRECTIVES_TAIL_WINDOW = 5000
 
 
-def _tail(evlog: EventLog, n: int) -> List[Dict[str, Any]]:
+def _tail(evlog: EventLog, n: int) -> list[dict[str, Any]]:
     """Best-effort tail reader with compatibility for fakes in tests."""
     if hasattr(evlog, "read_tail"):
         try:
@@ -35,7 +35,7 @@ def _tail(evlog: EventLog, n: int) -> List[Dict[str, Any]]:
     return list(evlog.read_all())
 
 
-def snapshot(eventlog: EventLog, *, limit: int = 50, redact=None) -> Dict:
+def snapshot(eventlog: EventLog, *, limit: int = 50, redact=None) -> dict:
     """Return a read-only state snapshot based on the current event log.
 
     Returns a dict of the shape:
@@ -101,7 +101,7 @@ def snapshot_paged(
     after_id: int | None = None,
     after_ts: str | None = None,
     redact=None,
-) -> Dict:
+) -> dict:
     """
     Forward-paging snapshot. Returns same shape as `snapshot`, plus:
       - "next_after_id": int | None
@@ -150,7 +150,7 @@ def snapshot_paged(
 # ---------- Directives helpers (pure; unit-testable) ----------
 
 
-def snapshot_directives(evlog: EventLog, limit: int | None = None) -> List[dict]:
+def snapshot_directives(evlog: EventLog, limit: int | None = None) -> list[dict]:
     """Return a stable list of directive records from the ledger (read-only)."""
     # Use a large tail window to avoid full scans while remaining deterministic
     events = _tail(evlog, DIRECTIVES_TAIL_WINDOW)
@@ -158,9 +158,9 @@ def snapshot_directives(evlog: EventLog, limit: int | None = None) -> List[dict]
     return view if limit is None else view[: max(0, int(limit))]
 
 
-def render_directives(rows: List[dict]) -> str:
+def render_directives(rows: list[dict]) -> str:
     """Pretty-print directives deterministically in a compact table-like layout."""
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("idx | seen | sources            | first_id | last_id | content")
     lines.append(
         "----+------+--------------------+----------+---------+--------------------------------"
@@ -187,14 +187,14 @@ def render_directives(rows: List[dict]) -> str:
 # ---------- Directives active set (read-only) ----------
 
 
-def snapshot_directives_active(evlog: EventLog, top_k: int | None = None) -> List[dict]:
+def snapshot_directives_active(evlog: EventLog, top_k: int | None = None) -> list[dict]:
     ev = _tail(evlog, DIRECTIVES_TAIL_WINDOW)
     rows = build_directives_active_set(ev)
     return rows if top_k is None else rows[: max(0, int(top_k))]
 
 
-def render_directives_active(rows: List[dict]) -> str:
-    lines: List[str] = []
+def render_directives_active(rows: list[dict]) -> str:
+    lines: list[str] = []
     lines.append("idx | score | seen | recent | first_id | last_id | content")
     lines.append(
         "----+-------+------+--------+----------+---------+------------------------------"
@@ -223,11 +223,11 @@ def enrich_snapshot_with_directives(
 # ---------- Invariants violations (read-only) ----------
 
 
-def snapshot_violations(evlog: EventLog, limit: int | None = None) -> List[dict]:
+def snapshot_violations(evlog: EventLog, limit: int | None = None) -> list[dict]:
     """Return recent invariant_violation events (most-recent first), read-only."""
     tail_n = max(int(limit or 20), VIOLATIONS_TAIL_WINDOW)
     events = _tail(evlog, tail_n)
-    rows: List[dict] = []
+    rows: list[dict] = []
     for ev in reversed(events):  # newest first
         if ev.get("kind") != "invariant_violation":
             continue
@@ -247,9 +247,9 @@ def snapshot_violations(evlog: EventLog, limit: int | None = None) -> List[dict]
     return rows
 
 
-def render_violations(rows: List[dict]) -> str:
+def render_violations(rows: list[dict]) -> str:
     """Deterministic, minimal table render for invariant violations."""
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append(
         "idx | code                     | ts                | id     | message"
     )
@@ -270,7 +270,7 @@ def render_violations(rows: List[dict]) -> str:
 
 def snapshot_commitments_open(
     evlog: EventLog, limit: int | None = None
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Return newest-first list of currently open commitments.
     Deterministic rules:
@@ -286,7 +286,7 @@ def snapshot_commitments_open(
     def _norm_text(s: str) -> str:
         return " ".join((s or "").split()).strip().rstrip(";,")
 
-    def _extract_text(ev: Dict[str, Any]) -> str:
+    def _extract_text(ev: dict[str, Any]) -> str:
         content, meta = _get_content_meta(ev)
         # Prefer explicit meta.text if present, else strip known prefixes from content
         text = meta.get("text")
@@ -301,7 +301,7 @@ def snapshot_commitments_open(
     closed_cids: set[str] = set()
     closed_texts: set[str] = set()
     included_keys: set[str] = set()
-    opens: List[Dict[str, Any]] = []
+    opens: list[dict[str, Any]] = []
 
     for ev in reversed(events):
         k = ev.get("kind")
@@ -345,8 +345,8 @@ def snapshot_commitments_open(
     return opens
 
 
-def render_commitments_open(rows: List[Dict[str, Any]]) -> str:
-    lines: List[str] = []
+def render_commitments_open(rows: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
     lines.append(
         "idx | ts                | id     | origin_eid | cid                           | content"
     )

@@ -1,12 +1,13 @@
 # pmm/runtime/capability_resolver.py
 from __future__ import annotations
+
+import hashlib
 import json
 import os
 import time
-import hashlib
-from dataclasses import dataclass, asdict
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Optional
 
 # --- Types --------------------------------------------------------------------
 
@@ -34,7 +35,7 @@ ProbeFn = Callable[[str, list, int], dict]
 
 
 class _CapsCache:
-    def __init__(self, path: Optional[str] = None):
+    def __init__(self, path: str | None = None):
         root = Path(os.getenv("PMM_DATA_DIR", ".data"))
         root.mkdir(parents=True, exist_ok=True)
         self.path = Path(path) if path else root / "model_caps.json"
@@ -44,14 +45,14 @@ class _CapsCache:
     def _load(self):
         if self.path.exists():
             try:
-                raw = json.load(open(self.path, "r"))
+                raw = json.load(open(self.path))
                 for k, v in raw.items():
                     self._cache[k] = ModelCaps(**v)
             except Exception:
                 # corrupt cache: start fresh
                 self._cache = {}
 
-    def get(self, key: str) -> Optional[ModelCaps]:
+    def get(self, key: str) -> ModelCaps | None:
         return self._cache.get(key)
 
     def put(self, caps: ModelCaps):
@@ -86,7 +87,7 @@ class CapabilityResolver:
     Results are cached under .data/model_caps.json
     """
 
-    def __init__(self, probe_fn: ProbeFn, cache: Optional[_CapsCache] = None):
+    def __init__(self, probe_fn: ProbeFn, cache: _CapsCache | None = None):
         self.probe_fn = probe_fn
         self.cache = cache or _CapsCache()
 
@@ -122,7 +123,7 @@ class CapabilityResolver:
 
     # --- Internals -------------------------------------------------------------
 
-    def _passive_try(self, model_key: str) -> Optional[ModelCaps]:
+    def _passive_try(self, model_key: str) -> ModelCaps | None:
         resp = self.probe_fn(model_key, _PROBE_MESSAGES, max_tokens=16)
         prov = (resp or {}).get("provider_caps") or {}
         max_ctx = prov.get("max_context")
@@ -143,7 +144,7 @@ class CapabilityResolver:
             )
         return None
 
-    def _active_probe(self, model_key: str) -> Optional[ModelCaps]:
+    def _active_probe(self, model_key: str) -> ModelCaps | None:
         """
         Strategy:
           - Try progressively larger completion sizes.

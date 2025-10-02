@@ -1,20 +1,17 @@
 from __future__ import annotations
 
-from typing import List
-
+import pytest
 from fastapi.testclient import TestClient
 
 from pmm.api.server import app
-import pytest
 from pmm.storage.eventlog import EventLog
-
 
 client = TestClient(app)
 
 
 def test_methods_and_verbs(db_tmp_path):
     # Ensure HEAD/GET work and mutating verbs are rejected with 405 across all routes
-    routes: List[str] = [
+    routes: list[str] = [
         "/snapshot",
         "/directives",
         "/directives/active",

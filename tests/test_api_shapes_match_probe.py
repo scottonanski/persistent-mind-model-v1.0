@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
-from pmm.api.server import app
 from pmm.api import probe
+from pmm.api.server import app
 from pmm.storage.eventlog import EventLog
-import pytest
 
 
 def seed_db(evlog: EventLog):

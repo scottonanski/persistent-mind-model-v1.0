@@ -1,11 +1,13 @@
 """Tests for identity adoption flow with checkpoint, reflection, and trait updates."""
 
-import pytest
-import tempfile
 import os
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.loop import AutonomyLoop
+import tempfile
+
+import pytest
+
 from pmm.runtime.cooldown import ReflectionCooldown
+from pmm.runtime.loop import AutonomyLoop
+from pmm.storage.eventlog import EventLog
 
 
 def test_identity_adoption_flow():

@@ -6,15 +6,13 @@ preserving deterministic logging and shift analysis semantics.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
-
 import hashlib
+from typing import Any
 
 from pmm.runtime.embeddings import compute_embedding, cosine_similarity, digest_vector
 
-
 # Seed phrases anchoring each stance. Additions remain deterministic via embeddings.
-STANCE_EXEMPLARS: Dict[str, List[str]] = {
+STANCE_EXEMPLARS: dict[str, list[str]] = {
     "playful": [
         "just joking around",
         "lighthearted and fun",
@@ -54,13 +52,13 @@ CONTRADICTORY_STANCE_PAIRS = {
 }
 
 
-def _embedding_for_text(text: str) -> List[float]:
+def _embedding_for_text(text: str) -> list[float]:
     vec = compute_embedding(text or "")
     return vec if isinstance(vec, list) else []
 
 
-def _score_vector(text_vec: List[float]) -> Dict[str, float]:
-    scores: Dict[str, float] = {}
+def _score_vector(text_vec: list[float]) -> dict[str, float]:
+    scores: dict[str, float] = {}
     if not text_vec:
         return scores
 
@@ -76,7 +74,7 @@ def _score_vector(text_vec: List[float]) -> Dict[str, float]:
 
 
 # Pre-computed exemplar embeddings ensure deterministic scoring.
-STANCE_VECTORS: Dict[str, List[List[float]]] = {
+STANCE_VECTORS: dict[str, list[list[float]]] = {
     stance: [
         vec for vec in (_embedding_for_text(example) for example in examples) if vec
     ]
@@ -84,12 +82,12 @@ STANCE_VECTORS: Dict[str, List[List[float]]] = {
 }
 
 
-def score_stances(text: str) -> Dict[str, float]:
+def score_stances(text: str) -> dict[str, float]:
     """Return cosine similarity scores between text and each stance exemplar."""
     return _score_vector(_embedding_for_text(text))
 
 
-def detect_stance(text: str, threshold: float = STANCE_THRESHOLD) -> Tuple[str, float]:
+def detect_stance(text: str, threshold: float = STANCE_THRESHOLD) -> tuple[str, float]:
     """Detect the most likely stance for text, constrained by threshold."""
     text_vec = _embedding_for_text(text)
     if not text_vec:
@@ -106,10 +104,10 @@ def detect_stance(text: str, threshold: float = STANCE_THRESHOLD) -> Tuple[str, 
 
 
 def batch_detect_stance(
-    texts: List[str], threshold: float = STANCE_THRESHOLD
-) -> List[Tuple[str, float]]:
+    texts: list[str], threshold: float = STANCE_THRESHOLD
+) -> list[tuple[str, float]]:
     """Vectorised stance detection preserving input order."""
-    outputs: List[Tuple[str, float]] = []
+    outputs: list[tuple[str, float]] = []
     for text in texts or []:
         if not isinstance(text, str) or not text.strip():
             outputs.append(("neutral", 0.0))
@@ -129,7 +127,7 @@ class StanceFilter:
         self.shift_window = shift_window
         self.semantic_threshold = semantic_threshold
 
-    def analyze_commitment_text(self, text: str) -> Dict[str, Any]:
+    def analyze_commitment_text(self, text: str) -> dict[str, Any]:
         """Return stance analysis for commitment text."""
         if not isinstance(text, str) or not text.strip():
             return self._empty_analysis()
@@ -184,7 +182,7 @@ class StanceFilter:
 
         return analysis
 
-    def detect_shifts(self, commitment_history: List[Dict[str, Any]]) -> List[str]:
+    def detect_shifts(self, commitment_history: list[dict[str, Any]]) -> list[str]:
         """Identify stance shifts or contradictions within a window."""
         if not commitment_history or len(commitment_history) < 2:
             return []
@@ -193,7 +191,7 @@ class StanceFilter:
         if len(recent_history) < 2:
             return []
 
-        shift_flags: List[str] = []
+        shift_flags: list[str] = []
         base_index = len(commitment_history) - len(recent_history)
 
         for offset in range(len(recent_history) - 1):
@@ -231,9 +229,9 @@ class StanceFilter:
         self,
         eventlog,
         src_event_id: str,
-        analysis: Dict[str, Any],
-        shifts: List[str],
-    ) -> Optional[str]:
+        analysis: dict[str, Any],
+        shifts: list[str],
+    ) -> str | None:
         """Emit stance_filter_report with digest deduplication."""
         digest_data = self._serialize_for_digest(analysis, shifts)
         digest = hashlib.sha256(digest_data.encode()).hexdigest()
@@ -261,7 +259,7 @@ class StanceFilter:
             kind="stance_filter_report", content="analysis", meta=meta
         )
 
-    def _empty_analysis(self, text: str = "") -> Dict[str, Any]:
+    def _empty_analysis(self, text: str = "") -> dict[str, Any]:
         return {
             "text": text,
             "primary_stance": {"label": "neutral", "score": 0.0},
@@ -284,7 +282,7 @@ class StanceFilter:
             },
         }
 
-    def _extract_primary(self, analysis: Dict[str, Any]) -> Optional[Tuple[str, float]]:
+    def _extract_primary(self, analysis: dict[str, Any]) -> tuple[str, float] | None:
         if not isinstance(analysis, dict):
             return None
         primary = analysis.get("primary_stance")
@@ -296,8 +294,8 @@ class StanceFilter:
             return None
         return (label, float(score))
 
-    def _serialize_for_digest(self, analysis: Dict[str, Any], shifts: List[str]) -> str:
-        parts: List[str] = []
+    def _serialize_for_digest(self, analysis: dict[str, Any], shifts: list[str]) -> str:
+        parts: list[str] = []
 
         text = analysis.get("text", "")
         text_digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]

@@ -5,8 +5,9 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any
 
 from pmm.storage.eventlog import EventLog
 
@@ -26,7 +27,7 @@ def _normalize(value: Any) -> Any:
     return str(value)
 
 
-def _digest(payload: Dict[str, Any]) -> str:
+def _digest(payload: dict[str, Any]) -> str:
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
         "utf-8"
     )
@@ -37,7 +38,7 @@ def _digest(payload: Dict[str, Any]) -> str:
 class MemeNode:
     digest: str
     label: str
-    attrs: Dict[str, Any]
+    attrs: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,7 @@ class MemeEdge:
     label: str
     src: str
     dst: str
-    attrs: Dict[str, Any]
+    attrs: dict[str, Any]
 
 
 class MemeGraphProjection:
@@ -61,16 +62,16 @@ class MemeGraphProjection:
     def __init__(self, eventlog: EventLog) -> None:
         self.eventlog = eventlog
         self._lock = threading.RLock()
-        self._nodes: Dict[str, MemeNode] = {}
-        self._edges: Dict[str, MemeEdge] = {}
-        self._event_index: Dict[int, str] = {}
-        self._digest_to_event_id: Dict[str, int] = {}
-        self._identity_index: Dict[str, str] = {}
-        self._commitment_index: Dict[str, str] = {}
+        self._nodes: dict[str, MemeNode] = {}
+        self._edges: dict[str, MemeEdge] = {}
+        self._event_index: dict[int, str] = {}
+        self._digest_to_event_id: dict[str, int] = {}
+        self._identity_index: dict[str, str] = {}
+        self._commitment_index: dict[str, str] = {}
         self._latest_stage: tuple[int, str] | None = None
-        self._stage_history: List[tuple[int, Optional[str], str]] = []
-        self._commitment_state: Dict[str, Dict[str, Any]] = {}
-        self._metrics: Dict[str, Any] = {
+        self._stage_history: list[tuple[int, str | None, str]] = []
+        self._commitment_state: dict[str, dict[str, Any]] = {}
+        self._metrics: dict[str, Any] = {
             "batch_events": 0,
             "duration_ms": 0.0,
             "nodes": 0,
@@ -126,7 +127,7 @@ class MemeGraphProjection:
             return " | ".join(lines)
 
     @property
-    def last_batch_metrics(self) -> Dict[str, Any]:
+    def last_batch_metrics(self) -> dict[str, Any]:
         with self._lock:
             return dict(self._metrics)
 
@@ -151,11 +152,11 @@ class MemeGraphProjection:
 
     # --------------------------------------------------------------- internals
 
-    def _on_event_appended(self, event: Dict[str, Any]) -> None:
+    def _on_event_appended(self, event: dict[str, Any]) -> None:
         # Listener runs outside EventLog lock; guard with our own lock.
         self._process_events([event])
 
-    def _process_events(self, events: Iterable[Dict[str, Any]]) -> None:
+    def _process_events(self, events: Iterable[dict[str, Any]]) -> None:
         start = time.perf_counter()
         batch = list(events)
         if not batch:
@@ -171,7 +172,7 @@ class MemeGraphProjection:
         self._record_metrics(len(batch), duration)
 
     def _record_metrics(self, batch_len: int, duration: float) -> None:
-        rss_kb: Optional[int]
+        rss_kb: int | None
         try:
             import resource
 
@@ -191,7 +192,7 @@ class MemeGraphProjection:
 
     # --------------------------------------------------------------- index ops
 
-    def _index_event(self, event: Dict[str, Any]) -> None:
+    def _index_event(self, event: dict[str, Any]) -> None:
         kind = str(event.get("kind") or "")
         if not kind:
             return
@@ -211,7 +212,7 @@ class MemeGraphProjection:
         # Always attempt to link metadata relationships shared across kinds.
         self._handle_source_edges(event, event_digest)
 
-    def _ensure_event_node(self, event: Dict[str, Any]) -> str:
+    def _ensure_event_node(self, event: dict[str, Any]) -> str:
         try:
             eid = int(event.get("id") or 0)
         except Exception:
@@ -228,7 +229,7 @@ class MemeGraphProjection:
                 self._digest_to_event_id[digest] = eid
         return digest
 
-    def _handle_identity_adopt(self, event: Dict[str, Any], event_digest: str) -> None:
+    def _handle_identity_adopt(self, event: dict[str, Any], event_digest: str) -> None:
         meta = event.get("meta") or {}
         identity_name = (
             meta.get("sanitized")
@@ -253,7 +254,7 @@ class MemeGraphProjection:
         edge_attrs = {"confidence": confidence} if confidence is not None else {}
         self._ensure_edge("adopts", event_digest, identity_digest, edge_attrs)
 
-    def _handle_commitment(self, event: Dict[str, Any], event_digest: str) -> None:
+    def _handle_commitment(self, event: dict[str, Any], event_digest: str) -> None:
         kind = str(event.get("kind") or "")
         meta = event.get("meta") or {}
         cid = str(meta.get("cid") or "")
@@ -305,7 +306,7 @@ class MemeGraphProjection:
                     }
                 )
 
-    def _handle_reflection(self, event: Dict[str, Any], event_digest: str) -> None:
+    def _handle_reflection(self, event: dict[str, Any], event_digest: str) -> None:
         meta = event.get("meta") or {}
         rid = int(event.get("id") or 0)
         attrs = {
@@ -316,14 +317,14 @@ class MemeGraphProjection:
         refl_digest = self._ensure_node("reflection", attrs)
         self._ensure_edge("captures", event_digest, refl_digest, {})
 
-    def _handle_policy(self, event: Dict[str, Any], event_digest: str) -> None:
+    def _handle_policy(self, event: dict[str, Any], event_digest: str) -> None:
         meta = event.get("meta") or {}
         component = meta.get("component") or "unknown"
         attrs = {"component": component, "stage": meta.get("stage")}
         policy_digest = self._ensure_node("policy", attrs)
         self._ensure_edge("updates", event_digest, policy_digest, {})
 
-    def _handle_stage(self, event: Dict[str, Any], event_digest: str) -> None:
+    def _handle_stage(self, event: dict[str, Any], event_digest: str) -> None:
         meta = event.get("meta") or {}
         stage_to = str(meta.get("to") or "")
         if not stage_to:
@@ -345,13 +346,13 @@ class MemeGraphProjection:
                 self._latest_stage = (eid, stage_to)
                 self._stage_history.append((eid, stage_from or None, stage_to))
 
-    def _handle_bandit(self, event: Dict[str, Any], event_digest: str) -> None:
+    def _handle_bandit(self, event: dict[str, Any], event_digest: str) -> None:
         meta = event.get("meta") or {}
         attrs = {"kind": event.get("kind"), "meta": _normalize(meta)}
         node_digest = self._ensure_node("bandit", attrs)
         self._ensure_edge("bandit_event", event_digest, node_digest, {})
 
-    def _handle_source_edges(self, event: Dict[str, Any], event_digest: str) -> None:
+    def _handle_source_edges(self, event: dict[str, Any], event_digest: str) -> None:
         meta = event.get("meta") or {}
         src_id = meta.get("src_id") or meta.get("source_event_id")
         if src_id is None:
@@ -370,10 +371,10 @@ class MemeGraphProjection:
     def _ensure_node(
         self,
         label: str,
-        attrs: Dict[str, Any],
+        attrs: dict[str, Any],
         *,
-        index: Optional[Dict[str, str]] = None,
-        index_key: Optional[str] = None,
+        index: dict[str, str] | None = None,
+        index_key: str | None = None,
     ) -> str:
         normalized_attrs = _normalize(attrs)
         payload = {"label": label, "attrs": normalized_attrs}
@@ -399,7 +400,7 @@ class MemeGraphProjection:
         label: str,
         src: str,
         dst: str,
-        attrs: Dict[str, Any],
+        attrs: dict[str, Any],
     ) -> str:
         normalized_attrs = _normalize(attrs)
         payload = {
@@ -423,27 +424,27 @@ class MemeGraphProjection:
 
     # ----------------------------------------------------------------- utility
 
-    def nodes_snapshot(self) -> Dict[str, MemeNode]:
+    def nodes_snapshot(self) -> dict[str, MemeNode]:
         with self._lock:
             return dict(self._nodes)
 
-    def edges_snapshot(self) -> Dict[str, MemeEdge]:
+    def edges_snapshot(self) -> dict[str, MemeEdge]:
         with self._lock:
             return dict(self._edges)
 
-    def latest_stage(self) -> Optional[str]:
+    def latest_stage(self) -> str | None:
         with self._lock:
             if self._latest_stage is None:
                 return None
             return self._latest_stage[1]
 
-    def stage_history(self) -> List[tuple[int, Optional[str], str]]:
+    def stage_history(self) -> list[tuple[int, str | None, str]]:
         with self._lock:
             return list(self._stage_history)
 
-    def open_commitments_snapshot(self) -> Dict[str, Dict[str, Any]]:
+    def open_commitments_snapshot(self) -> dict[str, dict[str, Any]]:
         with self._lock:
-            result: Dict[str, Dict[str, Any]] = {}
+            result: dict[str, dict[str, Any]] = {}
             for cid, data in self._commitment_state.items():
                 if data.get("open"):
                     result[cid] = {
@@ -453,12 +454,12 @@ class MemeGraphProjection:
                     }
             return result
 
-    def policy_updates_for_reflection(self, ref_event_id: int) -> List[int]:
+    def policy_updates_for_reflection(self, ref_event_id: int) -> list[int]:
         with self._lock:
             digest = self._event_index.get(ref_event_id)
             if not digest:
                 return []
-            result: List[int] = []
+            result: list[int] = []
             for edge in self._edges.values():
                 if edge.src == digest and edge.label == "references:policy_update":
                     dst_id = self._digest_to_event_id.get(edge.dst)
@@ -474,10 +475,10 @@ class MemeGraphProjection:
         *,
         limit: int = 3,
         min_confidence: float = 0.6,
-        exclude_labels: Optional[set[str]] = None,
-        recent_digest_blocklist: Optional[set[str]] = None,
-        trace_buffer: Optional[Any] = None,
-    ) -> List[dict]:
+        exclude_labels: set[str] | None = None,
+        recent_digest_blocklist: set[str] | None = None,
+        trace_buffer: Any | None = None,
+    ) -> list[dict]:
         """Return a small list of high-confidence relations relevant to `topic`.
 
         Each relation is shaped as {"src_label", "src_event_id", "label", "dst_label", "dst_event_id"}.
@@ -503,7 +504,7 @@ class MemeGraphProjection:
         recent_digest_blocklist = recent_digest_blocklist or set()
 
         with self._lock:
-            scored: List[tuple[float, MemeNode, MemeEdge, MemeNode]] = []
+            scored: list[tuple[float, MemeNode, MemeEdge, MemeNode]] = []
             traversal_depth = 0
 
             for edge in self._edges.values():
@@ -617,7 +618,7 @@ class MemeGraphProjection:
                 reverse=True,
             )
 
-            result: List[dict] = []
+            result: list[dict] = []
             for score, src, edge, dst in scored:
                 if len(result) >= limit:
                     break
@@ -638,7 +639,7 @@ class MemeGraphProjection:
 
             return result
 
-    def export_state(self) -> Dict[str, Any]:
+    def export_state(self) -> dict[str, Any]:
         """Export MemeGraph state for snapshotting.
 
         Returns a serializable dict containing all graph state that can be
@@ -676,7 +677,7 @@ class MemeGraphProjection:
                 "metrics": self._metrics.copy(),
             }
 
-    def import_state(self, state: Dict[str, Any]) -> None:
+    def import_state(self, state: dict[str, Any]) -> None:
         """Import MemeGraph state from snapshot.
 
         Restores graph state without replaying events. Used when loading

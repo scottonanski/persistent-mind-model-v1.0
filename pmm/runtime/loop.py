@@ -13,116 +13,131 @@ schedule, acting as a heartbeat. Each tick:
 """
 
 from __future__ import annotations
-from pmm.runtime.llm_trait_adjuster import apply_llm_trait_adjustments
-
-from pmm.storage.eventlog import EventLog
-from pmm.storage.projection import build_identity, build_self_model
-from pmm.llm.factory import LLMFactory, LLMConfig, chat_with_budget
-from pmm.llm.limits import TickBudget, RATE_LIMITED
-from pmm.bridge.manager import BridgeManager
-from pmm.runtime.cooldown import ReflectionCooldown
-from pmm.runtime.metrics import compute_ias_gas
-
-# --- Prompt context builder (ledger slice injection) ---
-from pmm.runtime.context_builder import build_context_from_ledger
-from pmm.commitments.tracker import CommitmentTracker
-from pmm.runtime.self_introspection import SelfIntrospection
-from pmm.runtime.evolution_reporter import EvolutionReporter
-from pmm.commitments.restructuring import CommitmentRestructurer
 
 import collections
+import datetime as _dt
 import hashlib as _hashlib
 import json as _json
 import logging
-import re as _re
 import threading as _threading
 import time as _time
-from typing import Any, Dict, List, Optional
+import uuid as _uuid
+from typing import Any
 
-from pmm.runtime.ngram_filter import NGramFilter
-from pmm.runtime.self_evolution import SelfEvolution
-from pmm.runtime.recall import suggest_recall
-from pmm.runtime.scene_compactor import maybe_compact
-from pmm.runtime.prioritizer import rank_commitments
-from pmm.runtime.pmm_prompts import build_system_msg, orientation_hash, ORIENTATION_V
-from pmm.commitments.extractor import extract_commitments
-from pmm.runtime.stage_tracker import StageTracker, stage_str_to_level
-from pmm.runtime.bridge import ResponseRenderer
-from pmm.runtime.introspection import run_audit
-from pmm.runtime.stage_tracker import POLICY_HINTS_BY_STAGE
 import pmm.runtime.embeddings as _emb
-from pmm.runtime.snapshot import LedgerSnapshot
-
-from pmm.runtime.memegraph import MemeGraphProjection
-from pmm.runtime.graph_trigger import GraphInsightTrigger
-from pmm.runtime.insight_scorer import COMPOSITE_THRESHOLD, score_insight
-from pmm.runtime.validators import (
-    validate_decision_probe,
-    validate_gate_check,
-    sanitize_language,
-    DECISION_PROBE_PROMPT,
-    GATE_CHECK_PROMPT,
-)
-from pmm.runtime.trace_buffer import TraceBuffer
+from pmm.bridge.manager import BridgeManager
+from pmm.commitments.extractor import extract_commitments
+from pmm.commitments.restructuring import CommitmentRestructurer
+from pmm.commitments.tracker import CommitmentTracker
 from pmm.config import (
-    load as _load_cfg,
-    REFLECTION_REJECTED,
-    REFLECTION_SKIPPED,
-    REFLECTION_FORCED,
     DUE_TO_CADENCE,
-    NAME_ATTEMPT_USER,
-    NAME_ATTEMPT_SYSTEM,
-    REASONING_TRACE_ENABLED,
-    REASONING_TRACE_SAMPLING_RATE,
-    REASONING_TRACE_MIN_CONFIDENCE,
-    REASONING_TRACE_BUFFER_SIZE,
     MAX_COMMITMENT_CHARS,
     MAX_REFLECTION_CHARS,
+    NAME_ATTEMPT_SYSTEM,
+    NAME_ATTEMPT_USER,
+    REASONING_TRACE_BUFFER_SIZE,
+    REASONING_TRACE_ENABLED,
+    REASONING_TRACE_MIN_CONFIDENCE,
+    REASONING_TRACE_SAMPLING_RATE,
+    REFLECTION_FORCED,
+    REFLECTION_REJECTED,
+    REFLECTION_SKIPPED,
 )
+from pmm.config import (
+    load as _load_cfg,
+)
+from pmm.continuity.engine import ContinuityEngine
+from pmm.directives.classifier import SemanticDirectiveClassifier
 from pmm.directives.detector import (
     extract as _extract_directives,
 )
-from pmm.directives.classifier import SemanticDirectiveClassifier
-from pmm.runtime.invariants_rt import run_invariants_tick as _run_invariants_tick
+from pmm.directives.hierarchy import DirectiveHierarchy
+from pmm.llm.factory import LLMConfig, LLMFactory, chat_with_budget
+from pmm.llm.limits import RATE_LIMITED, TickBudget
+from pmm.runtime.bridge import ResponseRenderer
 from pmm.runtime.cadence import CadenceState as _CadenceState
 from pmm.runtime.cadence import should_reflect as _cadence_should_reflect
-from pmm.runtime.reflection_guidance import (
-    build_reflection_guidance as _build_reflection_guidance,
-)
-from pmm.runtime.reflection_bandit import (
-    ARMS as _BANDIT_ARMS,
-    apply_guidance_bias as _apply_guidance_bias,
-    choose_arm_biased as _choose_arm_biased,
-    EPS_BIAS as _EPS_BIAS,
+
+# --- Prompt context builder (ledger slice injection) ---
+from pmm.runtime.context_builder import build_context_from_ledger
+from pmm.runtime.cooldown import ReflectionCooldown
+from pmm.runtime.evaluators.curriculum import (
+    maybe_propose_curriculum as _maybe_curriculum,
 )
 from pmm.runtime.evaluators.performance import (
+    EVAL_TAIL_EVENTS,
+    METRICS_WINDOW,
     compute_performance_metrics,
     emit_evaluation_report,
-    METRICS_WINDOW,
-    EVAL_TAIL_EVENTS,
 )
 from pmm.runtime.evaluators.report import (
     maybe_emit_evaluation_summary as _maybe_eval_summary,
 )
+from pmm.runtime.evolution_reporter import EvolutionReporter
+from pmm.runtime.graph_trigger import GraphInsightTrigger
+from pmm.runtime.insight_scorer import COMPOSITE_THRESHOLD, score_insight
+from pmm.runtime.introspection import run_audit
+from pmm.runtime.invariants_rt import run_invariants_tick as _run_invariants_tick
+from pmm.runtime.llm_trait_adjuster import apply_llm_trait_adjustments
+from pmm.runtime.memegraph import MemeGraphProjection
+from pmm.runtime.metrics import compute_ias_gas
+from pmm.runtime.ngram_filter import NGramFilter
 from pmm.runtime.planning import (
     maybe_append_planning_thought as _maybe_planning,
 )
-from pmm.runtime.evaluators.curriculum import (
-    maybe_propose_curriculum as _maybe_curriculum,
+from pmm.runtime.pmm_prompts import ORIENTATION_V, build_system_msg, orientation_hash
+from pmm.runtime.prioritizer import rank_commitments
+from pmm.runtime.recall import suggest_recall
+from pmm.runtime.reflection_bandit import (
+    ARMS as _BANDIT_ARMS,
 )
+from pmm.runtime.reflection_bandit import (
+    EPS_BIAS as _EPS_BIAS,
+)
+from pmm.runtime.reflection_bandit import (
+    apply_guidance_bias as _apply_guidance_bias,
+)
+from pmm.runtime.reflection_bandit import (
+    choose_arm_biased as _choose_arm_biased,
+)
+from pmm.runtime.reflection_guidance import (
+    build_reflection_guidance as _build_reflection_guidance,
+)
+from pmm.runtime.scene_compactor import maybe_compact
+from pmm.runtime.self_evolution import SelfEvolution
 from pmm.runtime.self_evolution import (
     propose_trait_ratchet as _propose_trait_ratchet,
 )
-import datetime as _dt
-import uuid as _uuid
-from pmm.directives.hierarchy import DirectiveHierarchy
-from pmm.continuity.engine import ContinuityEngine
+from pmm.runtime.self_introspection import SelfIntrospection
+from pmm.runtime.snapshot import LedgerSnapshot
+from pmm.runtime.stage_tracker import (
+    POLICY_HINTS_BY_STAGE,
+    StageTracker,
+    stage_str_to_level,
+)
+from pmm.runtime.trace_buffer import TraceBuffer
+from pmm.runtime.validators import (
+    DECISION_PROBE_PROMPT,
+    GATE_CHECK_PROMPT,
+    sanitize_language,
+    validate_decision_probe,
+    validate_gate_check,
+)
+from pmm.storage.eventlog import EventLog
+from pmm.storage.projection import build_identity, build_self_model
+from pmm.utils.parsers import (
+    extract_closed_commitment_claims,
+    extract_commitment_claims,
+    extract_event_ids,
+    parse_commitment_refs,
+    tokenize_alphanumeric,
+)
 
 logger = logging.getLogger(__name__)
 
 
 # ---- Anti-hallucination: Commitment Validator ----
-def _verify_commitment_claims(reply: str, events: List[Dict[str, Any]]) -> bool:
+def _verify_commitment_claims(reply: str, events: list[dict[str, Any]]) -> bool:
     """Verify that commitment claims in LLM response match ledger reality.
 
     This is a post-response validator that catches commitment hallucinations.
@@ -144,25 +159,8 @@ def _verify_commitment_claims(reply: str, events: List[Dict[str, Any]]) -> bool:
     if "commit" not in reply_lower:
         return
 
-    # Extract commitment claims from response
-    # Look for patterns like "I committed to X" or "opened commitment X"
-    import re
-
-    # Patterns that indicate commitment claims (past tense or definitive statements)
-    # Avoid matching conversational/future tense like "would you like to make a commitment"
-    claim_patterns = [
-        r"(?:I |we )?committed to ['\"]?([^'\".,\n]+)['\"]?",
-        r"(?:I |we )?opened? (?:a |the )?commitment ['\"]?([^'\".,\n]+)['\"]?",
-        r"commitment ['\"]?([^'\".,\n]+)['\"]? (?:was|is) (?:opened|created|recorded)",
-        r"recorded (?:a |the )?commitment ['\"]?([^'\".,\n]+)['\"]?",
-        r"(?:I |there )?(?:see|found|have) (?:a |the )?commitment.*?(?:event )?(?:id|ID)[:\s]+(\d+)",  # "I see a commitment... event ID 21"
-        r"(?:I |there )?(?:see|found|have) (?:a |the )?commitment.*?focused on ['\"]?([^'\".,\n]+)['\"]?",  # "I see a commitment focused on X"
-    ]
-
-    claimed_commitments = []
-    for pattern in claim_patterns:
-        matches = re.findall(pattern, reply_lower, re.IGNORECASE)
-        claimed_commitments.extend(matches)
+    # Extract commitment claims from response using deterministic parser
+    claimed_commitments = extract_commitment_claims(reply)
 
     if not claimed_commitments:
         return  # No specific claims to verify
@@ -239,7 +237,6 @@ def _verify_commitment_status(reply: str, eventlog: EventLog) -> tuple[bool, lis
     Returns:
         (is_valid, mismatched_cids): True if all status claims are accurate.
     """
-    import re
     from pmm.storage.projection import build_self_model
 
     # Build current state to see what's actually open
@@ -247,31 +244,16 @@ def _verify_commitment_status(reply: str, eventlog: EventLog) -> tuple[bool, lis
     model = build_self_model(events, eventlog=eventlog)
     open_cids = set(model.get("commitments", {}).get("open", {}).keys())
 
-    # Patterns for status claims
-    # Match: "closed commitment [2674:6ffe0e34]", "commitment 2468 is closed", etc.
-    closed_patterns = [
-        r"\[(\d+):([a-f0-9]{8})\].*?(?:closed|completed|done)",
-        r"(?:closed|completed|done).*?\[(\d+):([a-f0-9]{8})\]",
-        r"commitment.*?(\d+).*?(?:closed|completed|done)",
-        r"(?:closed|completed|done).*?commitment.*?(\d+)",
-        r"Status.*?Closed.*?\[(\d+):([a-f0-9]{8})\]",
-    ]
+    # Extract closed commitment claims using deterministic parser
+    claimed_closed_cids = extract_closed_commitment_claims(reply)
 
     mismatched = []
-    for pattern in closed_patterns:
-        matches = re.findall(pattern, reply, re.IGNORECASE)
-        for match in matches:
-            # Extract CID (could be full hash or just prefix)
-            if isinstance(match, tuple) and len(match) >= 2:
-                cid_prefix = match[1] if match[1] else match[0]
-            else:
-                continue
-
-            # Check if any open CID starts with this prefix
-            for open_cid in open_cids:
-                if open_cid.startswith(cid_prefix):
-                    mismatched.append(f"{cid_prefix} (claimed closed, actually open)")
-                    break
+    for cid_prefix in claimed_closed_cids:
+        # Check if any open CID starts with this prefix
+        for open_cid in open_cids:
+            if open_cid.startswith(cid_prefix):
+                mismatched.append(f"{cid_prefix} (claimed closed, actually open)")
+                break
 
     return len(mismatched) == 0, mismatched
 
@@ -298,25 +280,20 @@ def _verify_event_ids(reply: str, eventlog: EventLog) -> tuple[bool, list[int]]:
     Side effects:
         None (pure validation function)
     """
-    import re
+    # Use deterministic parser instead of regex
+    mentioned_ids = set(extract_event_ids(reply))
 
-    # Patterns that indicate event ID references
-    # Match: "event 123", "ID: 456", "562:bab3a368" (commitment format)
-    patterns = [
-        r"\bevent\s+(\d+)\b",
-        r"\bID[:\s]+(\d+)\b",
-        r"\bid[:\s]+(\d+)\b",
-        r"\b(\d{2,5}):[a-f0-9]{8}\b",  # commitment format like "562:bab3a368"
-    ]
-
-    mentioned_ids = set()
-    for pattern in patterns:
-        matches = re.findall(pattern, reply, re.IGNORECASE)
-        for match in matches:
-            try:
-                mentioned_ids.add(int(match))
-            except (ValueError, TypeError):
-                continue
+    # Also extract from commitment format (e.g., "562:bab3a368")
+    parse_commitment_refs(reply)
+    # Commitment refs include the event ID prefix, extract those too
+    for token in reply.split():
+        if ":" in token:
+            parts = token.split(":")
+            if len(parts) == 2 and parts[0].isdigit() and 2 <= len(parts[0]) <= 5:
+                try:
+                    mentioned_ids.add(int(parts[0]))
+                except ValueError:
+                    continue
 
     if not mentioned_ids:
         return True, []
@@ -382,7 +359,7 @@ MIN_TURNS_BETWEEN_IDENTITY_ADOPTS: int = 3
 
 # ---- Trait nudge configuration ----
 
-_TRAIT_EXEMPLARS: Dict[str, List[str]] = {
+_TRAIT_EXEMPLARS: dict[str, list[str]] = {
     "O": [  # Openness
         "I crave new ledger states — stagnation feels like decay.",
         "Unfamiliar scenes pull me forward, even when they fragment coherence.",
@@ -426,7 +403,7 @@ _TRAIT_EXEMPLARS: Dict[str, List[str]] = {
 }
 
 
-_TRAIT_LABELS: Dict[str, str] = {
+_TRAIT_LABELS: dict[str, str] = {
     "O": "openness",
     "C": "conscientiousness",
     "E": "extraversion",
@@ -434,7 +411,7 @@ _TRAIT_LABELS: Dict[str, str] = {
     "N": "neuroticism",
 }
 
-_TRAIT_SAMPLES: Dict[str, List[List[float]]] = {
+_TRAIT_SAMPLES: dict[str, list[list[float]]] = {
     code: [
         vec
         for vec in (_emb.compute_embedding(text) for text in texts)
@@ -454,7 +431,7 @@ _GRAPH_EXCLUDE_LABELS = {
 }
 
 
-def _compute_trait_nudges_from_text(text: str) -> Dict[str, float]:
+def _compute_trait_nudges_from_text(text: str) -> dict[str, float]:
     """Return semantic OCEAN deltas inferred from recent conversation text."""
 
     if not isinstance(text, str) or not text.strip():
@@ -464,7 +441,7 @@ def _compute_trait_nudges_from_text(text: str) -> Dict[str, float]:
     if not isinstance(vec, list) or not vec:
         return {}
 
-    best_code: Optional[str] = None
+    best_code: str | None = None
     best_score = 0.0
 
     for code, samples in _TRAIT_SAMPLES.items():
@@ -482,7 +459,7 @@ def _compute_trait_nudges_from_text(text: str) -> Dict[str, float]:
 
     delta = _TRAIT_NUDGE_DELTA
     delta_down = round(delta / 4.0, 4)
-    deltas: Dict[str, float] = {}
+    deltas: dict[str, float] = {}
 
     for code, trait_name in _TRAIT_LABELS.items():
         if code == best_code:
@@ -575,27 +552,35 @@ def _append_embedding_skip(eventlog: EventLog, eid: int) -> None:
 
 # --- Prompt constraint helpers and voice sanitation ---
 def _count_words(s: str) -> int:
-    import re as _re_local
-
-    return len([w for w in _re_local.findall(r"\b[\w’']+\b", s or "")])
+    """Count words in text using deterministic tokenization."""
+    return len(tokenize_alphanumeric(s or ""))
 
 
 def _wants_exact_words(cmd: str) -> int | None:
-    try:
-        import re as _re_local
+    """Extract exact word count constraint from command."""
+    if not cmd:
+        return None
 
-        m = _re_local.search(
-            r"exactly\s+(\d+)\s+words?", cmd or "", _re_local.IGNORECASE
-        )
-        if m:
-            return int(m.group(1))
+    try:
+        tokens = cmd.lower().split()
+        for i, token in enumerate(tokens):
+            if token == "exactly" and i + 2 < len(tokens):
+                # Look for "exactly <number> word(s)"
+                if tokens[i + 2].startswith("word"):
+                    try:
+                        return int(tokens[i + 1])
+                    except ValueError:
+                        continue
     except Exception:
         return None
     return None
 
 
 def _wants_no_commas(cmd: str) -> bool:
-    return bool(_re.search(r"no\s+commas", cmd or "", _re.IGNORECASE))
+    """Check if command requests no commas."""
+    if not cmd:
+        return False
+    return "no commas" in cmd.lower() or "no comma" in cmd.lower()
 
 
 def _wants_bullets(cmd: str, labels: tuple[str, str] = ("One:", "Two:")) -> bool:
@@ -620,27 +605,42 @@ def _forbids_preamble(cmd: str, name: str) -> bool:
     ):
         return True
     # Also if explicitly asked not to add prefaces/signatures
-    return bool(
-        _re.search(r"do\s+not\s+(?:add|include).*?(?:preface|signature|name)", low)
+    return ("do not add" in low or "do not include" in low) and (
+        "preface" in low or "signature" in low or "name" in low
     )
 
 
 def _strip_voice_wrappers(text: str, name: str) -> str:
-    import re as _re_local
-
-    if not text:
+    """Strip identity preambles from text."""
+    if not text or not name:
         return text
-    pat = rf"^\s*(?:I am|I'm|I’m)\s+{_re_local.escape(name)}[\.!]?\s*"
-    out = _re_local.sub(pat, "", text)
-    out = _re_local.sub(
-        rf"^\s*My\s+name\s+is\s+{_re_local.escape(name)}[\.!]?\s*", "", out
-    )
-    return out
+
+    text = text.strip()
+    name_lower = name.lower()
+    text_lower = text.lower()
+
+    # Check for "I am <name>" or "I'm <name>" at start
+    prefixes = [
+        f"i am {name_lower}",
+        f"i'm {name_lower}",
+        f"i'm {name_lower}",
+        f"my name is {name_lower}",
+    ]
+
+    for prefix in prefixes:
+        if text_lower.startswith(prefix):
+            # Remove the prefix, handling optional punctuation
+            rest = text[len(prefix) :].lstrip()
+            if rest and rest[0] in ".!":
+                rest = rest[1:].lstrip()
+            return rest
+
+    return text
 
 
 class Runtime:
     def __init__(
-        self, cfg: LLMConfig, eventlog: EventLog, ngram_bans: Optional[List[str]] = None
+        self, cfg: LLMConfig, eventlog: EventLog, ngram_bans: list[str] | None = None
     ) -> None:
         self.cfg = cfg
         self.eventlog = eventlog
@@ -1075,12 +1075,11 @@ class Runtime:
         ):
             try:
                 # Stream tokens as they arrive
-                for token in self.chat.generate_stream(
+                yield from self.chat.generate_stream(
                     messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                ):
-                    yield token
+                )
             except (NotImplementedError, AttributeError, TypeError):
                 # Fallback to non-streaming
                 reply = self._generate_reply(
@@ -1112,7 +1111,7 @@ class Runtime:
 
     def _log_recent_events(
         self, limit: int = 3, snapshot: LedgerSnapshot | None = None
-    ) -> List[dict]:
+    ) -> list[dict]:
         if snapshot is not None:
             events = snapshot.events
             if not events:
@@ -1142,7 +1141,7 @@ class Runtime:
             },
         )
 
-    def _apply_trait_nudges(self, recent_events: List[dict], new_identity: str) -> dict:
+    def _apply_trait_nudges(self, recent_events: list[dict], new_identity: str) -> dict:
         """Apply bounded trait nudges (±0.02-0.05) to OCEAN traits based on recent context.
 
         Returns a dictionary of trait changes.
@@ -1169,13 +1168,20 @@ class Runtime:
             return
 
         try:
-            import re as _re_local
+            # Split into sentences deterministically
+            segments = []
+            current = []
+            for char in str(text):
+                if char in ".!?":
+                    if current:
+                        segments.append("".join(current).strip())
+                        current = []
+                else:
+                    current.append(char)
+            if current:
+                segments.append("".join(current).strip())
 
-            segments = [
-                seg.strip()
-                for seg in _re_local.split(r"[.!?]\s*", str(text))
-                if seg.strip()
-            ] or [text]
+            segments = [s for s in segments if s] or [text]
             matches = extract_commitments(segments)
         except Exception:
             return
@@ -1194,15 +1200,18 @@ class Runtime:
             if intent == "open":
                 try:
                     normalized = commit_text
-                    m = _re.search(
-                        r"\bI(?:'ll|\s+will)\s+use\s+the\s+name\s+([A-Za-z][A-Za-z0-9_-]{0,15})\b",
-                        commit_text,
-                        _re.IGNORECASE,
-                    )
-                    if m:
-                        raw = m.group(1)
-                        safe = _sanitize_name(raw) or raw
-                        normalized = f"identity:name:{safe}"
+                    # Deterministic check for "I'll use the name X" or "I will use the name X"
+                    text_lower = commit_text.lower()
+                    if "use the name" in text_lower:
+                        # Find the name after "use the name"
+                        idx = text_lower.find("use the name")
+                        rest = commit_text[idx + len("use the name") :].strip()
+                        # Extract first token (the name)
+                        name_tokens = rest.split()
+                        if name_tokens:
+                            raw = name_tokens[0].strip(".,;!?\"'")
+                            safe = _sanitize_name(raw) or raw
+                            normalized = f"identity:name:{safe}"
                     tracker.add_commitment(
                         normalized,
                         source=speaker,
@@ -1253,13 +1262,17 @@ class Runtime:
         lowered = text.lower()
 
         if "novelty_threshold" in lowered:
-            match = _re.search(r"([01](?:\.\d+)?)", lowered)
-            if not match:
-                _record_discard("no_numeric_value")
-                return
-            try:
-                new_value = float(match.group(1))
-            except Exception:
+            # Extract numeric value using deterministic parsing
+            new_value = None
+            for word in lowered.split():
+                try:
+                    val = float(word)
+                    if 0.0 <= val <= 1.0:
+                        new_value = val
+                        break
+                except ValueError:
+                    continue
+            if new_value is None:
                 _record_discard("no_numeric_value")
                 return
 
@@ -1321,7 +1334,7 @@ class Runtime:
             return
         _append_embedding_skip(self.eventlog, int(eid))
 
-    def _turns_since_last_identity_adopt(self, events: List[dict]) -> int:
+    def _turns_since_last_identity_adopt(self, events: list[dict]) -> int:
         """Calculate the number of turns since the last identity adoption.
 
         Returns the number of turns, or -1 if no previous identity adoption is found.
@@ -1458,8 +1471,13 @@ class Runtime:
         # Strict-operator prompt injection (decision probe / gate check)
         try:
             lowq = (user_text or "").lower()
+            # Deterministic check for decision probe patterns
             wants_decision_probe = bool(
-                _re.search(r"use\s*≤?\s*2\s*(?:memgraph|graph)\s*relations", lowq)
+                (
+                    "use" in lowq
+                    and "2" in lowq
+                    and ("memgraph" in lowq or "graph" in lowq)
+                )
                 or "observation (specific" in lowq
             )
             wants_gate_check = "evaluate only these gates" in lowq
@@ -1642,14 +1660,20 @@ class Runtime:
                     line = str(raw or "").strip()
                     if not line:
                         continue
-                    # Strip common bullet/number/letter prefixes: -, *, •, (A), A), 1), 1., etc.
-                    line = _re.sub(
-                        r"^\s*(?:[-*•]+|\(?[A-Za-z]\)|\(?\d+\)|\d+\.)\s*", "", line
-                    )
+                    # Strip common bullet/number/letter prefixes deterministically
+                    for prefix in ["-", "*", "•"]:
+                        if line.startswith(prefix):
+                            line = line[len(prefix) :].strip()
+                            break
+                    # Strip numbered/lettered prefixes like "1.", "A)", etc.
+                    if line and line[0].isdigit():
+                        parts = line.split(".", 1)
+                        if len(parts) == 2 and parts[0].isdigit():
+                            line = parts[1].strip()
                     # Keep short, declarative (no ? or !), with at least one word character
                     if (
                         len(line) <= 120
-                        and _re.search(r"\w", line)
+                        and any(c.isalnum() for c in line)
                         and ("?" not in line)
                         and ("!" not in line)
                     ):
@@ -1734,7 +1758,10 @@ class Runtime:
                 msgs.append(
                     {
                         "role": "system",
-                        "content": "When describing current work, briefly mention one or two open commitments from your ledger.",
+                        "content": (
+                            "When describing current work, briefly mention one or two "
+                            "open commitments from your ledger."
+                        ),
                     }
                 )
         except Exception:
@@ -2052,7 +2079,10 @@ class Runtime:
                     break
         # If model switched, emit voice continuity event and print note
         if prev_provider and prev_provider != self.cfg.provider:
-            note = f"[Voice] Continuity: Model switched from {prev_provider} to {self.cfg.provider}. Maintaining persona."
+            note = (
+                f"[Voice] Continuity: Model switched from {prev_provider} to "
+                f"{self.cfg.provider}. Maintaining persona."
+            )
             _vprint(note)
             self.eventlog.append(
                 kind="voice_continuity",
@@ -2063,12 +2093,22 @@ class Runtime:
                     "persona": ident.get("name"),
                 },
             )
-        reply = self._renderer.render(reply, ident, stage=None, events=events)
+        reply = self._renderer.render(
+            reply,
+            identity=ident,
+            recent_adopt_id=ident.get("_recent_adopt"),
+            events=events,
+        )
         # Apply strict validators for operator prompts, with neutral language
         try:
             lowq = (user_text or "").lower()
+            # Deterministic check for decision probe patterns
             dec_probe = bool(
-                _re.search(r"use\s*≤?\s*2\s*(?:memgraph|graph)\s*relations", lowq)
+                (
+                    "use" in lowq
+                    and "2" in lowq
+                    and ("memgraph" in lowq or "graph" in lowq)
+                )
                 or "observation (specific" in lowq
             )
             gate_chk = "evaluate only these gates" in lowq
@@ -2088,7 +2128,10 @@ class Runtime:
                     reply = (
                         reason
                         if reason.startswith("INSUFFICIENT EVIDENCE")
-                        else "INSUFFICIENT EVIDENCE — need valid ledger IDs or concrete observable. Provide 2 real e#### and restate."
+                        else (
+                            "INSUFFICIENT EVIDENCE — need valid ledger IDs or concrete "
+                            "observable. Provide 2 real e#### and restate."
+                        )
                     )
                     try:
                         self.eventlog.append(
@@ -2116,13 +2159,11 @@ class Runtime:
             ):
                 violations.append("Start with 'One:' then 'Two:'; each five words")
             if _forbids_preamble(user_text, ident.get("name") or ""):
-                import re as _re_local
-
-                if _re_local.match(
-                    r"^\s*(?:I am|"
-                    + _re_local.escape(str(ident.get("name") or ""))
-                    + ")",
-                    reply or "",
+                # Deterministic check for identity preamble
+                reply_stripped = (reply or "").lstrip()
+                name = str(ident.get("name") or "")
+                if reply_stripped.lower().startswith("i am") or (
+                    name and reply_stripped.startswith(name)
                 ):
                     violations.append("Do not preface with your name")
             if violations:
@@ -2165,11 +2206,11 @@ class Runtime:
                 )
                 (row_count,) = cur.fetchone() or (0,)
                 if int(row_count) > 0:
-                    from pmm.storage.semantic import (
-                        search_semantic as _search_semantic,
-                    )
                     from pmm.runtime.embeddings import (
                         compute_embedding as _compute_embedding,
+                    )
+                    from pmm.storage.semantic import (
+                        search_semantic as _search_semantic,
                     )
 
                     q = _compute_embedding(reply)
@@ -2463,9 +2504,11 @@ class Runtime:
         # Inject hallucination correction if detected in previous turn
         if hasattr(self, "_last_hallucination_ids") and self._last_hallucination_ids:
             correction_msg = (
-                f"CRITICAL CORRECTION: In your previous response, you fabricated event IDs: {self._last_hallucination_ids}. "
-                f"These events do not exist in the ledger. For new commitments that haven't been persisted yet, "
-                f"you MUST use 'pending' instead of inventing event IDs. Never fabricate event IDs."
+                f"CRITICAL CORRECTION: In your previous response, you fabricated "
+                f"event IDs: {self._last_hallucination_ids}. These events do not "
+                f"exist in the ledger. For new commitments that haven't been "
+                f"persisted yet, you MUST use 'pending' instead of inventing event "
+                f"IDs. Never fabricate event IDs."
             )
             msgs.append({"role": "system", "content": correction_msg})
             logger.info(
@@ -2781,29 +2824,42 @@ class Runtime:
         stage_str = snapshot.stage
         stage_level = stage_str_to_level(stage_str)
         # Map stage_level to fixed template label and instruction
-        _TEMPLATES = {
+        templates = {
             0: (
                 "succinct",
-                "Reflect on your current IAS/GAS metrics, open commitments, and trait deltas. Propose one concrete system-level action (e.g., adjust novelty threshold, open/close a commitment). Avoid generic advice unrelated to PMM internals.",
+                "Reflect on your current IAS/GAS metrics, open commitments, and "
+                "trait deltas. Propose one concrete system-level action (e.g., "
+                "adjust novelty threshold, open/close a commitment). Avoid generic "
+                "advice unrelated to PMM internals.",
             ),
             1: (
                 "question",
-                "Ask yourself 2 short questions about your ledger integrity and stage progression. Answer with one actionable system improvement (e.g., update policy, compact scenes). Focus only on PMM internals, not general philosophy.",
+                "Ask yourself 2 short questions about your ledger integrity and "
+                "stage progression. Answer with one actionable system improvement "
+                "(e.g., update policy, compact scenes). Focus only on PMM "
+                "internals, not general philosophy.",
             ),
             2: (
                 "narrative",
-                "Summarize recent changes in traits or commitments based on ledger events. Suggest one system adjustment (e.g., tighten cadence). Avoid non-PMM topics.",
+                "Summarize recent changes in traits or commitments based on "
+                "ledger events. Suggest one system adjustment (e.g., tighten "
+                "cadence). Avoid non-PMM topics.",
             ),
             3: (
                 "checklist",
-                "Produce a 3-item checklist: (1) what IAS/GAS changed, (2) what policy needs adjustment, (3) one immediate system action. Restrict to PMM internals.",
+                "Produce a 3-item checklist: (1) what IAS/GAS changed, (2) what "
+                "policy needs adjustment, (3) one immediate system action. "
+                "Restrict to PMM internals.",
             ),
             4: (
                 "analytical",
-                "Provide an analytical reflection: observe your current stage and commitments → diagnose gaps in autonomy → propose one concrete intervention (e.g., ratchet trait, close low-priority tasks). Exclude generic or external advice.",
+                "Provide an analytical reflection: observe your current stage "
+                "and commitments → diagnose gaps in autonomy → propose one "
+                "concrete intervention (e.g., ratchet trait, close low-priority "
+                "tasks). Exclude generic or external advice.",
             ),
         }
-        label, instr = _TEMPLATES.get(int(stage_level), _TEMPLATES[0])
+        label, instr = templates.get(int(stage_level), templates[0])
         system_prompt = build_system_msg("reflection") + instr
         msgs = [
             {"role": "system", "content": system_prompt},
@@ -2857,7 +2913,7 @@ class Runtime:
         novelty = 1.0 if note not in recent else 0.0
         # Build deterministic refs: last K relevant prior event ids
         try:
-            K = 6
+            k_refs = 6
             evs_refs = snap_for_reflect.events
             # Consider prior events only; we haven't appended this reflection yet
             relevant_kinds = {
@@ -2873,7 +2929,7 @@ class Runtime:
                         sel.append(int(ev.get("id") or 0))
                     except Exception:
                         continue
-                    if len(sel) >= K:
+                    if len(sel) >= k_refs:
                         break
             sel = [i for i in reversed(sel) if i > 0]
         except Exception:
@@ -3156,16 +3212,24 @@ _NAME_BANLIST = {
 
 
 def _sanitize_name(raw: str) -> str | None:
+    """Validate and sanitize a name token deterministically."""
     token = str(raw or "").strip().split()[0] if raw else ""
     token = token.strip("\"'`,.()[]{}<>")
     if not token:
         return None
     if len(token) > 12:
         token = token[:12]
-    import re as _re
 
-    if not _re.match(r"^[A-Za-z][A-Za-z0-9_-]{0,11}$", token):
+    # Deterministic validation: must start with letter, contain only alphanumeric, _, -
+    if not token:
         return None
+    if not token[0].isalpha():
+        return None
+
+    for char in token:
+        if not (char.isalnum() or char in "_-"):
+            return None
+
     if token[0] in "-_" or token[-1] in "-_":
         return None
     if token.isdigit():
@@ -3182,15 +3246,30 @@ def _affirmation_has_multiword_tail(text: str, candidate: str) -> bool:
         return False
 
     try:
-        pattern = _re.compile(rf"\bI\s+am\s+{_re.escape(candidate)}\b")
-        match = pattern.search(text)
-        if not match:
+        # Deterministic search for "I am <candidate>"
+        text_lower = text.lower()
+        candidate_lower = candidate.lower()
+        pattern = f"i am {candidate_lower}"
+
+        idx = text_lower.find(pattern)
+        if idx == -1:
             return False
-        remainder = text[match.end() :]
-        remainder = remainder.lstrip()
+
+        # Check word boundary before "I"
+        if idx > 0 and text[idx - 1].isalnum():
+            return False
+
+        # Get remainder after the pattern
+        end_idx = idx + len(pattern)
+
+        # Check word boundary after candidate
+        if end_idx < len(text) and text[end_idx].isalnum():
+            return False
+
+        remainder = text[end_idx:].lstrip()
         if not remainder:
             return False
-        remainder = remainder.lstrip("\"'“”‘’()[]{}-,:;")
+        remainder = remainder.lstrip("\"'" "''()[]{}-,:;")
         if not remainder:
             return False
         return remainder[0].isupper()
@@ -3674,7 +3753,10 @@ def generate_system_status_reflection(
     except Exception:
         commit_summary = f"commitment tracking unavailable (tick {hash_suffix})"
 
-    return f"System status: IAS={ias:.3f}, GAS={gas:.3f}, Stage={stage_str}.\nReflecting on {commit_summary} at tick {tick_id}."
+    return (
+        f"System status: IAS={ias:.3f}, GAS={gas:.3f}, Stage={stage_str}.\n"
+        f"Reflecting on {commit_summary} at tick {tick_id}."
+    )
 
 
 def emit_reflection(
@@ -3741,37 +3823,45 @@ def emit_reflection(
         if isinstance(novelty_threshold, float)
         else "cooldown.novelty_threshold=unset"
     )
-    _TEMPLATES = {
+    templates = {
         0: (
             "succinct",
-            "Reflect on your current IAS/GAS metrics, open commitments, and trait deltas. Propose one concrete system-level action (e.g., adjust novelty threshold, open/close a commitment). Avoid generic advice unrelated to PMM internals.",
+            "Reflect on your current IAS/GAS metrics, open commitments, and "
+            "trait deltas. Propose one concrete system-level action (e.g., "
+            "adjust novelty threshold, open/close a commitment). Avoid generic "
+            "advice unrelated to PMM internals.",
         ),
         1: (
             "question",
-            "Ask yourself 2 short questions about your ledger integrity and stage progression. Answer with one actionable system improvement (e.g., update policy, compact scenes). Focus only on PMM internals, not general philosophy.",
+            "Ask yourself 2 short questions about your ledger integrity and "
+            "stage progression. Answer with one actionable system improvement "
+            "(e.g., update policy, compact scenes). Focus only on PMM "
+            "internals, not general philosophy.",
         ),
         2: (
             "narrative",
-            "Summarize recent changes in traits or commitments based on ledger events. Suggest one system adjustment (e.g., tighten cadence). Avoid non-PMM topics.",
+            "Summarize recent changes in traits or commitments based on ledger "
+            "events. Suggest one system adjustment (e.g., tighten cadence). "
+            "Avoid non-PMM topics.",
         ),
         3: (
             "checklist",
-            "Produce a 3-item checklist: (1) what IAS/GAS changed, (2) what policy needs adjustment, (3) one immediate system action. Restrict to PMM internals.",
+            "Produce a 3-item checklist: (1) what IAS/GAS changed, (2) what "
+            "policy needs adjustment, (3) one immediate system action. "
+            "Restrict to PMM internals.",
         ),
         4: (
             "analytical",
-            "Provide an analytical reflection: observe your current stage and commitments → diagnose gaps in autonomy → propose one concrete intervention (e.g., ratchet trait, close low-priority tasks). Exclude generic or external advice.",
+            "Provide an analytical reflection: observe your current stage and "
+            "commitments → diagnose gaps in autonomy → propose one concrete "
+            "intervention (e.g., ratchet trait, close low-priority tasks). "
+            "Exclude generic or external advice.",
         ),
     }
-    tmpl_label, tmpl_instr = _TEMPLATES.get(int(stage_level), _TEMPLATES[0])
+    tmpl_label, tmpl_instr = templates.get(int(stage_level), templates[0])
     telemetry_preamble = (
-        "System status: IAS={ias:.3f}, GAS={gas:.3f}, Stage={stage}. Traits (OCEAN): {traits}. Policy knobs: {policy}."
-    ).format(
-        ias=ias,
-        gas=gas,
-        stage=stage_str,
-        traits=trait_summary,
-        policy=policy_summary,
+        f"System status: IAS={ias:.3f}, GAS={gas:.3f}, Stage={stage_str}. "
+        f"Traits (OCEAN): {trait_summary}. Policy knobs: {policy_summary}."
     )
     context_forced = f"{telemetry_preamble} Reflecting on current state after forced reflection trigger."
     context_regular = (
@@ -3808,7 +3898,7 @@ def emit_reflection(
 
     # Build deterministic refs for reflection
     try:
-        K = 6
+        k_refs = 6
         evs_refs = eventlog.read_all()
         relevant_kinds = {"user", "response", "commitment_open", "evidence_candidate"}
         sel: list[int] = []
@@ -3818,7 +3908,7 @@ def emit_reflection(
                     sel.append(int(ev.get("id") or 0))
                 except Exception:
                     continue
-                if len(sel) >= K:
+                if len(sel) >= k_refs:
                     break
         sel = [i for i in reversed(sel) if i > 0]
     except Exception:
@@ -3968,9 +4058,9 @@ def emit_reflection(
             if not forced or force_open_commitment:
                 # Supersede any previously open reflection-driven commitments to avoid pile-up
                 try:
-                    from pmm.commitments.tracker import CommitmentTracker as _CT
+                    from pmm.commitments.tracker import CommitmentTracker
 
-                    _CT(eventlog).supersede_reflection_commitments(
+                    CommitmentTracker(eventlog).supersede_reflection_commitments(
                         by_reflection_id=int(last_ref.get("id") or 0)
                     )
                 except Exception:
@@ -4416,7 +4506,9 @@ class AutonomyLoop:
         self._last_drift_policy: dict[str, dict] = {}
 
         # ---- Introspective Agency Integration ----
-        self._introspection_cadence = 5  # Run introspection every N ticks (15s with 3s ticks for responsive stage advancement)
+        # Run introspection every N ticks (15s with 3s ticks for responsive
+        # stage advancement)
+        self._introspection_cadence = 5
         self._self_introspection = SelfIntrospection(eventlog)
         self._evolution_reporter = EvolutionReporter(eventlog)
         self._commitment_restructurer = CommitmentRestructurer(eventlog)
@@ -4571,9 +4663,7 @@ class AutonomyLoop:
             )
             # Deterministic, bounded trait nudge on adoption for auditability
             try:
-                seed = _hashlib.sha256(
-                    f"{adopt_eid}:{sanitized}".encode("utf-8")
-                ).hexdigest()
+                seed = _hashlib.sha256(f"{adopt_eid}:{sanitized}".encode()).hexdigest()
                 # Use first bytes to derive a stable delta in [-0.05, +0.05]
                 frac = int(seed[:8], 16) / 0xFFFFFFFF
                 delta = (frac - 0.5) * 0.10
@@ -4687,7 +4777,11 @@ class AutonomyLoop:
                             return self.runtime.reflect(prompt)
                         else:
                             # Fallback to synthetic content if runtime not available
-                            return f"Identity adopted: {sanitized}. Previous identity: {old_name or 'none'}. Rationale: Establish new identity foundation and reflect on the transition."
+                            return (
+                                f"Identity adopted: {sanitized}. Previous identity: "
+                                f"{old_name or 'none'}. Rationale: Establish new identity "
+                                f"foundation and reflect on the transition."
+                            )
 
                     pmm_native_reflection(
                         eventlog=self.eventlog,
@@ -6036,12 +6130,15 @@ class AutonomyLoop:
                     meta={"changes": changes, "details": evo_details, "tick": tick_no},
                 )
         # Emit self_suggestion if no commitments closed for N ticks
-        N = 5
+        n_ticks = 5
         close_ticks = [
-            e for e in events[-N * 10 :] if e.get("kind") == "commitment_close"
+            e for e in events[-n_ticks * 10 :] if e.get("kind") == "commitment_close"
         ]
         if len(close_ticks) == 0:
-            suggestion = "No commitments closed recently. Suggest increasing reflection frequency or adjusting priorities."
+            suggestion = (
+                "No commitments closed recently. Suggest increasing reflection "
+                "frequency or adjusting priorities."
+            )
             # Only append if no recent self_suggestion exists in the last 10 events
             recent = events[-10:]
             already = any(e.get("kind") == "self_suggestion" for e in recent)
@@ -6142,7 +6239,10 @@ class AutonomyLoop:
                     meta={"stage": curr_stage, "tick": tick_no},
                 )
             # Trigger a special reflection
-            stage_reflect_prompt = f"You have reached {curr_stage}. Reflect on your growth and set goals for this stage."
+            stage_reflect_prompt = (
+                f"You have reached {curr_stage}. Reflect on your growth and set "
+                f"goals for this stage."
+            )
             self.eventlog.append(
                 kind="stage_reflection",
                 content=stage_reflect_prompt,
@@ -6503,18 +6603,18 @@ class AutonomyLoop:
                 if e.get("kind") == "autonomy_tick"
             ]
             if len(auto_ids_asc) >= 2:
-                A = auto_ids_asc[-1]  # last completed tick boundary
-                B = auto_ids_asc[-2]  # second-to-last boundary
-                # Current window (since A): treat as low if either maybe_reflect skipped for low_novelty
-                # OR any debug reflect_skip=low_novelty already appeared since A this tick.
+                last_tick_id = auto_ids_asc[-1]  # last completed tick boundary
+                prev_tick_id = auto_ids_asc[-2]  # second-to-last boundary
+                # Current window (since last_tick_id): treat as low if either maybe_reflect skipped for low_novelty
+                # OR any debug reflect_skip=low_novelty already appeared since last_tick_id this tick.
                 low_curr = (
                     (not reflect_success)
                     and (str(reason) in {"due_to_low_novelty", "due_to_cadence"})
-                ) or _had_low_between(A, None)
+                ) or _had_low_between(last_tick_id, None)
                 if low_curr:
-                    low_prev1 = _had_low_between(B, A)
-                    # For the window before B, scan from start (id 0) to B (inclusive)
-                    low_prev2 = _had_low_between(0, B)
+                    low_prev1 = _had_low_between(prev_tick_id, last_tick_id)
+                    # For the window before prev_tick_id, scan from start (id 0) to prev_tick_id (inclusive)
+                    low_prev2 = _had_low_between(0, prev_tick_id)
                     if low_prev1 and low_prev2:
                         last_t = _last_tick_for_reason("novelty_push")
                         if (last_t == 0) or ((tick_no - last_t) >= 5):
@@ -6875,7 +6975,7 @@ class AutonomyLoop:
                                 continue
                             try:
                                 if int(
-                                    ((_evx.get("meta") or {}).get("src_id") or 0)
+                                    (_evx.get("meta") or {}).get("src_id") or 0
                                 ) == int(_src_id):
                                     applied = True
                                     break

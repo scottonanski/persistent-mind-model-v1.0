@@ -28,7 +28,7 @@ class PersistentStorage:
         """
         try:
             if os.path.exists(self.identity_file):
-                with open(self.identity_file, "r") as f:
+                with open(self.identity_file) as f:
                     return json.load(f)
         except Exception as e:
             print(f"Error loading identity data: {e}")
@@ -55,7 +55,7 @@ class PersistentStorage:
             events_file = os.path.join(self.db_path, "events.jsonl")
             if os.path.exists(events_file):
                 events = []
-                with open(events_file, "r") as f:
+                with open(events_file) as f:
                     for line in f:
                         if line.strip():
                             events.append(json.loads(line))

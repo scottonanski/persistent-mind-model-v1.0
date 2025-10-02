@@ -1,7 +1,7 @@
-from pmm.storage.eventlog import EventLog
+from pmm.config import REFLECTION_REJECTED, REFLECTION_SKIPPED
 from pmm.runtime.cooldown import ReflectionCooldown
 from pmm.runtime.loop import maybe_reflect
-from pmm.config import REFLECTION_SKIPPED, REFLECTION_REJECTED
+from pmm.storage.eventlog import EventLog
 
 
 def test_no_reflect_emits_skip_breadcrumb(tmp_path):
@@ -39,7 +39,10 @@ def test_reflect_resets_cooldown(tmp_path):
         cd,
         now=cd.last_ts + 2.0,
         novelty=1.0,
-        llm_generate=lambda context: "This is a test reflection with sufficient content.\nIt has multiple lines to pass the requirements.",
+        llm_generate=lambda context: (
+            "This is a test reflection with sufficient content.\n"
+            "It has multiple lines to pass the requirements."
+        ),
     )
     assert did is True and reason == "ok"
 
@@ -89,7 +92,9 @@ def test_policy_shadow_invokes_graph(tmp_path):
         cd,
         now=0.0,
         novelty=1.0,
-        llm_generate=lambda context: "Reflection with enough substance to record.\nLine 2 ensures length.",
+        llm_generate=lambda context: (
+            "Reflection with enough substance to record.\n" "Line 2 ensures length."
+        ),
         memegraph=graph,
     )
     assert did is True and reason == "ok"

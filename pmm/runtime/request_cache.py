@@ -14,7 +14,7 @@ Design Principles:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -43,14 +43,14 @@ class RequestCache:
             eventlog: EventLog instance to cache reads from
         """
         self.eventlog = eventlog
-        self._events_cache: Optional[List[Dict[str, Any]]] = None
-        self._identity_cache: Optional[Dict[str, Any]] = None
-        self._self_model_cache: Optional[Dict[str, Any]] = None
-        self._last_event_id: Optional[int] = None
+        self._events_cache: list[dict[str, Any]] | None = None
+        self._identity_cache: dict[str, Any] | None = None
+        self._self_model_cache: dict[str, Any] | None = None
+        self._last_event_id: int | None = None
         self._hit_count = 0
         self._miss_count = 0
 
-    def get_events(self, refresh: bool = False) -> List[Dict[str, Any]]:
+    def get_events(self, refresh: bool = False) -> list[dict[str, Any]]:
         """Get all events from ledger with caching.
 
         Args:
@@ -74,7 +74,7 @@ class RequestCache:
 
         return self._events_cache
 
-    def get_tail(self, limit: int = 1000) -> List[Dict[str, Any]]:
+    def get_tail(self, limit: int = 1000) -> list[dict[str, Any]]:
         """Get recent events from ledger.
 
         Note: This bypasses cache since tail queries are already optimized.
@@ -92,7 +92,7 @@ class RequestCache:
             events = self.get_events()
             return events[-limit:] if events else []
 
-    def get_identity(self) -> Dict[str, Any]:
+    def get_identity(self) -> dict[str, Any]:
         """Get identity projection with caching.
 
         Returns:
@@ -106,7 +106,7 @@ class RequestCache:
 
         return self._identity_cache
 
-    def get_self_model(self) -> Dict[str, Any]:
+    def get_self_model(self) -> dict[str, Any]:
         """Get self-model projection with caching.
 
         Returns:
@@ -167,7 +167,7 @@ class RequestCache:
             except (IndexError, ValueError, TypeError):
                 self._last_event_id = None
 
-    def _get_current_last_event_id(self) -> Optional[int]:
+    def _get_current_last_event_id(self) -> int | None:
         """Get the current last event ID from ledger without full read.
 
         Returns:
@@ -183,7 +183,7 @@ class RequestCache:
 
         return None
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get cache statistics.
 
         Returns:
@@ -229,15 +229,15 @@ class CachedEventLog:
         self._eventlog = eventlog
         self._cache = RequestCache(eventlog)
 
-    def read_all(self) -> List[Dict[str, Any]]:
+    def read_all(self) -> list[dict[str, Any]]:
         """Read all events with caching."""
         return self._cache.get_events()
 
-    def read_tail(self, limit: int = 1000) -> List[Dict[str, Any]]:
+    def read_tail(self, limit: int = 1000) -> list[dict[str, Any]]:
         """Read recent events (bypasses cache)."""
         return self._cache.get_tail(limit)
 
-    def append(self, kind: str, content: str = "", meta: Optional[Dict] = None) -> int:
+    def append(self, kind: str, content: str = "", meta: dict | None = None) -> int:
         """Append event and invalidate cache.
 
         Args:
@@ -254,7 +254,7 @@ class CachedEventLog:
         # Pass through to underlying eventlog
         return self._eventlog.append(kind=kind, content=content, meta=meta)
 
-    def get_cache_stats(self) -> Dict[str, Any]:
+    def get_cache_stats(self) -> dict[str, Any]:
         """Get cache statistics."""
         return self._cache.get_stats()
 

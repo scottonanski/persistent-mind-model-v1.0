@@ -1,26 +1,55 @@
-import re
-from typing import Iterable, List, Tuple
+from collections.abc import Iterable
+
 from .types import DirectiveCandidate, Source
 
 # ---- Deterministic patterns (module-level constants; no env flags) ----
 # Keep this small and transparent. Extend by edits to this table (and tests).
-_PATTERNS: Tuple[re.Pattern, ...] = (
-    # "From now on, <do X>" — capture up to first sentence terminator and include it
-    re.compile(r"\bfrom now on,\s+(?P<body>[^\.!\?\n]+[\.!\?]?)", re.IGNORECASE),
-    # "Always <do X>"
-    re.compile(r"\balways\s+(?P<body>[^\.!\?\n]+[\.!\?]?)", re.IGNORECASE),
-    # "Never <do X>"
-    re.compile(r"\bnever\s+(?P<body>[^\.!\?\n]+[\.!\?]?)", re.IGNORECASE),
-    # "Directive: <do X>"
-    re.compile(r"\bdirective:\s*(?P<body>[^\.!\?\n]+[\.!\?]?)", re.IGNORECASE),
+_PATTERN_PREFIXES = (
+    "from now on,",
+    "always ",
+    "never ",
+    "directive:",
 )
 
 
 def _normalize_text(text: str) -> str:
-    # Trim and collapse internal whitespace deterministically.
+    """Trim and collapse internal whitespace deterministically."""
     s = text.strip()
-    s = re.sub(r"\s+", " ", s)
-    return s
+    # Collapse multiple whitespace to single space
+    tokens = s.split()
+    return " ".join(tokens)
+
+
+def _extract_body_after_prefix(text: str, prefix: str) -> str | None:
+    """
+    Extract body text after a prefix, up to first sentence terminator.
+    Returns None if prefix not found.
+    """
+    text_lower = text.lower()
+    idx = text_lower.find(prefix.lower())
+    if idx == -1:
+        return None
+
+    # Check if it's a word boundary (start of text or preceded by non-alnum)
+    if idx > 0 and text[idx - 1].isalnum():
+        return None
+
+    # Extract text after prefix
+    start = idx + len(prefix)
+    rest = text[start:].lstrip()
+
+    if not rest:
+        return None
+
+    # Find first sentence terminator
+    body_chars = []
+    for char in rest:
+        if char in ".!?\n":
+            body_chars.append(char)
+            break
+        body_chars.append(char)
+
+    return "".join(body_chars).strip()
 
 
 def extract(
@@ -34,21 +63,22 @@ def extract(
     - Returns a stable order based on pattern order above.
     """
     norm = _normalize_text(text)
-    found: List[DirectiveCandidate] = []
+    found: list[DirectiveCandidate] = []
 
-    for pat in _PATTERNS:
-        m = pat.search(norm)
-        if not m:
-            continue
-        body = _normalize_text(m.group("body"))
+    for prefix in _PATTERN_PREFIXES:
+        body = _extract_body_after_prefix(norm, prefix)
         if body:
-            found.append(
-                DirectiveCandidate(content=body, source=source, origin_eid=origin_eid)
-            )
+            body_norm = _normalize_text(body)
+            if body_norm:
+                found.append(
+                    DirectiveCandidate(
+                        content=body_norm, source=source, origin_eid=origin_eid
+                    )
+                )
 
     # De-dup (content+source) in-order
     seen: set[tuple[str, Source]] = set()
-    deduped: List[DirectiveCandidate] = []
+    deduped: list[DirectiveCandidate] = []
     for cand in found:
         key = (cand.content.lower(), cand.source)
         if key in seen:

@@ -1,12 +1,11 @@
 import pytest
 
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.loop import AutonomyLoop
-from pmm.runtime.loop import CADENCE_BY_STAGE
-from pmm.runtime.stage_tracker import StageTracker
 from pmm.config import (
     REFLECTION_SKIPPED,
 )
+from pmm.runtime.loop import CADENCE_BY_STAGE, AutonomyLoop
+from pmm.runtime.stage_tracker import StageTracker
+from pmm.storage.eventlog import EventLog
 
 
 class _CDControlled:

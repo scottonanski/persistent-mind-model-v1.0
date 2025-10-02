@@ -6,8 +6,9 @@ from the event log alone.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any, Optional
+
 import hashlib
+from typing import Any
 
 
 class SelfModelManager:
@@ -33,7 +34,7 @@ class SelfModelManager:
         """Initialize the self-model manager."""
         pass
 
-    def project_self_model(self, events: List[Dict]) -> Dict[str, Any]:
+    def project_self_model(self, events: list[dict]) -> dict[str, Any]:
         """
         Pure function.
         Project current self-model deterministically from ledger events:
@@ -211,8 +212,8 @@ class SelfModelManager:
         }
 
     def consolidate(
-        self, eventlog, src_event_id: str, current_model: Dict[str, Any]
-    ) -> Optional[str]:
+        self, eventlog, src_event_id: str, current_model: dict[str, Any]
+    ) -> str | None:
         """
         Emit a self_model_update event with the full current self-model.
         Event shape:
@@ -259,7 +260,7 @@ class SelfModelManager:
 
         return event_id
 
-    def detect_anomalies(self, history: List[Dict[str, Any]]) -> List[str]:
+    def detect_anomalies(self, history: list[dict[str, Any]]) -> list[str]:
         """
         Pure function.
         Detect anomalous drift patterns:

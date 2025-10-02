@@ -1,7 +1,8 @@
 import tempfile
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.loop import AutonomyLoop
+
 from pmm.runtime.cooldown import ReflectionCooldown
+from pmm.runtime.loop import AutonomyLoop
+from pmm.storage.eventlog import EventLog
 
 
 def test_name_persistence_updates_and_event_emitted():

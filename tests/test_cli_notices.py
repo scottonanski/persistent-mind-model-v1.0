@@ -1,5 +1,5 @@
-from pmm.storage.eventlog import EventLog
 from pmm.cli import chat
+from pmm.storage.eventlog import EventLog
 
 
 def _run_notice_block(rt_like):

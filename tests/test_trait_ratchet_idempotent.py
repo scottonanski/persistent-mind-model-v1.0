@@ -1,9 +1,10 @@
 from __future__ import annotations
-import tempfile
-import os
 
-from pmm.storage.eventlog import EventLog
+import os
+import tempfile
+
 from pmm.runtime.self_evolution import propose_trait_ratchet
+from pmm.storage.eventlog import EventLog
 
 
 def _tmpdb():

@@ -1,9 +1,10 @@
 from __future__ import annotations
+
 import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 _FILENAME = "alloc_log.jsonl"
 
@@ -14,7 +15,7 @@ def _path() -> Path:
     return root / _FILENAME
 
 
-def log_alloc(event: Dict[str, Any]) -> None:
+def log_alloc(event: dict[str, Any]) -> None:
     """
     Append a single JSON line. Non-fatal on error.
     Expected keys (suggested): ts, model_key, task, prompt_tokens, target_out,

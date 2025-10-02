@@ -5,7 +5,7 @@ adjustment suggestions. All computations are pure and side-effect free.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Optional
+
 import hashlib
 import json
 
@@ -15,7 +15,7 @@ class ProactiveCommitmentManager:
     Deterministic assessment of commitments and proactive reinforcement.
     """
 
-    def evaluate_commitment_health(self, events: List[dict]) -> Dict:
+    def evaluate_commitment_health(self, events: list[dict]) -> dict:
         """
         Input: list of commitment-related events (open/close/reopen, newest last).
         Output: dict with deterministic stats.
@@ -82,7 +82,7 @@ class ProactiveCommitmentManager:
             "streak_open_failures": streak_open_failures,
         }
 
-    def suggest_commitment_adjustments(self, health: Dict) -> List[Dict]:
+    def suggest_commitment_adjustments(self, health: dict) -> list[dict]:
         """
         Pure function. Returns a list of adjustment suggestions.
 
@@ -114,7 +114,7 @@ class ProactiveCommitmentManager:
 
         return suggestions
 
-    def maybe_emit_health_report(self, eventlog, health: Dict) -> Optional[str]:
+    def maybe_emit_health_report(self, eventlog, health: dict) -> str | None:
         """
         Append exactly one event per unique health digest.
         Idempotent by digest. Returns event id or None if skipped.
@@ -148,7 +148,7 @@ class ProactiveCommitmentManager:
 
         return str(event_id)
 
-    def _calculate_health_digest(self, health: Dict) -> str:
+    def _calculate_health_digest(self, health: dict) -> str:
         """Calculate stable SHA256 digest over health dictionary."""
         # Sort keys for deterministic serialization
         health_json = json.dumps(health, sort_keys=True, separators=(",", ":"))

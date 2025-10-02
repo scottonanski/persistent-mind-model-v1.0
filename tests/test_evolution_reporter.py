@@ -1,9 +1,10 @@
 # tests/test_evolution_reporter.py
 
 import pytest
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.evolution_reporter import EvolutionReporter
+
 from pmm.constants import EventKinds
+from pmm.runtime.evolution_reporter import EvolutionReporter
+from pmm.storage.eventlog import EventLog
 
 
 # Fixtures

@@ -1,6 +1,7 @@
 # tests/test_openai_adapter_smoke.py
-import os
 import json
+import os
+
 from pmm.llm.adapters.openai_chat import OpenAIChat
 
 

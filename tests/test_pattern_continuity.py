@@ -5,6 +5,7 @@ report emission according to CONTRIBUTING.md principles.
 """
 
 from unittest.mock import Mock
+
 from pmm.runtime.pattern_continuity import PatternContinuity
 
 

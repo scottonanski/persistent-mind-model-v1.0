@@ -1,11 +1,11 @@
 """Tests for incremental metrics cache (Phase 2.2)."""
 
-import tempfile
 import os
+import tempfile
 
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.metrics import compute_ias_gas
 from pmm.runtime.metrics_cache import MetricsCache
+from pmm.storage.eventlog import EventLog
 
 
 def test_metrics_cache_empty_db():

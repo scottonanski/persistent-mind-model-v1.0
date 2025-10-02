@@ -1,5 +1,5 @@
-from pmm.storage.eventlog import EventLog
 from pmm.api.probe import snapshot
+from pmm.storage.eventlog import EventLog
 
 
 def test_probe_snapshot_returns_current_state_and_recent_events(tmp_path):

@@ -1,9 +1,9 @@
-import time
 import datetime as dt
+import time
 
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.loop import AutonomyLoop
 from pmm.runtime.cooldown import ReflectionCooldown
+from pmm.runtime.loop import AutonomyLoop
+from pmm.storage.eventlog import EventLog
 
 
 def _make_loop(log: EventLog) -> AutonomyLoop:

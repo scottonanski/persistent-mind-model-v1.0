@@ -1,8 +1,9 @@
 # pmm/config.py
 from __future__ import annotations
+
 import os
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 
 
 def load_dotenv(dotenv_path: str = ".env") -> None:
@@ -196,8 +197,8 @@ def load() -> dict:
     Returns a shallow dict of config values.
     """
     try:
-        from pathlib import Path as _Path
         import json as _json_local
+        from pathlib import Path as _Path
 
         cfg_path = _Path(".pmm/config.json")
         if cfg_path.exists():

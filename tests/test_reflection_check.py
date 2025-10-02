@@ -1,5 +1,5 @@
+from pmm.runtime.loop import _append_reflection_check, emit_reflection
 from pmm.storage.eventlog import EventLog
-from pmm.runtime.loop import emit_reflection, _append_reflection_check
 
 
 def test_reflection_check_ok(tmp_path):

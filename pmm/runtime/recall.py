@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from typing import List, Dict, Tuple, Optional, Set
-import re as _re
-
 _STOP = {
     "i",
     "we",
@@ -30,13 +27,14 @@ _STOP = {
 }
 
 
-def _tokens(s: str) -> List[str]:
-    s2 = _re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
-    toks = [t for t in s2.split() if t and t not in _STOP]
+def _tokens(s: str) -> list[str]:
+    from pmm.utils.parsers import split_non_alnum
+
+    toks = [t for t in split_non_alnum(s or "") if t and t not in _STOP]
     return toks
 
 
-def _score_overlap(src_toks: List[str], tgt_toks: List[str]) -> int:
+def _score_overlap(src_toks: list[str], tgt_toks: list[str]) -> int:
     if not src_toks or not tgt_toks:
         return 0
     st = set(src_toks)
@@ -44,12 +42,12 @@ def _score_overlap(src_toks: List[str], tgt_toks: List[str]) -> int:
 
 
 def suggest_recall(
-    events: List[Dict],
+    events: list[dict],
     current_text: str,
     *,
     max_items: int = 3,
-    semantic_seeds: Optional[List[int]] = None,
-) -> List[Dict]:
+    semantic_seeds: list[int] | None = None,
+) -> list[dict]:
     """
     Deterministic recall suggestions based on token overlap.
 
@@ -61,7 +59,7 @@ def suggest_recall(
     curr = _tokens(current_text)
 
     # First pass: build quick candidates scored by token overlap only
-    quick_candidates: List[Tuple[float, int, str, str]] = (
+    quick_candidates: list[tuple[float, int, str, str]] = (
         []
     )  # (overlap_score, eid, snippet, tgt_text)
     # Identify latest event id to ensure we only reference prior events
@@ -99,7 +97,7 @@ def suggest_recall(
         # If semantic seeds provided, restrict to those eids
         if semantic_seeds is not None:
             try:
-                seed_set: Set[int] = set(int(x) for x in semantic_seeds)
+                seed_set: set[int] = set(int(x) for x in semantic_seeds)
             except Exception:
                 seed_set = set()
             if eid not in seed_set:
@@ -114,17 +112,17 @@ def suggest_recall(
         quick_candidates.append((ov, eid, snippet, tgt_text))
 
     # Prefilter: keep only top-K by overlap to bound embedding calls
-    TOP_K = max(max_items, 10)
+    top_k = max(max_items, 10)
     quick_candidates.sort(key=lambda t: (-float(t[0]), t[1]))
-    prefiltered = quick_candidates[:TOP_K]
+    prefiltered = quick_candidates[:top_k]
 
     # Second pass (optional legacy): refine scores with embeddings for prefiltered items if available
-    scored: List[Tuple[float, int, str]] = []  # (score, eid, snippet)
+    scored: list[tuple[float, int, str]] = []  # (score, eid, snippet)
     for ov, eid, snippet, _t in prefiltered:
         scored.append((ov, eid, snippet))
 
     # Sort by score desc, then eid asc, then truncate to max_items
-    out: List[Dict] = []
+    out: list[dict] = []
     used = set()
     scored.sort(key=lambda t: (-float(t[0]), t[1]))
     for sc, eid, snip in scored:

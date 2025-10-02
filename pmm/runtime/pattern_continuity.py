@@ -6,10 +6,12 @@ from the ledger, idempotent, and reproducible.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any, Optional
+
 import hashlib
-import re
 from collections import Counter, defaultdict
+from typing import Any
+
+from pmm.utils.parsers import tokenize_alphanumeric
 
 
 class PatternContinuity:
@@ -26,7 +28,7 @@ class PatternContinuity:
         """
         self.window_size = window_size
 
-    def analyze_patterns(self, events: List[Dict]) -> Dict[str, Any]:
+    def analyze_patterns(self, events: list[dict]) -> dict[str, Any]:
         """
         Pure function.
         Analyze recent events for continuity signals:
@@ -60,7 +62,7 @@ class PatternContinuity:
 
         return summary
 
-    def _analyze_commitment_patterns(self, events: List[Dict]) -> Dict[str, Any]:
+    def _analyze_commitment_patterns(self, events: list[dict]) -> dict[str, Any]:
         """Analyze commitment open/close repetition patterns."""
         commitment_texts = {}  # cid -> text
         commitment_opens = defaultdict(list)  # text -> [event_ids]
@@ -117,7 +119,7 @@ class PatternContinuity:
             ),
         }
 
-    def _analyze_reflection_patterns(self, events: List[Dict]) -> Dict[str, Any]:
+    def _analyze_reflection_patterns(self, events: list[dict]) -> dict[str, Any]:
         """Analyze repeated reflection phrasing using n-gram frequency."""
         reflection_texts = []
 
@@ -139,9 +141,8 @@ class PatternContinuity:
         ngram_counts = Counter()
 
         for text in reflection_texts:
-            # Normalize text: lowercase, remove punctuation, split into words
-            normalized = re.sub(r"[^\w\s]", " ", text.lower())
-            words = normalized.split()
+            # Normalize text: lowercase, tokenize alphanumerically
+            words = tokenize_alphanumeric(text)
 
             # Generate 2-grams and 3-grams
             for n in [2, 3]:
@@ -164,7 +165,7 @@ class PatternContinuity:
             ),
         }
 
-    def _analyze_stage_patterns(self, events: List[Dict]) -> Dict[str, Any]:
+    def _analyze_stage_patterns(self, events: list[dict]) -> dict[str, Any]:
         """Analyze stage transition recurrence patterns."""
         stage_transitions = []
         current_stage = None
@@ -212,7 +213,7 @@ class PatternContinuity:
             "transition_sequence": stage_transitions[-10:],  # Last 10 transitions
         }
 
-    def detect_loops(self, patterns: Dict[str, Any]) -> List[str]:
+    def detect_loops(self, patterns: dict[str, Any]) -> list[str]:
         """
         Pure function.
         Identify problematic continuity patterns:
@@ -257,8 +258,8 @@ class PatternContinuity:
         return anomalies
 
     def maybe_emit_report(
-        self, eventlog, src_event_id: str, summary: Dict[str, Any]
-    ) -> Optional[str]:
+        self, eventlog, src_event_id: str, summary: dict[str, Any]
+    ) -> str | None:
         """
         Emit a pattern_continuity_report event with:
           kind="pattern_continuity_report"
@@ -304,7 +305,7 @@ class PatternContinuity:
 
         return event_id
 
-    def _serialize_summary_for_digest(self, summary: Dict[str, Any]) -> str:
+    def _serialize_summary_for_digest(self, summary: dict[str, Any]) -> str:
         """Serialize summary deterministically for digest generation."""
         # Create a deterministic string representation
         parts = []

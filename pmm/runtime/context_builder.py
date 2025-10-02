@@ -21,13 +21,13 @@ The implementation follows CONTRIBUTING.md principles:
 
 from __future__ import annotations
 
-from typing import List, Dict, Any
-import re as _re
 from datetime import datetime as _dt
+from typing import Any
 
-from pmm.storage.eventlog import EventLog
-from pmm.storage.projection import build_self_model, build_identity
 from pmm.runtime.snapshot import LedgerSnapshot
+from pmm.storage.eventlog import EventLog
+from pmm.storage.projection import build_identity, build_self_model
+from pmm.utils.parsers import extract_first_sentence, normalize_whitespace
 
 __all__ = ["build_context_from_ledger"]
 
@@ -84,7 +84,7 @@ def build_context_from_ledger(
     # Performance optimization (Phase 1.3): Use read_tail for recent context
     # Most context needs (IAS/GAS, recent reflections, commitments) are in
     # the recent 500-1000 events. Full projection still uses read_all().
-    events: List[Dict[str, Any]]
+    events: list[dict[str, Any]]
     if snapshot is not None:
         events = snapshot.events
     else:
@@ -104,7 +104,7 @@ def build_context_from_ledger(
     else:
         identity = build_identity(events)
     name = identity.get("name") or "Unknown"
-    traits: Dict[str, float] = identity.get("traits", {})
+    traits: dict[str, float] = identity.get("traits", {})
     # Keep Big-Five order consistent for determinism
     trait_order = [
         ("openness", "O"),
@@ -145,8 +145,8 @@ def build_context_from_ledger(
     # --- Open Commitments ---------------------------------------------------
     # Anti-hallucination: Inject actual commitment IDs and text from ledger
     # This anchors the LLM with ground truth and prevents fabrication
-    commitments_block: List[str] = []
-    commitment_events: List[Dict[str, Any]] = []
+    commitments_block: list[str] = []
+    commitment_events: list[dict[str, Any]] = []
     try:
         # First, get actual commitment_open events from ledger (last 10)
         closed_cids = set()
@@ -174,7 +174,7 @@ def build_context_from_ledger(
             for ev in commitment_events[:max_commitments]:
                 eid = ev.get("id", "?")
                 cid = (ev.get("meta") or {}).get("cid", "")[:8]
-                txt = _short_commit_text((ev.get("meta") or {}).get("text", ""))
+                txt = _short_commitment((ev.get("meta") or {}).get("text", ""))
 
                 if txt:
                     # Format: [event_id:cid] text
@@ -201,13 +201,13 @@ def build_context_from_ledger(
                 self_model = snapshot.self_model
             else:
                 self_model = build_self_model(events)
-            open_commitments: Dict[str, Any] = self_model.get("commitments", {}).get(
+            open_commitments: dict[str, Any] = self_model.get("commitments", {}).get(
                 "open", {}
             )
             total_chars = 0
             max_commitments = 3 if compact_mode else 5
             for cid in sorted(open_commitments.keys())[:max_commitments]:
-                txt = _short_commit_text(open_commitments[cid].get("text", ""))
+                txt = _short_commitment(open_commitments[cid].get("text", ""))
                 if txt:
                     if total_chars + len(txt) > max_commitment_chars:
                         remaining = max_commitment_chars - total_chars
@@ -221,7 +221,7 @@ def build_context_from_ledger(
         pass
 
     # --- Recent Reflections -------------------------------------------------
-    reflections_block: List[str] = []
+    reflections_block: list[str] = []
     if n_reflections > 0:
         count = 0
         total_chars = 0
@@ -263,7 +263,7 @@ def build_context_from_ledger(
     # --- Assemble -----------------------------------------------------------
     if compact_mode:
         # Ultra-compact format (20-30% token reduction)
-        lines: List[str] = [f"[STATE] {name} | {trait_str}"]
+        lines: list[str] = [f"[STATE] {name} | {trait_str}"]
         if ias is not None and gas is not None and stage is not None:
             lines.append(f"IAS={ias:.2f} GAS={gas:.2f} {stage}")
         if memegraph_summary:
@@ -276,7 +276,7 @@ def build_context_from_ledger(
             lines.extend(reflections_block)
     else:
         # Standard format
-        lines: List[str] = ["[SYSTEM STATE — from ledger]"]
+        lines: list[str] = ["[SYSTEM STATE — from ledger]"]
         lines.append(f"Identity: {name}")
         lines.append(f"Traits: {trait_str}")
         # Guidance for LLM trait suggestions (side layer)
@@ -305,77 +305,103 @@ def build_context_from_ledger(
 # ---------------------------------------------------------------------------
 
 
-def _short_commit_text(txt: str, limit: int = 80) -> str:
-    """Extract the actual commitment/action from reflection text."""
+def _short_commitment(txt: str, limit: int = 120) -> str:
+    """Return a compact snippet of commitment content (deterministic)."""
     try:
         t = str(txt or "")
 
         # Try to extract the actual commitment/action line
         # Look for patterns like "Action:", "Commitment:", "Action Proposal:", etc.
-        action_patterns = [
-            r"(?:Action|Commitment|Action Proposal):\s*([^\n]+)",
-            r"\*\*(?:Action|Commitment)\*\*:\s*([^\n]+)",
-        ]
+        action_keywords = ["action:", "commitment:", "action proposal:"]
 
-        for pattern in action_patterns:
-            match = _re.search(pattern, t, _re.IGNORECASE)
-            if match:
-                action_text = match.group(1).strip()
-                # Clean up the extracted text
-                action_text = _re.sub(r"[`*_#>]+", " ", action_text)
-                action_text = _re.sub(r"\s+", " ", action_text).strip()
+        for keyword in action_keywords:
+            # Check both plain and markdown bold versions
+            for prefix in [keyword, f"**{keyword.rstrip(':')}**:"]:
+                idx = t.lower().find(prefix.lower())
+                if idx >= 0:
+                    # Extract text after the keyword
+                    start = idx + len(prefix)
+                    rest = t[start:].lstrip()
+                    # Take until newline
+                    newline_idx = rest.find("\n")
+                    if newline_idx > 0:
+                        action_text = rest[:newline_idx].strip()
+                    else:
+                        action_text = rest.strip()
 
-                # Take first sentence if multiple
-                parts = _re.split(r"(?<=[\.!?])\s+", action_text, maxsplit=1)
-                s = (parts[0] or action_text).strip()
+                    # Clean up markdown
+                    action_text = _clean_markdown(action_text)
+                    action_text = normalize_whitespace(action_text)
 
-                if len(s) <= limit:
-                    return s
-                # Truncate at word boundary
-                cut = s[: limit - 1]
-                if " " in cut:
-                    cut = cut.rsplit(" ", 1)[0]
-                return cut.rstrip() + "…"
+                    # Take first sentence
+                    s = extract_first_sentence(action_text)
+
+                    if len(s) <= limit:
+                        return s
+                    # Truncate at word boundary
+                    return _truncate_at_word(s, limit)
 
         # Fallback: skip IAS/GAS lines and take first meaningful sentence
         lines = [line.strip() for line in t.split("\n") if line.strip()]
         for line in lines:
-            # Skip lines that are just metrics
-            if _re.match(
-                r"^IAS[:\s]|^GAS[:\s]|^Stage[:\s]|^Reflection:", line, _re.IGNORECASE
+            # Skip lines that are just metrics (deterministic check)
+            line_lower = line.lower()
+            if any(
+                line_lower.startswith(prefix)
+                for prefix in [
+                    "ias:",
+                    "ias ",
+                    "gas:",
+                    "gas ",
+                    "stage:",
+                    "stage ",
+                    "reflection:",
+                ]
             ):
                 continue
             if line:
                 # Clean and truncate
-                line = _re.sub(r"[`*_#>]+", " ", line)
-                line = _re.sub(r"\s+", " ", line).strip()
-                parts = _re.split(r"(?<=[\.!?])\s+", line, maxsplit=1)
-                s = (parts[0] or line).strip()
+                line = _clean_markdown(line)
+                line = normalize_whitespace(line)
                 if len(s) <= limit:
                     return s
-                cut = s[: limit - 1]
-                if " " in cut:
-                    cut = cut.rsplit(" ", 1)[0]
-                return cut.rstrip() + "…"
+                return _truncate_at_word(s, limit)
 
         # Last resort: just take first sentence
-        t = _re.sub(r"\s+", " ", t).strip()
-        parts = _re.split(r"(?<=[\.!?])\s+", t, maxsplit=1)
-        s = (parts[0] or t).strip()
+        t = normalize_whitespace(t)
+        s = extract_first_sentence(t)
         if len(s) <= limit:
             return s
-        cut = s[: limit - 1]
-        if " " in cut:
-            cut = cut.rsplit(" ", 1)[0]
-        return cut.rstrip() + "…"
+        return _truncate_at_word(s, limit)
     except Exception:
-        return (str(txt or "")[:limit]).strip()
+        return (txt or "")[:limit]
+
+
+def _clean_markdown(text: str) -> str:
+    """Remove markdown formatting characters deterministically."""
+    result = []
+    for char in text:
+        if char not in "`*_#>":
+            result.append(char)
+        else:
+            result.append(" ")
+    return "".join(result)
+
+
+def _truncate_at_word(text: str, limit: int) -> str:
+    """Truncate text at word boundary deterministically."""
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip() + "…"
 
 
 def _short_reflection(txt: str, limit: int = 120) -> str:
     """Return a compact snippet of reflection content."""
     try:
-        t = _re.sub(r"\s+", " ", str(txt or "").strip())
+        t = normalize_whitespace(str(txt or ""))
         if len(t) <= limit:
             return t
         cut = t[: limit - 1]
@@ -387,8 +413,8 @@ def _short_reflection(txt: str, limit: int = 120) -> str:
 
 
 def build_context(
-    traits: Dict[str, float], metrics: Dict[str, float], stage: str
-) -> List[str]:
+    traits: dict[str, float], metrics: dict[str, float], stage: str
+) -> list[str]:
     """Build a minimal context for testing purposes."""
     lines = []
     # Add trait info

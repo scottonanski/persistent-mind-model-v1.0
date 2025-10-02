@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Protocol, Any
+from typing import Any, Protocol
 
 from pmm.runtime.embeddings import compute_embedding, cosine_similarity, digest_vector
 
-
-COMPLETION_EXEMPLARS: Dict[str, List[str]] = {
+COMPLETION_EXEMPLARS: dict[str, list[str]] = {
     "complete": [
         "I have finished this reflection",
         "this task is now complete",
@@ -25,15 +24,15 @@ COMPLETION_EXEMPLARS: Dict[str, List[str]] = {
 COMPLETION_THRESHOLD = 0.65
 
 
-def _embedding(text: str) -> List[float]:
+def _embedding(text: str) -> list[float]:
     vec = compute_embedding(text or "")
     return vec if isinstance(vec, list) else []
 
 
 def _prepare_samples(
-    exemplars: Dict[str, List[str]],
-) -> Dict[str, List[Dict[str, Any]]]:
-    samples: Dict[str, List[Dict[str, Any]]] = {}
+    exemplars: dict[str, list[str]],
+) -> dict[str, list[dict[str, Any]]]:
+    samples: dict[str, list[dict[str, Any]]] = {}
     for label, texts in exemplars.items():
         vectors = []
         for text in texts:
@@ -47,7 +46,7 @@ def _prepare_samples(
 COMPLETION_SAMPLES = _prepare_samples(COMPLETION_EXEMPLARS)
 
 
-def _centroid(vectors: List[List[float]]) -> List[float]:
+def _centroid(vectors: list[list[float]]) -> list[float]:
     if not vectors:
         return []
     length = len(vectors[0])
@@ -59,7 +58,7 @@ def _centroid(vectors: List[List[float]]) -> List[float]:
     return [value / count for value in summed]
 
 
-COMPLETION_CENTROIDS: Dict[str, List[float]] = {
+COMPLETION_CENTROIDS: dict[str, list[float]] = {
     label: _centroid([sample["vector"] for sample in samples])
     for label, samples in COMPLETION_SAMPLES.items()
     if samples
@@ -68,7 +67,7 @@ COMPLETION_CENTROIDS: Dict[str, List[float]] = {
 
 def detect_reflection_completion(
     text: str, threshold: float = COMPLETION_THRESHOLD
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return semantic completion status for a reflection."""
     if not isinstance(text, str) or not text.strip():
         return {
@@ -143,7 +142,7 @@ def detect_reflection_completion(
 # {"id": int, "ts": str, "kind": str, "content": str, "meta": dict}
 
 
-def run_audit(events: List[Dict], window: int = 50) -> List[Dict]:
+def run_audit(events: list[dict], window: int = 50) -> list[dict]:
     """Return a list of audit_report dicts for recent events.
 
     Deterministic rules over the last `window` events:
@@ -164,9 +163,9 @@ def run_audit(events: List[Dict], window: int = 50) -> List[Dict]:
     tail = events[-int(window) :] if window and window > 0 else events[:]
 
     # Build maps for quick lookups within the window
-    opens_by_cid: Dict[str, List[int]] = {}
-    closes_by_cid: Dict[str, List[int]] = {}
-    cands_by_cid: Dict[str, List[int]] = {}
+    opens_by_cid: dict[str, list[int]] = {}
+    closes_by_cid: dict[str, list[int]] = {}
+    cands_by_cid: dict[str, list[int]] = {}
 
     for ev in tail:
         k = ev.get("kind")
@@ -179,10 +178,10 @@ def run_audit(events: List[Dict], window: int = 50) -> List[Dict]:
         elif k == "evidence_candidate" and cid:
             cands_by_cid.setdefault(cid, []).append(int(ev.get("id") or 0))
 
-    audits: List[Dict] = []
+    audits: list[dict] = []
 
     # Helper to construct an audit_report dict with content trim and bounds
-    def _audit(content: str, targets: List[int], category: str) -> None:
+    def _audit(content: str, targets: list[int], category: str) -> None:
         # Ensure targets are valid prior ids and unique/sorted
         prior_ids = sorted({int(t) for t in targets if int(t) > 0})
         # Content bound: <=500 chars
@@ -252,16 +251,14 @@ def run_audit(events: List[Dict], window: int = 50) -> List[Dict]:
 
     # --- Rule: reflection fact-check ---
     # Semantic completion detection combined with simple token overlap against open commitments
-    def _tokens(s: str) -> List[str]:
-        import re as _re
+    def _tokens(s: str) -> list[str]:
+        from pmm.utils.parsers import split_non_alnum
 
-        s2 = _re.sub(r"[^a-z0-9]+", " ", (s or "").lower())
-        toks = [t for t in s2.split() if t]
-        return toks
+        return split_non_alnum(s or "")
 
     # Build a quick map of open commitments at any point (approximate within window):
     # For fact-check, we need opens that are not followed by a close for the same cid within the tail.
-    open_like: Dict[str, Tuple[int, str]] = {}  # cid -> (last_open_id, text)
+    open_like: dict[str, tuple[int, str]] = {}  # cid -> (last_open_id, text)
     for ev in tail:
         if ev.get("kind") == "commitment_open":
             m = ev.get("meta") or {}
@@ -309,42 +306,40 @@ def run_audit(events: List[Dict], window: int = 50) -> List[Dict]:
                 # One audit per reflection per cid match is sufficient; continue to next cid
     # --- Rule: novelty_trend over recent reflections (deterministic) ---
     try:
-        # Collect last M reflections across the available window
-        M = 10
-        R = 3  # recent pairs
-        P = 3  # prior pairs
+        # Collect last max_reflections reflections across the available window
+        max_reflections = 10
+        recent_pairs = 3  # recent pairs
+        prior_pairs = 3  # prior pairs
         refs_all = [ev for ev in events if ev.get("kind") == "reflection"]
         if len(refs_all) >= 3:
-            refs_tail = refs_all[-M:]
+            refs_tail = refs_all[-max_reflections:]
 
             def _tokset(s: str) -> set:
-                s2 = (s or "").lower()
-                import re as _re
+                from pmm.utils.parsers import split_non_alnum
 
-                s2 = _re.sub(r"[^a-z0-9]+", " ", s2)
-                toks = [t for t in s2.split() if len(t) > 2]
+                toks = [t for t in split_non_alnum(s or "") if len(t) > 2]
                 return set(toks)
 
             # Adjacent-pair Jaccard similarities with event ids
-            pairs: List[Tuple[Tuple[int, int], float]] = []
+            pairs: list[tuple[tuple[int, int], float]] = []
             for i in range(1, len(refs_tail)):
                 a = refs_tail[i - 1]
                 b = refs_tail[i]
-                A = _tokset(a.get("content") or "")
-                B = _tokset(b.get("content") or "")
-                if not A and not B:
+                tokset_a = _tokset(a.get("content") or "")
+                tokset_b = _tokset(b.get("content") or "")
+                if not tokset_a and not tokset_b:
                     j = 1.0
                 else:
-                    denom = len(A.union(B)) or 1
-                    j = float(len(A.intersection(B))) / float(denom)
+                    denom = len(tokset_a.union(tokset_b)) or 1
+                    j = float(len(tokset_a.intersection(tokset_b))) / float(denom)
                 pairs.append(((int(a.get("id") or 0), int(b.get("id") or 0)), j))
 
             # Compute recent/prior means (handle short tails)
             n_pairs = len(pairs)
             if n_pairs >= 1:
-                r_n = min(R, n_pairs)
+                r_n = min(recent_pairs, n_pairs)
                 recent_vals = [pairs[-k][1] for k in range(1, r_n + 1)]
-                prior_count = min(P, max(0, n_pairs - r_n))
+                prior_count = min(prior_pairs, max(0, n_pairs - r_n))
                 prior_vals = (
                     [pairs[-(r_n + k)][1] for k in range(1, prior_count + 1)]
                     if prior_count > 0
@@ -378,13 +373,12 @@ def run_audit(events: List[Dict], window: int = 50) -> List[Dict]:
                             "stats": {
                                 "recent": float(dup_recent),
                                 "prior": float(dup_prior),
-                                "window": int(M),
+                                "window": int(max_reflections),
                                 "recent_pairs": int(r_n),
                                 "prior_pairs": int(prior_count),
                             },
                             "top_pairs": top_pairs,
                             # Keep target_eids empty for this category; not bound to specific prior ids
-                            "target_eids": [],
                         },
                     }
                 )
@@ -432,7 +426,7 @@ def run_introspection(
     topic: str,
     scope: str,
     llm: LLMCall,
-    append_event: Callable[[Dict[str, Any]], Any],
+    append_event: Callable[[dict[str, Any]], Any],
 ) -> IntrospectionResult:
     """
     Log-only introspection:

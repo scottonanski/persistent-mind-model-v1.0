@@ -1,14 +1,15 @@
 from __future__ import annotations
-import itertools
-import tempfile
-import os
 
-from pmm.storage.eventlog import EventLog
+import itertools
+import os
+import tempfile
+
 from pmm.runtime.evaluators.performance import (
+    METRICS_WINDOW,
     compute_performance_metrics,
     emit_evaluation_report,
-    METRICS_WINDOW,
 )
+from pmm.storage.eventlog import EventLog
 
 
 def _tmpdb():

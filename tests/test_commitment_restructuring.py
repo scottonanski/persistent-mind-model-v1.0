@@ -1,9 +1,10 @@
 # tests/test_commitment_restructuring.py
 
 import pytest
-from pmm.storage.eventlog import EventLog
+
 from pmm.commitments.restructuring import CommitmentRestructurer
 from pmm.constants import EventKinds
+from pmm.storage.eventlog import EventLog
 
 
 # Fixtures

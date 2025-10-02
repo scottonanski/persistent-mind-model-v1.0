@@ -2,10 +2,10 @@
 
 import hashlib
 import json
-from typing import Dict, Any, List, Optional
+from typing import Any
 
-from pmm.storage.eventlog import EventLog
 from pmm.constants import EventKinds
+from pmm.storage.eventlog import EventLog
 
 
 class EvolutionReporter:
@@ -14,10 +14,10 @@ class EvolutionReporter:
     def __init__(self, log: EventLog):
         self.log = log
 
-    def generate_summary(self, window: int = 100) -> Dict[str, Any]:
+    def generate_summary(self, window: int = 100) -> dict[str, Any]:
         """Produce structured summary from last N events."""
-        events: List[Dict[str, Any]] = self.log.read_tail(limit=window)
-        summary: Dict[str, Any] = {"reflections": {}, "traits": {}, "commitments": {}}
+        events: list[dict[str, Any]] = self.log.read_tail(limit=window)
+        summary: dict[str, Any] = {"reflections": {}, "traits": {}, "commitments": {}}
 
         for e in events:
             kind = e.get("kind")
@@ -42,12 +42,12 @@ class EvolutionReporter:
 
         return summary
 
-    def _digest_summary(self, summary: Dict[str, Any]) -> str:
+    def _digest_summary(self, summary: dict[str, Any]) -> str:
         """Deterministic digest from summary payload."""
         payload = json.dumps(summary, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
-    def emit_evolution_report(self, summary: Dict[str, Any]) -> Optional[int]:
+    def emit_evolution_report(self, summary: dict[str, Any]) -> int | None:
         """Emit EVOLUTION event if summary non-empty, idempotent by digest."""
         if not any(summary.values()):
             return None

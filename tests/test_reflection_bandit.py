@@ -1,6 +1,6 @@
-from pmm.storage.eventlog import EventLog
 from pmm.llm.factory import LLMConfig
 from pmm.runtime.loop import Runtime, maybe_reflect
+from pmm.storage.eventlog import EventLog
 
 
 def _mk_rt(tmp_path):
@@ -31,7 +31,10 @@ def test_arm_logged_each_reflection(tmp_path, monkeypatch):
     did, reason = maybe_reflect(
         log,
         rt.cooldown,
-        llm_generate=lambda context: "This is a test reflection with sufficient content.\nIt has multiple lines to pass the requirements.",
+        llm_generate=lambda context: (
+            "This is a test reflection with sufficient content.\n"
+            "It has multiple lines to pass the requirements."
+        ),
     )
     assert did
 

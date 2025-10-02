@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any
 
 from pmm.config import (
     REFLECTION_REJECTED,
@@ -46,12 +46,12 @@ DEFAULTS = {
 }
 
 
-def _get(events: List[Dict[str, Any]], key: str) -> List[Dict[str, Any]]:
+def _get(events: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
     return [e for e in events if e.get("kind") == key]
 
 
-def _recent_reflections(events: List[Dict[str, Any]], window: int) -> List[str]:
-    out: List[str] = []
+def _recent_reflections(events: list[dict[str, Any]], window: int) -> list[str]:
+    out: list[str] = []
     for e in reversed(events):
         if e.get("kind") == "reflection":
             out.append(str(e.get("content") or ""))
@@ -60,17 +60,17 @@ def _recent_reflections(events: List[Dict[str, Any]], window: int) -> List[str]:
     return list(reversed(out))
 
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     return [t for t in str(text or "").lower().split() if t]
 
 
-def _ngrams(tokens: List[str], n: int) -> List[tuple]:
+def _ngrams(tokens: list[str], n: int) -> list[tuple]:
     if n <= 0:
         return []
     return [tuple(tokens[i : i + n]) for i in range(0, max(0, len(tokens) - n + 1))]
 
 
-def _overlap_ratio(a: List[tuple], b: List[tuple]) -> float:
+def _overlap_ratio(a: list[tuple], b: list[tuple]) -> float:
     if not a:
         return 0.0
     sa = set(a)
@@ -79,7 +79,7 @@ def _overlap_ratio(a: List[tuple], b: List[tuple]) -> float:
     return float(len(inter)) / float(max(1, len(sa)))
 
 
-def _last_reflection_id(events: List[Dict[str, Any]]) -> Optional[int]:
+def _last_reflection_id(events: list[dict[str, Any]]) -> int | None:
     for e in reversed(events):
         if e.get("kind") == "reflection":
             try:
@@ -89,7 +89,7 @@ def _last_reflection_id(events: List[Dict[str, Any]]) -> Optional[int]:
     return None
 
 
-def _ticks_since(events: List[Dict[str, Any]], since_id: Optional[int]) -> int:
+def _ticks_since(events: list[dict[str, Any]], since_id: int | None) -> int:
     if since_id is None:
         # No reflection at all -> treat as infinite ticks since
         return 10**6
@@ -106,9 +106,7 @@ def _ticks_since(events: List[Dict[str, Any]], since_id: Optional[int]) -> int:
     return cnt
 
 
-def _rejection_streak_since(
-    events: List[Dict[str, Any]], since_id: Optional[int]
-) -> int:
+def _rejection_streak_since(events: list[dict[str, Any]], since_id: int | None) -> int:
     cnt = 0
     for e in reversed(events):
         try:
@@ -135,10 +133,10 @@ def _rejection_streak_since(
 
 def accept(
     text: str,
-    events: List[Dict[str, Any]],
-    stage_level: Optional[int],
-    opts: Optional[Dict[str, Any]] = None,
-) -> Tuple[bool, str, Dict[str, Any]]:
+    events: list[dict[str, Any]],
+    stage_level: int | None,
+    opts: dict[str, Any] | None = None,
+) -> tuple[bool, str, dict[str, Any]]:
     """Deterministic reflection acceptance gate.
 
     Returns (accepted, reason, meta) where meta includes scoring/threshold telemetry.

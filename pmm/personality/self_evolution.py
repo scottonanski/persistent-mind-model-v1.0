@@ -5,7 +5,6 @@ without brittle keyword matching. All changes are deterministic and auditable.
 """
 
 from __future__ import annotations
-from typing import Dict, List
 
 
 class TraitDriftManager:
@@ -34,7 +33,7 @@ class TraitDriftManager:
         """Initialize the trait drift manager."""
         pass
 
-    def apply_event_effects(self, event: Dict, context: Dict) -> List[Dict]:
+    def apply_event_effects(self, event: dict, context: dict) -> list[dict]:
         """Apply event effects and return deterministic trait deltas.
 
         Args:
@@ -90,7 +89,7 @@ class TraitDriftManager:
 
         return deltas
 
-    def apply_and_log(self, eventlog, event: Dict, context: Dict) -> None:
+    def apply_and_log(self, eventlog, event: dict, context: dict) -> None:
         """Apply trait deltas and append policy_update to ledger.
 
         Args:
@@ -148,7 +147,7 @@ class TraitDriftManager:
         return False
 
     # Deterministic semantic analysis methods
-    def _indicates_curiosity(self, kind: str, content: str, meta: Dict) -> bool:
+    def _indicates_curiosity(self, kind: str, content: str, meta: dict) -> bool:
         """Detect curiosity-indicating patterns."""
         curiosity_indicators = [
             "question",
@@ -163,56 +162,56 @@ class TraitDriftManager:
         )
 
     def _indicates_routine_preference(
-        self, kind: str, content: str, meta: Dict
+        self, kind: str, content: str, meta: dict
     ) -> bool:
         """Detect routine/familiarity preference patterns."""
         routine_indicators = ["usual", "normal", "standard", "typical", "regular"]
         content_lower = content.lower()
         return any(indicator in content_lower for indicator in routine_indicators)
 
-    def _indicates_planning(self, kind: str, content: str, meta: Dict) -> bool:
+    def _indicates_planning(self, kind: str, content: str, meta: dict) -> bool:
         """Detect planning and organization patterns."""
         planning_indicators = ["plan", "organize", "schedule", "prepare", "structure"]
         content_lower = content.lower()
         return any(indicator in content_lower for indicator in planning_indicators)
 
-    def _indicates_impulsiveness(self, kind: str, content: str, meta: Dict) -> bool:
+    def _indicates_impulsiveness(self, kind: str, content: str, meta: dict) -> bool:
         """Detect impulsive behavior patterns."""
         impulsive_indicators = ["immediately", "right now", "quick", "fast", "urgent"]
         content_lower = content.lower()
         return any(indicator in content_lower for indicator in impulsive_indicators)
 
-    def _indicates_social_engagement(self, kind: str, content: str, meta: Dict) -> bool:
+    def _indicates_social_engagement(self, kind: str, content: str, meta: dict) -> bool:
         """Detect social engagement patterns."""
         social_indicators = ["collaborate", "together", "team", "share", "discuss"]
         content_lower = content.lower()
         return any(indicator in content_lower for indicator in social_indicators)
 
-    def _indicates_withdrawal(self, kind: str, content: str, meta: Dict) -> bool:
+    def _indicates_withdrawal(self, kind: str, content: str, meta: dict) -> bool:
         """Detect social withdrawal patterns."""
         withdrawal_indicators = ["alone", "private", "isolated", "independent", "solo"]
         content_lower = content.lower()
         return any(indicator in content_lower for indicator in withdrawal_indicators)
 
-    def _indicates_cooperation(self, kind: str, content: str, meta: Dict) -> bool:
+    def _indicates_cooperation(self, kind: str, content: str, meta: dict) -> bool:
         """Detect cooperative behavior patterns."""
         cooperation_indicators = ["help", "assist", "support", "agree", "cooperate"]
         content_lower = content.lower()
         return any(indicator in content_lower for indicator in cooperation_indicators)
 
-    def _indicates_conflict(self, kind: str, content: str, meta: Dict) -> bool:
+    def _indicates_conflict(self, kind: str, content: str, meta: dict) -> bool:
         """Detect conflict or disagreement patterns."""
         conflict_indicators = ["disagree", "conflict", "argue", "oppose", "challenge"]
         content_lower = content.lower()
         return any(indicator in content_lower for indicator in conflict_indicators)
 
-    def _indicates_stress(self, kind: str, content: str, meta: Dict) -> bool:
+    def _indicates_stress(self, kind: str, content: str, meta: dict) -> bool:
         """Detect stress or anxiety patterns."""
         stress_indicators = ["stress", "worry", "anxious", "pressure", "overwhelm"]
         content_lower = content.lower()
         return any(indicator in content_lower for indicator in stress_indicators)
 
-    def _indicates_calm_response(self, kind: str, content: str, meta: Dict) -> bool:
+    def _indicates_calm_response(self, kind: str, content: str, meta: dict) -> bool:
         """Detect calm, stable response patterns."""
         calm_indicators = ["calm", "peaceful", "stable", "composed", "balanced"]
         content_lower = content.lower()

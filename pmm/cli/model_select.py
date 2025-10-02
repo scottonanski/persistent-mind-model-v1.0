@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-from typing import Optional, Tuple
 
 from rich.console import Console
 from rich.panel import Panel
@@ -9,11 +8,11 @@ from rich.table import Table
 from rich.text import Text
 
 from pmm.models import (
-    list_available_models,
+    AVAILABLE_MODELS,
     get_default_model,
     get_model_config,
-    AVAILABLE_MODELS,
     get_ollama_models,
+    list_available_models,
 )
 
 """Interactive model selection UI.
@@ -92,7 +91,7 @@ def _print_menu() -> None:
     console.print()
 
 
-def select_model(force_tty: bool = True) -> Optional[Tuple[str, str]]:
+def select_model(force_tty: bool = True) -> tuple[str, str] | None:
     """Return (provider, model_name) or None if cancelled.
 
     If stdin is not a TTY and force_tty is True, attempts to open /dev/tty.
@@ -100,7 +99,7 @@ def select_model(force_tty: bool = True) -> Optional[Tuple[str, str]]:
     _print_menu()
     available = list_available_models()
 
-    def _resolve(choice: str) -> Optional[Tuple[str, str]]:
+    def _resolve(choice: str) -> tuple[str, str] | None:
         if not choice:
             m = get_default_model()
             cfg = get_model_config(m)

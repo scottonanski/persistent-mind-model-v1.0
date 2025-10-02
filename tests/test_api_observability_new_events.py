@@ -1,7 +1,8 @@
 import json
-import urllib.request
-import urllib.error
 import os
+import urllib.error
+import urllib.request
+
 import pytest
 
 API_URL = os.getenv("PMM_API_URL", "http://127.0.0.1:8000/snapshot?db=.data/pmm.db")

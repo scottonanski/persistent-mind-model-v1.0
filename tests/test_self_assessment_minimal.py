@@ -1,9 +1,9 @@
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.loop import (
-    _maybe_emit_self_assessment,
     _apply_self_assessment_policies,
+    _maybe_emit_self_assessment,
     _maybe_rotate_assessment_formula,
 )
+from pmm.storage.eventlog import EventLog
 
 
 def _count(log: EventLog, kind: str) -> int:

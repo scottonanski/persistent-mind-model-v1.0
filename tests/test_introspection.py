@@ -1,7 +1,7 @@
-from pmm.storage.eventlog import EventLog
 from pmm.commitments.tracker import CommitmentTracker
+from pmm.runtime.introspection import detect_reflection_completion, run_audit
 from pmm.runtime.loop import emit_reflection
-from pmm.runtime.introspection import run_audit, detect_reflection_completion
+from pmm.storage.eventlog import EventLog
 
 
 def _open_commitment(ct: CommitmentTracker, text: str) -> str:

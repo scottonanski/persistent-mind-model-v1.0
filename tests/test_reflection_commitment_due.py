@@ -1,7 +1,8 @@
 import time
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.loop import emit_reflection, AutonomyLoop
+
 from pmm.runtime.cooldown import ReflectionCooldown
+from pmm.runtime.loop import AutonomyLoop, emit_reflection
+from pmm.storage.eventlog import EventLog
 
 
 def test_due_added_on_reflection_commitment(tmp_path, monkeypatch):
@@ -11,7 +12,10 @@ def test_due_added_on_reflection_commitment(tmp_path, monkeypatch):
     # Emit a valid reflection through helper (ensures acceptance and commitment_open)
     emit_reflection(
         log,
-        "I will improve consistency in my next tasks.\nThis includes tracking follow-up evidence diligently.",
+        (
+            "I will improve consistency in my next tasks.\n"
+            "This includes tracking follow-up evidence diligently."
+        ),
     )
 
     evs = log.read_all()

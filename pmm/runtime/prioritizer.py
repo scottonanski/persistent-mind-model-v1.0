@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from pmm.runtime.embeddings import compute_embedding, cosine_similarity, digest_vector
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 URGENCY_THRESHOLD = 0.70
 
-URGENCY_EXEMPLARS: Dict[str, List[str]] = {
+URGENCY_EXEMPLARS: dict[str, list[str]] = {
     "high": [
         "this must be done immediately",
         "urgent priority",
@@ -41,22 +41,22 @@ URGENCY_EXEMPLARS: Dict[str, List[str]] = {
     ],
 }
 
-URGENCY_WEIGHTS: Dict[str, float] = {"high": 1.0, "medium": 0.6, "low": 0.2}
+URGENCY_WEIGHTS: dict[str, float] = {"high": 1.0, "medium": 0.6, "low": 0.2}
 
 W1_URGENCY = 0.6
 W2_NOVELTY = 0.3
 W3_AGE_PENALTY = 0.1
 
 
-def _embedding(text: str) -> List[float]:
+def _embedding(text: str) -> list[float]:
     vec = compute_embedding(text or "")
     return vec if isinstance(vec, list) else []
 
 
 def _prepare_samples(
-    exemplars: Dict[str, List[str]],
-) -> Dict[str, List[Dict[str, Any]]]:
-    samples: Dict[str, List[Dict[str, Any]]] = {}
+    exemplars: dict[str, list[str]],
+) -> dict[str, list[dict[str, Any]]]:
+    samples: dict[str, list[dict[str, Any]]] = {}
     for label, texts in exemplars.items():
         vectors = []
         for text in texts:
@@ -71,8 +71,8 @@ URGENCY_SAMPLES = _prepare_samples(URGENCY_EXEMPLARS)
 
 
 def _max_similarity(
-    vec: List[float], samples: List[Dict[str, Any]]
-) -> Tuple[float, str]:
+    vec: list[float], samples: list[dict[str, Any]]
+) -> tuple[float, str]:
     if not vec or not samples:
         return 0.0, ""
     best_score = 0.0
@@ -85,7 +85,7 @@ def _max_similarity(
     return best_score, best_text
 
 
-def detect_urgency(text: str, threshold: float = URGENCY_THRESHOLD) -> Dict[str, Any]:
+def detect_urgency(text: str, threshold: float = URGENCY_THRESHOLD) -> dict[str, Any]:
     """Detect semantic urgency level for a piece of text."""
     if not isinstance(text, str) or not text.strip():
         return {
@@ -129,9 +129,9 @@ def detect_urgency(text: str, threshold: float = URGENCY_THRESHOLD) -> Dict[str,
 
 
 def _token_set(text: str) -> set[str]:
-    import re
+    from pmm.utils.parsers import tokenize_alphanumeric
 
-    return set(re.findall(r"[a-z0-9']+", (text or "").lower()))
+    return set(tokenize_alphanumeric(text or ""))
 
 
 def _jaccard(a: set[str], b: set[str]) -> float:
@@ -144,7 +144,7 @@ def _jaccard(a: set[str], b: set[str]) -> float:
     return inter / union if union else 0.0
 
 
-def _urgency_score(analysis: Dict[str, Any]) -> float:
+def _urgency_score(analysis: dict[str, Any]) -> float:
     weight = URGENCY_WEIGHTS.get(analysis.get("level", "none"), 0.0)
     score = float(analysis.get("score", 0.0) or 0.0)
     return weight * score
@@ -159,10 +159,10 @@ def _parse_ts(ts: str | None) -> _dt.datetime | None:
         return None
 
 
-def rank_commitments(events: List[Dict[str, Any]]) -> List[Tuple[str, float]]:
+def rank_commitments(events: list[dict[str, Any]]) -> list[tuple[str, float]]:
     """Rank open commitments from the event log with semantic urgency."""
-    open_map: Dict[str, Dict[str, Any]] = {}
-    opened_ts: Dict[str, _dt.datetime] = {}
+    open_map: dict[str, dict[str, Any]] = {}
+    opened_ts: dict[str, _dt.datetime] = {}
 
     for event in events:
         kind = event.get("kind")
@@ -187,7 +187,7 @@ def rank_commitments(events: List[Dict[str, Any]]) -> List[Tuple[str, float]]:
     tail_sets = [_token_set(text) for text in replies[-5:]]
 
     now = _dt.datetime.now(_dt.UTC)
-    scored: List[Tuple[str, float]] = []
+    scored: list[tuple[str, float]] = []
 
     for cid, meta in open_map.items():
         text = str(meta.get("text") or "")
@@ -218,16 +218,16 @@ def rank_commitments(events: List[Dict[str, Any]]) -> List[Tuple[str, float]]:
 class Prioritizer:
     """Prioritize commitments using semantic urgency detection."""
 
-    def __init__(self, eventlog: Optional["EventLog"] = None) -> None:
+    def __init__(self, eventlog: EventLog | None = None) -> None:
         self.eventlog = eventlog
 
     def prioritize_commitments(
-        self, commitments: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        self, commitments: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         if not commitments:
             return []
 
-        prioritized: List[Dict[str, Any]] = []
+        prioritized: list[dict[str, Any]] = []
         for commitment in commitments:
             analysis = detect_urgency(commitment.get("text", ""))
             priority_score = self._calculate_priority_score(commitment, analysis)
@@ -264,7 +264,7 @@ class Prioritizer:
         return prioritized
 
     def _calculate_priority_score(
-        self, commitment: Dict[str, Any], analysis: Dict[str, Any]
+        self, commitment: dict[str, Any], analysis: dict[str, Any]
     ) -> float:
         score = 0.0
 
@@ -293,8 +293,8 @@ class Prioritizer:
         return max(0.0, min(1.0, float(score)))
 
     def filter_high_priority(
-        self, commitments: List[Dict[str, Any]], threshold: float = 0.7
-    ) -> List[Dict[str, Any]]:
+        self, commitments: list[dict[str, Any]], threshold: float = 0.7
+    ) -> list[dict[str, Any]]:
         prioritized = self.prioritize_commitments(commitments)
         filtered = [
             item for item in prioritized if item.get("priority_score", 0.0) >= threshold

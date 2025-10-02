@@ -1,17 +1,16 @@
 # pmm/runtime/token_budget.py
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Tuple
 
 from .capability_resolver import CapabilityResolver, ModelCaps
-
 
 # ---------- Policy ----------
 _POLICY_ID = "alloc.v1.0"
 
 # Task bands (min, max) for single completion;
 # allocator will clamp against provider hint and remaining budget.
-_BANDS: dict[str, Tuple[int, int]] = {
+_BANDS: dict[str, tuple[int, int]] = {
     "chat": (256, 2048),
     "reflect_single": (512, 2048),
     "reflect_recursive": (512, 2048),

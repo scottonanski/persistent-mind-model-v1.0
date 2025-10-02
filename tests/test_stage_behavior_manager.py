@@ -1,9 +1,10 @@
 """Tests for StageBehaviorManager - only testing actual implemented code."""
 
-import tempfile
 import os
-from pmm.storage.eventlog import EventLog
+import tempfile
+
 from pmm.runtime.stage_behaviors import StageBehaviorManager
+from pmm.storage.eventlog import EventLog
 
 
 class TestStageBehaviorManager:
@@ -27,7 +28,10 @@ class TestStageBehaviorManager:
             shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_pure_adaptation_determinism(self):
-        """Same inputs → identical outputs for adapt_reflection_frequency and adapt_commitment_ttl."""
+        """
+        Same inputs → identical outputs for adapt_reflection_frequency
+        and adapt_commitment_ttl.
+        """
         # Test reflection frequency determinism
         result1 = self.manager.adapt_reflection_frequency(1.0, "S2", 0.5)
         result2 = self.manager.adapt_reflection_frequency(1.0, "S2", 0.5)
@@ -100,7 +104,10 @@ class TestStageBehaviorManager:
             assert 0.5 * base_ttl <= result <= 2.0 * base_ttl
 
     def test_single_emission_on_transition(self):
-        """Given an empty log, calling maybe_emit_stage_policy_update appends exactly one policy_update."""
+        """
+        Given an empty log, calling maybe_emit_stage_policy_update
+        appends exactly one policy_update.
+        """
         self.manager.maybe_emit_stage_policy_update(self.eventlog, "S1", "S2", 0.6)
 
         # Verify exactly one event was appended
@@ -121,7 +128,10 @@ class TestStageBehaviorManager:
         assert meta["deterministic"] is True
 
     def test_idempotent_rerun(self):
-        """Calling maybe_emit_stage_policy_update again with same args appends zero additional events."""
+        """
+        Calling maybe_emit_stage_policy_update again with same args
+        appends zero additional events.
+        """
         # First call
         self.manager.maybe_emit_stage_policy_update(self.eventlog, "S1", "S2", 0.6)
         events_after_first = len(self.eventlog.read_all())

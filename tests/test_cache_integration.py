@@ -1,11 +1,11 @@
 """Test cache integration with feature flags."""
 
-import tempfile
 import os
+import tempfile
 
+from pmm.runtime.metrics import get_or_compute_ias_gas
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
-from pmm.runtime.metrics import get_or_compute_ias_gas
 
 
 def test_projection_cache_integration():

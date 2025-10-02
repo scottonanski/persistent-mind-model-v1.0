@@ -7,17 +7,18 @@ Intent:
 
 from __future__ import annotations
 
-from typing import Protocol, List, Dict, Iterator
+from collections.abc import Iterator
+from typing import Protocol
 
 
 class ChatAdapter(Protocol):
     def generate(
-        self, messages: List[Dict], **kwargs
+        self, messages: list[dict], **kwargs
     ) -> str:  # pragma: no cover - interface only
         ...
 
     def generate_stream(
-        self, messages: List[Dict], **kwargs
+        self, messages: list[dict], **kwargs
     ) -> Iterator[str]:  # pragma: no cover - interface only
         """Stream response tokens as they're generated.
 
@@ -35,6 +36,6 @@ class ChatAdapter(Protocol):
 
 class EmbeddingAdapter(Protocol):
     def embed(
-        self, texts: List[str]
-    ) -> List[List[float]]:  # pragma: no cover - interface only
+        self, texts: list[str]
+    ) -> list[list[float]]:  # pragma: no cover - interface only
         ...

@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, Optional, Any
 from datetime import datetime
+from typing import Any
 
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from pmm.api import probe
+from pmm.runtime.metrics import compute_ias_gas
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
-from pmm.runtime.metrics import compute_ias_gas
-from pmm.api import probe
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +31,13 @@ app.add_middleware(
 )
 
 
-def _get_evlog(db: Optional[str]) -> EventLog:
+def _get_evlog(db: str | None) -> EventLog:
     return EventLog(db) if db else EventLog()
 
 
 @app.get("/events")
 @app.get("/snapshot")
-async def get_snapshot(db: Optional[str] = Query(None)):
+async def get_snapshot(db: str | None = Query(None)):
     """Get a comprehensive snapshot of PMM state including identity, events, and directives."""
     try:
         evlog = _get_evlog(db)
@@ -55,10 +55,10 @@ async def get_snapshot(db: Optional[str] = Query(None)):
 
 
 async def get_events(
-    db: Optional[str] = Query(None),
+    db: str | None = Query(None),
     limit: int = Query(50, ge=1, le=1000),
-    after_id: Optional[int] = Query(None),
-    kind: Optional[str] = Query(None),
+    after_id: int | None = Query(None),
+    kind: str | None = Query(None),
 ):
     """Get paginated events."""
     try:
@@ -88,7 +88,7 @@ async def get_events(
 
 
 @app.get("/metrics")
-async def get_metrics(db: Optional[str] = Query(None)):
+async def get_metrics(db: str | None = Query(None)):
     """Get current metrics (IAS, GAS, OCEAN traits, stage)."""
     try:
         evlog = _get_evlog(db)
@@ -127,7 +127,7 @@ async def get_metrics(db: Optional[str] = Query(None)):
 
 
 @app.get("/consciousness")
-async def get_consciousness(db: Optional[str] = Query(None)):
+async def get_consciousness(db: str | None = Query(None)):
     """Get PMM's current consciousness state for the living mind dashboard."""
     try:
         evlog = _get_evlog(db)
@@ -263,7 +263,7 @@ async def get_consciousness(db: Optional[str] = Query(None)):
 
 @app.get("/reflections")
 async def get_reflections(
-    db: Optional[str] = Query(None), limit: int = Query(20, ge=1, le=500)
+    db: str | None = Query(None), limit: int = Query(20, ge=1, le=500)
 ):
     """Get reflection events."""
     try:
@@ -288,7 +288,7 @@ async def get_reflections(
 
 @app.get("/commitments")
 async def get_commitments(
-    db: Optional[str] = Query(None),
+    db: str | None = Query(None),
     status: str = Query("all"),
     limit: int = Query(50, ge=1, le=500),
 ):
@@ -319,9 +319,9 @@ async def get_commitments(
 
 @app.get("/traces")
 async def get_traces(
-    db: Optional[str] = Query(None),
+    db: str | None = Query(None),
     limit: int = Query(20, ge=1, le=500),
-    query_filter: Optional[str] = Query(None, description="Filter by query text"),
+    query_filter: str | None = Query(None, description="Filter by query text"),
 ):
     """Get reasoning trace summaries."""
     try:
@@ -372,7 +372,7 @@ async def get_traces(
 @app.get("/traces/{session_id}")
 async def get_trace_details(
     session_id: str,
-    db: Optional[str] = Query(None),
+    db: str | None = Query(None),
 ):
     """Get detailed trace information for a specific session."""
     try:
@@ -443,7 +443,7 @@ async def get_trace_details(
 
 @app.get("/traces/stats/overview")
 async def get_trace_stats(
-    db: Optional[str] = Query(None),
+    db: str | None = Query(None),
 ):
     """Get aggregate statistics about reasoning traces."""
     try:
@@ -495,8 +495,8 @@ async def get_trace_stats(
 
 @app.post("/events/sql")
 async def execute_sql(
-    request: Dict[str, Any],
-    db: Optional[str] = Query(None, description="Path to SQLite database"),
+    request: dict[str, Any],
+    db: str | None = Query(None, description="Path to SQLite database"),
 ) -> JSONResponse:
     """Execute SQL query against the events table (read-only)."""
     try:

@@ -1,9 +1,10 @@
 from __future__ import annotations
-import tempfile
-import os
 
-from pmm.storage.eventlog import EventLog
+import os
+import tempfile
+
 from pmm.runtime.evaluators.report import maybe_emit_evaluation_summary
+from pmm.storage.eventlog import EventLog
 
 
 def _tmpdb():

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import List, Dict
 import logging
 
 # Set up logging for debug tracking
@@ -12,8 +11,6 @@ try:
     from pmm.runtime.loop import _sanitize_name
 except Exception:
     # Fallback (should not happen in tests), define a minimal safe sanitizer
-    import re as _re
-
     def _sanitize_name(raw: str) -> str | None:
         token = str(raw or "").strip().split()[0] if raw else ""
         token = token.strip("\"'`,.()[]{}<>")
@@ -21,7 +18,12 @@ except Exception:
             return None
         if len(token) > 12:
             token = token[:12]
-        if not _re.match(r"^[A-Za-z][A-Za-z0-9_-]{0,11}$", token):
+        # Deterministic validation without regex
+        if not token:
+            return None
+        if not token[0].isalpha():
+            return None
+        if not all(c.isalnum() or c in "-_" for c in token):
             return None
         if token[0] in "-_" or token[-1] in "-_":
             return None
@@ -30,8 +32,8 @@ except Exception:
         return token
 
 
-def check_invariants(events: List[Dict]) -> List[str]:
-    violations: List[str] = []
+def check_invariants(events: list[dict]) -> list[str]:
+    violations: list[str] = []
 
     # 1) Ledger shape: ids strictly increasing, kinds are strings, meta is dict
     last_id = 0
@@ -108,7 +110,7 @@ def check_invariants(events: List[Dict]) -> List[str]:
 
     # 4) Commitments integration: relaxed to allow partial name matching for identity commitments
     # Build cid->text map from openings
-    cid_text: Dict[str, str] = {}
+    cid_text: dict[str, str] = {}
     for ev in events:
         if ev.get("kind") == "commitment_open":
             m = ev.get("meta") or {}
@@ -117,8 +119,6 @@ def check_invariants(events: List[Dict]) -> List[str]:
             if cid and isinstance(txt, str):
                 cid_text[cid] = txt
     # For each identity adoption, find commitment_close events following it and ensure reasonable name matching
-    import re as _re
-
     for ev in events:
         if ev.get("kind") == "identity_adopt":
             m = ev.get("meta") or {}
@@ -143,12 +143,14 @@ def check_invariants(events: List[Dict]) -> List[str]:
                         # Extract after exact prefix
                         target = txt[len("identity:name:") :]
                     else:
-                        # try to parse name from phrase
-                        m2 = _re.search(
-                            r"I will use the name\s+([A-Za-z][A-Za-z0-9_-]{0,11})\b",
-                            txt,
-                        )
-                        target = m2.group(1) if m2 else adopted
+                        # Deterministic parsing without regex
+                        target = adopted
+                        if "I will use the name" in txt:
+                            parts = txt.split("I will use the name")
+                            if len(parts) > 1:
+                                words = parts[1].strip().split()
+                                if words:
+                                    target = words[0].strip(".,!?;:")
 
                     # Log mismatches but don't block stage progression (Scott's key fix)
                     adopted_lower = adopted.lower()
@@ -171,7 +173,8 @@ def check_invariants(events: List[Dict]) -> List[str]:
                     ):
                         # Log the mismatch but don't add to violations (prevents stage blocking)
                         logger.debug(
-                            f"Relaxed mismatch: adopted '{adopted}' vs commitment '{target}' - not blocking stage progression"
+                            f"Relaxed mismatch: adopted '{adopted}' vs commitment "
+                            f"'{target}' - not blocking stage progression"
                         )
                     else:
                         logger.debug(
@@ -194,7 +197,7 @@ def check_invariants(events: List[Dict]) -> List[str]:
                 violations.append("drift:trait_update_before_adopt")
                 break
     # Rate limits by reason
-    last_tick_by_reason: Dict[str, int] = {}
+    last_tick_by_reason: dict[str, int] = {}
     for ev in events:
         if ev.get("kind") == "trait_update":
             m = ev.get("meta") or {}
@@ -215,9 +218,11 @@ def check_invariants(events: List[Dict]) -> List[str]:
     # 6) Policy update invariants (reflection cadence + drift multipliers)
     # Helper: stage inference using runtime's tracker without introducing side-effects
     try:
-        from pmm.runtime.stage_tracker import StageTracker as _ST
+        from pmm.runtime.stage_tracker import StageTracker
+
+        stage_tracker = StageTracker
     except Exception:
-        _ST = None  # degrade checks if unavailable
+        stage_tracker = None  # degrade checks if unavailable
 
     last_pol = None  # (component, params) of the last policy_update
     for idx, ev in enumerate(events):
@@ -236,11 +241,11 @@ def check_invariants(events: List[Dict]) -> List[str]:
         last_pol = key
 
         # (b) Stage coherence: stage must equal contemporaneous inferred stage
-        if _ST is not None:
+        if stage_tracker is not None:
             try:
                 # infer using history strictly before this policy_update
                 hist = events[:idx]
-                inferred, _snap = _ST.infer_stage(hist)
+                inferred, _snap = stage_tracker.infer_stage(hist)
                 inferred = inferred or "S0"
             except Exception:
                 inferred = "S0"
@@ -307,7 +312,7 @@ def check_invariants(events: List[Dict]) -> List[str]:
     # 8) Evidence/commitment invariants (Phase 3 Step 1)
     # (a) Every commitment_close must have a prior evidence_candidate with same cid after its open
     # Build map: cid -> list of open ids
-    open_ids_by_cid: Dict[str, List[int]] = {}
+    open_ids_by_cid: dict[str, list[int]] = {}
     for ev in events:
         if ev.get("kind") == "commitment_open":
             m = ev.get("meta") or {}
@@ -315,7 +320,7 @@ def check_invariants(events: List[Dict]) -> List[str]:
             if cid:
                 open_ids_by_cid.setdefault(cid, []).append(int(ev.get("id") or 0))
     # Collect candidate ids by cid
-    cand_ids_by_cid: Dict[str, List[int]] = {}
+    cand_ids_by_cid: dict[str, list[int]] = {}
     for ev in events:
         if ev.get("kind") == "evidence_candidate":
             m = ev.get("meta") or {}
@@ -473,7 +478,7 @@ def check_invariants(events: List[Dict]) -> List[str]:
 
     # 13) Embedding invariants
     id_set_all = {int(ev.get("id") or 0) for ev in events}
-    seen_digest_by_eid: Dict[int, str] = {}
+    seen_digest_by_eid: dict[int, str] = {}
     for ev in events:
         k = ev.get("kind")
         m = ev.get("meta") or {}

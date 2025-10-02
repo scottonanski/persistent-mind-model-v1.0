@@ -1,15 +1,16 @@
 import logging
 
 import pytest
-from pmm.runtime.stage_manager import StageManager
-from pmm.storage.eventlog import EventLog
-from pmm.constants import EventKinds
-from pmm.runtime.memegraph import MemeGraphProjection
 from helpers.stage_seeding import (
+    _seed_metrics,
     _seed_reflections,
     _seed_restructures,
-    _seed_metrics,
 )
+
+from pmm.constants import EventKinds
+from pmm.runtime.memegraph import MemeGraphProjection
+from pmm.runtime.stage_manager import StageManager
+from pmm.storage.eventlog import EventLog
 
 
 @pytest.fixture

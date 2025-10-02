@@ -1,23 +1,21 @@
 from __future__ import annotations
 
-from typing import List, Dict, Optional
-import re as _re
 
+def _tokens(s: str) -> list[str]:
+    from pmm.utils.parsers import normalize_whitespace
 
-def _tokens(s: str) -> List[str]:
-    s2 = _re.sub(r"\s+", " ", (s or "").strip())
     # We don't lowercase to preserve readability in snippet summaries; but we do trim
-    return s2.split()
+    return normalize_whitespace(s or "").split()
 
 
-def _summarize_chunk(evts: List[Dict], *, max_chars: int = 500) -> str:
+def _summarize_chunk(evts: list[dict], *, max_chars: int = 500) -> str:
     """
     Deterministic compaction:
     - Take up to the first 6 and last 6 non-empty event contents from the window.
     - For each, include `[{kind} #{id}]` and up to first 14 tokens of content.
     - Join with " \n" and truncate to max_chars.
     """
-    lines: List[str] = []
+    lines: list[str] = []
     # Filter events with some content
     candidates = [e for e in evts if str(e.get("content") or "").strip()]
     head = candidates[:6]
@@ -36,7 +34,7 @@ def _summarize_chunk(evts: List[Dict], *, max_chars: int = 500) -> str:
     return out
 
 
-def _last_compact_window(events: List[Dict]) -> Optional[Dict]:
+def _last_compact_window(events: list[dict]) -> dict | None:
     for ev in reversed(events):
         if ev.get("kind") == "scene_compact":
             m = ev.get("meta") or {}
@@ -50,7 +48,7 @@ def _last_compact_window(events: List[Dict]) -> Optional[Dict]:
     return None
 
 
-def maybe_compact(events: List[Dict], *, threshold: int = 100) -> Optional[Dict]:
+def maybe_compact(events: list[dict], *, threshold: int = 100) -> dict | None:
     """
     If events since last compaction >= threshold, return a summary dict with shape:
     {"content": str, "source_ids": [...], "window": {"start": int, "end": int}}

@@ -6,9 +6,9 @@ with full ledger integrity.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any, Optional, Set
+
 import hashlib
-import re
+from typing import Any
 
 
 class DirectiveHierarchy:
@@ -44,7 +44,7 @@ class DirectiveHierarchy:
         """
         self.anomaly_threshold = anomaly_threshold
 
-    def build_tree(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def build_tree(self, events: list[dict[str, Any]]) -> dict[str, Any]:
         """
         Pure function.
         Reconstruct directive tree from commitments, policies, reflections.
@@ -142,7 +142,7 @@ class DirectiveHierarchy:
             },
         }
 
-    def assign_priorities(self, tree: Dict[str, Any]) -> Dict[str, Any]:
+    def assign_priorities(self, tree: dict[str, Any]) -> dict[str, Any]:
         """
         Pure function.
         Deterministic scoring of directives with clamped priority weights.
@@ -201,8 +201,8 @@ class DirectiveHierarchy:
         return tree
 
     def maybe_emit_update(
-        self, eventlog, src_event_id: str, tree: Dict[str, Any]
-    ) -> Optional[str]:
+        self, eventlog, src_event_id: str, tree: dict[str, Any]
+    ) -> str | None:
         """
         Emit directive_hierarchy_update event with digest deduplication.
         Event shape:
@@ -259,8 +259,8 @@ class DirectiveHierarchy:
         return event_id
 
     def _build_relationships(
-        self, nodes: Dict[str, Any], events: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+        self, nodes: dict[str, Any], events: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         """Build deterministic parent-child relationships between directive nodes."""
         relationships = {"parent_child": {}, "dependencies": {}}
 
@@ -345,9 +345,11 @@ class DirectiveHierarchy:
         if not content1 or not content2:
             return 0.0
 
-        # Normalize and tokenize
-        words1 = set(re.findall(r"\b\w+\b", content1.lower()))
-        words2 = set(re.findall(r"\b\w+\b", content2.lower()))
+        # Normalize and tokenize using deterministic parser
+        from pmm.utils.parsers import split_non_alnum
+
+        words1 = set(split_non_alnum(content1.lower()))
+        words2 = set(split_non_alnum(content2.lower()))
 
         if not words1 or not words2:
             return 0.0
@@ -359,7 +361,7 @@ class DirectiveHierarchy:
         return intersection / union if union > 0 else 0.0
 
     def _calculate_tree_depth(
-        self, nodes: Dict[str, Any], relationships: Dict[str, Any]
+        self, nodes: dict[str, Any], relationships: dict[str, Any]
     ) -> int:
         """Calculate maximum depth of the directive tree."""
         if not nodes:
@@ -381,7 +383,7 @@ class DirectiveHierarchy:
         return max_depth
 
     def _calculate_node_depth(
-        self, node_id: str, nodes: Dict[str, Any], visited: Set[str]
+        self, node_id: str, nodes: dict[str, Any], visited: set[str]
     ) -> int:
         """Recursively calculate depth of a node, avoiding cycles."""
         if node_id in visited or node_id not in nodes:
@@ -401,7 +403,7 @@ class DirectiveHierarchy:
 
         return 1 + max_child_depth
 
-    def _detect_anomalies(self, tree: Dict[str, Any]) -> List[str]:
+    def _detect_anomalies(self, tree: dict[str, Any]) -> list[str]:
         """Detect anomalies in the directive tree structure."""
         anomalies = []
 
@@ -444,13 +446,13 @@ class DirectiveHierarchy:
 
         return anomalies
 
-    def _detect_cycles(self, nodes: Dict[str, Any]) -> List[List[str]]:
+    def _detect_cycles(self, nodes: dict[str, Any]) -> list[list[str]]:
         """Detect cycles in the directive tree using DFS."""
         cycles = []
         visited = set()
         rec_stack = set()
 
-        def dfs(node_id: str, path: List[str]) -> None:
+        def dfs(node_id: str, path: list[str]) -> None:
             if node_id in rec_stack:
                 # Found a cycle
                 cycle_start = path.index(node_id)
@@ -479,7 +481,7 @@ class DirectiveHierarchy:
 
         return cycles
 
-    def _serialize_for_digest(self, tree: Dict[str, Any], anomalies: List[str]) -> str:
+    def _serialize_for_digest(self, tree: dict[str, Any], anomalies: list[str]) -> str:
         """Serialize tree and anomalies deterministically for digest generation."""
         parts = []
 

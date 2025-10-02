@@ -1,5 +1,5 @@
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.scene_compactor import maybe_compact
+from pmm.storage.eventlog import EventLog
 
 
 def _emit_many(log: EventLog, n: int) -> None:

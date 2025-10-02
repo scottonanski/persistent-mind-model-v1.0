@@ -1,8 +1,8 @@
+from pmm.config import REFLECTION_SKIPPED
+from pmm.runtime.cooldown import ReflectionCooldown
+from pmm.runtime.loop import emit_reflection, maybe_reflect
 from pmm.runtime.metrics import compute_ias_gas
 from pmm.storage.eventlog import EventLog
-from pmm.runtime.loop import emit_reflection, maybe_reflect
-from pmm.runtime.cooldown import ReflectionCooldown
-from pmm.config import REFLECTION_SKIPPED
 
 
 def test_compute_ias_gas_bounds():

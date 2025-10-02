@@ -1,8 +1,9 @@
 # pmm/runtime/stage_manager.py
 
 from __future__ import annotations
-from typing import Any, Optional, TYPE_CHECKING
+
 import logging
+from typing import TYPE_CHECKING, Any
 
 from pmm.storage.eventlog import EventLog
 
@@ -16,7 +17,7 @@ class StageManager:
     """Manage stage progression based on deterministic thresholds."""
 
     def __init__(
-        self, eventlog: EventLog, memegraph: Optional["MemeGraphProjection"] = None
+        self, eventlog: EventLog, memegraph: MemeGraphProjection | None = None
     ):
         self.eventlog = eventlog
         self._memegraph = memegraph

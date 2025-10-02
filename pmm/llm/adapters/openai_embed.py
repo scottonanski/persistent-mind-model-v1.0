@@ -9,13 +9,12 @@ Env vars:
 
 from __future__ import annotations
 
-from typing import List
-import os
 import json
+import os
 import sys
 import time
-from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 
 class OpenAIEmbed:
@@ -48,8 +47,8 @@ class OpenAIEmbed:
             return int(default)
 
     def embed(
-        self, texts: List[str]
-    ) -> List[List[float]]:  # pragma: no cover - not invoked here
+        self, texts: list[str]
+    ) -> list[list[float]]:  # pragma: no cover - not invoked here
         # Implementation replaced: see below
         if texts is None:
             texts = []
@@ -92,7 +91,7 @@ class OpenAIEmbed:
                     raise RuntimeError(
                         f"Unexpected embeddings response: {str(data)[:300]}"
                     )
-                out: List[List[float]] = []
+                out: list[list[float]] = []
                 for i, item in enumerate(arr):
                     emb = item.get("embedding")
                     if not isinstance(emb, list) or not emb:

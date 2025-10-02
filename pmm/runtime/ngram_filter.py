@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import warnings
-from typing import List
 
 __all__ = ["SubstringFilter", "NGramFilter"]
 
@@ -13,7 +12,7 @@ _DEFAULT_BANS = [
 
 
 class SubstringFilter:
-    def __init__(self, bans: List[str] | None = None) -> None:
+    def __init__(self, bans: list[str] | None = None) -> None:
         self._bans = [s.lower() for s in (bans or _DEFAULT_BANS) if s]
 
     def filter(self, text: str) -> str:

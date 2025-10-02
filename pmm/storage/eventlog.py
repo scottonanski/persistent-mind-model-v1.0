@@ -22,12 +22,13 @@ Notes:
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib as _hashlib
 import json as _json
 import os as _os
 import sqlite3 as _sqlite3
-from typing import Dict, List, Optional, Any, Callable
-import hashlib as _hashlib
+from collections.abc import Callable
 from threading import RLock
+from typing import Any
 
 
 class EventLog:
@@ -43,9 +44,9 @@ class EventLog:
     def __init__(self, path: str = ".data/pmm.db") -> None:
         self.path = path
         self._lock = RLock()
-        self._events_cache: list[Dict[str, Any]] | None = None
+        self._events_cache: list[dict[str, Any]] | None = None
         self._cache_last_id: int = 0
-        self._append_listeners: list[Callable[[Dict[str, Any]], None]] = []
+        self._append_listeners: list[Callable[[dict[str, Any]], None]] = []
 
         # Ensure parent directory exists
         parent = _os.path.dirname(_os.path.abspath(self.path))
@@ -97,7 +98,7 @@ class EventLog:
                 "SELECT id, ts, kind, content, meta FROM events ORDER BY id ASC"
             )
             rows = cur.fetchall()
-            cache: List[Dict] = []
+            cache: list[dict] = []
             for rid, ts, kind, content, meta_json in rows:
                 try:
                     meta_obj = _json.loads(meta_json) if meta_json else {}
@@ -179,7 +180,7 @@ class EventLog:
                 )
                 # Partial index for fast metrics lookup (most recent metrics_update)
                 self._conn.execute(
-                    """CREATE INDEX IF NOT EXISTS idx_metrics_lookup 
+                    """CREATE INDEX IF NOT EXISTS idx_metrics_lookup
                        ON events(id DESC) WHERE kind='metrics_update';"""
                 )
                 # Ensure hash-chain columns exist (idempotent migration)
@@ -254,7 +255,7 @@ class EventLog:
         except Exception:
             return False
 
-    def _get_columns(self) -> List[str]:
+    def _get_columns(self) -> list[str]:
         cur = self._conn.execute("PRAGMA table_info('events')")
         return [str(row[1]) for row in cur.fetchall()]
 
@@ -268,15 +269,15 @@ class EventLog:
             return str(h) if h else None
 
     @staticmethod
-    def _canonical_json(obj: Dict) -> bytes:
+    def _canonical_json(obj: dict) -> bytes:
         # Compact separators + sorted keys ensures deterministic hashing
         return _json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
-    def append(self, kind: str, content: str, meta: Dict | None = None) -> int:
-        event_record: Dict[str, Any] | None = None
+    def append(self, kind: str, content: str, meta: dict | None = None) -> int:
+        event_record: dict[str, Any] | None = None
         with self._lock:
             ts = _dt.datetime.now(_dt.UTC).isoformat()
-            meta_obj: Dict = meta or {}
+            meta_obj: dict = meta or {}
             meta_json = _json.dumps(meta_obj)
             prev = self._get_last_hash()
             with self._conn:
@@ -313,18 +314,18 @@ class EventLog:
                     continue
         return eid
 
-    def read_all(self) -> List[Dict]:
+    def read_all(self) -> list[dict]:
         with self._lock:
             self._refresh_cache_locked()
             if self._events_cache is not None:
                 return self._events_cache[:]
             return []
 
-    def read_after_id(self, *, after_id: int, limit: int) -> List[Dict]:
+    def read_after_id(self, *, after_id: int, limit: int) -> list[dict]:
         with self._lock:
             self._refresh_cache_locked()
             if self._events_cache is not None:
-                result: List[Dict] = []
+                result: list[dict] = []
                 for ev in self._events_cache:
                     if int(ev.get("id") or 0) > int(after_id):
                         result.append(ev)
@@ -337,7 +338,7 @@ class EventLog:
                 (int(after_id), int(limit)),
             )
             rows = cur.fetchall()
-            result: List[Dict] = []
+            result: list[dict] = []
             for rid, ts, kind, content, meta_json in rows:
                 try:
                     meta_obj = _json.loads(meta_json) if meta_json else {}
@@ -354,11 +355,11 @@ class EventLog:
                 )
             return result
 
-    def read_after_ts(self, *, after_ts: str, limit: int) -> List[Dict]:
+    def read_after_ts(self, *, after_ts: str, limit: int) -> list[dict]:
         with self._lock:
             self._refresh_cache_locked()
             if self._events_cache is not None:
-                result: List[Dict] = []
+                result: list[dict] = []
                 for ev in self._events_cache:
                     if str(ev.get("ts")) > str(after_ts):
                         result.append(ev)
@@ -371,7 +372,7 @@ class EventLog:
                 (str(after_ts), int(limit)),
             )
             rows = cur.fetchall()
-            result: List[Dict] = []
+            result: list[dict] = []
             for rid, ts, kind, content, meta_json in rows:
                 try:
                     meta_obj = _json.loads(meta_json) if meta_json else {}
@@ -388,7 +389,7 @@ class EventLog:
                 )
             return result
 
-    def read_tail(self, *, limit: int) -> List[Dict]:
+    def read_tail(self, *, limit: int) -> list[dict]:
         with self._lock:
             self._refresh_cache_locked()
             if self._events_cache:
@@ -400,7 +401,7 @@ class EventLog:
             )
             rows = cur.fetchall()
             rows.reverse()
-            result: List[Dict] = []
+            result: list[dict] = []
             for rid, ts, kind, content, meta_json in rows:
                 try:
                     meta_obj = _json.loads(meta_json) if meta_json else {}
@@ -462,9 +463,7 @@ class EventLog:
                 prev_h = stored_hash
             return True
 
-    def query(
-        self, kind: Optional[str] = None, limit: int = 100
-    ) -> List[Dict[str, Any]]:
+    def query(self, kind: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
         """
         Query events from the log.
 
@@ -481,7 +480,7 @@ class EventLog:
                 (limit,),
             )
             rows = cur.fetchall()
-            result: List[Dict[str, Any]] = []
+            result: list[dict[str, Any]] = []
             for rid, ts, kind, content, meta_json in rows:
                 try:
                     meta_obj = _json.loads(meta_json) if meta_json else {}
@@ -498,7 +497,7 @@ class EventLog:
                 )
             return result
 
-    def get_event(self, event_id: int) -> Optional[Dict[str, Any]]:
+    def get_event(self, event_id: int) -> dict[str, Any] | None:
         """
         Retrieve a specific event by its ID.
 
@@ -529,7 +528,7 @@ class EventLog:
             return None
 
     def register_append_listener(
-        self, callback: Callable[[Dict[str, Any]], None]
+        self, callback: Callable[[dict[str, Any]], None]
     ) -> None:
         """Register a callback invoked after each successful append."""
         with self._lock:

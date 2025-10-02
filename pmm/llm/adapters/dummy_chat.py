@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import List, Dict, Iterator
 import hashlib
 import json
 import time
+from collections.abc import Iterator
 
 
 class DummyChat:
@@ -18,7 +18,7 @@ class DummyChat:
         self.model = model
         self.kw = kw
 
-    def generate(self, messages: List[Dict], **kwargs) -> str:
+    def generate(self, messages: list[dict], **kwargs) -> str:
         """Generate a deterministic response based on input messages."""
         # Create a deterministic hash of the input
         input_str = json.dumps(messages, sort_keys=True)
@@ -29,7 +29,7 @@ class DummyChat:
         response = f"Dummy response for {self.model} (hash: {hash_hex[:8]})"
         return response
 
-    def generate_stream(self, messages: List[Dict], **kwargs) -> Iterator[str]:
+    def generate_stream(self, messages: list[dict], **kwargs) -> Iterator[str]:
         """Stream a deterministic response token by token.
 
         Simulates streaming by yielding words with small delays.

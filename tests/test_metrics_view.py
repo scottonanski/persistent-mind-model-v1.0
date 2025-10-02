@@ -1,6 +1,6 @@
+from pmm.config import REFLECTION_SKIPPED
 from pmm.runtime.metrics_view import MetricsView
 from pmm.storage.eventlog import EventLog
-from pmm.config import REFLECTION_SKIPPED
 
 
 def test_snapshot_and_render(tmp_path, capsys):

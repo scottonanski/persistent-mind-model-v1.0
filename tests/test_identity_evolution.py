@@ -1,11 +1,13 @@
 """Tests for identity-linked evolution features."""
 
-import tempfile
 import os
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.loop import Runtime
-from pmm.llm.factory import LLMConfig
+import tempfile
+
 import pytest
+
+from pmm.llm.factory import LLMConfig
+from pmm.runtime.loop import Runtime
+from pmm.storage.eventlog import EventLog
 
 
 def test_identity_checkpoint_emission():

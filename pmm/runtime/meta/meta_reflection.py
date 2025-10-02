@@ -8,14 +8,13 @@ anomaly detection semantics.
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from pmm.runtime.embeddings import compute_embedding, cosine_similarity, digest_vector
 from pmm.runtime.filters.stance_filter import STANCE_THRESHOLD, detect_stance
 
-
 # Reflection exemplars grouped by dimension and qualitative label.
-REFLECTION_EXEMPLARS: Dict[str, Dict[str, List[str]]] = {
+REFLECTION_EXEMPLARS: dict[str, dict[str, list[str]]] = {
     "depth": {
         "shallow": [
             "this is simple",
@@ -58,18 +57,18 @@ REFLECTION_EXEMPLARS: Dict[str, Dict[str, List[str]]] = {
 REFLECTION_THRESHOLD = 0.60
 
 
-def _embedding_for_text(text: str) -> List[float]:
+def _embedding_for_text(text: str) -> list[float]:
     vec = compute_embedding(text or "")
     return vec if isinstance(vec, list) else []
 
 
 def _score_dimension(
-    text_vec: List[float],
-    vectors: Dict[str, List[List[float]]],
+    text_vec: list[float],
+    vectors: dict[str, list[list[float]]],
     threshold: float,
-) -> Tuple[str, float, Dict[str, float]]:
+) -> tuple[str, float, dict[str, float]]:
     """Return (label, score, per-label scores) for a reflection dimension."""
-    label_scores: Dict[str, float] = {}
+    label_scores: dict[str, float] = {}
     best_label = "neutral"
     best_score = 0.0
 
@@ -95,7 +94,7 @@ def _score_dimension(
 
 
 # Pre-compute exemplar embeddings so scoring remains deterministic at runtime.
-DIMENSION_VECTORS: Dict[str, Dict[str, List[List[float]]]] = {
+DIMENSION_VECTORS: dict[str, dict[str, list[list[float]]]] = {
     dimension: {
         label: [
             vec
@@ -110,12 +109,12 @@ DIMENSION_VECTORS: Dict[str, Dict[str, List[List[float]]]] = {
 
 def score_reflection(
     text: str, semantic_threshold: float = REFLECTION_THRESHOLD
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Produce semantic scores for a single reflection text."""
     text_vec = _embedding_for_text(text)
     embedding_digest = digest_vector(text_vec) if text_vec else ""
 
-    dimension_results: Dict[str, Dict[str, Any]] = {}
+    dimension_results: dict[str, dict[str, Any]] = {}
     for dimension, vectors in DIMENSION_VECTORS.items():
         label, score, scores = _score_dimension(text_vec, vectors, semantic_threshold)
         dimension_results[dimension] = {
@@ -147,12 +146,12 @@ class MetaReflection:
         self.shallow_threshold = max(0.0, min(1.0, shallow_threshold))
         self.semantic_threshold = max(0.0, min(1.0, semantic_threshold))
 
-    def analyze_reflections(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def analyze_reflections(self, events: list[dict[str, Any]]) -> dict[str, Any]:
         """Analyze reflection events and return semantic summary metrics."""
         if not isinstance(events, list) or not events:
             return self._empty_summary()
 
-        reflections: List[str] = []
+        reflections: list[str] = []
         for event in events:
             if isinstance(event, dict) and event.get("kind") == "reflection":
                 content = event.get("content", "")
@@ -180,12 +179,12 @@ class MetaReflection:
 
         return summary
 
-    def detect_meta_anomalies(self, summary: Dict[str, Any]) -> List[str]:
+    def detect_meta_anomalies(self, summary: dict[str, Any]) -> list[str]:
         """Detect anomalies based on semantic summary metrics."""
         if not isinstance(summary, dict) or summary.get("reflection_count", 0) == 0:
             return []
 
-        anomalies: List[str] = []
+        anomalies: list[str] = []
         reflection_count = summary["reflection_count"]
 
         stance_metrics = summary.get("stance_metrics", {})
@@ -223,9 +222,9 @@ class MetaReflection:
     def maybe_emit_report(
         self,
         eventlog,
-        summary: Dict[str, Any],
+        summary: dict[str, Any],
         window: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Emit meta reflection report with digest deduplication."""
         anomalies = self.detect_meta_anomalies(summary)
         digest_data = self._serialize_for_digest(summary, anomalies, window)
@@ -255,8 +254,8 @@ class MetaReflection:
             kind="meta_reflection_report", content="meta_analysis", meta=meta
         )
 
-    def _aggregate_stance(self, reflections: List[Dict[str, Any]]) -> Dict[str, Any]:
-        counts: Dict[str, int] = {}
+    def _aggregate_stance(self, reflections: list[dict[str, Any]]) -> dict[str, Any]:
+        counts: dict[str, int] = {}
         score_sum = 0.0
 
         for analysis in reflections:
@@ -281,9 +280,9 @@ class MetaReflection:
         }
 
     def _aggregate_dimensions(
-        self, reflections: List[Dict[str, Any]]
-    ) -> Dict[str, Dict[str, Any]]:
-        totals: Dict[str, Dict[str, Any]] = {}
+        self, reflections: list[dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        totals: dict[str, dict[str, Any]] = {}
         total = len(reflections)
 
         for analysis in reflections:
@@ -304,7 +303,7 @@ class MetaReflection:
                 if score >= self.semantic_threshold:
                     record["high_confidence"] += 1
 
-        metrics: Dict[str, Dict[str, Any]] = {}
+        metrics: dict[str, dict[str, Any]] = {}
         for dimension, record in totals.items():
             counts = record["counts"]
             distribution = {
@@ -324,7 +323,7 @@ class MetaReflection:
 
         return metrics
 
-    def _analysis_metadata(self) -> Dict[str, Any]:
+    def _analysis_metadata(self) -> dict[str, Any]:
         return {
             "semantic_threshold": self.semantic_threshold,
             "stance_threshold": STANCE_THRESHOLD,
@@ -345,7 +344,7 @@ class MetaReflection:
             },
         }
 
-    def _empty_summary(self) -> Dict[str, Any]:
+    def _empty_summary(self) -> dict[str, Any]:
         return {
             "reflection_count": 0,
             "stance_metrics": {
@@ -361,18 +360,18 @@ class MetaReflection:
 
     def _serialize_for_digest(
         self,
-        summary: Dict[str, Any],
-        anomalies: List[str],
+        summary: dict[str, Any],
+        anomalies: list[str],
         window: str,
     ) -> str:
-        parts: List[str] = []
+        parts: list[str] = []
         parts.append(f"window:{window}")
         parts.append(f"reflection_count:{summary.get('reflection_count', 0)}")
 
         stance_metrics = summary.get("stance_metrics", {})
-        parts.append(
-            f"stance_dominant:{stance_metrics.get('dominant_label', 'neutral')}:{stance_metrics.get('dominant_ratio', 0.0):.6f}"
-        )
+        dominant_label = stance_metrics.get("dominant_label", "neutral")
+        dominant_ratio = stance_metrics.get("dominant_ratio", 0.0)
+        parts.append(f"stance_dominant:{dominant_label}:{dominant_ratio:.6f}")
         for label in sorted(stance_metrics.get("distribution", {}).keys()):
             ratio = stance_metrics["distribution"][label]
             parts.append(f"stance_dist:{label}:{ratio:.6f}")
@@ -381,15 +380,14 @@ class MetaReflection:
         dimension_metrics = summary.get("dimension_metrics", {})
         for dimension in sorted(dimension_metrics.keys()):
             metrics = dimension_metrics[dimension]
-            parts.append(
-                f"dimension:{dimension}:{metrics.get('dominant_label', 'neutral')}:{metrics.get('dominant_ratio', 0.0):.6f}"
-            )
+            dom_label = metrics.get("dominant_label", "neutral")
+            dom_ratio = metrics.get("dominant_ratio", 0.0)
+            parts.append(f"dimension:{dimension}:{dom_label}:{dom_ratio:.6f}")
             parts.append(
                 f"dimension_avg:{dimension}:{metrics.get('avg_score', 0.0):.6f}"
             )
-            parts.append(
-                f"dimension_high_confidence:{dimension}:{metrics.get('high_confidence_ratio', 0.0):.6f}"
-            )
+            hc_ratio = metrics.get("high_confidence_ratio", 0.0)
+            parts.append(f"dimension_high_confidence:{dimension}:{hc_ratio:.6f}")
             for label in sorted(metrics.get("distribution", {}).keys()):
                 ratio = metrics["distribution"][label]
                 parts.append(f"dimension_dist:{dimension}:{label}:{ratio:.6f}")
@@ -399,14 +397,16 @@ class MetaReflection:
             digest = analysis.get("embedding_digest", "")
             parts.append(f"reflection:{idx}:{digest}")
             stance = analysis.get("stance", {})
-            parts.append(
-                f"reflection_stance:{idx}:{stance.get('label', 'neutral')}:{float(stance.get('score', 0.0) or 0.0):.6f}"
-            )
+            stance_label = stance.get("label", "neutral")
+            stance_score = float(stance.get("score", 0.0) or 0.0)
+            parts.append(f"reflection_stance:{idx}:{stance_label}:{stance_score:.6f}")
             dimensions = analysis.get("dimensions", {})
             for dimension in sorted(dimensions.keys()):
                 detail = dimensions[dimension]
+                dim_label = detail.get("label", "neutral")
+                dim_score = float(detail.get("score", 0.0) or 0.0)
                 parts.append(
-                    f"reflection_dimension:{idx}:{dimension}:{detail.get('label', 'neutral')}:{float(detail.get('score', 0.0) or 0.0):.6f}"
+                    f"reflection_dimension:{idx}:{dimension}:{dim_label}:{dim_score:.6f}"
                 )
 
         for anomaly in sorted(anomalies):

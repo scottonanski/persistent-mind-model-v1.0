@@ -1,7 +1,7 @@
 import datetime as dt
 
-from pmm.runtime.loop import AutonomyLoop
 from pmm.runtime.cooldown import ReflectionCooldown
+from pmm.runtime.loop import AutonomyLoop
 from pmm.storage.eventlog import EventLog
 
 
@@ -42,7 +42,7 @@ def test_insufficient_data_no_stage_update(tmp_path):
     ], "no stage update expected with <3 points"
 
 
-def test_upward_transition_S1_to_S2(tmp_path):
+def test_upward_transition_s1_to_s2(tmp_path):
     log = EventLog(str(tmp_path / "stg2.db"))
     # Prior stage S1
     log.append(
@@ -69,7 +69,7 @@ def test_upward_transition_S1_to_S2(tmp_path):
     )
 
 
-def test_downward_transition_S3_to_S2(tmp_path):
+def test_downward_transition_s3_to_s2(tmp_path):
     log = EventLog(str(tmp_path / "stg3.db"))
     # Prior stage S3
     log.append(

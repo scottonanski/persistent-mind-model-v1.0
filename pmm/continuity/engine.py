@@ -1,18 +1,18 @@
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Optional
+from collections import Counter, defaultdict
 from dataclasses import dataclass
-from collections import defaultdict, Counter
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 try:
-    from pmm.storage.eventlog import EventLog
     from pmm.directives.hierarchy import (
-        DirectiveHierarchy,
+        Commitment,
         Directive,
+        DirectiveHierarchy,
         MetaPrinciple,
         Principle,
-        Commitment,
     )
+    from pmm.storage.eventlog import EventLog
 except ImportError:
     EventLog = None
     DirectiveHierarchy = None
@@ -31,20 +31,35 @@ class ContinuityInsight:
     insight_type: str  # 'reinforcement', 'drift', 'emergence', 'consolidation'
     confidence: float
     description: str
-    supporting_directives: List[str]  # directive IDs
+    supporting_directives: list[str]  # directive IDs
     timespan_days: int
     created_at: datetime
 
     def to_commitment_text(self) -> str:
         """Convert this insight into a commitment statement."""
         if self.insight_type == "reinforcement":
-            return f"I consistently reinforce {self.description} across my interactions, maintaining this as a core aspect of my identity."
+            return (
+                f"I consistently reinforce {self.description} across my "
+                f"interactions, maintaining this as a core aspect of my identity."
+            )
         elif self.insight_type == "emergence":
-            return f"I recognize an emerging pattern in my commitments: {self.description}. This represents a natural evolution of my principles."
+            return (
+                f"I recognize an emerging pattern in my commitments: "
+                f"{self.description}. This represents a natural evolution of "
+                f"my principles."
+            )
         elif self.insight_type == "consolidation":
-            return f"I observe that my various commitments are consolidating around {self.description}, indicating a maturing coherence in my approach."
+            return (
+                f"I observe that my various commitments are consolidating "
+                f"around {self.description}, indicating a maturing coherence "
+                f"in my approach."
+            )
         elif self.insight_type == "drift":
-            return f"I acknowledge a shift in my commitments toward {self.description}, representing adaptive growth while maintaining core principles."
+            return (
+                f"I acknowledge a shift in my commitments toward "
+                f"{self.description}, representing adaptive growth while "
+                f"maintaining core principles."
+            )
         else:
             return f"I recognize a continuity pattern: {self.description}"
 
@@ -77,7 +92,7 @@ class ContinuityEngine:
         time_since_last = datetime.now(timezone.utc) - self.last_reflection
         return time_since_last > timedelta(hours=self.reflection_cooldown_hours)
 
-    def analyze_continuity(self, lookback_days: int = 30) -> List[ContinuityInsight]:
+    def analyze_continuity(self, lookback_days: int = 30) -> list[ContinuityInsight]:
         """
         Analyze commitment patterns over the specified timeframe.
         Returns insights about reinforcement, drift, emergence, and consolidation.
@@ -136,7 +151,7 @@ class ContinuityEngine:
 
         return insights
 
-    def _get_directives_since(self, cutoff_date: datetime) -> List["Directive"]:
+    def _get_directives_since(self, cutoff_date: datetime) -> list["Directive"]:
         """Get all directives created since the cutoff date from EventLog."""
         if not self.eventlog or not self.hierarchy:
             return []
@@ -209,8 +224,8 @@ class ContinuityEngine:
         return directives
 
     def _detect_reinforcement_patterns(
-        self, directives: List["Directive"], timespan_days: int
-    ) -> List[ContinuityInsight]:
+        self, directives: list["Directive"], timespan_days: int
+    ) -> list[ContinuityInsight]:
         """Detect patterns of reinforcement in directives over the timespan."""
         if not directives:
             return []
@@ -242,8 +257,8 @@ class ContinuityEngine:
         return insights
 
     def _detect_emergent_themes(
-        self, directives: List["Directive"], timespan_days: int
-    ) -> List[ContinuityInsight]:
+        self, directives: list["Directive"], timespan_days: int
+    ) -> list[ContinuityInsight]:
         """Detect emergent themes in recent directives."""
         if not directives:
             return []
@@ -286,8 +301,8 @@ class ContinuityEngine:
         return insights
 
     def _detect_consolidation_patterns(
-        self, directives: List["Directive"], timespan_days: int
-    ) -> List[ContinuityInsight]:
+        self, directives: list["Directive"], timespan_days: int
+    ) -> list[ContinuityInsight]:
         """Detect patterns of consolidation across different directive types."""
         if not directives or not self.hierarchy:
             return []
@@ -317,8 +332,8 @@ class ContinuityEngine:
         return insights
 
     def _detect_adaptive_drift(
-        self, directives: List["Directive"], timespan_days: int
-    ) -> List[ContinuityInsight]:
+        self, directives: list["Directive"], timespan_days: int
+    ) -> list[ContinuityInsight]:
         """Detect adaptive drift by comparing older and newer directives."""
         if not directives:
             return []
@@ -365,7 +380,7 @@ class ContinuityEngine:
 
         return insights
 
-    def _extract_themes(self, directives: List["Directive"]) -> Dict[str, int]:
+    def _extract_themes(self, directives: list["Directive"]) -> dict[str, int]:
         """Extract common themes from directives based on word frequency."""
         word_freq = Counter()
         for d in directives:
@@ -376,7 +391,7 @@ class ContinuityEngine:
 
         return {word: freq for word, freq in word_freq.items() if freq > 1}
 
-    def _find_common_words(self, texts: List[str]) -> List[str]:
+    def _find_common_words(self, texts: list[str]) -> list[str]:
         """Find common words across a list of texts."""
         if not texts:
             return []
@@ -385,7 +400,7 @@ class ContinuityEngine:
         common = set.intersection(*word_sets) if word_sets else set()
         return [w for w in common if len(w) > 3]  # Ignore short words
 
-    def reflect_and_register(self, insights: List[ContinuityInsight]) -> List[str]:
+    def reflect_and_register(self, insights: list[ContinuityInsight]) -> list[str]:
         """
         Register insights as permanent commitments if they meet confidence thresholds.
         Updates last_reflection timestamp.

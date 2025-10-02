@@ -1,10 +1,11 @@
 """Tests for TraitDriftManager - only testing actual implemented code."""
 
-import tempfile
-import os
 import json
-from pmm.storage.eventlog import EventLog
+import os
+import tempfile
+
 from pmm.personality.self_evolution import TraitDriftManager
+from pmm.storage.eventlog import EventLog
 
 
 class TestTraitDriftManager:
@@ -210,7 +211,10 @@ class TestTraitDriftManager:
         """Verify only valid Big Five traits are used."""
         test_event = {
             "kind": "prompt",
-            "content": "comprehensive test content with explore, plan, collaborate, help, and calm words",
+            "content": (
+                "comprehensive test content with explore, plan, "
+                "collaborate, help, and calm words"
+            ),
             "meta": {},
         }
 

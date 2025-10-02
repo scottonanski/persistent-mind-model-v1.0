@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import argparse
-from typing import Optional
 
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.embeddings_backlog import process_backlog
+from pmm.storage.eventlog import EventLog
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="pmm-backlog",
         description="Process embeddings backlog for response events (idempotent).",

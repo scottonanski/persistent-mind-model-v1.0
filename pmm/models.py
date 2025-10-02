@@ -5,10 +5,9 @@ This module keeps model parsing and selection data out of the CLI logic.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, List
 import os
 import subprocess
+from dataclasses import dataclass
 
 
 @dataclass
@@ -43,7 +42,7 @@ def check_ollama_python_library() -> bool:
     return importlib.util.find_spec("ollama") is not None
 
 
-def get_ollama_models() -> List[Dict]:
+def get_ollama_models() -> list[dict]:
     """Parse `ollama list` output into a list of {name,size,full_line} dicts.
 
     Returns an empty list if Ollama is not installed/running or if the Python
@@ -62,7 +61,7 @@ def get_ollama_models() -> List[Dict]:
         return []
     # Skip header if present (first line usually: NAME ID SIZE ...)
     body = lines[1:] if len(lines) > 1 else []
-    models: List[Dict] = []
+    models: list[dict] = []
     for ln in body:
         parts = ln.split()
         if not parts:
@@ -73,9 +72,9 @@ def get_ollama_models() -> List[Dict]:
     return models
 
 
-def build_dynamic_models() -> Dict[str, ModelConfig]:
+def build_dynamic_models() -> dict[str, ModelConfig]:
     """Seed OpenAI models and append detected Ollama models if available."""
-    models: Dict[str, ModelConfig] = {
+    models: dict[str, ModelConfig] = {
         # OpenAI: curated entries (no network call)
         "gpt-4o-mini": ModelConfig(
             name="gpt-4o-mini",
@@ -119,10 +118,10 @@ def build_dynamic_models() -> Dict[str, ModelConfig]:
 
 
 # Build once at import (fast, local-only). Callers can re-run build_dynamic_models if needed.
-AVAILABLE_MODELS: Dict[str, ModelConfig] = build_dynamic_models()
+AVAILABLE_MODELS: dict[str, ModelConfig] = build_dynamic_models()
 
 
-def list_available_models() -> List[str]:
+def list_available_models() -> list[str]:
     return list(AVAILABLE_MODELS.keys())
 
 
@@ -138,5 +137,5 @@ def get_model_config(model_name: str | None = None) -> ModelConfig:
     return AVAILABLE_MODELS[name]
 
 
-def get_models_by_provider(provider: str) -> List[str]:
+def get_models_by_provider(provider: str) -> list[str]:
     return [n for n, cfg in AVAILABLE_MODELS.items() if cfg.provider == provider]

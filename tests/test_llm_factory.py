@@ -1,7 +1,7 @@
-from pytest import raises
 import pytest
+from pytest import raises
 
-from pmm.llm.factory import LLMFactory, LLMConfig
+from pmm.llm.factory import LLMConfig, LLMFactory
 
 
 def test_openai_bundle_shapes():

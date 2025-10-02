@@ -1,10 +1,10 @@
 from __future__ import annotations
+
 import json
-import time
 import os
-from dataclasses import dataclass, asdict
+import time
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, Optional
 
 _TUNER_VERSION = "tuner.v1.0"
 _DEFAULT_WINDOW = 200  # max recent samples per (model, task)
@@ -48,10 +48,10 @@ class AllocTuner:
       - Fully persisted & versioned for reproducibility
     """
 
-    def __init__(self, path: Optional[str] = None, window: int = _DEFAULT_WINDOW):
+    def __init__(self, path: str | None = None, window: int = _DEFAULT_WINDOW):
         self.window = max(50, int(window))
         self.path = Path(path) if path else _data_dir() / "alloc_tuner.json"
-        self._buckets: Dict[str, Bucket] = {}
+        self._buckets: dict[str, Bucket] = {}
         self._load()
 
     def key(self, model_key: str, task: str) -> str:
@@ -61,7 +61,7 @@ class AllocTuner:
     def _load(self):
         if self.path.exists():
             try:
-                raw = json.load(open(self.path, "r"))
+                raw = json.load(open(self.path))
                 for k, v in raw.items():
                     smps = [Sample(**s) for s in v.get("samples", [])]
                     self._buckets[k] = Bucket(

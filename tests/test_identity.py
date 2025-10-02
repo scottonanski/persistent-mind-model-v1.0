@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-
+from pmm.cli.chat import should_print_identity_notice
+from pmm.llm.factory import LLMConfig
+from pmm.runtime.bridge import ResponseRenderer
+from pmm.runtime.loop import AutonomyLoop, Runtime
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
-from pmm.runtime.bridge import ResponseRenderer
-from pmm.llm.factory import LLMConfig
-from pmm.runtime.loop import Runtime, AutonomyLoop
-from pmm.cli.chat import should_print_identity_notice
 
 
 def test_projection_identity_adopt_last_wins_and_traits_clamp(tmp_path):
@@ -45,11 +44,11 @@ def test_renderer_strips_boilerplate_and_one_shot_signature():
     r = ResponseRenderer()
     raw = "As an AI assistant, I can help you."
     ident = {"name": "Ada", "_recent_adopt": True, "traits": {}}
-    out = r.render(raw, ident, stage="S1")
+    out = r.render(raw, identity=ident, recent_adopt_id=True)
     assert not out.lower().startswith("as an ai")
     assert out.rstrip().endswith("— Ada")
     # If not recent adopt, no banner
-    out2 = r.render("Hello", {"name": "Ada", "traits": {}}, stage="S1")
+    out2 = r.render("Hello", identity={"name": "Ada", "traits": {}})
     assert not out2.endswith("— Ada")
 
 
@@ -62,11 +61,11 @@ def _mk_rt(tmp_path):
     return Runtime(cfg, log), log
 
 
-def _append_autonomy_tick(log: EventLog, IAS: float = 0.5, GAS: float = 0.4):
+def _append_autonomy_tick(log: EventLog, ias: float = 0.5, gas: float = 0.4):
     log.append(
         kind="autonomy_tick",
         content="beat",
-        meta={"telemetry": {"IAS": IAS, "GAS": GAS}},
+        meta={"telemetry": {"IAS": ias, "GAS": gas}},
     )
 
 
@@ -81,7 +80,7 @@ def _append_reflection_skipped(log: EventLog, reason: str):
 def test_autonomy_does_not_auto_propose_identity(tmp_path):
     rt, log = _mk_rt(tmp_path)
     for _ in range(4):
-        _append_autonomy_tick(log, IAS=0.4, GAS=0.25)
+        _append_autonomy_tick(log, ias=0.4, gas=0.25)
     _append_debug_reflect_skip(log, reason="time")
 
     aloop = AutonomyLoop(
@@ -384,21 +383,18 @@ def test_name_validator_single_source(tmp_path, monkeypatch):
     assert not any(e["kind"] == "identity_propose" for e in evs)
     # Ensure no duplicate sanitizer function exists on Runtime class
     assert not hasattr(Runtime, "_NAME_BANLIST")
-    assert (
-        "def _sanitize_name("
-        in open("pmm/runtime/loop.py", "r", encoding="utf-8").read()
-    )
+    assert "def _sanitize_name(" in open("pmm/runtime/loop.py", encoding="utf-8").read()
 
 
 def test_renderer_signature_edge_cases():
     r = ResponseRenderer()
     ident = {"name": "Ada", "_recent_adopt": True, "traits": {}}
     # Case 1: very short reply
-    out = r.render("OK", ident, stage="S1")
+    out = r.render("OK", identity=ident, recent_adopt_id=True)
     assert not out.rstrip().endswith("— Ada")
     # Case 2: duplicate with trailing whitespace/newline
     base = "Thanks for the update.\n— Ada  \n"
-    out2 = r.render(base, ident, stage="S1")
+    out2 = r.render(base, identity=ident, recent_adopt_id=True)
     assert out2.rstrip().endswith("— Ada")
     assert out2.count("— Ada") == 1
 

@@ -1,12 +1,13 @@
 # pmm/runtime/self_introspection.py
 
 import hashlib
-from typing import Dict, List, Any
-from pmm.storage.eventlog import EventLog
+from typing import Any
+
 from pmm.constants import EventKinds
+from pmm.storage.eventlog import EventLog
 
 
-def _digest_events(events: List[Dict[str, Any]]) -> str:
+def _digest_events(events: list[dict[str, Any]]) -> str:
     """Produce deterministic digest for a set of events."""
     m = hashlib.sha256()
     for e in events:
@@ -23,7 +24,7 @@ class SelfIntrospection:
     def __init__(self, log: EventLog):
         self.log = log
 
-    def query_commitments(self, window: int = 50) -> Dict[str, Any]:
+    def query_commitments(self, window: int = 50) -> dict[str, Any]:
         """Return recent commitments grouped by digest."""
         events = [
             e
@@ -44,7 +45,7 @@ class SelfIntrospection:
             }
         return {"commitments": result, "digest": _digest_events(events)}
 
-    def analyze_reflections(self, window: int = 20) -> Dict[str, Any]:
+    def analyze_reflections(self, window: int = 20) -> dict[str, Any]:
         """Summarize recent reflections deterministically."""
         events = [
             e
@@ -64,7 +65,7 @@ class SelfIntrospection:
             )
         return {"reflections": summaries, "digest": _digest_events(events)}
 
-    def track_traits(self, window: int = 100) -> Dict[str, Any]:
+    def track_traits(self, window: int = 100) -> dict[str, Any]:
         """Track deterministic trait drift."""
         events = [
             e
@@ -85,7 +86,7 @@ class SelfIntrospection:
                 )
         return {"traits": deltas, "digest": _digest_events(events)}
 
-    def emit_query_event(self, kind: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def emit_query_event(self, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Emit an introspection_query event with digest idempotency."""
         digest = payload["digest"]
 

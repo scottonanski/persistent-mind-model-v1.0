@@ -10,15 +10,14 @@ without performance degradation through:
 
 from __future__ import annotations
 
+import logging
 import random
 import threading
 import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
-
-import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +32,8 @@ class TraceNode:
     traversal_depth: int
     confidence: float
     timestamp_ms: int
-    edge_label: Optional[str] = None
-    reasoning_step: Optional[str] = None
+    edge_label: str | None = None
+    reasoning_step: str | None = None
 
 
 @dataclass
@@ -46,12 +45,12 @@ class TraceSession:
     start_time_ms: int
     end_time_ms: int = 0
     total_nodes_visited: int = 0
-    node_type_distribution: Dict[str, int] = field(
+    node_type_distribution: dict[str, int] = field(
         default_factory=lambda: defaultdict(int)
     )
-    high_confidence_nodes: List[Dict[str, Any]] = field(default_factory=list)
-    sampled_nodes: List[TraceNode] = field(default_factory=list)
-    reasoning_steps: List[str] = field(default_factory=list)
+    high_confidence_nodes: list[dict[str, Any]] = field(default_factory=list)
+    sampled_nodes: list[TraceNode] = field(default_factory=list)
+    reasoning_steps: list[str] = field(default_factory=list)
 
 
 class TraceBuffer:
@@ -82,10 +81,10 @@ class TraceBuffer:
         self.buffer_size = int(buffer_size)
 
         self._lock = threading.RLock()
-        self._current_session: Optional[TraceSession] = None
-        self._sessions: List[TraceSession] = []
+        self._current_session: TraceSession | None = None
+        self._sessions: list[TraceSession] = []
 
-    def start_session(self, query: str, session_id: Optional[str] = None) -> str:
+    def start_session(self, query: str, session_id: str | None = None) -> str:
         """Start a new reasoning trace session.
 
         Args:
@@ -119,8 +118,8 @@ class TraceBuffer:
         context_query: str,
         traversal_depth: int = 0,
         confidence: float = 0.5,
-        edge_label: Optional[str] = None,
-        reasoning_step: Optional[str] = None,
+        edge_label: str | None = None,
+        reasoning_step: str | None = None,
     ) -> bool:
         """Record a node visit with probabilistic sampling.
 
@@ -203,7 +202,7 @@ class TraceBuffer:
             ):
                 self._current_session.reasoning_steps.append(step)
 
-    def end_session(self) -> Optional[TraceSession]:
+    def end_session(self) -> TraceSession | None:
         """End current trace session and return finalized session data.
 
         Returns:
@@ -333,7 +332,7 @@ class TraceBuffer:
                 },
             )
 
-    def get_current_session_stats(self) -> Optional[Dict[str, Any]]:
+    def get_current_session_stats(self) -> dict[str, Any] | None:
         """Get statistics for current active session.
 
         Returns:

@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
-from functools import lru_cache
 import hashlib as _hashlib
-import math as _math
-import re as _re
 import logging
+import math as _math
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +13,7 @@ def _load_env_if_missing() -> None:
     return
 
 
-def _dummy_vec(text: str, dim: int = 32) -> List[float]:
+def _dummy_vec(text: str, dim: int = 32) -> list[float]:
     """Deterministic hash-based vector (used internally)."""
     h = _hashlib.sha1((text or "").encode("utf-8")).digest()
     vals = [h[i % len(h)] for i in range(dim)]
@@ -23,14 +21,15 @@ def _dummy_vec(text: str, dim: int = 32) -> List[float]:
     return [float(v) / 255.0 for v in vals]
 
 
-def _bow_vec(text: str, dim: int = 64) -> List[float]:
+def _bow_vec(text: str, dim: int = 64) -> list[float]:
     """Simple bag-of-words hashed vector.
 
     Overlapping tokens produce correlated vectors, making cosine similarity meaningful,
     and is fully deterministic without external providers.
     """
-    s = (text or "").lower()
-    toks = [t for t in _re.split(r"[^a-z0-9]+", s) if t]
+    from pmm.utils.parsers import split_non_alnum
+
+    toks = split_non_alnum(text or "")
     vec = [0.0] * dim
     for t in toks:
         hv = int(_hashlib.sha1(t.encode("utf-8")).hexdigest()[:8], 16)
@@ -42,7 +41,7 @@ def _bow_vec(text: str, dim: int = 64) -> List[float]:
 
 
 @lru_cache(maxsize=1000)
-def _compute_embedding_cached(text: str, model: str = "local-bow") -> Tuple[float, ...]:
+def _compute_embedding_cached(text: str, model: str = "local-bow") -> tuple[float, ...]:
     """Cached embedding computation returning tuple for hashability.
 
     LRU cache with maxsize=1000 provides 2-3x speedup for repeated text.
@@ -64,7 +63,7 @@ def _compute_embedding_cached(text: str, model: str = "local-bow") -> Tuple[floa
         return tuple([1.0] * 16)
 
 
-def compute_embedding(text: str, model: str = "local-bow") -> Optional[List[float]]:
+def compute_embedding(text: str, model: str = "local-bow") -> list[float] | None:
     """Compute an embedding for text deterministically, always ON.
 
     No environment flags, no external providers.
@@ -74,7 +73,7 @@ def compute_embedding(text: str, model: str = "local-bow") -> Optional[List[floa
     return list(cached_result) if cached_result else None
 
 
-def cosine_similarity(a: List[float], b: List[float]) -> float:
+def cosine_similarity(a: list[float], b: list[float]) -> float:
     """Stable cosine similarity between two vectors."""
     if not a or not b:
         return 0.0
@@ -89,7 +88,7 @@ def cosine_similarity(a: List[float], b: List[float]) -> float:
     return float(dot / (na * nb))
 
 
-def digest_vector(vec: List[float]) -> str:
+def digest_vector(vec: list[float]) -> str:
     """Short reproducible SHA1[:8] digest of the vector values for logging."""
     as_bytes = str(list(vec)).encode("utf-8")
     return _hashlib.sha1(as_bytes).hexdigest()[:8]

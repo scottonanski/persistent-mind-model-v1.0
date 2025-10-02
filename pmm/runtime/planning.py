@@ -1,6 +1,6 @@
 from __future__ import annotations
-from typing import Callable, Optional
-import re
+
+from collections.abc import Callable
 
 from pmm.runtime.pmm_prompts import build_system_msg
 
@@ -14,11 +14,17 @@ _MAX_CHARS = 300
 def _strip_ctrl(s: str) -> str:
     if not s:
         return ""
-    # Remove ASCII control chars except newline and tab
-    return re.sub(r"[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]", "", str(s))
+    # Remove ASCII control chars except newline and tab (deterministic)
+    result = []
+    for char in str(s):
+        code = ord(char)
+        # Keep newline (0x0A) and tab (0x09), skip other control chars
+        if code == 0x0A or code == 0x09 or (code >= 0x20 and code != 0x7F):
+            result.append(char)
+    return "".join(result)
 
 
-def _find_existing(eventlog, rid: int) -> Optional[int]:
+def _find_existing(eventlog, rid: int) -> int | None:
     try:
         tail = eventlog.read_tail(limit=400)
     except TypeError:
@@ -45,7 +51,7 @@ def maybe_append_planning_thought(
     stage: str,
     tick: int,
     max_tokens: int = 64,
-) -> Optional[int]:
+) -> int | None:
     """
     Append one privacy-safe planning_thought after a reflection.
 
@@ -79,10 +85,12 @@ def maybe_append_planning_thought(
     # Minimal, privacy-safe prompt (no raw CoT)
     prompt = (
         build_system_msg("planning")
-        + "Use that understanding to pick concrete adjustments for your next one or two replies.\n"
+        + "Use that understanding to pick concrete adjustments for your next "
+        "one or two replies.\n"
         "Output a VERY SHORT plan (max 3 bullets OR <=2 sentences).\n"
         "Do NOT expose hidden reasoning. No preambles. No explanations.\n"
-        "Only actionable steps tied to the latest reflection outcome, and mention PMM mechanics only if the user would need them.\n\n"
+        "Only actionable steps tied to the latest reflection outcome, and "
+        "mention PMM mechanics only if the user would need them.\n\n"
         f"Latest reflection:\n{reflection_text}\n"
         "Plan:"
     )

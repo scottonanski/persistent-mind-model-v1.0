@@ -1,5 +1,5 @@
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.loop import _maybe_emit_meta_reflection
+from pmm.storage.eventlog import EventLog
 
 
 def test_meta_reflection_every_five_and_reward(tmp_path):

@@ -1,7 +1,7 @@
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.loop import Runtime
 from pmm.llm.factory import LLMConfig
+from pmm.runtime.loop import Runtime
 from pmm.runtime.recall import suggest_recall
+from pmm.storage.eventlog import EventLog
 
 
 def _mk_runtime(tmp_path: str) -> tuple[Runtime, EventLog]:
@@ -68,7 +68,8 @@ def test_recall_semantic_absent_falls_back(monkeypatch, tmp_path):
     log.append(kind="note", content="Project Apollo launch planning", meta={})
     log.append(kind="note", content="Cooking pasta with tomato sauce", meta={})
 
-    # Simulate absent semantic: ensure side table empty (no inserts) and monkeypatch compute_embedding to None
+    # Simulate absent semantic: ensure side table empty (no inserts)
+    # and monkeypatch compute_embedding to None
     monkeypatch.setattr("pmm.runtime.embeddings.compute_embedding", lambda s: None)
 
     # Deterministic reply

@@ -1,6 +1,7 @@
 import hashlib
-from pmm.storage.eventlog import EventLog
+
 from pmm.constants import EventKinds
+from pmm.storage.eventlog import EventLog
 
 
 def _digest_str(s: str) -> str:

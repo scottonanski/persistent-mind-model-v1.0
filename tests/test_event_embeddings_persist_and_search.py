@@ -1,6 +1,7 @@
 import os
-import tempfile
 import struct
+import tempfile
+
 from pmm.storage.eventlog import EventLog
 from pmm.storage.semantic import search_semantic
 

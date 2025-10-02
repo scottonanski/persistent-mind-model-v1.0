@@ -1,7 +1,8 @@
 from __future__ import annotations
-from typing import Iterable, Tuple, List, Dict, Optional
+
 import json
 import logging
+from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -46,14 +47,14 @@ def _clip(v: float, lo: float, hi: float) -> float:
         return lo
 
 
-def _norm_text(s: Optional[str]) -> str:
+def _norm_text(s: str | None) -> str:
     try:
         return (s or "").strip().lower()
     except Exception:
         return ""
 
 
-def get_ias_gas_from_db(eventlog) -> Tuple[float, float, int]:
+def get_ias_gas_from_db(eventlog) -> tuple[float, float, int]:
     """Read latest IAS/GAS from database metrics event.
 
     Returns:
@@ -126,7 +127,7 @@ def write_metrics_to_db(eventlog, ias: float, gas: float, reason: str = "compute
         pass  # Don't fail if we can't write metrics
 
 
-def diagnose_ias_calculation(events: List[dict]) -> dict:
+def diagnose_ias_calculation(events: list[dict]) -> dict:
     """Diagnose why IAS might be low or zero by analyzing relevant events."""
     # Track both total and valid (confidence-gated) adoptions
     identity_adopts = []  # valid only
@@ -248,7 +249,7 @@ def diagnose_ias_calculation(events: List[dict]) -> dict:
     }
 
 
-def get_or_compute_ias_gas(eventlog) -> Tuple[float, float]:
+def get_or_compute_ias_gas(eventlog) -> tuple[float, float]:
     """Hybrid approach: read from DB first, recompute only if needed.
 
     This is the main function that should be used instead of compute_ias_gas
@@ -318,8 +319,10 @@ def get_or_compute_ias_gas(eventlog) -> Tuple[float, float]:
             )
             if diagnosis["expected_stability_bonuses"] == 0:
                 logger.info(
-                    f"IAS=0 because: Need {_STABLE_IDENTITY_WINDOW_TICKS} ticks ({window_time:.0f}s) for first stability bonus, "
-                    f"only {diagnosis['ticks_since_last_adopt']} ticks ({time_since_adopt:.0f}s) since last identity adoption"
+                    f"IAS=0 because: Need {_STABLE_IDENTITY_WINDOW_TICKS} ticks "
+                    f"({window_time:.0f}s) for first stability bonus, only "
+                    f"{diagnosis['ticks_since_last_adopt']} ticks "
+                    f"({time_since_adopt:.0f}s) since last identity adoption"
                 )
 
         # Step 4: Write back to database
@@ -336,7 +339,7 @@ def get_or_compute_ias_gas(eventlog) -> Tuple[float, float]:
     return ias, gas
 
 
-def compute_ias_gas(events: Iterable[dict]) -> Tuple[float, float]:
+def compute_ias_gas(events: Iterable[dict]) -> tuple[float, float]:
     """Compute IAS (identity stability) and GAS (growth via commitments) from the ledger.
 
     Deterministic, event-driven rules (using constants defined above):
@@ -349,15 +352,15 @@ def compute_ias_gas(events: Iterable[dict]) -> Tuple[float, float]:
 
     Clip outputs to [0.0, 1.0] for both IAS and GAS. IAS starts at 0.0 (can be zero on fresh DB).
     """
-    evs: List[Dict] = list(events)  # deterministic order
+    evs: list[dict] = list(events)  # deterministic order
 
     # Start from true zero - fresh DB should show 0.0, not 0.5
     ias: float = 0.0
     gas: float = 0.0
 
     # Map event id -> tick index and collect tick ids for window math
-    tick_ids: List[int] = []
-    tick_index_by_eid: Dict[int, int] = {}
+    tick_ids: list[int] = []
+    tick_index_by_eid: dict[int, int] = {}
     tick = 0
 
     # Build tick mapping with fallback for missing IDs
@@ -390,14 +393,14 @@ def compute_ias_gas(events: Iterable[dict]) -> Tuple[float, float]:
     open_mult = 1.0 + (openness - 0.5) * 0.2  # [0.90, 1.10] - gentler
 
     # Tick-based novelty tracking (not count-based)
-    recent_opens: List[Tuple[int, str]] = []  # (tick_index, normalized_text)
-    recent_reflections: List[Tuple[int, str]] = []  # (tick_index, normalized_text)
+    recent_opens: list[tuple[int, str]] = []  # (tick_index, normalized_text)
+    recent_reflections: list[tuple[int, str]] = []  # (tick_index, normalized_text)
 
     # Identity adoption tracking for stability windows
-    adopt_events: List[Tuple[int, str]] = []  # (tick_index, name)
-    last_adopt_tick: Optional[int] = None
-    last_adopt_name: Optional[str] = None
-    invariant_penalty_keys: set[Tuple[str, str]] = set()
+    adopt_events: list[tuple[int, str]] = []  # (tick_index, name)
+    last_adopt_tick: int | None = None
+    last_adopt_name: str | None = None
+    invariant_penalty_keys: set[tuple[str, str]] = set()
 
     # Single pass: process events in order with proper tick-based logic
     for i, ev in enumerate(evs):

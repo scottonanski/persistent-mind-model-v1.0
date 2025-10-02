@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import time
-from typing import Tuple, List, Dict
+from dataclasses import dataclass
 
 
 @dataclass
@@ -28,8 +27,8 @@ class ReflectionCooldown:
         *,
         override_min_turns: int | None = None,
         override_min_seconds: int | None = None,
-        events: List[Dict] | None = None,
-    ) -> Tuple[bool, str]:
+        events: list[dict] | None = None,
+    ) -> tuple[bool, str]:
         now = now or time.time()
         # Use one-shot overrides for this call only (no persisted changes)
         min_turns = (

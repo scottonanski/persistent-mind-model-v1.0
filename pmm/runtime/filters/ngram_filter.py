@@ -7,10 +7,9 @@ in reflection text using n-gram analysis with full ledger integrity.
 from __future__ import annotations
 
 import hashlib
-import re
 import warnings
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 __all__ = ["NgramRepeatAnalyzer", "NgramFilter"]
 
@@ -21,7 +20,7 @@ class NgramRepeatAnalyzer:
     Maintains full auditability through the event ledger.
     """
 
-    def __init__(self, repeat_threshold: int = 3, ngram_lengths: List[int] = None):
+    def __init__(self, repeat_threshold: int = 3, ngram_lengths: list[int] = None):
         """Initialize n-gram filter.
 
         Args:
@@ -31,7 +30,7 @@ class NgramRepeatAnalyzer:
         self.repeat_threshold = repeat_threshold
         self.ngram_lengths = ngram_lengths or [2, 3]
 
-    def analyze_reflection_text(self, text: str) -> Dict[str, Any]:
+    def analyze_reflection_text(self, text: str) -> dict[str, Any]:
         """
         Pure function.
         Extract n-grams (2-3 length, normalized) from reflection text.
@@ -90,7 +89,7 @@ class NgramRepeatAnalyzer:
             },
         }
 
-    def detect_repeats(self, analysis: Dict[str, Any]) -> List[str]:
+    def detect_repeats(self, analysis: dict[str, Any]) -> list[str]:
         """
         Pure function.
         Flag n-gram repeats above configurable threshold.
@@ -110,8 +109,8 @@ class NgramRepeatAnalyzer:
         return repeat_flags
 
     def maybe_emit_filter_event(
-        self, eventlog, src_event_id: str, analysis: Dict[str, Any], repeats: List[str]
-    ) -> Optional[str]:
+        self, eventlog, src_event_id: str, analysis: dict[str, Any], repeats: list[str]
+    ) -> str | None:
         """
         Emit ngram_filter_report event with digest deduplication.
         Event shape:
@@ -166,16 +165,18 @@ class NgramRepeatAnalyzer:
         # Convert to lowercase
         normalized = text.lower()
 
-        # Remove punctuation (keep only alphanumeric and whitespace)
-        normalized = re.sub(r"[^\w\s]", " ", normalized)
+        # Remove punctuation (keep only alphanumeric and whitespace) - deterministic
+        normalized = "".join(
+            c if c.isalnum() or c.isspace() else " " for c in normalized
+        )
 
-        # Compact whitespace
-        normalized = re.sub(r"\s+", " ", normalized).strip()
+        # Compact whitespace - deterministic
+        normalized = " ".join(normalized.split())
 
         return normalized
 
     def _serialize_for_digest(
-        self, analysis: Dict[str, Any], repeats: List[str]
+        self, analysis: dict[str, Any], repeats: list[str]
     ) -> str:
         """Serialize analysis and repeats deterministically for digest generation."""
         parts = []

@@ -1,4 +1,5 @@
 import pytest
+
 from pmm.directives.detector import extract
 
 

@@ -12,8 +12,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from pmm.runtime.loop import Runtime
 from pmm.llm.factory import LLMConfig
+from pmm.runtime.loop import Runtime
 from pmm.storage.eventlog import EventLog
 
 

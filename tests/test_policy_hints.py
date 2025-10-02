@@ -1,6 +1,6 @@
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.loop import AutonomyLoop
 from pmm.runtime.cooldown import ReflectionCooldown
+from pmm.runtime.loop import AutonomyLoop
+from pmm.storage.eventlog import EventLog
 
 
 def _append_auto_tick(log: EventLog, ias: float, gas: float):

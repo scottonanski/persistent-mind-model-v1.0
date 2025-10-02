@@ -3,11 +3,11 @@ Integration tests for LLM-driven trait adjustment system.
 Tests end-to-end flow from LLM response to trait_update events.
 """
 
-import tempfile
 import os
+import tempfile
 
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.llm_trait_adjuster import apply_llm_trait_adjustments
+from pmm.storage.eventlog import EventLog
 
 
 class TestLLMTraitAdjusterIntegration:

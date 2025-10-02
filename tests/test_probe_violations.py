@@ -1,4 +1,4 @@
-from pmm.api.probe import snapshot_violations, render_violations
+from pmm.api.probe import render_violations, snapshot_violations
 
 
 def _fake_evlog(events):

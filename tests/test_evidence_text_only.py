@@ -1,6 +1,6 @@
+from pmm.commitments.tracker import CommitmentTracker
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
-from pmm.commitments.tracker import CommitmentTracker
 
 
 def test_text_only_evidence_closes_without_artifact(tmp_path, monkeypatch):

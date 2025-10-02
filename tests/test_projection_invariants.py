@@ -1,7 +1,8 @@
 import pytest
-from pmm.storage.projection import build_self_model, ProjectionInvariantError
-from pmm.storage.eventlog import EventLog
+
 from pmm.runtime.loop import emit_reflection
+from pmm.storage.eventlog import EventLog
+from pmm.storage.projection import ProjectionInvariantError, build_self_model
 
 
 def _ev(kind, **meta):

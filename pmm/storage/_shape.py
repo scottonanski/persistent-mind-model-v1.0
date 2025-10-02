@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Tuple, Dict, Any
+from typing import Any
 
 
-def get_content_meta(ev: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+def get_content_meta(ev: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     """
     Read-tolerant accessor: prefers top-level content/meta; falls back to payload.content/meta.
     Never raises; returns ("", {}) if absent.

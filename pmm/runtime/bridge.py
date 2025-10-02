@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import re as _re
-from typing import Dict, Optional
-
 
 class ResponseRenderer:
     """
@@ -16,28 +13,51 @@ class ResponseRenderer:
     - No LLM calls; pure string transforms.
     """
 
-    _boilerplate_re = _re.compile(
-        r"^\s*(?:As\s+an?\s+(?:AI|assistant|language\s+model)[^,:]*[:,]\s*)",
-        _re.IGNORECASE,
-    )
+    def _strip_boilerplate(self, text: str) -> str:
+        """Strip boilerplate lead-ins deterministically."""
+        if not text:
+            return text
+
+        # Check for common boilerplate patterns at start
+        text_lower = text.lower().lstrip()
+        boilerplate_patterns = [
+            "as an ai",
+            "as an assistant",
+            "as a language model",
+            "as an ai assistant",
+        ]
+
+        for pattern in boilerplate_patterns:
+            if text_lower.startswith(pattern):
+                # Find the end of the boilerplate (usually ends with : or ,)
+                rest = text[len(pattern) :]
+                # Skip past any punctuation and whitespace
+                for i, char in enumerate(rest):
+                    if char in ":,":
+                        return rest[i + 1 :].lstrip()
+                    elif char.isalpha():
+                        # No punctuation found, pattern didn't match fully
+                        break
+
+        return text
 
     def render(
         self,
         raw_text: str,
-        identity: Dict,
-        stage: Optional[str] = None,
         *,
-        events: Optional[list[dict]] = None,
+        identity: dict | None = None,
+        recent_adopt_id: int | None = None,
+        events: list[dict] | None = None,
     ) -> str:
         text = str(raw_text or "").strip()
-        # Strip boilerplate lead-ins
-        text = self._boilerplate_re.sub("", text).lstrip()
+        # Strip boilerplate lead-ins (deterministic)
+        text = self._strip_boilerplate(text)
 
         ident = identity or {}
         # One-shot identity continuity signature banner when recent adopt
         try:
             nm = ident.get("name")
-            if nm and ident.get("_recent_adopt"):
+            if nm and recent_adopt_id is not None:
                 # Avoid awkward micro-signatures for ultra-short replies (<=4 chars)
                 if len(text.strip()) <= 4:
                     return text
@@ -83,21 +103,17 @@ class ResponseRenderer:
 
         # Deterministic paraphrase
         def _strip_markdown(s: str) -> str:
-            s = str(s or "")
-            # Remove fenced code blocks
-            s = _re.sub(r"```[\s\S]*?```", " ", s)
-            # Remove inline code/backticks
-            s = s.replace("`", " ")
-            # Remove emphasis markers
-            s = s.replace("**", " ").replace("*", " ").replace("_", " ")
-            # Collapse whitespace
-            s = _re.sub(r"\s+", " ", s).strip()
-            return s
+            from pmm.utils.parsers import (
+                normalize_whitespace,
+                strip_markdown_formatting,
+            )
+
+            return normalize_whitespace(strip_markdown_formatting(s or ""))
 
         def _first_sentence(s: str) -> str:
-            # Split on . ! ? or newline
-            parts = _re.split(r"[\.!?\n]", s, maxsplit=1)
-            return (parts[0] or "").strip()
+            from pmm.utils.parsers import extract_first_sentence
+
+            return extract_first_sentence(s or "")
 
         paraphrase = _first_sentence(_strip_markdown(src_text))
         if len(paraphrase) > 140:

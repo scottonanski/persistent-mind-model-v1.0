@@ -2,10 +2,10 @@
 
 import hashlib
 import json
-from typing import Dict, Any, List, Optional
+from typing import Any
 
-from pmm.storage.eventlog import EventLog
 from pmm.constants import EventKinds
+from pmm.storage.eventlog import EventLog
 
 
 class CommitmentRestructurer:
@@ -14,7 +14,7 @@ class CommitmentRestructurer:
     def __init__(self, log: EventLog):
         self.log = log
 
-    def _get_open_commitments(self) -> List[Dict[str, Any]]:
+    def _get_open_commitments(self) -> list[dict[str, Any]]:
         """Get currently open commitments from the event log."""
         events = self.log.read_all()
 
@@ -41,29 +41,15 @@ class CommitmentRestructurer:
 
     def _text_similarity(self, text1: str, text2: str) -> float:
         """Deterministic text similarity using simple token overlap."""
+        from pmm.utils.parsers import token_overlap_ratio
 
-        def tokenize(text):
-            import re
-
-            return set(re.findall(r"\w+", text.lower()))
-
-        tokens1 = tokenize(text1)
-        tokens2 = tokenize(text2)
-
-        if not tokens1 and not tokens2:
-            return 1.0
-        if not tokens1 or not tokens2:
-            return 0.0
-
-        intersection = len(tokens1.intersection(tokens2))
-        union = len(tokens1.union(tokens2))
-        return intersection / union if union > 0 else 0.0
+        return token_overlap_ratio(text1, text2)
 
     # ----------------------------
     # Core restructuring operations
     # ----------------------------
 
-    def consolidate_similar(self, threshold: float = 0.9) -> List[Dict[str, Any]]:
+    def consolidate_similar(self, threshold: float = 0.9) -> list[dict[str, Any]]:
         """
         Deterministically consolidate commitments that are near-duplicates.
         Example output: [{"op": "merge", "cids": ["c12", "c15"], "new_cid": "c99"}]
@@ -97,7 +83,7 @@ class CommitmentRestructurer:
 
         return changes
 
-    def reprioritize_stale(self, age_threshold: int = 10) -> List[Dict[str, Any]]:
+    def reprioritize_stale(self, age_threshold: int = 10) -> list[dict[str, Any]]:
         """
         Reprioritize commitments that have been open longer than age_threshold events.
         Example output: [{"op": "reprioritize", "cid": "c20", "priority": 0.45}]
@@ -131,7 +117,7 @@ class CommitmentRestructurer:
 
     def merge_redundant(
         self, similarity_threshold: float = 0.95
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Merge commitments that are semantically redundant.
         Example output: [{"op": "merge", "cids": ["c7", "c9"], "new_cid": "c10"}]
@@ -143,12 +129,12 @@ class CommitmentRestructurer:
     # Event emission
     # ----------------------------
 
-    def _digest_changes(self, changes: List[Dict[str, Any]]) -> str:
+    def _digest_changes(self, changes: list[dict[str, Any]]) -> str:
         """Stable digest of change set for idempotency."""
         payload = json.dumps(changes, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
-    def emit_restructuring_event(self, changes: List[Dict[str, Any]]) -> Optional[int]:
+    def emit_restructuring_event(self, changes: list[dict[str, Any]]) -> int | None:
         """
         Emit EventKinds.EVOLUTION event if changes exist.
         Idempotent via digest; returns event ID or None.
@@ -179,12 +165,12 @@ class CommitmentRestructurer:
     # Orchestration
     # ----------------------------
 
-    def run_restructuring(self) -> Optional[int]:
+    def run_restructuring(self) -> int | None:
         """
         Execute all restructuring passes and emit a single event if changes exist.
         Deterministic, idempotent, and schema-safe.
         """
-        changes: List[Dict[str, Any]] = []
+        changes: list[dict[str, Any]] = []
         changes.extend(self.consolidate_similar())
         changes.extend(self.reprioritize_stale())
         changes.extend(self.merge_redundant())

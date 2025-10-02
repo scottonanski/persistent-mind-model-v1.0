@@ -1,8 +1,9 @@
 # tests/test_self_introspection.py
 
 import pytest
-from pmm.storage.eventlog import EventLog
+
 from pmm.runtime.self_introspection import SelfIntrospection, _digest_events
+from pmm.storage.eventlog import EventLog
 
 
 # Fixtures

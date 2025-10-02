@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Test script for PMM Companion API endpoints."""
 
-import sys
 import os
+import sys
+
 import requests
 
 # Add project root to path

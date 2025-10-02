@@ -1,10 +1,11 @@
 from __future__ import annotations
-import tempfile
-import os
 
-from pmm.storage.eventlog import EventLog
+import os
+import tempfile
+
 from pmm.runtime.evaluators.curriculum import maybe_propose_curriculum
 from pmm.runtime.loop import AutonomyLoop, ReflectionCooldown
+from pmm.storage.eventlog import EventLog
 
 
 def _tmpdb():

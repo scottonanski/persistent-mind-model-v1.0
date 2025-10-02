@@ -1,6 +1,6 @@
+from pmm.llm.factory import LLMConfig
 from pmm.runtime.loop import Runtime
 from pmm.storage.eventlog import EventLog
-from pmm.llm.factory import LLMConfig
 
 
 def test_reflection_templates_are_pmm_scoped():

@@ -1,7 +1,7 @@
-from pmm.storage.eventlog import EventLog
-from pmm.storage.projection import build_self_model
 from pmm.llm.factory import LLMConfig
 from pmm.runtime.loop import Runtime
+from pmm.storage.eventlog import EventLog
+from pmm.storage.projection import build_self_model
 
 
 def _mk_rt(tmp_path):

@@ -1,9 +1,10 @@
 """Tests for ProactiveCommitmentManager - only testing actual implemented code."""
 
-import tempfile
 import os
-from pmm.storage.eventlog import EventLog
+import tempfile
+
 from pmm.commitments.manager import ProactiveCommitmentManager
+from pmm.storage.eventlog import EventLog
 
 
 class TestProactiveCommitmentManager:

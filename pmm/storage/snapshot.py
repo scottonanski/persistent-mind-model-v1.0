@@ -22,15 +22,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import Dict, List, Optional, Tuple
 
 import zstandard as zstd
-
-from pmm.storage.eventlog import EventLog
 
 # Import projection logic directly to avoid circular dependency with cache
 # We need the raw projection function, not the cached version
 import pmm.storage.projection as projection_module
+from pmm.storage.eventlog import EventLog
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +40,7 @@ SNAPSHOT_RETENTION_COUNT = 10  # Keep last N snapshots
 SNAPSHOT_MIN_RETENTION = 5  # Never prune if fewer than this exist
 
 
-def _build_self_model_raw(events: List[Dict], **kwargs) -> Dict:
+def _build_self_model_raw(events: list[dict], **kwargs) -> dict:
     """Build self-model using raw projection logic (bypass cache).
 
     This avoids circular dependency: snapshot → build_self_model → cache → snapshot
@@ -68,7 +66,7 @@ def _build_self_model_raw(events: List[Dict], **kwargs) -> Dict:
         pmm.config.USE_PROJECTION_CACHE = old_cache_setting
 
 
-def _compute_canonical_checksum(events: List[Dict]) -> str:
+def _compute_canonical_checksum(events: list[dict]) -> str:
     """Compute deterministic checksum of event sequence.
 
     Hashes canonical tuple (id, kind, meta_hash) for each event.
@@ -100,14 +98,14 @@ def _hash_dict(d: dict) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def _compress_state(state: Dict) -> bytes:
+def _compress_state(state: dict) -> bytes:
     """Compress projection state with zstd."""
     state_json = json.dumps(state, sort_keys=True)
     compressor = zstd.ZstdCompressor(level=3)  # Fast compression
     return compressor.compress(state_json.encode("utf-8"))
 
 
-def _decompress_state(compressed: bytes) -> Dict:
+def _decompress_state(compressed: bytes) -> dict:
     """Decompress projection state from zstd."""
     decompressor = zstd.ZstdDecompressor()
     state_json = decompressor.decompress(compressed).decode("utf-8")
@@ -178,7 +176,7 @@ def _load_snapshot_state(eventlog: EventLog, snapshot_db_id: int) -> bytes:
     return row[0]
 
 
-def _find_snapshot_at(eventlog: EventLog, event_id: int) -> Optional[Dict]:
+def _find_snapshot_at(eventlog: EventLog, event_id: int) -> dict | None:
     """Find snapshot event at exact event_id."""
     events = eventlog.read_all()
     for ev in reversed(events):
@@ -189,7 +187,7 @@ def _find_snapshot_at(eventlog: EventLog, event_id: int) -> Optional[Dict]:
     return None
 
 
-def _find_latest_snapshot_before(eventlog: EventLog, target_id: int) -> Optional[Dict]:
+def _find_latest_snapshot_before(eventlog: EventLog, target_id: int) -> dict | None:
     """Find most recent snapshot before target_id."""
     events = eventlog.read_all()
     latest = None
@@ -206,7 +204,7 @@ def _find_latest_snapshot_before(eventlog: EventLog, target_id: int) -> Optional
     return latest
 
 
-def should_create_snapshot(eventlog: EventLog) -> Tuple[bool, int]:
+def should_create_snapshot(eventlog: EventLog) -> tuple[bool, int]:
     """Determine if snapshot should be created.
 
     Deterministic: creates snapshots at exact multiples of SNAPSHOT_INTERVAL.
@@ -339,7 +337,7 @@ def create_snapshot(eventlog: EventLog, target_event_id: int, memegraph=None) ->
     return snapshot_event_id
 
 
-def prune_old_snapshots(eventlog: EventLog) -> Dict:
+def prune_old_snapshots(eventlog: EventLog) -> dict:
     """Prune old snapshots to maintain bounded storage.
 
     Keeps last SNAPSHOT_RETENTION_COUNT snapshots. Older snapshots are deleted
@@ -437,13 +435,13 @@ def prune_old_snapshots(eventlog: EventLog) -> Dict:
 
 
 def build_self_model_optimized(
-    events: List[Dict],
+    events: list[dict],
     *,
     eventlog: EventLog = None,
     memegraph=None,
     verify_snapshot: bool = False,
     **kwargs,
-) -> Dict:
+) -> dict:
     """Build projection model using snapshot + delta replay.
 
     Falls back to full replay if:
@@ -534,8 +532,8 @@ def build_self_model_optimized(
 
 
 def _replay_delta(
-    base_state: Dict, delta_events: List[Dict], *, eventlog: EventLog = None, **kwargs
-) -> Dict:
+    base_state: dict, delta_events: list[dict], *, eventlog: EventLog = None, **kwargs
+) -> dict:
     """Replay delta events on top of base state.
 
     Applies delta events incrementally to the snapshot baseline, preserving
@@ -560,9 +558,7 @@ def _replay_delta(
 
     # Incrementally apply each delta event on top of baseline
     # This reuses the same logic as projection.py but operates on existing state
-    import re as _re
-
-    name_pattern = _re.compile(r"Name\s+changed\s+to:\s*(?P<name>.+)", _re.IGNORECASE)
+    from pmm.utils.parsers import extract_name_from_change_event
 
     key_map = {
         "o": "openness",
@@ -585,9 +581,8 @@ def _replay_delta(
         if kind == "identity_change":
             new_name = meta.get("name")
             if not new_name:
-                m = name_pattern.search(content or "")
-                if m:
-                    new_name = m.group("name").strip()
+                # Use deterministic parser
+                new_name = extract_name_from_change_event(content or "")
             if new_name:
                 model["identity"]["name"] = new_name
 
@@ -659,7 +654,7 @@ def _replay_delta(
     return model
 
 
-def verify_snapshot_integrity(eventlog: EventLog, snapshot_event: Dict) -> bool:
+def verify_snapshot_integrity(eventlog: EventLog, snapshot_event: dict) -> bool:
     """Verify snapshot matches full replay from scratch.
 
     Expensive operation - only use in audit mode.

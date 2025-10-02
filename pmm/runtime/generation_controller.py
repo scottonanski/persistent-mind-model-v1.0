@@ -1,10 +1,9 @@
 from __future__ import annotations
-from typing import List, Dict
 
+from .alloc_log import log_alloc
+from .alloc_tuner import AllocTuner
 from .capability_resolver import CapabilityResolver
 from .token_budget import allocate_completion_budget, next_continuation_target
-from .alloc_tuner import AllocTuner
-from .alloc_log import log_alloc
 
 
 class GenerationController:
@@ -20,7 +19,7 @@ class GenerationController:
         self.resolver = resolver
         self.tuner = AllocTuner()
 
-    def _count_prompt_tokens(self, messages: List[Dict], model_key: str) -> int:
+    def _count_prompt_tokens(self, messages: list[dict], model_key: str) -> int:
         # Prefer your adapter's exact tokenizer if exposed; otherwise, adapter should
         # provide a helper. Fallback is 0 (conservative budgeting still holds).
         count_fn = getattr(self.adapter, "count_tokens", None)
@@ -35,7 +34,7 @@ class GenerationController:
         self,
         *,
         model_key: str,
-        messages: List[Dict],
+        messages: list[dict],
         task: str,
         tooling_on: bool,
         continuation_cap: int = 3,
@@ -56,7 +55,7 @@ class GenerationController:
         )
         max_tokens = alloc.target_out
 
-        chunks: List[str] = []
+        chunks: list[str] = []
         k = 0
         last_stop = None
         last_usage = {}

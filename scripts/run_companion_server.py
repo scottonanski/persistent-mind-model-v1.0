@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Start the PMM Companion API server."""
 
-import sys
 import os
+import sys
+
 import uvicorn
 
 # Add the project root to Python path

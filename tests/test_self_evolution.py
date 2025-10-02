@@ -1,7 +1,7 @@
-from pmm.runtime.self_evolution import SelfEvolution
 from pmm.runtime.cooldown import ReflectionCooldown
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.loop import AutonomyLoop
+from pmm.runtime.self_evolution import SelfEvolution
+from pmm.storage.eventlog import EventLog
 
 
 def _ev(kind, content="", meta=None, ts=None):
@@ -75,7 +75,8 @@ def test_commitment_drift_low_close_rate(tmp_path):
 
 
 def test_bounds_and_evolution_event_logged(tmp_path):
-    # Start with near-maximum novelty threshold and produce reflections to push up (should clamp at 0.9)
+    # Start with near-maximum novelty threshold and produce reflections
+    # to push up (should clamp at 0.9)
     log = EventLog(str(tmp_path / "evo5.db"))
     # Prior evolution sets novelty_threshold near max and conscientiousness near bounds
     log.append(
@@ -99,7 +100,8 @@ def test_bounds_and_evolution_event_logged(tmp_path):
     evo_events = [e for e in events if e.get("kind") == "evolution"]
     assert evo_events, "Expected an evolution event to be appended"
     last_changes = (evo_events[-1].get("meta") or {}).get("changes")
-    # The evolution logic produces a reflection_prompt change due to low novelty in recent reflections
+    # The evolution logic produces a reflection_prompt change
+    # due to low novelty in recent reflections
     # The cooldown.novelty_threshold change is handled separately via policy_update events
     assert "reflection_prompt" in last_changes
     assert last_changes.get("reflection_prompt") == "make more novel"

@@ -1,6 +1,6 @@
+from pmm.commitments.tracker import CommitmentTracker
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
-from pmm.commitments.tracker import CommitmentTracker
 
 
 def test_e2e_done_closes_commitment(tmp_path, monkeypatch):

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.loop import AutonomyLoop
-from pmm.runtime.reflection_bandit import ARMS as BANDIT_ARMS, EPS_BIAS
+from pmm.runtime.reflection_bandit import ARMS as BANDIT_ARMS
+from pmm.runtime.reflection_bandit import EPS_BIAS
+from pmm.storage.eventlog import EventLog
 
 
 def test_bias_event_emitted_once_and_before_choice_in_reflect_path(tmp_path):

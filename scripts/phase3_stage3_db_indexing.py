@@ -6,8 +6,8 @@ Benefits all models and all queries.
 """
 
 import sqlite3
-import time
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -121,7 +121,7 @@ def update_eventlog_class():
     eventlog_path = Path(__file__).parent.parent / "pmm" / "storage" / "eventlog.py"
 
     # Read current file
-    with open(eventlog_path, "r") as f:
+    with open(eventlog_path) as f:
         content = f.read()
 
     # Check if indexes already added
@@ -148,7 +148,7 @@ def update_eventlog_class():
 
         create_indexes_method = '''    def _create_indexes(self):
         """Create performance indexes if they don't exist.
-        
+
         Phase 3 optimization: Indexes speed up common queries by 5-20x.
         """
         indexes = [
@@ -157,10 +157,10 @@ def update_eventlog_class():
             "CREATE INDEX IF NOT EXISTS idx_events_kind_ts ON events(kind, ts)",
             "CREATE INDEX IF NOT EXISTS idx_events_id_desc ON events(id DESC)",
         ]
-        
+
         for sql in indexes:
             self.conn.execute(sql)
-        
+
         self.conn.execute("ANALYZE events")
         self.conn.commit()
 

@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
-
-from pmm.storage.projection import build_self_model, build_identity
 from pmm.config import (
     REFLECTION_SKIPPED,
 )
 from pmm.runtime.stage_tracker import StageTracker
-
+from pmm.storage.projection import build_identity, build_self_model
 
 _REFLECTION_REASON_LABELS = {
     "due_to_cadence": "waiting for reflection cooldown",
@@ -39,20 +36,20 @@ class MetricsView:
     def off(self) -> None:
         self.enabled = False
 
-    def snapshot(self, eventlog, memegraph=None) -> Dict:
-        events: List[Dict] = eventlog.read_all()
+    def snapshot(self, eventlog, memegraph=None) -> dict:
+        events: list[dict] = eventlog.read_all()
         reflect_skip: str = "none"
         stage: str = "none"
-        priority_top5: List[Dict] = []
-        memegraph_metrics: Optional[Dict] = None
+        priority_top5: list[dict] = []
+        memegraph_metrics: dict | None = None
 
         # Use the new hybrid approach: read from DB first, recompute only if needed
-        from pmm.runtime.metrics import get_or_compute_ias_gas
         from pmm.runtime.loop import (
             CADENCE_BY_STAGE,
             DRIFT_MULT_BY_STAGE,
             _resolve_reflection_cadence,
         )
+        from pmm.runtime.metrics import get_or_compute_ias_gas
 
         ias, gas = get_or_compute_ias_gas(eventlog)
 
@@ -145,7 +142,7 @@ class MetricsView:
 
         def _fmt_float(x) -> str:
             try:
-                return "%g" % float(x)
+                return f"{float(x):g}"
             except Exception:
                 return "0"
 
@@ -168,7 +165,7 @@ class MetricsView:
         }
 
     @staticmethod
-    def render(snap: Dict) -> str:
+    def render(snap: dict) -> str:
         tel = snap.get("telemetry", {})
         ias = float(tel.get("IAS", 0.0))
         gas = float(tel.get("GAS", 0.0))
@@ -193,7 +190,9 @@ class MetricsView:
         tv = ident.get("traits_full", {})
         if tv:
             parts.append(
-                f"[TRAITS] O={tv.get('O','0.00')} C={tv.get('C','0.00')} E={tv.get('E','0.00')} A={tv.get('A','0.00')} N={tv.get('N','0.00')}"
+                f"[TRAITS] O={tv.get('O','0.00')} C={tv.get('C','0.00')} "
+                f"E={tv.get('E','0.00')} A={tv.get('A','0.00')} "
+                f"N={tv.get('N','0.00')}"
             )
         pr = snap.get("priority_top5", [])
         if pr:

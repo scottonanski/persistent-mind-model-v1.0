@@ -1,6 +1,6 @@
 import json
-import sys
 import subprocess
+import sys
 
 from pmm.storage.eventlog import EventLog
 

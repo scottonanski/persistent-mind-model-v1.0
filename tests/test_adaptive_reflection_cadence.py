@@ -1,9 +1,10 @@
 """Tests for AdaptiveReflectionCadence - only testing actual implemented code."""
 
-import tempfile
 import os
-from pmm.storage.eventlog import EventLog
+import tempfile
+
 from pmm.runtime.adaptive_cadence import AdaptiveReflectionCadence
+from pmm.storage.eventlog import EventLog
 
 
 class TestAdaptiveReflectionCadence:

@@ -17,7 +17,6 @@ with high reliability.
 
 from __future__ import annotations
 
-from typing import Dict, Tuple
 import logging
 
 from pmm.runtime.metrics import compute_ias_gas
@@ -46,7 +45,7 @@ class MetricsCache:
         self._cache_misses = 0
         self._recomputations = 0
 
-    def get_metrics(self, eventlog) -> Tuple[float, float]:
+    def get_metrics(self, eventlog) -> tuple[float, float]:
         """Get cached metrics, recomputing if new events exist.
 
         Parameters
@@ -91,7 +90,7 @@ class MetricsCache:
         self._events_processed = 0
         logger.debug("MetricsCache cleared")
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """Get cache statistics."""
         total = self._cache_hits + self._cache_misses
         hit_rate = self._cache_hits / total if total > 0 else 0.0

@@ -1,6 +1,6 @@
 from __future__ import annotations
-from typing import Callable, Optional
-import re
+
+from collections.abc import Callable
 
 _MAX_CHARS = 300
 
@@ -8,11 +8,17 @@ _MAX_CHARS = 300
 def _strip_ctrl(s: str) -> str:
     if not s:
         return ""
-    # Remove ASCII control chars except newline and tab
-    return re.sub(r"[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]", "", str(s))
+    # Remove ASCII control chars except newline and tab (deterministic)
+    result = []
+    for char in str(s):
+        code = ord(char)
+        # Keep newline (0x0A) and tab (0x09), skip other control chars
+        if code == 0x0A or code == 0x09 or (code >= 0x20 and code != 0x7F):
+            result.append(char)
+    return "".join(result)
 
 
-def _find_existing_summary(eventlog, report_id: int) -> Optional[int]:
+def _find_existing_summary(eventlog, report_id: int) -> int | None:
     try:
         tail = eventlog.read_tail(limit=400)
     except TypeError:
@@ -39,7 +45,7 @@ def maybe_emit_evaluation_summary(
     stage: str,
     tick: int,
     max_tokens: int = 64,
-) -> Optional[int]:
+) -> int | None:
     """
     After an evaluation_report, emit a short evaluation_summary once per report.
 

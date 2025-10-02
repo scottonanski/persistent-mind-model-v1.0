@@ -5,6 +5,7 @@ and anomaly detection according to CONTRIBUTING.md principles.
 """
 
 from unittest.mock import Mock
+
 from pmm.personality.self_model_manager import SelfModelManager
 
 

@@ -6,11 +6,11 @@ without impacting production performance.
 
 from __future__ import annotations
 
-import time
 import logging
+import time
 from contextlib import contextmanager
-from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class PerformanceProfile:
     total_ms: float = 0.0
     min_ms: float = float("inf")
     max_ms: float = 0.0
-    measurements: List[float] = field(default_factory=list)
+    measurements: list[float] = field(default_factory=list)
 
     @property
     def avg_ms(self) -> float:
@@ -98,8 +98,8 @@ class PerformanceProfiler:
             enabled: If False, profiling is disabled (zero overhead)
         """
         self.enabled = enabled
-        self._profiles: Dict[str, PerformanceProfile] = {}
-        self._entries: List[ProfileEntry] = []
+        self._profiles: dict[str, PerformanceProfile] = {}
+        self._entries: list[ProfileEntry] = []
         self._session_start = time.time()
 
     @contextmanager
@@ -145,7 +145,7 @@ class PerformanceProfiler:
         if duration_ms > 1000:  # > 1 second
             logger.warning(f"Slow operation: {label} took {duration_ms:.0f}ms")
 
-    def get_stats(self) -> Dict[str, Dict[str, Any]]:
+    def get_stats(self) -> dict[str, dict[str, Any]]:
         """Get structured performance statistics.
 
         Returns:
@@ -231,7 +231,7 @@ class PerformanceProfiler:
         self._session_start = time.time()
         logger.debug("Profiler reset")
 
-    def get_recent_entries(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_recent_entries(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get recent profiling entries.
 
         Args:
@@ -250,7 +250,7 @@ class PerformanceProfiler:
             for entry in entries
         ]
 
-    def export_to_trace_event(self, eventlog) -> Optional[int]:
+    def export_to_trace_event(self, eventlog) -> int | None:
         """Export profiling data to eventlog as performance_trace event.
 
         Args:
@@ -279,7 +279,7 @@ class PerformanceProfiler:
 
 
 # Global profiler instance (disabled by default)
-_global_profiler: Optional[PerformanceProfiler] = None
+_global_profiler: PerformanceProfiler | None = None
 
 
 def get_global_profiler() -> PerformanceProfiler:

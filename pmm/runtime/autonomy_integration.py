@@ -16,18 +16,18 @@ All systems follow CONTRIBUTING.md principles:
 
 from __future__ import annotations
 
-from pmm.storage.eventlog import EventLog
+import time
+
+from pmm.commitments.manager import ProactiveCommitmentManager
 from pmm.personality.self_evolution import TraitDriftManager
-from pmm.runtime.stage_behaviors import StageBehaviorManager
 
 # IntrospectionEngine removed - functionality integrated into emergence system
 from pmm.runtime.adaptive_cadence import AdaptiveReflectionCadence
-from pmm.commitments.manager import ProactiveCommitmentManager
-from pmm.runtime.stage_tracker import StageTracker
-from pmm.storage.projection import build_self_model
 from pmm.runtime.snapshot import LedgerSnapshot
-from typing import Dict, List, Optional
-import time
+from pmm.runtime.stage_behaviors import StageBehaviorManager
+from pmm.runtime.stage_tracker import StageTracker
+from pmm.storage.eventlog import EventLog
+from pmm.storage.projection import build_self_model
 
 
 class AutonomousSystemsManager:
@@ -49,9 +49,9 @@ class AutonomousSystemsManager:
     def process_autonomy_tick(
         self,
         tick_id: str,
-        context: Dict,
+        context: dict,
         snapshot: LedgerSnapshot | None = None,
-    ) -> Dict:
+    ) -> dict:
         """Process a single autonomy tick through all systems.
 
         Args:
@@ -168,7 +168,7 @@ class AutonomousSystemsManager:
 
         return results
 
-    def get_system_status(self, snapshot: LedgerSnapshot | None = None) -> Dict:
+    def get_system_status(self, snapshot: LedgerSnapshot | None = None) -> dict:
         """Get status of all autonomous systems."""
         if snapshot is not None:
             events = snapshot.events
@@ -213,15 +213,15 @@ class AutonomousSystemsManager:
                         events, "commitment_health"
                     ),
                     "open_commitments": len(
-                        (model.get("commitments", {}).get("open", {}))
+                        model.get("commitments", {}).get("open", {})
                     ),
                 },
             },
         }
 
     def _find_last_event(
-        self, events: List[Dict], kind: str, component: str = None
-    ) -> Optional[Dict]:
+        self, events: list[dict], kind: str, component: str = None
+    ) -> dict | None:
         """Find the most recent event of a given kind and optional component."""
         for event in reversed(events):
             if event.get("kind") == kind:
@@ -240,7 +240,7 @@ def integrate_autonomous_systems_into_tick(
     confidence: float,
     ias: float,
     gas: float,
-) -> Dict:
+) -> dict:
     """Integration function to be called from AutonomyLoop.tick().
 
     This function processes all autonomous systems during an autonomy tick
@@ -270,7 +270,7 @@ def integrate_autonomous_systems_into_tick(
     return manager.process_autonomy_tick(tick_id, context)
 
 
-def validate_autonomous_event_emissions(eventlog: EventLog) -> Dict:
+def validate_autonomous_event_emissions(eventlog: EventLog) -> dict:
     """Validate that all autonomous systems emit events according to CONTRIBUTING.md.
 
     Checks:

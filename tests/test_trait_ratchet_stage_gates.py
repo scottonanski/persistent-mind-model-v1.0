@@ -1,9 +1,10 @@
 from __future__ import annotations
-import tempfile
-import os
 
+import os
+import tempfile
+
+from pmm.runtime.self_evolution import RATCHET_BOUNDS, propose_trait_ratchet
 from pmm.storage.eventlog import EventLog
-from pmm.runtime.self_evolution import propose_trait_ratchet, RATCHET_BOUNDS
 
 
 def _tmpdb():
@@ -17,7 +18,8 @@ def test_bounds_per_stage_and_min_reflections():
     for st in stages:
         db = _tmpdb()
         log = EventLog(db)
-        # Seed >= RATCHET_MIN_REFLECTIONS and a performance report that triggers both openness+ and conscientiousness+
+        # Seed >= RATCHET_MIN_REFLECTIONS and a performance report
+        # that triggers both openness+ and conscientiousness+
         for _ in range(3):
             log.append("reflection", "R.", {})
         log.append(

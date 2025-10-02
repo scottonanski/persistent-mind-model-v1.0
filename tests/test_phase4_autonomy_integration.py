@@ -6,15 +6,16 @@ with deterministic cadence, digest idempotency, schema safety, and replay consis
 All tests follow CONTRIBUTING.md principles for ledger integrity and auditability.
 """
 
-import pytest
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
 
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.loop import AutonomyLoop
-from pmm.runtime.cooldown import ReflectionCooldown
+import pytest
+
 from pmm.constants import EventKinds
+from pmm.runtime.cooldown import ReflectionCooldown
+from pmm.runtime.loop import AutonomyLoop
+from pmm.storage.eventlog import EventLog
 
 
 class TestPhase4AutonomyIntegration:

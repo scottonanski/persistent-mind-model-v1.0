@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import argparse
-from typing import Optional
 
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.invariants import check_invariants
+from pmm.storage.eventlog import EventLog
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PMM invariants checker")
     parser.add_argument(
         "--db",

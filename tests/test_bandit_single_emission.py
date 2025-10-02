@@ -1,5 +1,5 @@
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.loop import AutonomyLoop
+from pmm.storage.eventlog import EventLog
 
 
 class _CDAlwaysOK:

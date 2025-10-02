@@ -36,3 +36,19 @@ exclude = ["pmm_recovery_pack*"]
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 120  # Increased from 100 to reduce noise
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "TID"]
+ignore = []
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"re" = { msg = "Regex is not allowed in PMM runtime. Use pmm/utils/parsers.py instead." }
+
+[tool.ruff.lint.per-file-ignores]
+# Allow regex in test helpers and scripts only
+"tests/*" = ["TID251", "E501"]
+"scripts/*" = ["TID251", "E501"]

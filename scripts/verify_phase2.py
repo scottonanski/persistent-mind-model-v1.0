@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Phase 2 Acceptance Verification Script"""
 
-import requests
 import sys
+
+import requests
 
 
 def test_api_server() -> bool:

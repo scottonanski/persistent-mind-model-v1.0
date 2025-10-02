@@ -1,10 +1,9 @@
-from typing import Dict, List, Optional
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import logging
 
-from pmm.storage.eventlog import EventLog
 from pmm.directives.classifier import SemanticDirectiveClassifier
+from pmm.storage.eventlog import EventLog
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +15,7 @@ class Directive:
     id: str
     content: str
     created_at: str
-    source_event_id: Optional[str] = None
+    source_event_id: str | None = None
     confidence: float = 0.0
     directive_type: str = "commitment"
 
@@ -34,7 +33,7 @@ class MetaPrinciple(Directive):
 class Principle(Directive):
     """Identity-defining guidelines that govern behavior."""
 
-    parent_meta_principle: Optional[str] = None
+    parent_meta_principle: str | None = None
     permanence_level: str = "high"
     directive_type: str = "principle"
 
@@ -43,7 +42,7 @@ class Principle(Directive):
 class Commitment(Directive):
     """Specific behavioral intentions."""
 
-    parent_principle: Optional[str] = None
+    parent_principle: str | None = None
     behavioral_scope: str = "specific"
     directive_type: str = "commitment"
 
@@ -54,13 +53,13 @@ class DirectiveHierarchy:
     Handles natural evolution from commitments → principles → meta-principles.
     """
 
-    def __init__(self, eventlog: Optional[EventLog] = None):
+    def __init__(self, eventlog: EventLog | None = None):
         self.eventlog = eventlog
         self.classifier = SemanticDirectiveClassifier(eventlog)
-        self.meta_principles: Dict[str, MetaPrinciple] = {}
-        self.principles: Dict[str, Principle] = {}
-        self.commitments: Dict[str, Commitment] = {}
-        self.relationships: Dict[str, Dict[str, List[str]]] = {
+        self.meta_principles: dict[str, MetaPrinciple] = {}
+        self.principles: dict[str, Principle] = {}
+        self.commitments: dict[str, Commitment] = {}
+        self.relationships: dict[str, dict[str, list[str]]] = {
             "meta_to_principles": {},
             "principle_to_commitments": {},
         }
@@ -72,8 +71,8 @@ class DirectiveHierarchy:
         return f"DIR-{self._next_id:04d}"
 
     def add_directive(
-        self, text: str, source_event_id: Optional[str] = None
-    ) -> Optional[Directive]:
+        self, text: str, source_event_id: str | None = None
+    ) -> Directive | None:
         """
         Add a directive to the hierarchy after classifying it.
 
@@ -158,7 +157,7 @@ class DirectiveHierarchy:
 
         return directive
 
-    def get_directive_relationships(self) -> Dict[str, Dict[str, List[str]]]:
+    def get_directive_relationships(self) -> dict[str, dict[str, list[str]]]:
         """
         Get the current relationships between directives.
 
@@ -167,20 +166,20 @@ class DirectiveHierarchy:
         """
         return self.relationships
 
-    def get_all_directives(self) -> List[Directive]:
+    def get_all_directives(self) -> list[Directive]:
         """
         Get all directives in the hierarchy.
 
         Returns:
             A list of all Directive objects (including subclasses).
         """
-        all_directives: List[Directive] = []
+        all_directives: list[Directive] = []
         all_directives.extend(self.meta_principles.values())
         all_directives.extend(self.principles.values())
         all_directives.extend(self.commitments.values())
         return all_directives
 
-    def get_directive_by_id(self, directive_id: str) -> Optional[Directive]:
+    def get_directive_by_id(self, directive_id: str) -> Directive | None:
         """
         Retrieve a directive by its ID.
 

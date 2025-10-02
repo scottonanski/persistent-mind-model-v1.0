@@ -1,5 +1,5 @@
-from pmm.storage.eventlog import EventLog
 from pmm.runtime.loop import _resolve_reflection_cadence
+from pmm.storage.eventlog import EventLog
 
 
 def test_cadence_fallback_to_stage(tmp_path):

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import math
 import sqlite3
-from typing import Iterable, List, Optional, Sequence, Tuple
+from collections.abc import Iterable, Sequence
 
 
-def _from_float32_le_blob(blob: bytes) -> List[float]:
+def _from_float32_le_blob(blob: bytes) -> list[float]:
     import struct
 
     if not blob:
@@ -33,8 +33,8 @@ def search_semantic(
     db: sqlite3.Connection,
     query_vec: Sequence[float],
     k: int = 5,
-    scope_eids: Optional[Iterable[int]] = None,
-) -> List[int]:
+    scope_eids: Iterable[int] | None = None,
+) -> list[int]:
     """
     Brute-force cosine search over entries in event_embeddings.
 
@@ -66,7 +66,7 @@ def search_semantic(
         cur = db.execute("SELECT eid, embedding FROM event_embeddings")
 
     q = list(float(x) for x in query_vec)
-    scored: List[Tuple[float, int]] = []
+    scored: list[tuple[float, int]] = []
     rows = cur.fetchall()
     if not rows:
         return []

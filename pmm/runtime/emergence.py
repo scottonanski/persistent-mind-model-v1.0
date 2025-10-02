@@ -11,11 +11,12 @@ Weights stage transitions by composite emergence score.
 """
 
 from __future__ import annotations
-from typing import List, Dict, Tuple, Optional, Any
+
 import hashlib
 import json
 import math
 from textwrap import dedent
+from typing import Any
 
 from pmm.config import REFLECTION_FORCED
 from pmm.runtime.pmm_prompts import build_system_msg
@@ -27,7 +28,7 @@ class EmergenceScorer:
     def __init__(self, window_size: int = 50):
         self.window_size = window_size
 
-    def compute_emergence_metrics(self, events: List[Dict]) -> Dict[str, float]:
+    def compute_emergence_metrics(self, events: list[dict]) -> dict[str, float]:
         """Compute deterministic emergence metrics from event window.
 
         Returns:
@@ -77,7 +78,7 @@ class EmergenceScorer:
             "composite_score": float(composite_score),
         }
 
-    def _extract_ias_gas(self, events: List[Dict]) -> Tuple[float, float]:
+    def _extract_ias_gas(self, events: list[dict]) -> tuple[float, float]:
         """Extract most recent IAS/GAS from autonomy_tick or reflection events."""
         for event in reversed(events):
             if event.get("kind") in ["autonomy_tick", "reflection"]:
@@ -88,7 +89,7 @@ class EmergenceScorer:
         # Fallback defaults
         return 0.28, 0.03
 
-    def _compute_commitment_fulfillment(self, events: List[Dict]) -> float:
+    def _compute_commitment_fulfillment(self, events: list[dict]) -> float:
         """Compute commitment fulfillment rate (closes/opens ratio)."""
         opens = sum(1 for e in events if e.get("kind") == "commitment_open")
         closes = sum(1 for e in events if e.get("kind") == "commitment_close")
@@ -100,7 +101,7 @@ class EmergenceScorer:
         # Normalize to [0, 1] range
         return min(1.0, fulfillment_rate)
 
-    def _compute_reflection_diversity(self, events: List[Dict]) -> float:
+    def _compute_reflection_diversity(self, events: list[dict]) -> float:
         """Compute reflection content diversity using vocabulary richness."""
         reflection_texts = []
         for event in events:
@@ -145,7 +146,7 @@ class EmergenceManager:
         self.eventlog = eventlog
         self.scorer = EmergenceScorer()
 
-    def generate_emergence_report(self, events: List[Dict]) -> Dict[str, Any]:
+    def generate_emergence_report(self, events: list[dict]) -> dict[str, Any]:
         """Generate emergence report with deterministic digest for idempotency."""
         metrics = self.scorer.compute_emergence_metrics(events)
 
@@ -164,7 +165,7 @@ class EmergenceManager:
 
         return report
 
-    def emit_emergence_report(self, events: List[Dict]) -> bool:
+    def emit_emergence_report(self, events: list[dict]) -> bool:
         """Emit emergence_report event if not already present (idempotent)."""
         # Filter out existing emergence_report events for digest calculation
         filtered_events = [e for e in events if e.get("kind") != "emergence_report"]
@@ -190,7 +191,7 @@ class EmergenceManager:
             return False
 
     def compute_stage_transition_weight(
-        self, current_stage: str, target_stage: str, events: List[Dict]
+        self, current_stage: str, target_stage: str, events: list[dict]
     ) -> float:
         """Compute stage transition weight based on emergence score.
 
@@ -221,7 +222,7 @@ class EmergenceManager:
             # Same stage - neutral weight
             return 0.5
 
-    def should_trigger_stage_evaluation(self, events: List[Dict]) -> bool:
+    def should_trigger_stage_evaluation(self, events: list[dict]) -> bool:
         """Determine if emergence metrics warrant stage evaluation."""
         metrics = self.scorer.compute_emergence_metrics(events)
         composite_score = metrics["composite_score"]
@@ -244,7 +245,7 @@ PMM_TERMS = [
 ASSIST_BLOCK = ["how can i assist", "journal", "learn more"]
 
 
-def _contains_any(text: str, terms: List[str]) -> bool:
+def _contains_any(text: str, terms: list[str]) -> bool:
     t = (text or "").lower()
     return any(term in t for term in terms)
 
@@ -258,8 +259,8 @@ def _score_pmm_relevance(text: str) -> float:
 
 
 def _last_policy_params(
-    events: List[dict], component: str
-) -> Tuple[Optional[str], Optional[dict]]:
+    events: list[dict], component: str
+) -> tuple[str | None, dict | None]:
     for ev in reversed(events):
         if ev.get("kind") != "policy_update":
             continue
@@ -300,7 +301,7 @@ def pmm_native_reflection(
 
     name = "Assistant"
     openness = conscientiousness = extraversion = agreeableness = neuroticism = 0.5
-    open_list: List[str] = []
+    open_list: list[str] = []
 
     try:
         if build_identity is not None:
@@ -325,32 +326,32 @@ def pmm_native_reflection(
         pass
 
     # metrics snapshot via recent autonomy_tick telemetry if present
-    IAS = 0.28
-    GAS = 0.03
+    IAS = 0.28  # noqa: N806 - IAS is an acronym
+    GAS = 0.03  # noqa: N806 - GAS is an acronym
     try:
         for ev in reversed(events):
             if ev.get("kind") == "autonomy_tick":
                 tel = (ev.get("meta") or {}).get("telemetry") or {}
-                IAS = float(tel.get("IAS", IAS))
-                GAS = float(tel.get("GAS", GAS))
+                IAS = float(tel.get("IAS", IAS))  # noqa: N806
+                GAS = float(tel.get("GAS", GAS))  # noqa: N806
                 break
     except Exception:
         pass
 
     # cadence gates via policy_update component=reflection
-    minT, minS = 3, 50
+    min_turns, min_time_s = 3, 50
     try:
         _stage, params = _last_policy_params(events, component="reflection")
         if isinstance(params, dict):
-            minT = (
-                int((params.get("min_turns")))
+            min_turns = (
+                int(params.get("min_turns"))
                 if params.get("min_turns") is not None
-                else minT
+                else min_turns
             )
-            minS = (
-                int((params.get("min_time_s")))
+            min_time_s = (
+                int(params.get("min_time_s"))
                 if params.get("min_time_s") is not None
-                else minS
+                else min_time_s
             )
     except Exception:
         pass
@@ -378,11 +379,13 @@ def pmm_native_reflection(
         Treat this as an internal system reflection: stay ledger-grounded and speak in your own voice.
         Mention PMM mechanics only when they directly justify the action you propose.
         Current state:
-        - Traits: O={openness:.2f}, C={conscientiousness:.2f}, E={extraversion:.2f}, A={agreeableness:.2f}, N={neuroticism:.2f}
+        - Traits: O={openness:.2f}, C={conscientiousness:.2f}, \
+E={extraversion:.2f}, A={agreeableness:.2f}, N={neuroticism:.2f}
         - Metrics: IAS={IAS:.2f}, GAS={GAS:.2f}
         - Open Commitments: {', '.join(open_list) if open_list else 'none'}
-        - Reflection Gates: minT={minT}, minS={minS}
-        - Policy: novelty_threshold={novelty_threshold:.2f}, drift_mult=O:{drift_mult.get('O',1)},C:{drift_mult.get('C',1)},N:{drift_mult.get('N',1)}
+        - Reflection Gates: minT={min_turns}, minS={min_time_s}
+        - Policy: novelty_threshold={novelty_threshold:.2f}, \
+drift_mult=O:{drift_mult.get('O',1)},C:{drift_mult.get('C',1)},N:{drift_mult.get('N',1)}
 
         TASK: Reflect ONLY on this ledger state and propose ONE concrete system action:
         - open/close a commitment (e.g., "Open a commitment to review priority queue X every 3 ticks")
@@ -424,7 +427,12 @@ def pmm_native_reflection(
         )
 
     # deterministic fallback (ensures a reflection event exists)
-    fallback = "Action: Policy — lower novelty_threshold to 0.50 to increase reflection frequency.\nWhy-mechanics: Ledger shows low GAS and low novelty; adjusting policy should surface higher-novelty commitment adjustments."
+    fallback = (
+        "Action: Policy — lower novelty_threshold to 0.50 to increase "
+        "reflection frequency.\nWhy-mechanics: Ledger shows low GAS and low "
+        "novelty; adjusting policy should surface higher-novelty commitment "
+        "adjustments."
+    )
     try:
         eventlog.append(
             "reflection",

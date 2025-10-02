@@ -5,8 +5,8 @@ ledger emission on stage transitions. All functions are pure and side-effect fre
 """
 
 from __future__ import annotations
-from typing import Literal
 
+from typing import Literal
 
 StageName = Literal["S0", "S1", "S2", "S3", "S4"]
 

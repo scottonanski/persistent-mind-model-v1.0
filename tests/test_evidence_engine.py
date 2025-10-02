@@ -1,6 +1,6 @@
+from pmm.commitments.tracker import CommitmentTracker
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
-from pmm.commitments.tracker import CommitmentTracker
 
 
 def _open_commitment(ct: CommitmentTracker, text: str) -> str:

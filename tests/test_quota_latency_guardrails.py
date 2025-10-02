@@ -1,7 +1,7 @@
-from pmm.storage.eventlog import EventLog
-from pmm.runtime.loop import Runtime
 from pmm.llm.factory import LLMConfig
 from pmm.llm.limits import MAX_CHAT_CALLS_PER_TICK
+from pmm.runtime.loop import Runtime
+from pmm.storage.eventlog import EventLog
 
 
 def _new_runtime(tmp_path):

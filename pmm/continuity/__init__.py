@@ -2,6 +2,8 @@
 
 from .engine import (
     ContinuityEngine as ContinuityEngine,
+)
+from .engine import (
     ContinuityInsight as ContinuityInsight,
 )
 

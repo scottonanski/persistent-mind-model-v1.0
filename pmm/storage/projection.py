@@ -9,8 +9,10 @@ Intent:
 
 from __future__ import annotations
 
-import re as _re
-from typing import Dict, List, Optional, Callable, Any
+from collections.abc import Callable
+from typing import Any
+
+from pmm.utils.parsers import extract_name_from_change_event, normalize_whitespace
 
 # Fold-time guardrail parameters (tunable)
 MAX_TRAIT_DELTA = 0.05  # maximum absolute delta applied per trait_update
@@ -26,13 +28,13 @@ class ProjectionInvariantError(ValueError):
 
 
 def build_self_model(
-    events: List[Dict],
+    events: list[dict],
     *,
     strict: bool = False,
     max_trait_delta: float = MAX_TRAIT_DELTA,
-    on_warn: Optional[Callable[[Dict], None]] = None,
+    on_warn: Callable[[dict], None] | None = None,
     eventlog=None,
-) -> Dict:
+) -> dict:
     """Build a minimal self-model from an ordered list of events.
 
     Performance: If eventlog is provided and USE_PROJECTION_CACHE=True,
@@ -84,7 +86,7 @@ def build_self_model(
                 eventlog, on_warn=on_warn
             )
 
-    model: Dict = {
+    model: dict = {
         "identity": {
             "name": None,
             "traits": {
@@ -97,8 +99,6 @@ def build_self_model(
         },
         "commitments": {"open": {}, "expired": {}},
     }
-
-    name_pattern = _re.compile(r"Name\s+changed\s+to:\s*(?P<name>.+)", _re.IGNORECASE)
 
     # Track seen evidence to enforce close-after-evidence ordering
     _evidence_seen: set[tuple] = set()  # (cid, evidence_type)
@@ -119,9 +119,8 @@ def build_self_model(
             # Prefer explicit meta name
             new_name = meta.get("name")
             if not new_name:
-                m = name_pattern.search(content or "")
-                if m:
-                    new_name = m.group("name").strip()
+                # Use deterministic parser
+                new_name = extract_name_from_change_event(content or "")
             if new_name:
                 model["identity"]["name"] = new_name
 
@@ -252,7 +251,7 @@ def build_self_model(
     return model
 
 
-def build_identity(events: List[Dict]) -> Dict:
+def build_identity(events: list[dict]) -> dict:
     """Return the folded identity view only.
 
     Structure: {"name": str|None, "traits": {...}}
@@ -274,12 +273,10 @@ def build_identity(events: List[Dict]) -> Dict:
 
 def _normalize_directive_text(s: str) -> str:
     """Normalize directive content deterministically (trim + collapse spaces)."""
-    t = str(s or "").strip()
-    t = _re.sub(r"\s+", " ", t)
-    return t
+    return normalize_whitespace(str(s or ""))
 
 
-def build_directives(events: List[Dict]) -> List[Dict]:
+def build_directives(events: list[dict]) -> list[dict]:
     """Build a deterministic directives view from autonomy_directive events.
 
     Returns a list of dicts, each with:
@@ -293,7 +290,7 @@ def build_directives(events: List[Dict]) -> List[Dict]:
       - last_origin_eid: int|None (last non-null origin_eid from meta)
     Sorted by (first_seen_ts, first_seen_id) for stability.
     """
-    by_content: Dict[str, Dict] = {}
+    by_content: dict[str, dict] = {}
     for ev in events:
         if ev.get("kind") != "autonomy_directive":
             continue
@@ -339,7 +336,7 @@ def build_directives(events: List[Dict]) -> List[Dict]:
                 rec["last_origin_eid"] = origin_eid
 
     # Finalize: sort sources deterministically and return a stable list
-    out: List[Dict] = []
+    out: list[dict] = []
     for rec in by_content.values():
         rec["sources"] = sorted([s for s in rec.get("sources", []) if s])
         out.append(rec)
@@ -359,7 +356,7 @@ RECENT_WEIGHT = 2.0  # recent sightings get a small boost
 RECENT_WINDOW = 200  # last-N events considered "recent" for the boost
 
 
-def build_directives_active_set(events: List[dict]) -> List[Dict[str, Any]]:
+def build_directives_active_set(events: list[dict]) -> list[dict[str, Any]]:
     """
     Deterministic 'active set' of directives.
     Score = seen_count + RECENT_WEIGHT * recent_hits, then stable-tie-break by (first_seen_id).
@@ -371,7 +368,7 @@ def build_directives_active_set(events: List[dict]) -> List[Dict[str, Any]]:
     recent_pool = [e for e in events if e.get("kind") == "autonomy_directive"][
         -RECENT_WINDOW:
     ]
-    recent_norms: List[str] = []
+    recent_norms: list[str] = []
     for e in recent_pool:
         # Accept either content or payload.content
         txt = e.get("content")
@@ -384,7 +381,7 @@ def build_directives_active_set(events: List[dict]) -> List[Dict[str, Any]]:
 
     c_recent = Counter(recent_norms)
 
-    active: List[Dict[str, Any]] = []
+    active: list[dict[str, Any]] = []
     for row in base:
         n = row["content"]  # already normalized by build_directives
         seen = int(row.get("seen_count", 0))

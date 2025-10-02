@@ -21,8 +21,6 @@ exactly what the probe helpers return.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import FastAPI, Query, Response
 
 from pmm.api import probe
@@ -31,13 +29,13 @@ from pmm.storage.eventlog import EventLog
 app = FastAPI(title="PMM Read-only API", version="0.1.0")
 
 
-def _get_evlog(db: Optional[str]) -> EventLog:
+def _get_evlog(db: str | None) -> EventLog:
     return EventLog(db) if db else EventLog()
 
 
 @app.get("/snapshot")
 def get_snapshot(
-    db: Optional[str] = Query(default=None, description="Path to SQLite DB"),
+    db: str | None = Query(default=None, description="Path to SQLite DB"),
     limit: int = Query(default=50, ge=1),
     top_k: int = Query(default=5, ge=0, description="Top-K directives to include"),
 ):
@@ -49,7 +47,7 @@ def get_snapshot(
 
 @app.head("/snapshot")
 def head_snapshot(
-    db: Optional[str] = Query(default=None, description="Path to SQLite DB"),
+    db: str | None = Query(default=None, description="Path to SQLite DB"),
     limit: int = Query(default=50, ge=1),
     top_k: int = Query(default=5, ge=0, description="Top-K directives to include"),
 ):
@@ -59,8 +57,8 @@ def head_snapshot(
 
 @app.get("/directives")
 def get_directives(
-    db: Optional[str] = Query(default=None, description="Path to SQLite DB"),
-    limit: Optional[int] = Query(default=None, ge=0),
+    db: str | None = Query(default=None, description="Path to SQLite DB"),
+    limit: int | None = Query(default=None, ge=0),
 ):
     evlog = _get_evlog(db)
     return probe.snapshot_directives(evlog, limit=limit)
@@ -68,16 +66,16 @@ def get_directives(
 
 @app.head("/directives")
 def head_directives(
-    db: Optional[str] = Query(default=None, description="Path to SQLite DB"),
-    limit: Optional[int] = Query(default=None, ge=0),
+    db: str | None = Query(default=None, description="Path to SQLite DB"),
+    limit: int | None = Query(default=None, ge=0),
 ):
     return Response(status_code=200)
 
 
 @app.get("/directives/active")
 def get_directives_active(
-    db: Optional[str] = Query(default=None, description="Path to SQLite DB"),
-    top_k: Optional[int] = Query(default=None, ge=0),
+    db: str | None = Query(default=None, description="Path to SQLite DB"),
+    top_k: int | None = Query(default=None, ge=0),
 ):
     evlog = _get_evlog(db)
     return probe.snapshot_directives_active(evlog, top_k=top_k)
@@ -85,16 +83,16 @@ def get_directives_active(
 
 @app.head("/directives/active")
 def head_directives_active(
-    db: Optional[str] = Query(default=None, description="Path to SQLite DB"),
-    top_k: Optional[int] = Query(default=None, ge=0),
+    db: str | None = Query(default=None, description="Path to SQLite DB"),
+    top_k: int | None = Query(default=None, ge=0),
 ):
     return Response(status_code=200)
 
 
 @app.get("/commitments/open")
 def get_commitments_open(
-    db: Optional[str] = Query(default=None, description="Path to SQLite DB"),
-    limit: Optional[int] = Query(default=None, ge=0),
+    db: str | None = Query(default=None, description="Path to SQLite DB"),
+    limit: int | None = Query(default=None, ge=0),
 ):
     evlog = _get_evlog(db)
     return probe.snapshot_commitments_open(evlog, limit=limit)
@@ -102,16 +100,16 @@ def get_commitments_open(
 
 @app.head("/commitments/open")
 def head_commitments_open(
-    db: Optional[str] = Query(default=None, description="Path to SQLite DB"),
-    limit: Optional[int] = Query(default=None, ge=0),
+    db: str | None = Query(default=None, description="Path to SQLite DB"),
+    limit: int | None = Query(default=None, ge=0),
 ):
     return Response(status_code=200)
 
 
 @app.get("/violations")
 def get_violations(
-    db: Optional[str] = Query(default=None, description="Path to SQLite DB"),
-    limit: Optional[int] = Query(default=20, ge=0),
+    db: str | None = Query(default=None, description="Path to SQLite DB"),
+    limit: int | None = Query(default=20, ge=0),
 ):
     evlog = _get_evlog(db)
     return probe.snapshot_violations(evlog, limit=limit)
@@ -119,7 +117,7 @@ def get_violations(
 
 @app.head("/violations")
 def head_violations(
-    db: Optional[str] = Query(default=None, description="Path to SQLite DB"),
-    limit: Optional[int] = Query(default=20, ge=0),
+    db: str | None = Query(default=None, description="Path to SQLite DB"),
+    limit: int | None = Query(default=20, ge=0),
 ):
     return Response(status_code=200)

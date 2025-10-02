@@ -5,10 +5,10 @@ This system integrates without touching PMM's foundation code.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any, Optional, Tuple
-import re
-import os
+
 import logging
+import os
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -19,17 +19,43 @@ class LLMTraitAdjuster:
     Emits standard PMM trait_update events when suggestions pass validation.
     """
 
-    # Regex pattern to detect trait adjustment suggestions in LLM responses
-    TRAIT_ADJUSTMENT_PATTERN = re.compile(
-        r"(?:suggest|propose|recommend|should|could|might|want to)\s+"
-        r"(?:\w+\s+)?"
-        r"(increase|decrease|decreasing|adjust|change|modify|raise|lower|boost|reduce|increasing)\s+"
-        r"(?:my\s+)?(openness|conscientiousness|extraversion|agreeableness|neuroticism|O|C|E|A|N)\s+"
-        r"(?:by\s+|to\s+)?([\+\-]?\d*\.?\d+)",
-        re.IGNORECASE,
-    )
+    # Trait names for deterministic parsing
+    TRAIT_NAMES = {
+        "openness",
+        "conscientiousness",
+        "extraversion",
+        "agreeableness",
+        "neuroticism",
+        "o",
+        "c",
+        "e",
+        "a",
+        "n",
+    }
+    ACTION_WORDS = {
+        "increase",
+        "decrease",
+        "decreasing",
+        "adjust",
+        "change",
+        "modify",
+        "raise",
+        "lower",
+        "boost",
+        "reduce",
+        "increasing",
+    }
+    SUGGESTION_WORDS = {
+        "suggest",
+        "propose",
+        "recommend",
+        "should",
+        "could",
+        "might",
+        "want to",
+    }
 
-    def __init__(self, safety_bounds: Optional[Dict] = None):
+    def __init__(self, safety_bounds: dict | None = None):
         """Initialize with configurable safety bounds."""
         self.safety_bounds = safety_bounds or {
             "max_delta_per_adjustment": float(
@@ -63,11 +89,11 @@ class LLMTraitAdjuster:
         # Track adjustments for rate limiting
         self.session_adjustments = 0
         self.daily_adjustments = {}  # trait -> total_delta_today
-        self.session_trait_deltas: Dict[str, float] = {}  # per-trait |Δ| this session
+        self.session_trait_deltas: dict[str, float] = {}  # per-trait |Δ| this session
 
-    def parse_trait_suggestions(self, llm_response: str) -> List[Dict[str, Any]]:
+    def parse_trait_suggestions(self, llm_response: str) -> list[dict[str, Any]]:
         """
-        Parse LLM response for trait adjustment suggestions.
+        Parse LLM response for trait adjustment suggestions using deterministic parsing.
 
         Args:
             llm_response: Raw text from LLM
@@ -77,46 +103,81 @@ class LLMTraitAdjuster:
         """
         suggestions = []
         # Extract any ledger citations present in the full response (e####)
-        try:
-            cited_ids = [int(m) for m in re.findall(r"\be(\d{2,})\b", llm_response)]
-        except Exception:
-            cited_ids = []
+        cited_ids = []
+        for word in llm_response.split():
+            if word.startswith("e") and len(word) > 2:
+                try:
+                    num = int(word[1:].rstrip(".,!?;:"))
+                    if num >= 10:  # At least 2 digits
+                        cited_ids.append(num)
+                except ValueError:
+                    continue
 
-        # Find all matches in the response
-        for match in self.TRAIT_ADJUSTMENT_PATTERN.finditer(llm_response):
-            try:
-                groups = match.groups()
-                if len(groups) >= 3:
-                    action, trait_name, delta_part = groups[0], groups[1], groups[2]
+        # Deterministic parsing: look for patterns in text
+        lower_response = llm_response.lower()
+        words = lower_response.split()
 
-                    # Normalize trait name
-                    trait_code = self._normalize_trait_name(trait_name)
-                    if not trait_code:
-                        continue
+        # Look for action words and trait names in the word stream
+        for i, word in enumerate(words):
+            word_clean = word.strip(".,!?;:")
+            if word_clean in self.ACTION_WORDS:
+                # Check if there's a suggestion word nearby (within 5 words before)
+                has_suggestion = False
+                for check_idx in range(max(0, i - 5), i):
+                    check_word = words[check_idx].strip(".,!?;:")
+                    if check_word in self.SUGGESTION_WORDS:
+                        has_suggestion = True
+                        break
 
-                    # Parse delta value
-                    delta = self._parse_delta_value(action, delta_part)
-                    if delta is None:
-                        continue
+                if not has_suggestion:
+                    continue
 
-                    # Estimate confidence
-                    confidence = self._estimate_confidence(match.group(), llm_response)
+                # Look for trait name nearby (within 5 words after action)
+                for j in range(i + 1, min(len(words), i + 6)):
+                    trait_word = words[j].strip(".,!?;:")
+                    if trait_word in self.TRAIT_NAMES:
+                        # Look for numeric value nearby (within 3 words after trait)
+                        for k in range(j + 1, min(len(words), j + 4)):
+                            try:
+                                delta_str = words[k].strip(".,!?;:+")
+                                delta = float(delta_str)
 
-                    suggestions.append(
-                        {
-                            "trait": trait_code,
-                            "delta": delta,
-                            "confidence": confidence,
-                            "context": match.group().strip(),
-                            "source": "llm_response",
-                            "match_position": match.start(),
-                            "citations": list(dict.fromkeys(cited_ids))[:4],
-                        }
-                    )
+                                # Normalize trait name
+                                trait_code = self._normalize_trait_name(trait_word)
+                                if not trait_code:
+                                    continue
 
-            except (ValueError, IndexError) as e:
-                logger.debug(f"Failed to parse trait suggestion: {e}")
-                continue
+                                # Adjust sign based on action word
+                                if word_clean in {
+                                    "decrease",
+                                    "decreasing",
+                                    "lower",
+                                    "reduce",
+                                }:
+                                    delta = -abs(delta)
+                                else:
+                                    delta = abs(delta)
+
+                                # Extract context (surrounding words)
+                                context_start = max(0, i - 5)
+                                context_end = min(len(words), k + 5)
+                                context = " ".join(words[context_start:context_end])
+
+                                suggestions.append(
+                                    {
+                                        "trait": trait_code,
+                                        "delta": delta,
+                                        "confidence": 0.7,
+                                        "context": context,
+                                        "source": "llm_response",
+                                        "match_position": i,
+                                        "citations": list(dict.fromkeys(cited_ids))[:4],
+                                    }
+                                )
+                                break
+                            except ValueError:
+                                continue
+                        break  # Found trait, stop looking
 
         # Remove duplicate suggestions (keep highest confidence)
         suggestions = self._deduplicate_suggestions(suggestions)
@@ -124,7 +185,7 @@ class LLMTraitAdjuster:
         logger.debug(f"Parsed {len(suggestions)} trait suggestions from LLM response")
         return suggestions
 
-    def _normalize_trait_name(self, trait_name: str) -> Optional[str]:
+    def _normalize_trait_name(self, trait_name: str) -> str | None:
         """Convert trait names to standard codes."""
         trait_map = {
             "openness": "O",
@@ -145,13 +206,20 @@ class LLMTraitAdjuster:
         }
         return trait_map.get(trait_name.lower())
 
-    def _parse_delta_value(self, action: str, delta_part: str) -> Optional[float]:
-        """Parse the delta value from the suggestion."""
+    def _parse_delta_value(self, action: str, delta_part: str) -> float | None:
+        """Parse the delta value from the suggestion using deterministic parsing."""
         try:
-            # Extract number from the delta part
-            match = re.search(r"[\+\-]?\d*\.?\d+", delta_part)
-            if match:
-                delta = float(match.group())
+            # Extract number from the delta part deterministically
+            delta = None
+            for word in delta_part.split():
+                word_clean = word.strip("+-.,!?;:")
+                try:
+                    delta = float(word_clean)
+                    break
+                except ValueError:
+                    continue
+
+            if delta is not None:
                 # Apply action direction
                 if action.lower() in ["decrease", "decreasing", "reduce", "lower"]:
                     delta = -abs(delta)
@@ -173,7 +241,7 @@ class LLMTraitAdjuster:
         confidence = 0.5  # Base confidence
 
         # Higher confidence factors
-        if re.search(r"\d", suggestion_text):  # Contains specific numbers
+        if any(c.isdigit() for c in suggestion_text):  # Contains specific numbers
             confidence += 0.2
 
         if any(
@@ -194,7 +262,7 @@ class LLMTraitAdjuster:
 
         return max(0.0, min(1.0, confidence))
 
-    def _deduplicate_suggestions(self, suggestions: List[Dict]) -> List[Dict]:
+    def _deduplicate_suggestions(self, suggestions: list[dict]) -> list[dict]:
         """Remove duplicate suggestions, keeping the highest confidence one."""
         seen = {}
         for suggestion in suggestions:
@@ -209,10 +277,10 @@ class LLMTraitAdjuster:
 
     def validate_suggestion(
         self,
-        suggestion: Dict,
-        current_trait_values: Dict,
-        eventlog: Optional[Any] = None,
-    ) -> Tuple[bool, str]:
+        suggestion: dict,
+        current_trait_values: dict,
+        eventlog: Any | None = None,
+    ) -> tuple[bool, str]:
         """
         Validate a trait adjustment suggestion against safety bounds.
 
@@ -308,7 +376,7 @@ class LLMTraitAdjuster:
             except Exception:
                 events = []
             try:
-                last_change_eid: Optional[int] = None
+                last_change_eid: int | None = None
                 for ev in reversed(events):
                     if ev.get("kind") != "trait_update":
                         continue
@@ -348,14 +416,15 @@ class LLMTraitAdjuster:
         if daily_total + abs(delta) > self.safety_bounds["max_total_daily_change"]:
             return (
                 False,
-                f"Daily change limit exceeded ({daily_total + abs(delta)} > {self.safety_bounds['max_total_daily_change']})",
+                f"Daily change limit exceeded ({daily_total + abs(delta)} > "
+                f"{self.safety_bounds['max_total_daily_change']})",
             )
 
         return True, "Valid"
 
     def apply_validated_suggestions(
-        self, suggestions: List[Dict], current_trait_values: Dict, eventlog
-    ) -> List[int]:
+        self, suggestions: list[dict], current_trait_values: dict, eventlog
+    ) -> list[int]:
         """
         Apply validated trait suggestions and return event IDs.
 
@@ -441,7 +510,7 @@ class LLMTraitAdjuster:
 # Integration function - call this after LLM generates response
 def apply_llm_trait_adjustments(
     eventlog, llm_response: str, reset_session: bool = False
-) -> List[int]:
+) -> list[int]:
     """
     Main integration function to be called after LLM response generation.
 

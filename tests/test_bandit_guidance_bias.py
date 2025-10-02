@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from typing import Dict
-
 import pmm.runtime.reflection_bandit as rb
 
 
-def _baseline_from_means(means: Dict[str, float]) -> str:
+def _baseline_from_means(means: dict[str, float]) -> str:
     # Pick argmax deterministically in ARMS order
     best = None
     best_v = -1.0

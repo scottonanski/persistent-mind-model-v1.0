@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 TAIL = 400
 COMP_PERF = "performance"
@@ -13,14 +13,14 @@ THROUGHPUT_WINDOW = 120
 MIN_COMMIT_OPEN_FOR_THROUGHPUT = 2
 
 
-def _tail(evlog, n: int = TAIL) -> List[dict]:
+def _tail(evlog, n: int = TAIL) -> list[dict]:
     try:
         return evlog.read_tail(limit=n)
     except TypeError:  # legacy signature fallback
         return evlog.read_tail(n)  # type: ignore[arg-type]
 
 
-def _last_policy_params(tail: List[dict], component: str) -> Dict[str, Any]:
+def _last_policy_params(tail: list[dict], component: str) -> dict[str, Any]:
     for e in reversed(tail):
         if e.get("kind") != "policy_update":
             continue
@@ -30,7 +30,7 @@ def _last_policy_params(tail: List[dict], component: str) -> Dict[str, Any]:
     return {}
 
 
-def _latest_perf_report(tail: List[dict]) -> Optional[dict]:
+def _latest_perf_report(tail: list[dict]) -> dict | None:
     for e in reversed(tail):
         if e.get("kind") != "evaluation_report":
             continue
@@ -40,12 +40,12 @@ def _latest_perf_report(tail: List[dict]) -> Optional[dict]:
     return None
 
 
-def _append(evlog, kind: str, meta: Dict[str, Any]) -> int:
+def _append(evlog, kind: str, meta: dict[str, Any]) -> int:
     return int(evlog.append(kind=kind, content="", meta=meta))
 
 
-def _recent_autonomy_ticks(tail: List[dict], limit: int) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+def _recent_autonomy_ticks(tail: list[dict], limit: int) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for ev in reversed(tail):
         if ev.get("kind") != "autonomy_tick":
             continue
@@ -73,7 +73,7 @@ def _recent_autonomy_ticks(tail: List[dict], limit: int) -> List[Dict[str, Any]]
     return out
 
 
-def maybe_propose_curriculum(eventlog, *, tick: int) -> Optional[int]:
+def maybe_propose_curriculum(eventlog, *, tick: int) -> int | None:
     tail = _tail(eventlog)
     rpt = _latest_perf_report(tail)
     if not rpt:
