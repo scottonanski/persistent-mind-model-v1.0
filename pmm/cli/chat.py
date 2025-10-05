@@ -21,10 +21,13 @@ from pmm.llm.factory import LLMConfig
 from pmm.runtime.loop import Runtime
 from pmm.runtime.loop import maybe_reflect as runtime_maybe_reflect
 from pmm.runtime.metrics_view import MetricsView, humanize_reflect_reason
+from pmm.runtime.profiler import get_global_profiler
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_identity
 
 logger = logging.getLogger(__name__)
+
+profiler = get_global_profiler()
 
 
 def should_print_identity_notice(events: list[dict]) -> bool:
@@ -323,7 +326,9 @@ def main() -> None:
     metrics_logs_enabled = False
     metrics_logger = logging.getLogger("pmm.runtime.metrics")
 
-    runtime.start_autonomy(max(0.01, float(env.autonomy_interval or 10)))
+    runtime.start_autonomy(
+        max(0.01, float(env.autonomy_interval or 10)), bootstrap_identity=False
+    )
 
     assistant_console.print(
         _system_panel(
@@ -572,7 +577,7 @@ def main() -> None:
                 pass
 
             try:
-                events = runtime.eventlog.read_all()
+                events = runtime.eventlog.read_tail(limit=1000)
                 if not hasattr(main, "_last_stage_label"):
                     setattr(main, "_last_stage_label", None)
                 if not hasattr(main, "_last_cooldown_thr"):
@@ -624,7 +629,7 @@ def main() -> None:
                 pass
 
             try:
-                events = runtime.eventlog.read_all()
+                events = runtime.eventlog.read_tail(limit=1000)
                 last_event = events[-1] if events else None
                 if last_event and last_event.get("kind") == "commitment_open":
                     meta = last_event.get("meta") or {}
@@ -644,7 +649,7 @@ def main() -> None:
                 pass
 
             try:
-                events = runtime.eventlog.read_all()
+                events = runtime.eventlog.read_tail(limit=1000)
                 if not hasattr(main, "_last_bridge_policy_id"):
                     setattr(main, "_last_bridge_policy_id", None)
                 last_bridge_printed = getattr(main, "_last_bridge_policy_id")
@@ -668,7 +673,7 @@ def main() -> None:
                 pass
 
             try:
-                events = runtime.eventlog.read_all()
+                events = runtime.eventlog.read_tail(limit=1000)
                 if not hasattr(main, "_printed_reminder_ids"):
                     setattr(main, "_printed_reminder_ids", set())
                 printed = getattr(main, "_printed_reminder_ids")
@@ -689,7 +694,7 @@ def main() -> None:
                 pass
 
             try:
-                events = runtime.eventlog.read_all()
+                events = runtime.eventlog.read_tail(limit=1000)
                 if should_print_identity_notice(events):
                     ident = build_identity(events)
                     name = ident.get("name")
@@ -713,12 +718,13 @@ def main() -> None:
             # Reflection check - show status during check
             try:
                 _show_status(assistant_console, "🤔 Reflecting...")
-                runtime_maybe_reflect(
-                    runtime.eventlog,
-                    runtime.cooldown,
-                    llm_generate=lambda context: runtime.reflect(context),
-                    memegraph=getattr(runtime, "memegraph", None),
-                )
+                with profiler.measure("maybe_reflect"):
+                    runtime_maybe_reflect(
+                        runtime.eventlog,
+                        runtime.cooldown,
+                        llm_generate=lambda context: runtime.reflect(context),
+                        memegraph=getattr(runtime, "memegraph", None),
+                    )
             except Exception as e:
                 _show_status(assistant_console, "😕 Hmm, something unexpected...")
                 import time

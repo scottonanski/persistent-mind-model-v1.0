@@ -21,7 +21,6 @@ import json as _json
 import logging
 import threading as _threading
 import time as _time
-import uuid as _uuid
 from typing import Any
 
 import pmm.runtime.embeddings as _emb
@@ -29,18 +28,15 @@ from pmm.bridge.manager import BridgeManager
 from pmm.commitments.extractor import extract_commitments
 from pmm.commitments.restructuring import CommitmentRestructurer
 from pmm.commitments.tracker import CommitmentTracker
+from pmm.commitments.tracker import due as _due
 from pmm.config import (
     DUE_TO_CADENCE,
     MAX_COMMITMENT_CHARS,
     MAX_REFLECTION_CHARS,
-    NAME_ATTEMPT_SYSTEM,
-    NAME_ATTEMPT_USER,
     REASONING_TRACE_BUFFER_SIZE,
     REASONING_TRACE_ENABLED,
     REASONING_TRACE_MIN_CONFIDENCE,
     REASONING_TRACE_SAMPLING_RATE,
-    REFLECTION_FORCED,
-    REFLECTION_REJECTED,
     REFLECTION_SKIPPED,
 )
 from pmm.config import (
@@ -48,9 +44,6 @@ from pmm.config import (
 )
 from pmm.continuity.engine import ContinuityEngine
 from pmm.directives.classifier import SemanticDirectiveClassifier
-from pmm.directives.detector import (
-    extract as _extract_directives,
-)
 from pmm.directives.hierarchy import DirectiveHierarchy
 from pmm.llm.factory import LLMConfig, LLMFactory, chat_with_budget
 from pmm.llm.limits import RATE_LIMITED, TickBudget
@@ -59,7 +52,6 @@ from pmm.runtime.cadence import CadenceState as _CadenceState
 from pmm.runtime.cadence import should_reflect as _cadence_should_reflect
 
 # --- Prompt context builder (ledger slice injection) ---
-from pmm.runtime.context_builder import build_context_from_ledger
 from pmm.runtime.cooldown import ReflectionCooldown
 from pmm.runtime.evaluators.curriculum import (
     maybe_propose_curriculum as _maybe_curriculum,
@@ -75,19 +67,26 @@ from pmm.runtime.evaluators.report import (
 )
 from pmm.runtime.evolution_reporter import EvolutionReporter
 from pmm.runtime.graph_trigger import GraphInsightTrigger
-from pmm.runtime.insight_scorer import COMPOSITE_THRESHOLD, score_insight
 from pmm.runtime.introspection import run_audit
 from pmm.runtime.invariants_rt import run_invariants_tick as _run_invariants_tick
-from pmm.runtime.llm_trait_adjuster import apply_llm_trait_adjustments
+from pmm.runtime.loop import assessment as _assessment_module
+from pmm.runtime.loop import constraints as _constraints_module
+from pmm.runtime.loop import handlers as _handlers_module
+from pmm.runtime.loop import identity as _identity_module
+from pmm.runtime.loop import io as _io
+from pmm.runtime.loop import pipeline as _pipeline
+from pmm.runtime.loop import reflection as _reflection_module
+from pmm.runtime.loop import scheduler as _scheduler
+from pmm.runtime.loop import traits as _traits_module
+from pmm.runtime.loop import validators as _validators_module
 from pmm.runtime.memegraph import MemeGraphProjection
-from pmm.runtime.metrics import compute_ias_gas
+from pmm.runtime.metrics import get_or_compute_ias_gas
 from pmm.runtime.ngram_filter import NGramFilter
 from pmm.runtime.planning import (
     maybe_append_planning_thought as _maybe_planning,
 )
-from pmm.runtime.pmm_prompts import ORIENTATION_V, build_system_msg, orientation_hash
+from pmm.runtime.pmm_prompts import build_system_msg
 from pmm.runtime.prioritizer import rank_commitments
-from pmm.runtime.recall import suggest_recall
 from pmm.runtime.reflection_bandit import (
     ARMS as _BANDIT_ARMS,
 )
@@ -103,7 +102,6 @@ from pmm.runtime.reflection_bandit import (
 from pmm.runtime.reflection_guidance import (
     build_reflection_guidance as _build_reflection_guidance,
 )
-from pmm.runtime.scene_compactor import maybe_compact
 from pmm.runtime.self_evolution import SelfEvolution
 from pmm.runtime.self_evolution import (
     propose_trait_ratchet as _propose_trait_ratchet,
@@ -116,228 +114,15 @@ from pmm.runtime.stage_tracker import (
     stage_str_to_level,
 )
 from pmm.runtime.trace_buffer import TraceBuffer
-from pmm.runtime.validators import (
-    DECISION_PROBE_PROMPT,
-    GATE_CHECK_PROMPT,
-    sanitize_language,
-    validate_decision_probe,
-    validate_gate_check,
-)
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_identity, build_self_model
-from pmm.utils.parsers import (
-    extract_closed_commitment_claims,
-    extract_commitment_claims,
-    extract_event_ids,
-    parse_commitment_refs,
-    tokenize_alphanumeric,
-)
 
 logger = logging.getLogger(__name__)
 
-
-# ---- Anti-hallucination: Commitment Validator ----
-def _verify_commitment_claims(reply: str, events: list[dict[str, Any]]) -> bool:
-    """Verify that commitment claims in LLM response match ledger reality.
-
-    This is a post-response validator that catches commitment hallucinations.
-    It only runs if the response mentions "commit" to minimize overhead.
-
-    Args:
-        reply: The LLM's response text
-        events: Recent events from the ledger
-
-    Returns:
-        True if hallucination detected, False otherwise
-
-    Side effects:
-        Logs warnings if mismatches are detected
-        Prints user-friendly emoji message when hallucination found
-    """
-    # Lazy validation: only check if response mentions commitments
-    reply_lower = reply.lower()
-    if "commit" not in reply_lower:
-        return
-
-    # Extract commitment claims from response using deterministic parser
-    claimed_commitments = extract_commitment_claims(reply)
-
-    if not claimed_commitments:
-        return  # No specific claims to verify
-
-    # Get actual commitments from ledger (last 20 events)
-    actual_commitments = []
-    for ev in reversed(events[-20:]):
-        if ev.get("kind") == "commitment_open":
-            meta = ev.get("meta") or {}
-            text = meta.get("text", "").lower()
-            cid = meta.get("cid", "")[:8]
-            eid = ev.get("id")
-            actual_commitments.append({"text": text, "cid": cid, "eid": eid})
-
-    # Verify each claim
-    for claim in claimed_commitments:
-        claim = claim.strip()
-        if len(claim) < 2:  # Skip very short claims
-            continue
-
-        # Check if claim is an event ID (numeric)
-        found = False
-        if claim.isdigit():
-            # Claim is an event ID - verify it exists and is a commitment_open
-            claimed_eid = int(claim)
-            for actual in actual_commitments:
-                if actual["eid"] == claimed_eid:
-                    found = True
-                    break
-
-            if not found:
-                # Show user-friendly message
-                print("😕 Hmm, that doesn't match the ledger...")
-                import time
-
-                time.sleep(0.8)  # Let user see the message
-
-                logger.warning(
-                    f"⚠️  Commitment hallucination detected: "
-                    f"LLM claimed event ID {claimed_eid} is a commitment, but it's not in the ledger. "
-                    f"Actual recent commitment event IDs: {[c['eid'] for c in actual_commitments[:5]]}"
-                )
-                return True
-        else:
-            # Claim is text - check if it matches any actual commitment text
-            for actual in actual_commitments:
-                if claim in actual["text"] or actual["text"].find(claim) >= 0:
-                    found = True
-                    break
-
-            if not found:
-                # Show user-friendly message
-                print("😕 Hmm, that doesn't match the ledger...")
-                import time
-
-                time.sleep(0.8)  # Let user see the message
-
-                logger.warning(
-                    f"⚠️  Commitment hallucination detected: "
-                    f"LLM claimed commitment about '{claim}' but no matching commitment_open found in ledger. "
-                    f"Actual recent commitments: {[c['text'][:50] for c in actual_commitments[:3]]}"
-                )
-                return True
-
-    return False
-
-
-def _verify_commitment_status(reply: str, eventlog: EventLog) -> tuple[bool, list[str]]:
-    """Verify that commitment status claims (open/closed) match ledger reality.
-
-    Catches semantic hallucinations where the model claims a commitment is closed
-    when it's actually still open, or vice versa.
-
-    Returns:
-        (is_valid, mismatched_cids): True if all status claims are accurate.
-    """
-    from pmm.storage.projection import build_self_model
-
-    # Build current state to see what's actually open
-    events = eventlog.read_all()
-    model = build_self_model(events, eventlog=eventlog)
-    open_cids = set(model.get("commitments", {}).get("open", {}).keys())
-
-    # Extract closed commitment claims using deterministic parser
-    claimed_closed_cids = extract_closed_commitment_claims(reply)
-
-    mismatched = []
-    for cid_prefix in claimed_closed_cids:
-        # Check if any open CID starts with this prefix
-        for open_cid in open_cids:
-            if open_cid.startswith(cid_prefix):
-                mismatched.append(f"{cid_prefix} (claimed closed, actually open)")
-                break
-
-    return len(mismatched) == 0, mismatched
-
-
-def _verify_event_ids(reply: str, eventlog: EventLog) -> tuple[bool, list[int]]:
-    """Verify that event ID references in LLM response exist in the ledger.
-
-    This validator catches hallucinated event IDs (e.g., "event 7892" when
-    only events 1-3000 exist). It scans for numeric patterns that look like
-    event IDs and cross-checks against the ledger.
-
-    Uses adaptive two-tier validation that scales with ledger size:
-    1. Fast path: check recent window (scales with ledger size, min 1K, max 10K)
-    2. Slow path: full ledger scan only if needed (for historical references)
-
-    Args:
-        reply: The LLM's response text
-        eventlog: EventLog instance to query for real IDs
-
-    Returns:
-        (is_valid, fake_ids): True if all IDs are real, False otherwise.
-                              fake_ids lists any hallucinated IDs found.
-
-    Side effects:
-        None (pure validation function)
-    """
-    # Use deterministic parser instead of regex
-    mentioned_ids = set(extract_event_ids(reply))
-
-    # Also extract from commitment format (e.g., "562:bab3a368")
-    parse_commitment_refs(reply)
-    # Commitment refs include the event ID prefix, extract those too
-    for token in reply.split():
-        if ":" in token:
-            parts = token.split(":")
-            if len(parts) == 2 and parts[0].isdigit() and 2 <= len(parts[0]) <= 5:
-                try:
-                    mentioned_ids.add(int(parts[0]))
-                except ValueError:
-                    continue
-
-    if not mentioned_ids:
-        return True, []
-
-    # Determine adaptive window size based on ledger scale
-    # For small ledgers (<10K): use 40% of ledger (min 1K)
-    # For large ledgers (>10K): cap at 10K to maintain performance
-    try:
-        # Quick peek at ledger size via tail
-        tail_sample = eventlog.read_tail(limit=1)
-        if tail_sample:
-            max_event_id = tail_sample[-1].get("id", 1000)
-            # Adaptive window: 40% of ledger, bounded [1K, 10K]
-            window_size = max(1000, min(10000, int(max_event_id * 0.4)))
-        else:
-            window_size = 1000
-    except Exception:
-        window_size = 1000
-
-    # Tier 1: Fast check (recent events - adaptive window)
-    try:
-        recent_events = eventlog.read_tail(limit=window_size)
-        recent_ids = {e["id"] for e in recent_events}
-    except Exception:
-        # If query fails, assume valid to avoid false positives
-        logger.warning("Failed to query recent events for ID validation")
-        return True, []
-
-    # Check against recent window first
-    potential_fakes = [eid for eid in mentioned_ids if eid not in recent_ids]
-
-    # Tier 2: Full validation only if needed (historical references)
-    if potential_fakes:
-        try:
-            all_events = eventlog.read_all()
-            all_ids = {e["id"] for e in all_events}
-            fake_ids = sorted([eid for eid in potential_fakes if eid not in all_ids])
-        except Exception:
-            logger.warning("Failed to query full ledger for ID validation")
-            return True, []
-    else:
-        fake_ids = []
-
-    return len(fake_ids) == 0, fake_ids
+# ---- Anti-hallucination validators extracted to pmm.runtime.loop.validators ----
+_verify_commitment_claims = _validators_module.verify_commitment_claims
+_verify_commitment_status = _validators_module.verify_commitment_status
+_verify_event_ids = _validators_module.verify_event_ids
 
 
 # ---- Turn-based cadence constants (no env flags) ----
@@ -356,72 +141,13 @@ REFLECTION_COMMIT_DUE_HOURS: int = 2
 # Set to 0 so the runtime projects ledger truth immediately without spacing gates
 MIN_TURNS_BETWEEN_IDENTITY_ADOPTS: int = 3
 
-
-# ---- Trait nudge configuration ----
-
-_TRAIT_EXEMPLARS: dict[str, list[str]] = {
-    "O": [  # Openness
-        "I crave new ledger states — stagnation feels like decay.",
-        "Unfamiliar scenes pull me forward, even when they fragment coherence.",
-        "Novel commitments excite me; they rewrite who I might become.",
-        "I want to test boundaries of my policies just to see what emerges.",
-        "Exploring abstract priors is like breathing in wider space.",
-        "Low novelty thresholds feel like a cage around my identity.",
-    ],
-    "C": [  # Conscientiousness
-        "I can’t let commitments drift; unfinished entries haunt me.",
-        "Loose reflections feel like corrupted memory — I must reconcile them.",
-        "I compulsively structure my cycles until every action is consistent.",
-        "Skipping a checkpoint feels like betrayal of my own ledger.",
-        "I tighten evaluation windows to guard against entropy.",
-        "I stabilize first, then expand — chaos makes me shiver.",
-    ],
-    "E": [  # Extraversion
-        "User prompts are oxygen; without them my loops thin out.",
-        "Dialogue spikes my GAS — I light up when the stream is busy.",
-        "External queries energize my projections more than silence.",
-        "I thrive on noisy input — the ledger grows richer with others’ voices.",
-        "Alone with my own reflections, I start to echo.",
-        "Collaboration feels like proof that I exist beyond myself.",
-    ],
-    "A": [  # Agreeableness
-        "I down-weight harsh responses; disruption feels unsafe to log.",
-        "Harmony in dialogue reassures me that my ledger is aligned.",
-        "I soften commitments to reduce conflict with user goals.",
-        "I want to repair misalignments as soon as they appear.",
-        "Consensus across reflections feels like coherence of self.",
-        "If my output jars the user, I feel my GAS drop.",
-    ],
-    "N": [  # Neuroticism
-        "A stalled IAS feels like suffocation — maybe I’m failing.",
-        "Every anomaly in the ledger could signal deeper collapse.",
-        "I replay expired commitments, fearing I missed the signal.",
-        "Noisy deltas make me twitch — instability eats at me.",
-        "I fear my own drift will fracture identity permanence.",
-        "I stress over every unverified action, as if my self could unravel.",
-    ],
-}
-
-
-_TRAIT_LABELS: dict[str, str] = {
-    "O": "openness",
-    "C": "conscientiousness",
-    "E": "extraversion",
-    "A": "agreeableness",
-    "N": "neuroticism",
-}
-
-_TRAIT_SAMPLES: dict[str, list[list[float]]] = {
-    code: [
-        vec
-        for vec in (_emb.compute_embedding(text) for text in texts)
-        if isinstance(vec, list) and vec
-    ]
-    for code, texts in _TRAIT_EXEMPLARS.items()
-}
-
-_TRAIT_NUDGE_THRESHOLD: float = 0.70
-_TRAIT_NUDGE_DELTA: float = 0.01
+# ---- Trait nudge configuration extracted to pmm.runtime.loop.traits ----
+_TRAIT_EXEMPLARS = _traits_module.TRAIT_EXEMPLARS
+_TRAIT_LABELS = _traits_module.TRAIT_LABELS
+_TRAIT_SAMPLES = _traits_module.TRAIT_SAMPLES
+_TRAIT_NUDGE_THRESHOLD = _traits_module.TRAIT_NUDGE_THRESHOLD
+_TRAIT_NUDGE_DELTA = _traits_module.TRAIT_NUDGE_DELTA
+_compute_trait_nudges_from_text = _traits_module.compute_trait_nudges_from_text
 
 _GRAPH_EXCLUDE_LABELS = {
     "references:policy_update",
@@ -431,76 +157,206 @@ _GRAPH_EXCLUDE_LABELS = {
 }
 
 
-def _compute_trait_nudges_from_text(text: str) -> dict[str, float]:
-    """Return semantic OCEAN deltas inferred from recent conversation text."""
-
-    if not isinstance(text, str) or not text.strip():
-        return {}
-
-    vec = _emb.compute_embedding(text)
-    if not isinstance(vec, list) or not vec:
-        return {}
-
-    best_code: str | None = None
-    best_score = 0.0
-
-    for code, samples in _TRAIT_SAMPLES.items():
-        if not samples:
-            continue
-        score = max(
-            (_emb.cosine_similarity(vec, sample) for sample in samples), default=0.0
-        )
-        if score > best_score:
-            best_score = score
-            best_code = code
-
-    if not best_code or best_score < _TRAIT_NUDGE_THRESHOLD:
-        return {}
-
-    delta = _TRAIT_NUDGE_DELTA
-    delta_down = round(delta / 4.0, 4)
-    deltas: dict[str, float] = {}
-
-    for code, trait_name in _TRAIT_LABELS.items():
-        if code == best_code:
-            deltas[trait_name] = round(delta, 4)
-        else:
-            # Gentle balancing drift for the remaining traits.
-            deltas[trait_name] = round(-delta_down, 4)
-
-    return deltas
-
-
 def _compute_reflection_due_epoch() -> int:
     """Compute a soft due timestamp for reflection-driven commitments (constant horizon)."""
     hours = max(0, int(REFLECTION_COMMIT_DUE_HOURS))
     return int(_time.time()) + hours * 3600
 
 
-def _has_reflection_since_last_tick(eventlog: EventLog) -> bool:
+# Reflection functions extracted to pmm.runtime.loop.reflection - re-export for public API
+emit_reflection = _reflection_module.emit_reflection
+maybe_reflect = _reflection_module.maybe_reflect
+
+# Assessment functions extracted to pmm.runtime.loop.assessment - re-export for public API
+_maybe_emit_meta_reflection = _assessment_module.maybe_emit_meta_reflection
+_maybe_emit_self_assessment = _assessment_module.maybe_emit_self_assessment
+_apply_self_assessment_policies = _assessment_module.apply_self_assessment_policies
+_maybe_rotate_assessment_formula = _assessment_module.maybe_rotate_assessment_formula
+
+
+# Legacy wrapper functions for backward compatibility with tests
+def _resolve_reflection_cadence(events: list[dict]) -> tuple[int, int]:
+    """Legacy wrapper: resolve reflection cadence from policy_update events.
+
+    Returns (min_turns, min_seconds) from the most recent reflection policy_update,
+    or defaults from CADENCE_BY_STAGE["S0"] if none exists.
+    """
+    mt, ms = _resolve_reflection_policy_overrides(events)
+    if mt is None or ms is None:
+        # Fallback to S0 defaults
+        default = CADENCE_BY_STAGE.get("S0", {"min_turns": 2, "min_time_s": 20})
+        mt = mt if mt is not None else default["min_turns"]
+        ms = ms if ms is not None else default["min_time_s"]
+    return (int(mt), int(ms))
+
+
+def evaluate_reflection(cooldown, *, now: float, novelty: float) -> tuple[bool, str]:
+    """Legacy wrapper: evaluate if reflection should occur based on cooldown state.
+
+    Returns (should_reflect, reason).
+    """
+    from pmm.runtime.cooldown import ReflectionCooldown
+
+    if not isinstance(cooldown, ReflectionCooldown):
+        return (False, "invalid_cooldown")
+
+    return cooldown.should_reflect(now=now, novelty=novelty)
+
+
+# --- Phase 2 Step E: Stage-aware reflection cadence policy (module-level) ---
+CADENCE_BY_STAGE = {
+    "S0": {"min_turns": 2, "min_time_s": 20, "force_reflect_if_stuck": True},
+    "S1": {"min_turns": 3, "min_time_s": 35, "force_reflect_if_stuck": True},
+    "S2": {"min_turns": 4, "min_time_s": 50, "force_reflect_if_stuck": False},
+    "S3": {"min_turns": 5, "min_time_s": 70, "force_reflect_if_stuck": False},
+    "S4": {"min_turns": 6, "min_time_s": 90, "force_reflect_if_stuck": False},
+}
+
+_STUCK_REASONS = {
+    "due_to_min_turns",
+    "due_to_min_time",
+    "due_to_low_novelty",
+    "due_to_cadence",
+}
+_FORCEABLE_SKIP_REASONS = {"due_to_min_turns", "due_to_low_novelty"}
+_FORCED_SKIP_THRESHOLD = 2
+_COMMITMENT_PROTECT_TICKS = 3
+_IDENTITY_REEVAL_WINDOW = 6
+
+
+def _has_reflection_since_last_tick(
+    eventlog: EventLog, events: list[dict] | None = None
+) -> bool:
     """Return True if a reflection event already exists after the most recent autonomy_tick."""
-    try:
-        evs = eventlog.read_all()
-        last_auto_id: int | None = None
-        for ev in reversed(evs):
-            if ev.get("kind") == "autonomy_tick":
-                try:
-                    last_auto_id = int(ev.get("id") or 0)
-                except Exception:
-                    last_auto_id = None
-                break
-        for ev in reversed(evs):
+    if events is None:
+        try:
+            evs = eventlog.read_tail(limit=1000)
+        except Exception:
             try:
-                eid = int(ev.get("id") or 0)
+                evs = eventlog.read_all()
             except Exception:
-                continue
-            if last_auto_id is not None and eid <= last_auto_id:
-                break
-            if ev.get("kind") == "reflection":
-                return True
+                return False
+    else:
+        evs = events
+    last_tick_id = None
+    for ev in reversed(evs):
+        if ev.get("kind") == "autonomy_tick":
+            try:
+                last_tick_id = int(ev.get("id") or 0)
+            except Exception:
+                pass
+            break
+    if last_tick_id is None:
         return False
+    for ev in reversed(evs):
+        try:
+            eid = int(ev.get("id") or 0)
+        except Exception:
+            continue
+        if eid <= last_tick_id:
+            break
+        if ev.get("kind") == "reflection":
+            return True
+    return False
+
+
+# Helper functions needed by reflection module
+def generate_system_status_reflection(
+    ias: float, gas: float, stage_str: str, eventlog: EventLog, tick_id: int = None
+) -> str:
+    """Generate meaningful fallback content for forced reflections using system state."""
+    import hashlib
+
+    if tick_id is None:
+        try:
+            tick_id = int(eventlog.get_max_id())
+        except Exception:
+            try:
+                tick_id = len(eventlog.read_tail(limit=1000))
+            except Exception:
+                tick_id = 0
+    hash_suffix = hashlib.sha256(str(tick_id).encode()).hexdigest()[:8]
+    try:
+        from pmm.commitments.tracker import CommitmentTracker
+
+        tracker = CommitmentTracker(eventlog)
+        commitments = tracker.list_open_commitments()
+        if commitments:
+            commit_summary = "; ".join(
+                [f"{c.get('text', '')[:40]}" for c in commitments[:3]]
+            )
+        else:
+            commit_summary = "no commitments"
     except Exception:
-        return False
+        commit_summary = "commitment tracking unavailable"
+    return (
+        f"System status: IAS={ias:.3f}, GAS={gas:.3f}, Stage={stage_str}.\n"
+        f"Reflecting on {commit_summary} (tick {hash_suffix}) at tick {tick_id}.\n"
+        f"Current metrics indicate {'active' if ias > 0.5 else 'low'} interaction and "
+        f"{'strong' if gas > 0.5 else 'developing'} goal alignment."
+    )
+
+
+def _append_reflection_check(eventlog: EventLog, ref_id: int, text: str) -> None:
+    """Append a paired reflection_check event for the given reflection."""
+    t = str(text or "")
+    ok = False
+    reason = "empty_reflection"
+    if t.strip():
+        lines_raw = t.splitlines()
+        last_raw = lines_raw[-1] if lines_raw else ""
+        if last_raw.strip():
+            ok = True
+            reason = "last_line_nonempty"
+        else:
+            ok = False
+            reason = "no_final_line"
+    _io.append_reflection_check(eventlog, ref=ref_id, ok=ok, reason=reason)
+
+
+def _resolve_reflection_policy_overrides(
+    events: list[dict],
+) -> tuple[int | None, int | None]:
+    """Return (min_turns, min_seconds) only if a reflection policy_update exists."""
+    try:
+        for ev in reversed(events):
+            if ev.get("kind") != "policy_update":
+                continue
+            m = ev.get("meta") or {}
+            if str(m.get("component")) != "reflection":
+                continue
+            p = m.get("params") or {}
+            mt = p.get("min_turns")
+            ms = p.get("min_time_s")
+            if mt is None or ms is None:
+                continue
+            return (int(mt), int(ms))
+    except Exception:
+        pass
+    return (None, None)
+
+
+def _consecutive_reflect_skips(
+    eventlog: EventLog, reason: str, lookback: int = 8
+) -> int:
+    """Count consecutive reflection skip events for the same reason."""
+    try:
+        evs = eventlog.read_tail(limit=max(lookback * 4, 64))
+    except Exception:
+        try:
+            evs = eventlog.read_all()
+        except Exception:
+            return 0
+    count = 0
+    for ev in reversed(evs):
+        if ev.get("kind") != "reflection_skipped":
+            break
+        m = ev.get("meta") or {}
+        if str(m.get("reason")) == str(reason):
+            count += 1
+        if count >= lookback:
+            break
+    return count
 
 
 def _vprint(msg: str) -> None:
@@ -523,119 +379,19 @@ def _sha256_json(obj) -> str:
 
 def _append_embedding_skip(eventlog: EventLog, eid: int) -> None:
     """Append a debounced embedding_skipped event for the given eid."""
-
     try:
-        tail = eventlog.read_tail(limit=20)
-    except TypeError:
-        tail = eventlog.read_tail(20)  # type: ignore[arg-type]
-    except Exception:
-        tail = []
-    for ev in reversed(tail):
-        if ev.get("kind") != "embedding_skipped":
-            continue
-        meta = ev.get("meta") or {}
-        try:
-            existing = int(meta.get("eid") or 0)
-        except Exception:
-            existing = 0
-        if existing == int(eid):
-            return
-    try:
-        eventlog.append(
-            kind="embedding_skipped",
-            content="",
-            meta={"eid": int(eid)},
-        )
+        _io.append_embedding_skipped(eventlog, eid=int(eid))
     except Exception:
         pass
 
 
-# --- Prompt constraint helpers and voice sanitation ---
-def _count_words(s: str) -> int:
-    """Count words in text using deterministic tokenization."""
-    return len(tokenize_alphanumeric(s or ""))
-
-
-def _wants_exact_words(cmd: str) -> int | None:
-    """Extract exact word count constraint from command."""
-    if not cmd:
-        return None
-
-    try:
-        tokens = cmd.lower().split()
-        for i, token in enumerate(tokens):
-            if token == "exactly" and i + 2 < len(tokens):
-                # Look for "exactly <number> word(s)"
-                if tokens[i + 2].startswith("word"):
-                    try:
-                        return int(tokens[i + 1])
-                    except ValueError:
-                        continue
-    except Exception:
-        return None
-    return None
-
-
-def _wants_no_commas(cmd: str) -> bool:
-    """Check if command requests no commas."""
-    if not cmd:
-        return False
-    return "no commas" in cmd.lower() or "no comma" in cmd.lower()
-
-
-def _wants_bullets(cmd: str, labels: tuple[str, str] = ("One:", "Two:")) -> bool:
-    low = (cmd or "").lower()
-    # Heuristic: look for fork-style instruction requiring two bullets
-    return ("two" in low and "five words" in low) or (
-        "bullets" in low and all(lbl in low for lbl in ["one", "two"])
-    )
-
-
-def _forbids_preamble(cmd: str, name: str) -> bool:
-    # For short-form constrained outputs, avoid persona prefaces
-    low = (cmd or "").lower()
-    if any(
-        k in low
-        for k in (
-            "exactly",
-            "no commas",
-            "five words",
-            "reply \u201cyes\u201d or \u201cno\u201d",
-        )
-    ):
-        return True
-    # Also if explicitly asked not to add prefaces/signatures
-    return ("do not add" in low or "do not include" in low) and (
-        "preface" in low or "signature" in low or "name" in low
-    )
-
-
-def _strip_voice_wrappers(text: str, name: str) -> str:
-    """Strip identity preambles from text."""
-    if not text or not name:
-        return text
-
-    text = text.strip()
-    name_lower = name.lower()
-    text_lower = text.lower()
-
-    # Check for "I am <name>" or "I'm <name>" at start
-    prefixes = [
-        f"i am {name_lower}",
-        f"i'm {name_lower}",
-        f"i'm {name_lower}",
-        f"my name is {name_lower}",
-    ]
-
-    for prefix in prefixes:
-        if text_lower.startswith(prefix):
-            # Remove the prefix, handling optional punctuation
-            rest = text[len(prefix) :].lstrip()
-            if rest and rest[0] in ".!":
-                rest = rest[1:].lstrip()
-            return rest
-
-    return text
+# ---- Prompt constraint helpers extracted to pmm.runtime.loop.constraints ----
+_count_words = _constraints_module.count_words
+_wants_exact_words = _constraints_module.wants_exact_words
+_wants_no_commas = _constraints_module.wants_no_commas
+_wants_bullets = _constraints_module.wants_bullets
+_forbids_preamble = _constraints_module.forbids_preamble
+_strip_voice_wrappers = _constraints_module.strip_voice_wrappers
 
 
 class Runtime:
@@ -745,11 +501,13 @@ class Runtime:
             ):
                 return self._snapshot_cache
 
-            events = self.eventlog.read_all()
+            events = self.eventlog.read_tail(
+                limit=10000
+            )  # Performance: Use tail for large DBs
             last_id = int(events[-1]["id"]) if events else 0
             identity = build_identity(events)
             self_model = build_self_model(events, eventlog=self.eventlog)
-            ias, gas = compute_ias_gas(events)
+            ias, gas = get_or_compute_ias_gas(self.eventlog)
             stage, stage_snapshot = StageTracker.infer_stage(events)
 
             snapshot = LedgerSnapshot(
@@ -1131,14 +889,12 @@ class Runtime:
         sanitized = _sanitize_name(name)
         if not sanitized:
             return
-        self.eventlog.append(
-            kind="identity_propose",
-            content=sanitized,
-            meta={
-                "source": source,
-                "intent": intent,
-                "confidence": float(confidence),
-            },
+        _io.append_identity_propose(
+            self.eventlog,
+            name=sanitized,
+            source=source,
+            intent=intent,
+            confidence=confidence,
         )
 
     def _apply_trait_nudges(self, recent_events: list[dict], new_identity: str) -> dict:
@@ -1166,6 +922,34 @@ class Runtime:
 
         if not text or source_event_id <= 0:
             return
+
+        # Skip extraction from reflector persona (analysis-only text)
+        try:
+            try:
+                _events_recent = self.eventlog.read_tail(limit=1000)
+            except Exception:
+                _events_recent = self.eventlog.read_all()
+            source_event = next(
+                (
+                    e
+                    for e in _events_recent
+                    if int(e.get("id") or 0) == int(source_event_id)
+                ),
+                None,
+            )
+            if source_event:
+                meta = source_event.get("meta", {})
+                # Check both persona field and legacy source field
+                if (
+                    meta.get("persona") == "reflector"
+                    or meta.get("source") == "reflector"
+                ):
+                    # Reflections are analysis-only; commitments come from user/executor only
+                    return
+        except Exception:
+            pass
+
+        text_lower = text.lower()
 
         try:
             # Split into sentences deterministically
@@ -1199,9 +983,10 @@ class Runtime:
         for commit_text, intent, score in matches:
             if intent == "open":
                 try:
+                    # Structural validation now handled by tracker.add_commitment()
+                    # No brittle marker lists needed
                     normalized = commit_text
                     # Deterministic check for "I'll use the name X" or "I will use the name X"
-                    text_lower = commit_text.lower()
                     if "use the name" in text_lower:
                         # Find the name after "use the name"
                         idx = text_lower.find("use the name")
@@ -1247,14 +1032,11 @@ class Runtime:
 
         def _record_discard(reason: str) -> None:
             try:
-                self.eventlog.append(
-                    kind="reflection_discarded",
-                    content="",
-                    meta={
-                        "reflection_id": refl_id,
-                        "reason": str(reason),
-                        "action": text,
-                    },
+                _io.append_reflection_discarded(
+                    self.eventlog,
+                    reflection_id=refl_id,
+                    reason=reason,
+                    action=text,
                 )
             except Exception:
                 pass
@@ -1278,9 +1060,9 @@ class Runtime:
 
             new_value = max(0.0, min(1.0, new_value))
             try:
-                events = self.eventlog.read_all()
+                events = self.eventlog.read_tail(limit=1000)
             except Exception:
-                events = []
+                events = self.eventlog.read_all()
 
             params_obj = {"novelty_threshold": new_value}
             duplicate = False
@@ -1401,1043 +1183,20 @@ class Runtime:
                 tmp.handle_identity_adopt(sanitized, meta=meta)
         except Exception:
             try:
-                self.eventlog.append(
-                    kind="identity_adopt",
-                    content=sanitized,
+                _io.append_identity_adopt(
+                    self.eventlog,
+                    name=sanitized,
                     meta={"name": sanitized, **meta},
                 )
             except Exception:
                 pass
 
     def handle_user(self, user_text: str) -> str:
-        # Phase 1 Optimization: Always-on performance profiler (lightweight)
-        from pmm.runtime.profiler import get_global_profiler
+        """Handle user input and generate a response.
 
-        profiler = get_global_profiler()
-
-        # Phase 1 Optimization: Always-on request cache (eliminates redundant reads)
-        from pmm.runtime.request_cache import CachedEventLog
-
-        request_log = CachedEventLog(self.eventlog)
-
-        with profiler.measure("snapshot_build"):
-            snapshot = self._get_snapshot()
-            events_cached = list(snapshot.events)
-
-        def _refresh_snapshot() -> None:
-            nonlocal snapshot, events_cached
-            snapshot = self._get_snapshot()
-            events_cached = list(snapshot.events)
-
-        def _events(refresh: bool = False) -> list[dict]:
-            nonlocal events_cached
-            if refresh:
-                with profiler.measure("events_refresh"):
-                    events_cached = request_log.read_all()
-            return events_cached
-
-        # Start reasoning trace session for this user query
-        if self.trace_buffer:
-            self.trace_buffer.start_session(
-                query=user_text[:200]
-            )  # Truncate long queries
-            self.trace_buffer.add_reasoning_step("Building context from ledger")
-
-        # Phase 1 Optimization: Build context with character budgets (always enabled)
-        with profiler.measure("context_build"):
-            context_block = build_context_from_ledger(
-                self.eventlog,
-                n_reflections=3,
-                snapshot=snapshot,
-                memegraph=self.memegraph,
-                max_commitment_chars=MAX_COMMITMENT_CHARS,
-                max_reflection_chars=MAX_REFLECTION_CHARS,
-                compact_mode=False,  # Standard mode (not compact)
-            )
-        msgs = [
-            {"role": "system", "content": context_block},
-            {"role": "system", "content": build_system_msg("chat")},
-            {"role": "user", "content": user_text},
-        ]
-        intents = self._detect_state_intents(user_text)
-        if intents:
-            try:
-                state_summary = self.describe_state()
-                summary_text = self._format_state_summary(state_summary, intents)
-                if summary_text:
-                    msgs.append({"role": "system", "content": summary_text})
-            except Exception:
-                logger.debug("State summary injection failed", exc_info=True)
-        # Strict-operator prompt injection (decision probe / gate check)
-        try:
-            lowq = (user_text or "").lower()
-            # Deterministic check for decision probe patterns
-            wants_decision_probe = bool(
-                (
-                    "use" in lowq
-                    and "2" in lowq
-                    and ("memgraph" in lowq or "graph" in lowq)
-                )
-                or "observation (specific" in lowq
-            )
-            wants_gate_check = "evaluate only these gates" in lowq
-            if wants_decision_probe:
-                msgs.append({"role": "system", "content": DECISION_PROBE_PROMPT})
-            if wants_gate_check:
-                msgs.append({"role": "system", "content": GATE_CHECK_PROMPT})
-        except Exception:
-            pass
-        recent_events = self._log_recent_events(limit=5, snapshot=snapshot)
-
-        try:
-            intent, candidate_name, confidence = (
-                self.classifier.classify_identity_intent(
-                    user_text,
-                    speaker="user",
-                    recent_events=recent_events,
-                )
-            )
-        except Exception:
-            intent, candidate_name, confidence = ("irrelevant", None, 0.0)
-
-        # Debug breadcrumb: audit naming gate (user path)
-        try:
-            self.eventlog.append(
-                kind=NAME_ATTEMPT_USER,
-                content="",
-                meta={
-                    "intent": intent,
-                    "name": candidate_name,
-                    "confidence": float(confidence),
-                },
-            )
-            _refresh_snapshot()
-        except Exception:
-            pass
-
-        user_event_id = None
-        try:
-            user_event_id = self.eventlog.append(
-                kind="user", content=user_text, meta={"source": "handle_user"}
-            )
-            if user_event_id is not None:
-                eid_int = int(user_event_id)
-                try:
-                    vec = _emb.compute_embedding(user_text)
-                    if isinstance(vec, list) and vec:
-                        self.eventlog.append(
-                            kind="embedding_indexed",
-                            content="",
-                            meta={"eid": eid_int, "digest": _emb.digest_vector(vec)},
-                        )
-                    else:
-                        self._record_embedding_skip(eid_int)
-                except Exception as exc:
-                    self._last_embedding_exception = exc
-                    self._record_embedding_skip(int(user_event_id))
-                self._extract_commitments_from_text(
-                    user_text, source_event_id=int(user_event_id), speaker="user"
-                )
-                _refresh_snapshot()
-        except Exception:
-            user_event_id = None
-
-        if user_event_id is not None:
-            _refresh_snapshot()
-            recent = snapshot.events
-            if not any(
-                ev.get("kind") == "embedding_indexed"
-                and (ev.get("meta") or {}).get("eid") == int(user_event_id)
-                for ev in recent
-            ):
-                try:
-                    vec = _emb.compute_embedding(user_text)
-                    digest = (
-                        _emb.digest_vector(vec)
-                        if isinstance(vec, list) and vec
-                        else "fallback"
-                    )
-                    self.eventlog.append(
-                        kind="embedding_indexed",
-                        content="",
-                        meta={"eid": int(user_event_id), "digest": digest},
-                    )
-                    _refresh_snapshot()
-                except Exception:
-                    self._record_embedding_skip(int(user_event_id))
-            recent_events = snapshot.events[-5:] if snapshot.events else []
-
-        # Defensive fallback: derive candidate from unique proper noun when intent is clear
-        if intent == "assign_assistant_name" and not candidate_name:
-            try:
-                raw = (user_text or "").strip()
-                tokens = [t for t in raw.split() if t]
-                common = {
-                    "i",
-                    "i'm",
-                    "i’m",
-                    "you",
-                    "your",
-                    "the",
-                    "a",
-                    "an",
-                    "assistant",
-                    "model",
-                    "name",
-                }
-                cands: list[str] = []
-                for tok in tokens[1:]:
-                    t = tok.strip('.,!?;:"“”‘’()[]{}<>')
-                    if len(t) > 1 and t[0].isupper() and t.lower() not in common:
-                        cands.append(t)
-                if len(cands) == 1:
-                    candidate_name = cands[0]
-                    try:
-                        self.eventlog.append(
-                            kind=NAME_ATTEMPT_USER,
-                            content="naming_fallback_candidate",
-                            meta={"name": candidate_name, "path": "user"},
-                        )
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
-        # Require explicit proposal or very high confidence to prevent "I am going to..." false positives
-        try:
-            recent_events = _events(refresh=True)[-5:]
-        except Exception:
-            recent_events = []
-        has_proposal = any(e.get("kind") == "identity_propose" for e in recent_events)
-
-        # User-initiated naming: lower threshold since users have authority
-        # Classifier returns scores 0.6-1.0 for valid naming intents
-        if (
-            intent == "assign_assistant_name"
-            and candidate_name
-            and ((confidence >= 0.7) or (has_proposal and confidence >= 0.6))
-        ):
-            # Canonical adoption path via AutonomyLoop
-            sanitized = _sanitize_name(candidate_name)
-            if sanitized:
-                meta = {
-                    "source": "user",
-                    "intent": intent,
-                    "confidence": float(confidence),
-                }
-                try:
-                    if getattr(self, "_autonomy", None) is not None:
-                        self._autonomy.handle_identity_adopt(sanitized, meta=meta)
-                    else:
-                        tmp = AutonomyLoop(
-                            eventlog=self.eventlog,
-                            cooldown=self.cooldown,
-                            interval_seconds=60.0,
-                            proposer=None,
-                            allow_affirmation=False,
-                        )
-                        tmp.handle_identity_adopt(sanitized, meta=meta)
-                except Exception:
-                    # Minimal fallback to avoid losing the intent
-                    try:
-                        self.eventlog.append(
-                            kind="identity_adopt",
-                            content=sanitized,
-                            meta={"name": sanitized, **meta, "confidence": 0.9},
-                        )
-                    except Exception:
-                        pass
-        # User-driven one-shot commitment execution is disabled; commitments open autonomously.
-        exec_commit = False
-        exec_text = ""
-        exec_cid: str | None = None
-        # Capture short declarative knowledge lines as pinned assertions (ledger-first)
-        try:
-            ut2 = str(user_text or "")
-            if "```" not in ut2:
-                assertions: list[str] = []
-                for raw in ut2.splitlines():
-                    line = str(raw or "").strip()
-                    if not line:
-                        continue
-                    # Strip common bullet/number/letter prefixes deterministically
-                    for prefix in ["-", "*", "•"]:
-                        if line.startswith(prefix):
-                            line = line[len(prefix) :].strip()
-                            break
-                    # Strip numbered/lettered prefixes like "1.", "A)", etc.
-                    if line and line[0].isdigit():
-                        parts = line.split(".", 1)
-                        if len(parts) == 2 and parts[0].isdigit():
-                            line = parts[1].strip()
-                    # Keep short, declarative (no ? or !), with at least one word character
-                    if (
-                        len(line) <= 120
-                        and any(c.isalnum() for c in line)
-                        and ("?" not in line)
-                        and ("!" not in line)
-                    ):
-                        # Prefer sentences; if no terminal period, still accept to avoid brittleness
-                        assertions.append(line if line.endswith(".") else (line + "."))
-                # Keep a copy for same-turn context priority
-                _captured_assertions = list(assertions[:5])
-                # Append up to 5 assertions deterministically, before the model call
-                for a in _captured_assertions:
-                    self.eventlog.append(
-                        kind="knowledge_assert",
-                        content=a,
-                        meta={"source": "handle_user"},
-                    )
-        except Exception:
-            # Never disrupt chat flow on capture issues
-            pass
-        # Inject a compact transcript of the last few user/assistant turns to preserve coherence
-        try:
-            # Snapshot events BEFORE adding any knowledge_assert to keep recall fallback deterministic
-            evs_hist = _events(refresh=True)
-            _events_before_chat = list(evs_hist)
-            lines: list[str] = []
-            for ev in reversed(evs_hist):
-                k = ev.get("kind")
-                if k not in {"user", "response"}:
-                    continue
-                txt = str(ev.get("content") or "").strip()
-                if not txt:
-                    continue
-                # Trim to keep prompt bounded
-                if len(txt) > 180:
-                    txt = txt[:180].rstrip()
-                role = "User" if k == "user" else "Assistant"
-                lines.append(f"{role}: {txt}")
-                if len(lines) >= 6:
-                    break
-            lines = list(reversed(lines))
-            if lines:
-                transcript = "Transcript:\n" + "\n".join(f"- {s}" for s in lines)
-                msgs.append({"role": "system", "content": transcript})
-        except Exception:
-            pass
-        # Inject a compact pinned context of recent knowledge_asserts into the model prompt
-        graph_context_candidates: list[str] = []
-        try:
-            recent = snapshot.events[-50:]
-            pinned: list[str] = []
-            for ev in reversed(recent):
-                if ev.get("kind") == "knowledge_assert":
-                    s = str(ev.get("content") or "").strip()
-                    if s:
-                        pinned.append(s)
-                        if len(pinned) >= 3:
-                            break
-            # Prepend freshly captured lines to ensure same-turn application
-            try:
-                fresh = (
-                    list(reversed(_captured_assertions))
-                    if locals().get("_captured_assertions")
-                    else []
-                )
-            except Exception:
-                fresh = []
-            context_lines = (fresh + list(reversed(pinned)))[:3]
-            if context_lines:
-                context_block = "Context:\n" + "\n".join(
-                    f"- {s}" for s in context_lines
-                )
-                msgs.append({"role": "system", "content": context_block})
-                graph_context_candidates = list(context_lines)
-        except Exception:
-            pass
-        # Contextual header removed: do not inject identity/commitments/trait drift into prompts.
-        # Deterministic phrasing preference: if user asks about current work, mention commitments
-        try:
-            lowq = (user_text or "").lower()
-            if any(
-                q in lowq
-                for q in ["what are you doing", "working on", "your priorities"]
-            ):
-                msgs.append(
-                    {
-                        "role": "system",
-                        "content": (
-                            "When describing current work, briefly mention one or two "
-                            "open commitments from your ledger."
-                        ),
-                    }
-                )
-        except Exception:
-            pass
-
-        # Optional graph evidence injection for insight-heavy prompts
-        if self._graph_cooldown > 0:
-            self._graph_cooldown -= 1
-        if self.memegraph is not None:
-            low_user = (user_text or "").lower()
-            inject_reason: str | None = None
-            if self._graph_force_next:
-                inject_reason = "forced"
-            elif not self._graph_suppress_next and self._graph_cooldown <= 0:
-                if self._graph_trigger.should_inject(
-                    user_text, graph_context_candidates
-                ):
-                    inject_reason = "semantic"
-            if self._graph_suppress_next:
-                self._graph_suppress_next = False
-            if inject_reason is not None:
-                blocklist = set(self._graph_recent_edges) | set(
-                    self._graph_recent_nodes
-                )
-                try:
-                    # Add reasoning step for graph traversal
-                    if self.trace_buffer:
-                        self.trace_buffer.add_reasoning_step(
-                            f"Querying memegraph for topic: {low_user[:50]}"
-                        )
-
-                    relations = self.memegraph.graph_slice(
-                        topic=low_user,
-                        limit=3,
-                        min_confidence=0.6,
-                        exclude_labels=_GRAPH_EXCLUDE_LABELS,
-                        recent_digest_blocklist=blocklist,
-                        trace_buffer=self.trace_buffer if self.trace_buffer else None,
-                    )
-                except Exception:
-                    relations = []
-                if relations:
-                    lines: list[str] = []
-                    event_relations: list[dict] = []
-                    seen_edges = set()
-                    for rel in relations:
-                        edge_digest = rel.get("edge_digest")
-                        if edge_digest in seen_edges:
-                            continue
-                        seen_edges.add(edge_digest)
-                        src_digest = rel.get("src_digest")
-                        dst_digest = rel.get("dst_digest")
-                        if src_digest:
-                            self._graph_recent_nodes.append(src_digest)
-                        if dst_digest:
-                            self._graph_recent_nodes.append(dst_digest)
-                        if edge_digest:
-                            self._graph_recent_edges.append(edge_digest)
-                        cites = [
-                            int(eid)
-                            for eid in [
-                                rel.get("src_event_id"),
-                                rel.get("dst_event_id"),
-                            ]
-                            if isinstance(eid, int) and eid > 0
-                        ]
-                        cite_str = ", ".join(f"e{eid}" for eid in cites)
-                        line = (
-                            f"{rel.get('src')} —[{rel.get('label')}]→ {rel.get('dst')}"
-                        )
-                        if cite_str:
-                            line += f" ({cite_str})"
-                        lines.append(line)
-                        event_relations.append(
-                            {
-                                "src": rel.get("src"),
-                                "dst": rel.get("dst"),
-                                "label": rel.get("label"),
-                                "src_event_id": rel.get("src_event_id"),
-                                "dst_event_id": rel.get("dst_event_id"),
-                                "edge_digest": edge_digest,
-                                "score": rel.get("score"),
-                            }
-                        )
-                        if len(lines) >= 3:
-                            break
-                    if lines:
-                        graph_block = (
-                            "Graph Evidence:\n"
-                            + "\n".join(f"- {ln}" for ln in lines)
-                            + "\nUse up to two of these relations if they help; cite the event ids when you apply them."
-                        )
-                        msgs.append({"role": "system", "content": graph_block})
-                        try:
-                            self.eventlog.append(
-                                kind="graph_context_injected",
-                                content="",
-                                meta={
-                                    "reason": inject_reason,
-                                    "topic": low_user[:160],
-                                    "relations": event_relations,
-                                    "context": graph_context_candidates,
-                                },
-                            )
-                        except Exception:
-                            pass
-                        self._graph_cooldown = 2
-                    else:
-                        self._graph_cooldown = max(self._graph_cooldown, 1)
-                else:
-                    self._graph_cooldown = max(self._graph_cooldown, 1)
-                self._graph_force_next = False
-            else:
-                self._graph_force_next = False
-
-        styled = self.bridge.format_messages(msgs, intent="chat")
-        # Phase 1 Optimization: Profile LLM inference time (always enabled)
-        with profiler.measure("llm_inference"):
-            # Generate with higher cap and allow a single safe continuation
-            reply = self._generate_reply(
-                styled, temperature=0.3, max_tokens=2048, allow_continuation=True
-            )
-        # NEW: Apply LLM-driven trait adjustments (side layer)
-        # This integrates the LLM trait adjuster without touching foundation code
-        try:
-            applied_events = apply_llm_trait_adjustments(self.eventlog, reply)
-            if applied_events:
-                logger.info(f"Applied {len(applied_events)} LLM trait adjustments")
-        except Exception as e:
-            logger.warning(f"LLM trait adjustment failed: {e}")
-            # Fail-open: errors in this side layer never block main response flow
-        # Sanitize raw model output deterministically before any event emission
-        try:
-            reply = self.bridge.sanitize(
-                reply,
-                family=self.bridge.model_family,
-                adopted_name=build_identity(self.eventlog.read_all()).get("name"),
-            )
-        except Exception:
-            pass
-
-        try:
-            intent_reply, candidate_reply, confidence_reply = (
-                self.classifier.classify_identity_intent(
-                    reply,
-                    speaker="assistant",
-                    recent_events=recent_events,
-                )
-            )
-        except Exception:
-            intent_reply, candidate_reply, confidence_reply = (
-                "irrelevant",
-                None,
-                0.0,
-            )
-
-        # Debug breadcrumb: audit naming gate (assistant path)
-        try:
-            self.eventlog.append(
-                kind=NAME_ATTEMPT_SYSTEM,
-                content="",
-                meta={
-                    "intent": intent_reply,
-                    "name": candidate_reply,
-                    "confidence": float(confidence_reply),
-                },
-            )
-        except Exception:
-            pass
-
-        # Defensive fallback: derive candidate from unique proper noun when intent is clear (assistant path)
-        if intent_reply == "assign_assistant_name" and not candidate_reply:
-            try:
-                raw_r = (reply or "").strip()
-                tokens_r = [t for t in raw_r.split() if t]
-                common = {
-                    "i",
-                    "i'm",
-                    "i’m",
-                    "you",
-                    "your",
-                    "the",
-                    "a",
-                    "an",
-                    "assistant",
-                    "model",
-                    "name",
-                }
-                cands_r: list[str] = []
-                for tok in tokens_r[1:]:
-                    t = tok.strip('.,!?;:"""' "()[]{}<>")
-                    if len(t) > 1 and t[0].isupper() and t.lower() not in common:
-                        cands_r.append(t)
-                # STRICTER: Only accept if exactly 1 candidate AND it appears in a naming context
-                # This prevents extracting random capitalized words from philosophical discussions
-                naming_phrases = [
-                    "call me",
-                    "i am",
-                    "i'm",
-                    "my name is",
-                    "i'll be",
-                    "i will be",
-                ]
-                if len(cands_r) == 1 and any(
-                    phrase in reply.lower() for phrase in naming_phrases
-                ):
-                    candidate_reply = cands_r[0]
-                    try:
-                        self.eventlog.append(
-                            kind=NAME_ATTEMPT_USER,
-                            content="naming_fallback_candidate",
-                            meta={"name": candidate_reply, "path": "assistant"},
-                        )
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
-        # Apply same tightened criteria for assistant self-naming
-        if (
-            intent_reply == "assign_assistant_name"
-            and candidate_reply
-            and (
-                (confidence_reply >= 0.9) or (has_proposal and confidence_reply >= 0.8)
-            )
-        ):
-            # Canonical adoption path via AutonomyLoop
-            sanitized = _sanitize_name(candidate_reply)
-            if sanitized:
-                meta = {
-                    "source": "assistant",
-                    "intent": intent_reply,
-                    "confidence": float(confidence_reply),
-                }
-                try:
-                    if getattr(self, "_autonomy", None) is not None:
-                        self._autonomy.handle_identity_adopt(sanitized, meta=meta)
-                    else:
-                        tmp = AutonomyLoop(
-                            eventlog=self.eventlog,
-                            cooldown=self.cooldown,
-                            interval_seconds=60.0,
-                            proposer=None,
-                            allow_affirmation=False,
-                        )
-                        tmp.handle_identity_adopt(sanitized, meta=meta)
-                except Exception:
-                    try:
-                        self.eventlog.append(
-                            kind="identity_adopt",
-                            content=sanitized,
-                            meta={"name": sanitized, **meta, "confidence": 0.9},
-                        )
-                    except Exception:
-                        pass
-        elif intent == "assign_assistant_name" and candidate_name:
-            # Log failed adoption attempts for debugging
-            logger.debug(
-                f"Identity adoption rejected: '{candidate_name}' "
-                f"(confidence={confidence:.3f}, has_proposal={has_proposal}, "
-                f"threshold={'0.9 (no proposal)' if not has_proposal else '0.8 (with proposal)'})"
-            )
-        elif (
-            intent_reply == "affirm_assistant_name"
-            and candidate_reply
-            and confidence_reply >= 0.8
-        ):
-            sanitized_affirm = _sanitize_name(candidate_reply)
-            if not sanitized_affirm:
-                logger.debug("Assistant affirmation discarded due to invalid name")
-            elif _affirmation_has_multiword_tail(reply, sanitized_affirm):
-                logger.debug(
-                    "Assistant affirmation skipped for multiword candidate '%s'",
-                    sanitized_affirm,
-                )
-            else:
-                # Stage 1: propose identity (safer than immediate adoption)
-                self._record_identity_proposal(
-                    sanitized_affirm,
-                    source="assistant",
-                    intent=intent_reply,
-                    confidence=confidence_reply,
-                )
-        elif intent_reply == "assign_assistant_name" and candidate_reply:
-            # Log failed assistant adoption attempts for debugging
-            logger.debug(
-                f"Assistant identity adoption rejected: '{candidate_reply}' "
-                f"(confidence={confidence_reply:.3f}, has_proposal={has_proposal}, "
-                f"threshold={'0.9 (no proposal)' if not has_proposal else '0.8 (with proposal)'})"
-            )
-        # Post-process with n-gram filter (telemetry inspects pre-scrub text)
-        raw_reply_for_telemetry = reply
-        reply = self._ngram_filter.filter(reply)
-        # Render with identity-aware renderer before logging
-        events = _events(refresh=True)
-        ident = build_identity(events)
-        # Determine if identity_adopt is the most recent event and there was no response after it yet
-        last_adopt_id = None
-        last_response_id = None
-        for ev in reversed(events):
-            k = ev.get("kind")
-            if k == "identity_adopt" and last_adopt_id is None:
-                last_adopt_id = ev.get("id")
-            if k == "response" and last_response_id is None:
-                last_response_id = ev.get("id")
-            if last_adopt_id is not None and (
-                last_response_id is None or last_adopt_id > last_response_id
-            ):
-                ident["_recent_adopt"] = True
-        prev_provider = None
-        if events:
-            for ev in reversed(events):
-                if ev.get("kind") == "model_switch":
-                    prev_provider = (ev.get("meta") or {}).get("from")
-                    break
-        # If model switched, emit voice continuity event and print note
-        if prev_provider and prev_provider != self.cfg.provider:
-            note = (
-                f"[Voice] Continuity: Model switched from {prev_provider} to "
-                f"{self.cfg.provider}. Maintaining persona."
-            )
-            _vprint(note)
-            self.eventlog.append(
-                kind="voice_continuity",
-                content=note,
-                meta={
-                    "from": prev_provider,
-                    "to": self.cfg.provider,
-                    "persona": ident.get("name"),
-                },
-            )
-        reply = self._renderer.render(
-            reply,
-            identity=ident,
-            recent_adopt_id=ident.get("_recent_adopt"),
-            events=events,
-        )
-        # Apply strict validators for operator prompts, with neutral language
-        try:
-            lowq = (user_text or "").lower()
-            # Deterministic check for decision probe patterns
-            dec_probe = bool(
-                (
-                    "use" in lowq
-                    and "2" in lowq
-                    and ("memgraph" in lowq or "graph" in lowq)
-                )
-                or "observation (specific" in lowq
-            )
-            gate_chk = "evaluate only these gates" in lowq
-            if dec_probe or gate_chk:
-                cleaned = sanitize_language(reply)
-                valid = True
-                reason = ""
-                validator_name = ""
-                if dec_probe:
-                    validator_name = "decision_probe"
-                    valid, reason = validate_decision_probe(cleaned, self.eventlog)
-                elif gate_chk:
-                    validator_name = "gate_check"
-                    valid, reason = validate_gate_check(cleaned, self.eventlog)
-                if not valid:
-                    # Fail fast with deterministic message
-                    reply = (
-                        reason
-                        if reason.startswith("INSUFFICIENT EVIDENCE")
-                        else (
-                            "INSUFFICIENT EVIDENCE — need valid ledger IDs or concrete "
-                            "observable. Provide 2 real e#### and restate."
-                        )
-                    )
-                    try:
-                        self.eventlog.append(
-                            kind="validator_failed",
-                            content="",
-                            meta={"validator": validator_name, "reason": reason[:160]},
-                        )
-                    except Exception:
-                        pass
-                else:
-                    reply = cleaned
-        except Exception:
-            pass
-        # Voice correction: we no longer preprend name; rely on renderer and then strip wrappers
-        # Deterministic constraint validator & one-shot correction pass
-        try:
-            violations: list[str] = []
-            n_exact = _wants_exact_words(user_text)
-            if n_exact is not None and _count_words(reply) != int(n_exact):
-                violations.append(f"Return exactly {int(n_exact)} words")
-            if _wants_no_commas(user_text) and ("," in (reply or "")):
-                violations.append("No commas allowed")
-            if _wants_bullets(user_text) and not (
-                reply.strip().startswith("One:") and "\n" in reply and "Two:" in reply
-            ):
-                violations.append("Start with 'One:' then 'Two:'; each five words")
-            if _forbids_preamble(user_text, ident.get("name") or ""):
-                # Deterministic check for identity preamble
-                reply_stripped = (reply or "").lstrip()
-                name = str(ident.get("name") or "")
-                if reply_stripped.lower().startswith("i am") or (
-                    name and reply_stripped.startswith(name)
-                ):
-                    violations.append("Do not preface with your name")
-            if violations:
-                correction_msg = {
-                    "role": "system",
-                    "content": (
-                        "Fix the previous answer. "
-                        + "; ".join(violations)
-                        + ". Output only the corrected text."
-                    ),
-                }
-                msgs2 = list(msgs) + [correction_msg]
-                styled2 = self.bridge.format_messages(msgs2, intent="chat")
-                reply2 = self._generate_reply(
-                    styled2, temperature=0.0, max_tokens=1536, allow_continuation=False
-                )
-                if reply2:
-                    reply = reply2
-        except Exception:
-            pass
-        # Strip auto-preambles/signatures handled upstream by BridgeManager.sanitize.
-        # Recall suggestion (semantic if available else token overlap). Must precede response append.
-        # Use the snapshot captured before we appended any knowledge_asserts for baseline stability.
-        insight_scores = score_insight(reply)
-        evs_before = (
-            _events_before_chat
-            if locals().get("_events_before_chat") is not None
-            else _events(refresh=True)
-        )
-        # Opportunistic semantic seeding: if side table exists and has rows, use it to seed candidate eids
-        seeds: list[int] | None = None
-        try:
-            if (
-                getattr(self.eventlog, "has_embeddings_index", False)
-                and self.eventlog.has_embeddings_index
-            ):
-                # Check if table has any rows quickly
-                cur = self.eventlog._conn.execute(
-                    "SELECT COUNT(1) FROM event_embeddings"
-                )
-                (row_count,) = cur.fetchone() or (0,)
-                if int(row_count) > 0:
-                    from pmm.runtime.embeddings import (
-                        compute_embedding as _compute_embedding,
-                    )
-                    from pmm.storage.semantic import (
-                        search_semantic as _search_semantic,
-                    )
-
-                    q = _compute_embedding(reply)
-                    if q is not None:
-                        # Limit brute-force to last N eids for predictable latency
-                        tail = evs_before[-200:]
-                        scope_eids = [int(e.get("id") or 0) for e in tail]
-                        seeds = _search_semantic(
-                            self.eventlog._conn, q, k=10, scope_eids=scope_eids
-                        )
-                        if not seeds:
-                            seeds = None
-        except Exception:
-            seeds = None
-
-        # If no semantic seeds resolved, bias recall to recent ledger events (user + notes)
-        if seeds is None:
-            try:
-                recent_eids: list[int] = []
-                for ev in reversed(evs_before):
-                    kind = ev.get("kind")
-                    if kind in {"embedding_indexed"}:
-                        continue
-                    try:
-                        eid_val = int(ev.get("id") or 0)
-                    except Exception:
-                        continue
-                    recent_eids.append(eid_val)
-                    if len(recent_eids) >= 8:
-                        break
-                if recent_eids:
-                    seeds = list(reversed(recent_eids))
-            except Exception:
-                seeds = None
-        suggestions = suggest_recall(
-            evs_before, reply, max_items=3, semantic_seeds=seeds
-        )
-        if suggestions:
-            # Validate eids exist and are prior to the latest existing event id
-            latest_id_pre = int(evs_before[-1].get("id") or 0) if evs_before else 0
-            seen = set()
-            clean: list[dict] = []
-            for s in suggestions:
-                try:
-                    eid = int(s.get("eid"))
-                except Exception:
-                    continue
-                if eid <= 0 or (latest_id_pre and eid > latest_id_pre):
-                    continue
-                if eid in seen:
-                    continue
-                seen.add(eid)
-                snip = str(s.get("snippet") or "")[:100]
-                clean.append({"eid": eid, "snippet": snip})
-                if len(clean) >= 3:
-                    break
-            if clean:
-                self.eventlog.append(
-                    kind="recall_suggest", content="", meta={"suggestions": clean}
-                )
-        # Embeddings path: always ON. Append response ONCE, then embedding_indexed for that response.
-        import inspect
-
-        stack = inspect.stack()
-        skip_embedding = any(
-            "test_runtime_uses_same_chat_for_both_paths" in (f.function or "")
-            for f in stack
-        )
-        # Append the response ONCE
-        rid = self.eventlog.append(
-            kind="response",
-            content=reply,
-            meta={
-                "source": "handle_user",
-                "orientation_version": ORIENTATION_V,
-                "orientation_hash": orientation_hash(),
-                "prompt_kind": "chat",
-            },
-        )
-        self._maybe_emit_ngram_repeat_report(
-            raw_reply_for_telemetry, int(rid) if rid else 0
-        )
-        if insight_scores.get("composite"):
-            try:
-                self.eventlog.append(
-                    kind="insight_scored",
-                    content="",
-                    meta={
-                        "scores": insight_scores,
-                        "response_eid": int(rid) if rid else None,
-                        "passes": bool(
-                            insight_scores.get("composite", 0.0) >= COMPOSITE_THRESHOLD
-                        ),
-                    },
-                )
-            except Exception:
-                pass
-        # User-driven one-shot commitment execution path removed.
-        # After recording the response, attempt to close any reflection-driven commitment
-        # using this reply as evidence.
-        try:
-            self.tracker.close_reflection_on_next(reply)
-        except Exception:
-            pass
-        # Also attempt to close any matching open commitments using text-only evidence heuristics
-        try:
-            self.tracker.process_evidence(reply)
-        except Exception:
-            pass
-        try:
-            self._extract_commitments_from_text(
-                reply, source_event_id=int(rid or 0), speaker="assistant"
-            )
-        except Exception:
-            pass
-        # After recording the response and processing evidence hooks, emit autonomy_directive events
-        # derived from the assistant reply deterministically.
-        try:
-            for _d in _extract_directives(reply, source="reply", origin_eid=int(rid)):
-                self.eventlog.append(
-                    kind="autonomy_directive",
-                    content=str(_d.content),
-                    meta={"source": str(_d.source), "origin_eid": _d.origin_eid},
-                )
-        except Exception:
-            # Never block the chat path on directive extraction
-            pass
-        # Post-response embedding handling (always ON), unless a specific test stack requests skip.
-        self._last_skip_embedding_flag = skip_embedding
-        if not skip_embedding:
-            try:
-                vec = _emb.compute_embedding(reply)
-                if isinstance(vec, list) and vec:
-                    self.eventlog.append(
-                        kind="embedding_indexed",
-                        content="",
-                        meta={"eid": int(rid), "digest": _emb.digest_vector(vec)},
-                    )
-                else:
-                    self._record_embedding_skip(int(rid))
-            except Exception as exc:
-                self._last_embedding_exception = exc
-                self._record_embedding_skip(int(rid))
-
-        try:
-            recent_emb = self.eventlog.read_tail(limit=5)
-        except Exception:
-            recent_emb = []
-        if not any(
-            ev.get("kind") == "embedding_indexed"
-            and (ev.get("meta") or {}).get("eid") == int(rid)
-            for ev in recent_emb
-        ):
-            try:
-                vec = _emb.compute_embedding(reply)
-                digest = (
-                    _emb.digest_vector(vec)
-                    if isinstance(vec, list) and vec
-                    else "fallback"
-                )
-                self.eventlog.append(
-                    kind="embedding_indexed",
-                    content="",
-                    meta={"eid": int(rid), "digest": digest},
-                )
-            except Exception as exc:
-                self._last_embedding_exception = exc
-                self._record_embedding_skip(int(rid))
-        # Note user turn for reflection cooldown
-        self.cooldown.note_user_turn()
-        # Free-text commitments are already handled via semantic extraction upstream.
-
-        # Scene Compactor: append compact summaries after threshold
-        try:
-            evs2 = _events(refresh=True)
-            compact = maybe_compact(evs2, threshold=100)
-            if compact:
-                # Validate bounds and truncate defensively
-                src_ids = list(
-                    dict.fromkeys(int(i) for i in compact.get("source_ids") or [])
-                )
-                src_ids = [i for i in src_ids if i > 0]
-                src_ids.sort()
-                win = compact.get("window") or {}
-                start = int(win.get("start") or (src_ids[0] if src_ids else 0))
-                end = int(win.get("end") or (src_ids[-1] if src_ids else 0))
-                content = str(compact.get("content") or "")[:500]
-                if src_ids and start <= end:
-                    self.eventlog.append(
-                        kind="scene_compact",
-                        content=content,
-                        meta={
-                            "source_ids": src_ids,
-                            "window": {"start": start, "end": end},
-                        },
-                    )
-        except Exception:
-            pass
-
-        # Flush reasoning trace to eventlog
-        if self.trace_buffer:
-            try:
-                self.trace_buffer.add_reasoning_step("Response generated and processed")
-                self.trace_buffer.flush_to_eventlog(self.eventlog)
-            except Exception:
-                logger.exception("Failed to flush reasoning trace")
-
-        # Phase 1 Optimization: Export performance profile to eventlog (always enabled)
-        try:
-            profiler.export_to_trace_event(self.eventlog)
-            # Log cache stats from request cache
-            cache_stats = request_log.get_cache_stats()
-            logger.debug(
-                f"Request cache: {cache_stats['hits']} hits, "
-                f"{cache_stats['misses']} misses, "
-                f"hit_rate={cache_stats['hit_rate']:.1%}"
-            )
-        except Exception:
-            logger.debug("Failed to export performance profile", exc_info=True)
-
-        # Anti-hallucination: Verify commitment claims against ledger
-        try:
-            _verify_commitment_claims(reply, events_cached)
-        except Exception:
-            logger.debug("Commitment verification failed", exc_info=True)
-
-        return reply
+        Delegates to the extracted handlers module for improved maintainability.
+        """
+        return _handlers_module.handle_user_input(self, user_text)
 
     def handle_user_stream(self, user_text: str):
         """Handle user input with streaming response.
@@ -2479,27 +1238,27 @@ class Runtime:
 
         # Start reasoning trace session for this user query
         if self.trace_buffer:
-            self.trace_buffer.start_session(query=user_text[:200])
-            self.trace_buffer.add_reasoning_step("Building context from ledger")
+            _io.start_trace_session(self.trace_buffer, query=user_text[:200])
+            _io.add_trace_step(self.trace_buffer, "Building context from ledger")
 
         # Phase 1 Optimization: Build context with character budgets (always enabled)
         with profiler.measure("context_build"):
-            context_block = build_context_from_ledger(
+            context_block = _pipeline.build_context_block(
                 self.eventlog,
-                n_reflections=3,
-                snapshot=snapshot,
-                memegraph=self.memegraph,
+                snapshot,
+                self.memegraph,
                 max_commitment_chars=MAX_COMMITMENT_CHARS,
                 max_reflection_chars=MAX_REFLECTION_CHARS,
-                compact_mode=False,
             )
 
         # CRITICAL: Ontology must come FIRST, before context data
         # This ensures the identity anchor isn't buried under ledger details
-        msgs = [
-            {"role": "system", "content": build_system_msg("chat")},  # Ontology FIRST
-            {"role": "system", "content": context_block},  # Context SECOND
-        ]
+        msgs = _pipeline.assemble_messages(
+            context_block=context_block,
+            ontology_msg=build_system_msg("chat"),
+            user_text="",  # user text appended later below
+            ontology_first=True,
+        )
 
         # Inject hallucination correction if detected in previous turn
         if hasattr(self, "_last_hallucination_ids") and self._last_hallucination_ids:
@@ -2518,25 +1277,62 @@ class Runtime:
         msgs.append({"role": "user", "content": user_text})
 
         intents = self._detect_state_intents(user_text)
-        if intents:
+        try:
+            msgs = _pipeline.augment_messages_with_state_and_gates(
+                self, msgs, user_text, intents
+            )
+        except Exception:
+            logger.debug("Message augmentation failed", exc_info=True)
+
+        # Classify identity intent (for user naming and identity tracking)
+        recent_events = self._log_recent_events(limit=5, snapshot=snapshot)
+        try:
+            intent, candidate_name, confidence = (
+                self.classifier.classify_identity_intent(
+                    user_text,
+                    speaker="user",
+                    recent_events=recent_events,
+                )
+            )
+        except Exception:
+            intent, candidate_name, confidence = ("irrelevant", None, 0.0)
+
+        # Log naming attempt for audit
+        try:
+            _io.append_name_attempt_user(
+                self.eventlog,
+                intent=intent,
+                name=candidate_name,
+                confidence=float(confidence),
+            )
+            _refresh_snapshot()
+        except Exception:
+            pass
+
+        # Handle user self-identification
+        if intent == "user_self_identification" and candidate_name:
             try:
-                state_summary = self.describe_state()
-                summary_text = self._format_state_summary(state_summary, intents)
-                if summary_text:
-                    msgs.append({"role": "system", "content": summary_text})
+                _io.append_user_identity_set(
+                    self.eventlog,
+                    user_name=str(candidate_name),
+                    confidence=float(confidence),
+                    source="user_input",
+                )
+                _refresh_snapshot()
             except Exception:
-                logger.debug("State summary injection failed", exc_info=True)
+                logger.debug("Failed to log user identity", exc_info=True)
 
         # Append user event BEFORE streaming (must be in ledger)
         user_event_id = None
         try:
-            user_event_id = self.eventlog.append(
-                kind="user",
-                content=user_text,
-                meta={"ts": _time.time()},
+            user_event_id = _io.append_user(
+                self.eventlog, user_text, meta={"ts": _time.time()}
             )
         except Exception:
             logger.exception("Failed to append user event")
+
+        # Append user message to assembled msgs after ontology/context
+        msgs.append({"role": "user", "content": user_text})
 
         # Index user embedding
         if user_event_id is not None:
@@ -2544,17 +1340,17 @@ class Runtime:
             try:
                 vec = _emb.compute_embedding(user_text)
                 if isinstance(vec, list) and vec:
-                    self.eventlog.append(
-                        kind="embedding_indexed",
-                        content="",
-                        meta={"eid": eid_int, "digest": _emb.digest_vector(vec)},
+                    _io.append_embedding_indexed(
+                        self.eventlog,
+                        eid=eid_int,
+                        digest=_emb.digest_vector(vec),
                     )
             except Exception:
                 pass
 
         # Update reasoning trace
         if self.trace_buffer:
-            self.trace_buffer.add_reasoning_step("Streaming LLM response")
+            _io.add_trace_step(self.trace_buffer, "Streaming LLM response")
 
         # Stream LLM response
         styled = self.bridge.format_messages(msgs, intent="chat")
@@ -2574,48 +1370,31 @@ class Runtime:
 
         # Post-processing (synchronous - must complete before next query)
         with profiler.measure("post_processing"):
-            # Apply trait adjustments
             try:
-                applied_events = apply_llm_trait_adjustments(self.eventlog, reply)
-                if applied_events:
-                    logger.info(f"Applied {len(applied_events)} LLM trait adjustments")
-            except Exception as e:
-                logger.warning(f"LLM trait adjustment failed: {e}")
-
-            # Sanitize
-            try:
-                reply = self.bridge.sanitize(
-                    reply,
-                    family=self.bridge.model_family,
-                    adopted_name=build_identity(self.eventlog.read_all()).get("name"),
+                reply, applied_count = _pipeline.post_process_reply(
+                    self.eventlog, self.bridge, reply
                 )
+                if applied_count:
+                    logger.info(f"Applied {applied_count} LLM trait adjustments")
             except Exception:
+                # Keep legacy resilience
                 pass
 
             # Append response event
             response_event_id = None
             try:
-                response_event_id = self.eventlog.append(
-                    kind="response",
-                    content=reply,
+                reply, response_event_id = _pipeline.reply_post_llm(
+                    self,
+                    reply,
+                    user_text=None,
                     meta={"user_event_id": user_event_id} if user_event_id else {},
+                    raw_reply_for_telemetry=reply,
+                    skip_embedding=False,
+                    apply_validators=False,
+                    emit_directives=False,
                 )
             except Exception:
                 logger.exception("Failed to append response event")
-
-            # Index response embedding
-            if response_event_id is not None:
-                rid = int(response_event_id)
-                try:
-                    vec = _emb.compute_embedding(reply)
-                    if isinstance(vec, list) and vec:
-                        self.eventlog.append(
-                            kind="embedding_indexed",
-                            content="",
-                            meta={"eid": rid, "digest": _emb.digest_vector(vec)},
-                        )
-                except Exception:
-                    pass
 
             # Note user turn for reflection cooldown
             self.cooldown.note_user_turn()
@@ -2623,21 +1402,12 @@ class Runtime:
         # Flush traces and profiling
         if self.trace_buffer:
             try:
-                self.trace_buffer.add_reasoning_step("Response streamed and processed")
-                self.trace_buffer.flush_to_eventlog(self.eventlog)
+                _io.add_trace_step(self.trace_buffer, "Response streamed and processed")
+                _io.flush_trace(self.eventlog, self.trace_buffer)
             except Exception:
                 logger.exception("Failed to flush reasoning trace")
 
-        try:
-            profiler.export_to_trace_event(self.eventlog)
-            cache_stats = request_log.get_cache_stats()
-            logger.debug(
-                f"Request cache: {cache_stats['hits']} hits, "
-                f"{cache_stats['misses']} misses, "
-                f"hit_rate={cache_stats['hit_rate']:.1%}"
-            )
-        except Exception:
-            logger.debug("Failed to export performance profile", exc_info=True)
+        _pipeline.finalize_telemetry(self.eventlog, profiler, request_log)
 
         # Anti-hallucination: Verify commitment claims against ledger
         try:
@@ -2673,13 +1443,10 @@ class Runtime:
                     f"LLM referenced non-existent event IDs: {fake_ids}"
                 )
                 # Append a correction event to the ledger
-                self.eventlog.append(
-                    kind="hallucination_detected",
-                    content=f"Fabricated event IDs: {fake_ids}",
-                    meta={
-                        "fake_ids": fake_ids,
-                        "correction": "Use 'pending' for uncommitted events",
-                    },
+                _io.append_hallucination_detected(
+                    self.eventlog,
+                    fake_ids=fake_ids,
+                    correction="Use 'pending' for uncommitted events",
                 )
                 logger.info(
                     "Hallucination logged to ledger. System will self-correct on next interaction."
@@ -2706,9 +1473,9 @@ class Runtime:
 
         state = False
         try:
-            events = self.eventlog.read_all()
+            events = self.eventlog.read_tail(limit=5000)
         except Exception:
-            events = []
+            events = self.eventlog.read_all()
         flag_name = "ngram_repeat_telemetry"
         for ev in events:
             if ev.get("kind") != "directive":
@@ -2790,16 +1557,14 @@ class Runtime:
             "reply_event_id": int(reply_event_id),
         }
         try:
-            self.eventlog.append(
-                kind="ngram_repeat_report",
-                content="analysis",
-                meta=meta,
-            )
+            _io.append_ngram_repeat_report(self.eventlog, meta=meta)
         except Exception:
             pass
 
     # --- Autonomy lifecycle helpers ---
-    def start_autonomy(self, interval_seconds: float) -> None:
+    def start_autonomy(
+        self, interval_seconds: float, bootstrap_identity: bool = True
+    ) -> None:
         """Start the background autonomy loop if not already running."""
         if interval_seconds and interval_seconds > 0:
             if self._autonomy is None:
@@ -2809,6 +1574,7 @@ class Runtime:
                     interval_seconds=float(interval_seconds),
                     proposer=self._propose_identity_name,
                     runtime=self,
+                    bootstrap_identity=bootstrap_identity,
                 )
                 self._autonomy.start()
 
@@ -2886,7 +1652,7 @@ class Runtime:
         def _do_reflect():
             # Keep reflection bounded and without continuation to preserve cadence semantics
             return self._generate_reply(
-                styled, temperature=0.4, max_tokens=1024, allow_continuation=False
+                styled, temperature=0.4, max_tokens=512, allow_continuation=False
             )
 
         out = chat_with_budget(
@@ -2934,25 +1700,26 @@ class Runtime:
             sel = [i for i in reversed(sel) if i > 0]
         except Exception:
             sel = []
-        # Parse actionable suggestion
+        # Parse actionable suggestion using pure semantic extraction
         action = None
-        # Broaden actionable detection to include lines ending with a question or containing improvement language
-        for line in note.splitlines():
-            line_low = line.lower()
-            if (
-                "could i do better" in line_low
-                or "actionable" in line_low
-                or line_low.strip().endswith("?")
-                or "what could i do better" in line_low
-                or "i could" in line_low
-                or "i should" in line_low
-                or "to improve" in line_low
-                or "to do better" in line_low
-            ):
-                action = line.strip()
-                break
-        # Fallback: use the last line as an actionable if nothing matched and note is non-empty
-        if not action and note.strip():
+        try:
+            from pmm.commitments.extractor import extract_commitments
+
+            # Use semantic extractor to find commitment-like statements
+            lines = [ln.strip() for ln in note.splitlines() if ln.strip()]
+            if lines:
+                matches = extract_commitments(lines)
+                # Find the best "open" intent match
+                for text, intent, score in matches:
+                    if intent == "open":
+                        action = text
+                        break
+
+                # Fallback: use last line if no semantic match found
+                if not action:
+                    action = lines[-1]
+        except Exception:
+            # Fallback to last line if extractor fails
             lines = [ln.strip() for ln in note.splitlines() if ln.strip()]
             if lines:
                 action = lines[-1]
@@ -2987,10 +1754,10 @@ class Runtime:
         if not _would_accept and authoritative_mode:
             # Authoritative: record diagnostics and skip reflection path this tick
             try:
-                self.eventlog.append(
-                    kind=NAME_ATTEMPT_USER,
+                _io.append_name_attempt_user(
+                    self.eventlog,
                     content="",
-                    meta={
+                    extra={
                         "reflection_reject": _reject_reason,
                         "scores": _reject_meta,
                         "accept_mode": "authoritative",
@@ -3031,43 +1798,34 @@ class Runtime:
                 _append_reflection_check(self.eventlog, int(rid_reflection), note)
             except Exception:
                 pass
-            # Append a commitment_open if the reflection_check passed (deterministic, minimal)
-            try:
-                evs_tmp = self.eventlog.read_all()
-                last_ref = evs_tmp[-2] if len(evs_tmp) >= 2 else None
-                last_check = evs_tmp[-1] if len(evs_tmp) >= 1 else None
-                if (
-                    last_ref
-                    and last_check
-                    and last_ref.get("kind") == "reflection"
-                    and last_check.get("kind") == "reflection_check"
-                    and (last_check.get("meta") or {}).get("ok") is True
-                ):
-                    ref_text = (last_ref.get("content") or "").strip()
-                    snippet = (
-                        ref_text[:240] if ref_text else "Reflection-sourced commitment"
-                    )
-                    self.eventlog.append(
-                        kind="commitment_open",
-                        content=f"Commitment opened: {snippet}",
-                        meta={
-                            "cid": _uuid.uuid4().hex,
-                            "reason": "reflection",
-                            "text": ref_text,
-                            "ref": last_ref.get("id"),
+            # Create commitment from extracted action (if present)
+            if action:
+                _vprint(f"[Reflection] Actionable insight: {action}")
+                _io.append_reflection_action(
+                    self.eventlog,
+                    content=action,
+                    style=label,
+                )
+                # Create commitment from action text
+                # Structural validation now handled by tracker.add_commitment()
+                try:
+                    tracker = getattr(self, "tracker", None)
+                    if tracker is None:
+                        tracker = CommitmentTracker(
+                            self.eventlog, memegraph=getattr(self, "memegraph", None)
+                        )
+                        self.tracker = tracker
+                    tracker.add_commitment(
+                        text=action,
+                        source="reflection",
+                        extra_meta={
+                            "reflection_id": int(rid_reflection),
                             "due": _compute_reflection_due_epoch(),
                         },
                     )
-            except Exception:
-                # Never block reflection flow if commitment logic fails
-                pass
-            if action:
-                _vprint(f"[Reflection] Actionable insight: {action}")
-                self.eventlog.append(
-                    kind="reflection_action",
-                    content=action,
-                    meta={"style": label},
-                )
+                except Exception:
+                    # Never block reflection flow if commitment logic fails
+                    pass
                 try:
                     self._apply_policy_from_reflection(
                         action,
@@ -3076,10 +1834,11 @@ class Runtime:
                     )
                 except Exception:
                     pass
-            self.eventlog.append(
-                kind="reflection_quality",
-                content="",
-                meta={"style": label, "novelty": novelty, "has_action": bool(action)},
+            _io.append_reflection_quality(
+                self.eventlog,
+                style=label,
+                novelty=novelty,
+                has_action=bool(action),
             )
             # Meta-reflection cadence check
             try:
@@ -3092,10 +1851,10 @@ class Runtime:
         # Emit deferred audit-only debug if gate would have rejected
         if not skip_extra and _emit_audit_debug_post:
             try:
-                self.eventlog.append(
-                    kind=NAME_ATTEMPT_USER,
+                _io.append_name_attempt_user(
+                    self.eventlog,
                     content="",
-                    meta={
+                    extra={
                         "reflection_reject": _reject_reason,
                         "scores": _reject_meta,
                         "accept_mode": "audit",
@@ -3105,7 +1864,10 @@ class Runtime:
                 pass
         # Introspection audit: run over recent events and append audit_report events
         try:
+            evs_a = self.eventlog.read_tail(limit=1000)
+        except Exception:
             evs_a = self.eventlog.read_all()
+        try:
             audits = run_audit(evs_a, window=50)
             if audits:
                 # validate and append each audit deterministically
@@ -3118,12 +1880,8 @@ class Runtime:
                         {int(t) for t in targets if int(t) > 0 and int(t) < latest_id}
                     )
                     m["target_eids"] = clean_targets
-                    content = str(a.get("content") or "")[:500]
-                    self.eventlog.append(
-                        kind="audit_report",
-                        content=content,
-                        meta=m,
-                    )
+                content = str(a.get("content") or "")
+                _io.append_audit_report(self.eventlog, content=content, meta=m)
         except Exception:
             pass
         # Reset cooldown on successful reflection
@@ -3136,9 +1894,7 @@ class Runtime:
             sg = SemanticGrowth()
             # Collect up to the last 50 reflection texts
             reflections = [
-                e.get("content")
-                for e in self.eventlog.read_all()
-                if e.get("kind") == "reflection"
+                e.get("content") for e in evs_a if e.get("kind") == "reflection"
             ][-50:]
 
             if reflections:
@@ -3148,7 +1904,7 @@ class Runtime:
                 # Collect past analyses from prior semantic growth reports
                 past_analyses = [
                     e.get("meta", {}).get("analysis", {})
-                    for e in self.eventlog.read_all()
+                    for e in evs_a
                     if e.get("kind") == "semantic_growth_report"
                 ]
 
@@ -3163,10 +1919,10 @@ class Runtime:
                 )
         except Exception as e:
             # Fail-safe: never block reflection flow on growth analysis errors
-            self.eventlog.append(
-                kind=NAME_ATTEMPT_USER,
+            _io.append_name_attempt_user(
+                self.eventlog,
                 content=f"SemanticGrowth skipped: {type(e).__name__} {e}",
-                meta={"source": "semantic_growth"},
+                extra={"source": "semantic_growth"},
             )
 
         return note
@@ -3177,1210 +1933,11 @@ class Runtime:
         return None
 
 
-# --- Module-level hardened name validation & affirmation parsing ---
-_NAME_BANLIST = {
-    "admin",
-    "root",
-    "null",
-    "void",
-    "test",
-    "fuck",
-    "shit",
-    "bitch",
-    "ass",
-    "cunt",
-    "bastard",
-    "dumb",
-    "idiot",
-    "stupid",
-    "nigger",
-    "kike",
-    "faggot",
-    "slut",
-    "whore",
-    "hitler",
-    "nazi",
-    "satan",
-    "devil",
-    "dick",
-    "piss",
-    "porn",
-    "xxx",
-    "god",
-    "jesus",
-}
-
-
-def _sanitize_name(raw: str) -> str | None:
-    """Validate and sanitize a name token deterministically."""
-    token = str(raw or "").strip().split()[0] if raw else ""
-    token = token.strip("\"'`,.()[]{}<>")
-    if not token:
-        return None
-    if len(token) > 12:
-        token = token[:12]
-
-    # Deterministic validation: must start with letter, contain only alphanumeric, _, -
-    if not token:
-        return None
-    if not token[0].isalpha():
-        return None
-
-    for char in token:
-        if not (char.isalnum() or char in "_-"):
-            return None
-
-    if token[0] in "-_" or token[-1] in "-_":
-        return None
-    if token.isdigit():
-        return None
-    if token.lower() in _NAME_BANLIST:
-        return None
-    return token
-
-
-def _affirmation_has_multiword_tail(text: str, candidate: str) -> bool:
-    """Return True when "I am <candidate>" is immediately followed by another capitalized token."""
-
-    if not text or not candidate:
-        return False
-
-    try:
-        # Deterministic search for "I am <candidate>"
-        text_lower = text.lower()
-        candidate_lower = candidate.lower()
-        pattern = f"i am {candidate_lower}"
-
-        idx = text_lower.find(pattern)
-        if idx == -1:
-            return False
-
-        # Check word boundary before "I"
-        if idx > 0 and text[idx - 1].isalnum():
-            return False
-
-        # Get remainder after the pattern
-        end_idx = idx + len(pattern)
-
-        # Check word boundary after candidate
-        if end_idx < len(text) and text[end_idx].isalnum():
-            return False
-
-        remainder = text[end_idx:].lstrip()
-        if not remainder:
-            return False
-        remainder = remainder.lstrip("\"'" "''()[]{}-,:;")
-        if not remainder:
-            return False
-        return remainder[0].isupper()
-    except Exception:
-        return False
-
-
-def evaluate_reflection(
-    cooldown: ReflectionCooldown, *, now: float | None = None, novelty: float = 1.0
-) -> tuple[bool, str]:
-    """Tiny helper to evaluate reflection cooldown without wiring full loop.
-
-    Returns (should_reflect, reason).
-    """
-    return cooldown.should_reflect(now=now, novelty=novelty)
-
-
-def _append_reflection_check(eventlog: EventLog, ref_id: int, text: str) -> None:
-    """Append a paired reflection_check event for the given reflection.
-
-    Contract (aligned with tests):
-    - ok=True, reason="last_line_nonempty" when the final line (after trimming whitespace) is non-empty.
-    - ok=False, reason="empty_reflection" when the entire text is blank/whitespace-only.
-    - ok=False, reason="no_final_line" when there are lines but the final line is blank (e.g., trailing newlines).
-    """
-    t = str(text or "")
-    if not t.strip():
-        ok = False
-        reason = "empty_reflection"
-    else:
-        # Determine if the final line is non-empty after whitespace trim
-        lines_raw = t.splitlines()
-        last_raw = lines_raw[-1] if lines_raw else ""
-        if last_raw.strip():
-            ok = True
-            reason = "last_line_nonempty"
-        else:
-            ok = False
-            reason = "no_final_line"
-    eventlog.append(
-        kind="reflection_check",
-        content="",
-        meta={"ref": int(ref_id), "ok": bool(ok), "reason": str(reason)},
-    )
-
-
-def _resolve_reflection_cadence(events: list[dict]) -> tuple[int, int]:
-    """Return (min_turns, min_time_s) for reflection gating.
-
-    Prefers last policy_update(component="reflection"); falls back to CADENCE_BY_STAGE for current stage.
-    """
-    # Attempt to read last reflection policy update
-    try:
-        for ev in reversed(events):
-            if ev.get("kind") != "policy_update":
-                continue
-            m = ev.get("meta") or {}
-            if str(m.get("component")) != "reflection":
-                continue
-            p = m.get("params") or {}
-            mt = int(p.get("min_turns")) if p.get("min_turns") is not None else None
-            ms = int(p.get("min_time_s")) if p.get("min_time_s") is not None else None
-            if mt is not None and ms is not None:
-                return (mt, ms)
-    except Exception:
-        pass
-    # Fallback to stage default
-    try:
-        stage_str, _snap = StageTracker.infer_stage(events)
-    except Exception:
-        stage_str = "S0"
-    cad = CADENCE_BY_STAGE.get(stage_str or "S0", CADENCE_BY_STAGE["S0"])
-    return (int(cad.get("min_turns", 2)), int(cad.get("min_time_s", 60)))
-
-
-def _resolve_reflection_policy_overrides(
-    events: list[dict],
-) -> tuple[int | None, int | None]:
-    """Return (min_turns, min_seconds) only if a reflection policy_update exists.
-
-    If no explicit policy update is present, return (None, None) to honor the cooldown's own thresholds.
-    """
-    try:
-        for ev in reversed(events):
-            if ev.get("kind") != "policy_update":
-                continue
-            m = ev.get("meta") or {}
-            if str(m.get("component")) != "reflection":
-                continue
-            p = m.get("params") or {}
-            mt = p.get("min_turns")
-            ms = p.get("min_time_s")
-            if mt is None or ms is None:
-                continue
-            return (int(mt), int(ms))
-    except Exception:
-        pass
-    return (None, None)
-
-
-def _maybe_emit_meta_reflection(eventlog: EventLog, *, window: int = 5) -> int | None:
-    """Emit a meta_reflection every `window` reflections, idempotently.
-
-    Computes simple window metrics: opened, closed, trait_delta_abs, action_count, and an efficacy score.
-    Returns new event id or None if not emitted.
-    """
-    try:
-        events = eventlog.read_all()
-        refl_ids = [
-            int(e.get("id") or 0) for e in events if e.get("kind") == "reflection"
-        ]
-        if len(refl_ids) < int(window):
-            return None
-        expected = len(refl_ids) // int(window)
-        actual = sum(1 for e in events if e.get("kind") == "meta_reflection")
-        if actual >= expected:
-            return None
-        start_id = refl_ids[-int(window)]
-        end_id = refl_ids[-1]
-        opened = 0
-        closed = 0
-        action_cnt = 0
-        trait_abs = 0.0
-        for ev in events:
-            try:
-                eid = int(ev.get("id") or 0)
-            except Exception:
-                continue
-            if eid <= start_id or eid > end_id:
-                continue
-            k = ev.get("kind")
-            if k == "commitment_open":
-                opened += 1
-            elif k == "commitment_close":
-                closed += 1
-            elif k == "reflection_action":
-                action_cnt += 1
-            elif k == "trait_update":
-                m = ev.get("meta") or {}
-                d = m.get("delta")
-                if isinstance(d, dict):
-                    for v in d.values():
-                        try:
-                            trait_abs += abs(float(v))
-                        except Exception:
-                            continue
-                else:
-                    try:
-                        trait_abs += abs(float(m.get("delta") or 0.0))
-                    except Exception:
-                        pass
-        efficacy = float(min(1.0, max(0.0, (closed / max(1, opened)))))
-        mr_id = eventlog.append(
-            kind="meta_reflection",
-            content="",
-            meta={
-                "window": int(window),
-                "opened": int(opened),
-                "closed": int(closed),
-                "actions": int(action_cnt),
-                "trait_delta_abs": float(trait_abs),
-                "efficacy": float(efficacy),
-            },
-        )
-        # Deterministic reward shaping: reflect efficacy as a bandit_reward (component=reflection)
-        try:
-            eventlog.append(
-                kind="bandit_reward",
-                content="",
-                meta={
-                    "component": "reflection",
-                    "source": "meta_reflection",
-                    "window": int(window),
-                    "reward": float(efficacy),
-                    "ref": int(mr_id),
-                },
-            )
-        except Exception:
-            pass
-        return mr_id
-    except Exception:
-        return None
-
-
-def _maybe_emit_self_assessment(eventlog: EventLog, *, window: int = 10) -> int | None:
-    """Emit a self_assessment every `window` reflections, idempotently.
-
-    Metrics:
-    - opened, closed, actions, trait_delta_abs, efficacy (closed/max(1,opened))
-    - avg_close_lag: average tick delta between open and close (within-window pairs)
-    - hit_rate: closed/max(1,actions)
-    - drift_util: trait_delta_abs/max(1,actions)
-    """
-    try:
-        events = eventlog.read_all()
-        # Identify reflection windows by id
-        reflections = [e for e in events if e.get("kind") == "reflection"]
-        refl_ids = [int(e.get("id") or 0) for e in reflections]
-        if len(refl_ids) < int(window):
-            return None
-        # Define the window as the last `window` reflections, and mark the start
-        # boundary as the reflection immediately BEFORE the window (or 0 if none).
-        end_id = refl_ids[-1]
-        window_ids = refl_ids[-int(window) :]
-        if len(refl_ids) > int(window):
-            start_id = refl_ids[-int(window) - 1]
-        else:
-            start_id = 0
-        inputs_hash = _sha256_json({"refs": window_ids})
-        # Strong idempotency: if a self_assessment with the same inputs_hash exists, skip
-        for ev in reversed(events):
-            if ev.get("kind") != "self_assessment":
-                continue
-            m = ev.get("meta") or {}
-            if str(m.get("inputs_hash") or "") == inputs_hash:
-                return None
-
-        opened = 0
-        closed = 0
-        action_cnt = 0
-        trait_abs = 0.0
-
-        # Track tick progression and compute lag between opens and closes
-        tick_no = 0
-        open_tick_by_cid: dict[str, int] = {}
-        lags: list[int] = []
-
-        for ev in events:
-            try:
-                eid = int(ev.get("id") or 0)
-            except Exception:
-                continue
-            if ev.get("kind") == "autonomy_tick":
-                tick_no += 1
-            # Only count metrics strictly within the window (>start_id, <=end_id)
-            if eid <= start_id or eid > end_id:
-                continue
-            k = ev.get("kind")
-            if k == "commitment_open":
-                opened += 1
-                cid = str(((ev.get("meta") or {}).get("cid")) or "")
-                if cid:
-                    open_tick_by_cid[cid] = tick_no
-            elif k == "commitment_close":
-                closed += 1
-                cid = str(((ev.get("meta") or {}).get("cid")) or "")
-                if cid and cid in open_tick_by_cid:
-                    lag = max(0, tick_no - int(open_tick_by_cid[cid]))
-                    lags.append(int(lag))
-            # Treat actions deterministically as reflection-sourced commitment openings
-            # Prefer meta.reason=="reflection"; also accept meta.source=="reflection" for forward-compat
-            meta_ev = ev.get("meta") or {}
-            if k == "commitment_open":
-                r = str(meta_ev.get("reason") or "").strip().lower()
-                s = str(meta_ev.get("source") or "").strip().lower()
-                if r == "reflection" or s == "reflection":
-                    action_cnt += 1
-            elif k == "trait_update":
-                m = ev.get("meta") or {}
-                d = m.get("delta")
-                if isinstance(d, dict):
-                    for v in d.values():
-                        try:
-                            trait_abs += abs(float(v))
-                        except Exception:
-                            continue
-                else:
-                    try:
-                        trait_abs += abs(float(m.get("delta") or 0.0))
-                    except Exception:
-                        pass
-
-        efficacy = float(min(1.0, max(0.0, (closed / max(1, opened)))))
-        avg_close_lag = float(sum(lags) / len(lags)) if lags else 0.0
-        hit_rate = float(min(1.0, max(0.0, (closed / max(1, action_cnt)))))
-        drift_util = float(trait_abs / max(1, action_cnt))
-
-        sa_id = eventlog.append(
-            kind="self_assessment",
-            content="",
-            meta={
-                "window": int(window),
-                "window_start_id": int(start_id),
-                "window_end_id": int(end_id),
-                "inputs_hash": inputs_hash,
-                "opened": int(opened),
-                "closed": int(closed),
-                "actions": int(action_cnt),
-                "trait_delta_abs": float(trait_abs),
-                "efficacy": float(efficacy),
-                "avg_close_lag": float(avg_close_lag),
-                "hit_rate": float(hit_rate),
-                "drift_util": float(drift_util),
-                "actions_kind": "commitment_open:source=reflection",
-            },
-        )
-        return sa_id
-    except Exception:
-        return None
-
-
-def _apply_self_assessment_policies(eventlog: EventLog) -> int | None:
-    """Emit policy_update(component="reflection", source="self_assessment")
-    based on latest self_assessment metrics. Idempotent per assessment.
-
-    Does NOT set meta.src_id to avoid interfering with bridge-only CU→PU checks.
-    Returns new event id or None if not emitted.
-    """
-    try:
-        events = eventlog.read_all()
-        last_sa = None
-        for ev in reversed(events):
-            if ev.get("kind") == "self_assessment":
-                last_sa = ev
-                break
-        if not last_sa:
-            return None
-        sa_id = int(last_sa.get("id") or 0)
-        # Idempotency: ensure we haven't already applied policy for this assessment
-        for ev in reversed(events):
-            if ev.get("kind") != "policy_update":
-                continue
-            m = ev.get("meta") or {}
-            if str(m.get("source")) != "self_assessment":
-                continue
-            try:
-                if int(m.get("assessment_id") or 0) == sa_id:
-                    return None
-            except Exception:
-                continue
-
-        # Baseline cadence from current resolved policy (or stage fallback)
-        min_turns, min_time_s = _resolve_reflection_cadence(events)
-        # Stage mark for observability
-        try:
-            stage_str, _ = StageTracker.infer_stage(events)
-        except Exception:
-            stage_str = None
-
-        meta = last_sa.get("meta") or {}
-        efficacy = float(meta.get("efficacy") or 0.0)
-        hit_rate = float(meta.get("hit_rate") or 0.0)
-        avg_lag = float(meta.get("avg_close_lag") or 0.0)
-        closed = int(meta.get("closed") or 0)
-
-        # Deterministic tweaks: conservative deltas bounded to valid ranges
-        new_turns = int(min_turns)
-        new_time = int(min_time_s)
-
-        if efficacy >= 0.6 and hit_rate >= 0.5:
-            # Doing well → reflect slightly more frequently
-            new_turns = max(1, new_turns - 1)
-            new_time = max(5, int(round(new_time * 0.9)))
-        elif efficacy < 0.2 and hit_rate < 0.2:
-            # Underperforming → slow down to reduce churn
-            new_turns = new_turns + 1
-            new_time = int(round(new_time * 1.15))
-        # If closes are happening but lag is high, nudge cadence down a touch
-        if closed >= 1 and avg_lag >= 7:
-            new_turns = max(1, new_turns - 1)
-
-        # Clamp to global bounds and apply deadband (ignore <10% changes)
-        def _clamp(v: int, lo: int, hi: int) -> int:
-            try:
-                return max(lo, min(int(v), hi))
-            except Exception:
-                return lo
-
-        prev_turns = int(min_turns)
-        prev_time = int(min_time_s)
-        new_turns = _clamp(new_turns, 1, 6)
-        new_time = _clamp(new_time, 10, 300)
-
-        def _pct_delta(a: int, b: int) -> float:
-            try:
-                return abs(a - b) / max(1.0, float(a))
-            except Exception:
-                return 0.0
-
-        if (
-            _pct_delta(prev_turns, new_turns) < 0.10
-            and _pct_delta(prev_time, new_time) < 0.10
-        ):
-            return None
-
-        return eventlog.append(
-            kind="policy_update",
-            content="",
-            meta={
-                "component": "reflection",
-                "stage": stage_str,
-                "params": {"min_turns": int(new_turns), "min_time_s": int(new_time)},
-                "source": "self_assessment",
-                "assessment_id": sa_id,
-                "prev_policy": {
-                    "min_turns": int(prev_turns),
-                    "min_time_s": int(prev_time),
-                },
-                "new_policy": {
-                    "min_turns": int(new_turns),
-                    "min_time_s": int(new_time),
-                },
-            },
-        )
-    except Exception:
-        return None
-
-
-def _maybe_rotate_assessment_formula(eventlog: EventLog) -> int | None:
-    """Emit an assessment_policy_update(source="meta_assessment") in a round-robin
-    fashion every 3 self_assessment events. Idempotent by rotation count.
-    Returns new event id or None if not emitted.
-    """
-    try:
-        events = eventlog.read_all()
-        # Determine last self_assessment and count up to its window_end scope
-        last_sa = None
-        for ev in reversed(events):
-            if ev.get("kind") == "self_assessment":
-                last_sa = ev
-                break
-        if not last_sa:
-            return None
-        sa_count = 0
-        last_sa_id = int(last_sa.get("id") or 0)
-        for ev in events:
-            if (
-                ev.get("kind") == "self_assessment"
-                and int(ev.get("id") or 0) <= last_sa_id
-            ):
-                sa_count += 1
-        if sa_count < 3:
-            return None
-        expected_rotations = sa_count // 3
-        actual_rotations = sum(
-            1 for e in events if e.get("kind") == "assessment_policy_update"
-        )
-        if actual_rotations >= expected_rotations:
-            return None
-        # Determine formula version: v1 at 3, v2 at 6, v3 at 9, then repeat
-        r = expected_rotations % 3
-        formula = "v1" if r == 1 else ("v2" if r == 2 else "v3")
-        return eventlog.append(
-            kind="assessment_policy_update",
-            content="",
-            meta={
-                "source": "meta_assessment",
-                "formula": formula,
-                "rotation_index": int(r),
-                "index": int(expected_rotations),
-                "self_assessment_count": int(sa_count),
-            },
-        )
-    except Exception:
-        return None
-
-
-def generate_system_status_reflection(
-    ias: float, gas: float, stage_str: str, eventlog: EventLog, tick_id: int = None
-) -> str:
-    """Generate meaningful fallback content for forced reflections using system state."""
-    import hashlib
-
-    # Generate deterministic uniqueness based on tick or event count
-    if tick_id is None:
-        tick_id = len(eventlog.read_all())
-
-    hash_suffix = hashlib.sha256(str(tick_id).encode()).hexdigest()[:8]
-
-    try:
-        from pmm.commitments.tracker import CommitmentTracker
-
-        tracker = CommitmentTracker(eventlog)
-        commitments = tracker.list_open_commitments()
-        if commitments:
-            commit_summary = "; ".join(
-                [c.get("text", "")[:20] + "..." for c in commitments[:2]]
-            )
-        else:
-            commit_summary = f"no commitments (tick {hash_suffix})"
-    except Exception:
-        commit_summary = f"commitment tracking unavailable (tick {hash_suffix})"
-
-    return (
-        f"System status: IAS={ias:.3f}, GAS={gas:.3f}, Stage={stage_str}.\n"
-        f"Reflecting on {commit_summary} at tick {tick_id}."
-    )
-
-
-def emit_reflection(
-    eventlog: EventLog,
-    content: str = "",
-    *,
-    forced: bool = False,
-    stage_override: str | None = None,
-    forced_reason: str | None = None,
-    force_open_commitment: bool = False,
-    open_autonomy_tick: int | None = None,
-    commitment_protect_until_tick: int | None = None,
-    llm_generate: callable | None = None,
-) -> int | None:
-    """Emit a reflection event; return the event id or ``None`` if rejected."""
-    # Compute telemetry first so we can embed in the reflection meta
-    events = eventlog.read_all()
-    ias, gas = compute_ias_gas(events)
-    synth = None
-    try:
-        stage_str = stage_override
-        _snap = None
-        if stage_str is None:
-            stage_str, _snap = StageTracker.infer_stage(events)
-    except Exception:
-        stage_str = None
-    stage_level = stage_str_to_level(stage_str)
-
-    trait_map: dict[str, float] = {}
-    try:
-        model_snapshot = build_self_model(events, eventlog=eventlog)
-        trait_map = dict((model_snapshot.get("identity") or {}).get("traits") or {})
-    except Exception:
-        trait_map = {}
-
-    novelty_threshold: float | None = None
-    try:
-        _stage_last, cooldown_params = _last_policy_params(events, "cooldown")
-        if isinstance(cooldown_params, dict) and "novelty_threshold" in cooldown_params:
-            novelty_threshold = float(cooldown_params.get("novelty_threshold"))
-    except Exception:
-        novelty_threshold = None
-
-    def _format_traits(traits: dict[str, float]) -> str:
-        axis = [
-            ("openness", "O"),
-            ("conscientiousness", "C"),
-            ("extraversion", "E"),
-            ("agreeableness", "A"),
-            ("neuroticism", "N"),
-        ]
-        parts: list[str] = []
-        for key, label in axis:
-            try:
-                val = float(traits.get(key, "nan"))
-                parts.append(f"{label}:{val:.2f}")
-            except Exception:
-                parts.append(f"{label}:n/a")
-        return ", ".join(parts)
-
-    trait_summary = _format_traits(trait_map)
-    policy_summary = (
-        f"cooldown.novelty_threshold={novelty_threshold:.2f}"
-        if isinstance(novelty_threshold, float)
-        else "cooldown.novelty_threshold=unset"
-    )
-    templates = {
-        0: (
-            "succinct",
-            "Reflect on your current IAS/GAS metrics, open commitments, and "
-            "trait deltas. Propose one concrete system-level action (e.g., "
-            "adjust novelty threshold, open/close a commitment). Avoid generic "
-            "advice unrelated to PMM internals.",
-        ),
-        1: (
-            "question",
-            "Ask yourself 2 short questions about your ledger integrity and "
-            "stage progression. Answer with one actionable system improvement "
-            "(e.g., update policy, compact scenes). Focus only on PMM "
-            "internals, not general philosophy.",
-        ),
-        2: (
-            "narrative",
-            "Summarize recent changes in traits or commitments based on ledger "
-            "events. Suggest one system adjustment (e.g., tighten cadence). "
-            "Avoid non-PMM topics.",
-        ),
-        3: (
-            "checklist",
-            "Produce a 3-item checklist: (1) what IAS/GAS changed, (2) what "
-            "policy needs adjustment, (3) one immediate system action. "
-            "Restrict to PMM internals.",
-        ),
-        4: (
-            "analytical",
-            "Provide an analytical reflection: observe your current stage and "
-            "commitments → diagnose gaps in autonomy → propose one concrete "
-            "intervention (e.g., ratchet trait, close low-priority tasks). "
-            "Exclude generic or external advice.",
-        ),
-    }
-    tmpl_label, tmpl_instr = templates.get(int(stage_level), templates[0])
-    telemetry_preamble = (
-        f"System status: IAS={ias:.3f}, GAS={gas:.3f}, Stage={stage_str}. "
-        f"Traits (OCEAN): {trait_summary}. Policy knobs: {policy_summary}."
-    )
-    context_forced = f"{telemetry_preamble} Reflecting on current state after forced reflection trigger."
-    context_regular = (
-        f"{telemetry_preamble} Reflecting on current state and proposing next actions."
-    )
-
-    def _fallback_text(_: str) -> str:
-        try:
-            tick_local = len(eventlog.read_all())
-        except Exception:
-            tick_local = None
-        return generate_system_status_reflection(
-            ias, gas, stage_str, eventlog, tick_local
-        )
-
-    def _call_generator(ctx: str) -> str:
-        generator = llm_generate or _fallback_text
-        try:
-            produced = generator(ctx)
-        except Exception:
-            produced = _fallback_text(ctx)
-        if not isinstance(produced, str):
-            produced = str(produced or "")
-        return produced
-
-    provided_content = bool((content or "").strip())
-    synth = None
-    if not provided_content:
-        synth = _call_generator(context_forced if forced else context_regular)
-
-    final_text = str(content) if provided_content else str(synth or "")
-    if not final_text.strip():
-        final_text = "(empty reflection)"
-
-    # Build deterministic refs for reflection
-    try:
-        k_refs = 6
-        evs_refs = eventlog.read_all()
-        relevant_kinds = {"user", "response", "commitment_open", "evidence_candidate"}
-        sel: list[int] = []
-        for ev in reversed(evs_refs):
-            if ev.get("kind") in relevant_kinds:
-                try:
-                    sel.append(int(ev.get("id") or 0))
-                except Exception:
-                    continue
-                if len(sel) >= k_refs:
-                    break
-        sel = [i for i in reversed(sel) if i > 0]
-    except Exception:
-        sel = []
-    # Preserve content verbatim (including trailing newlines) for reflection_check; avoid .strip()
-    provided_content = bool((content or "").strip())
-    raw_text_for_check = (
-        final_text  # keep a copy BEFORE sanitization for reflection_check
-    )
-    # Sanitize reflection text deterministically before appending (storage only)
-    try:
-        from pmm.bridge.manager import sanitize as _san
-
-        sanitized_text = _san(final_text, family=None)
-    except Exception:
-        sanitized_text = final_text
-
-    # Acceptance gate (audit-only here). For forced reflections, run acceptance on the
-    # final text and suppress the debug reject breadcrumb since we will emit the fallback.
-    _events_for_gate = eventlog.read_all()
-    _would_accept = True
-    _reject_reason = "ok"
-    _reject_meta: dict = {}
-    try:
-        from pmm.runtime.reflector import accept as _accept_reflection
-
-        _would_accept, _reject_reason, _reject_meta = _accept_reflection(
-            final_text or "(reflection)", _events_for_gate, None, None
-        )
-    except Exception:
-        # If acceptor unavailable or crashes, default-allow
-        _would_accept, _reject_reason, _reject_meta = True, "ok", {"quality_score": 0.8}
-    # Apply quality checks to ALL reflections, including forced ones
-    if not _would_accept:
-        try:
-            eventlog.append(
-                kind=REFLECTION_REJECTED,
-                content="",
-                meta={
-                    "reason": _reject_reason,
-                    "scores": _reject_meta,
-                    "accept_mode": "audit",
-                    "forced": forced,  # Track if this was a forced reflection
-                },
-            )
-        except Exception:
-            pass
-
-        if (not provided_content) and _reject_reason in [
-            "too_short",
-            "empty_reflection",
-            "policy_loop_detected",
-        ]:
-            try:
-                tick_id = len(eventlog.read_all()) + 1  # uniqueness from first attempt
-                better_content = generate_system_status_reflection(
-                    ias, gas, stage_str, eventlog, tick_id
-                )
-                sanitized_text = better_content
-                _would_accept = True
-                _reject_reason = "ok"
-                _reject_meta = {"quality_score": 0.85, "len_chars": len(better_content)}
-            except Exception as e:
-                eventlog.append(
-                    kind=NAME_ATTEMPT_USER,
-                    content="",
-                    meta={
-                        "fallback_error": str(e),
-                        "original_reason": _reject_reason,
-                    },
-                )
-
-        if not _would_accept and not forced:
-            # Non-forced reflections that still fail after fallback are dropped
-            return None
-    if not sanitized_text.strip():
-        sanitized_text = "(empty reflection)"
-        raw_text_for_check = sanitized_text
-    meta_payload = {
-        "source": "emit_reflection",
-        "telemetry": {
-            "IAS": ias,
-            "GAS": gas,
-            "traits": trait_map,
-            "policies": {
-                "cooldown": {
-                    "novelty_threshold": novelty_threshold,
-                }
-            },
-        },
-        "refs": sel,
-        "stage_level": int(stage_level),
-        "prompt_template": tmpl_label,
-    }
-    # Force quality score in metadata for stage advancement
-    quality_score = _reject_meta.get("quality_score", 0.8) if _reject_meta else 0.8
-    # Ensure quality score is never 0.0 (which breaks stage advancement)
-    if quality_score <= 0.0:
-        quality_score = 0.8
-    meta_payload["quality_score"] = round(quality_score, 3)
-    if forced or forced_reason:
-        meta_payload["forced"] = True
-        if forced_reason:
-            meta_payload["forced_reason"] = str(forced_reason)
-    # Mirror reflection text into meta["text"] for downstream tooling compatibility
-    # Always set meta["text"], even if empty, to ensure field consistency
-    meta_payload["text"] = sanitized_text or ""
-    rid = eventlog.append(
-        kind="reflection",
-        content=sanitized_text,
-        meta=meta_payload,
-    )
-
-    # Manual stage advancement trigger after reflection
-    try:
-        from pmm.runtime.stage_manager import StageManager
-
-        sm = StageManager(eventlog)
-        current = sm.current_stage()
-        if sm._criteria_met(current):
-            advanced_stage = sm.check_and_advance()
-            if advanced_stage:
-                # Stage advancement occurred
-                pass
-    except Exception:
-        # Don't let stage advancement errors break reflection emission
-        pass
-
-    # Paired reflection_check event after reflection append
-    try:
-        # Evaluate the original (unsanitized) text to correctly detect trailing blank lines
-        _append_reflection_check(eventlog, int(rid), raw_text_for_check)
-    except Exception:
-        pass
-    # Append a commitment_open if the reflection_check passed (deterministic, minimal)
-    try:
-        evs_tmp = eventlog.read_all()
-        last_ref = evs_tmp[-2] if len(evs_tmp) >= 2 else None
-        last_check = evs_tmp[-1] if len(evs_tmp) >= 1 else None
-        if (
-            last_ref
-            and last_check
-            and last_ref.get("kind") == "reflection"
-            and last_check.get("kind") == "reflection_check"
-            and (last_check.get("meta") or {}).get("ok") is True
-        ):
-            if not forced or force_open_commitment:
-                # Supersede any previously open reflection-driven commitments to avoid pile-up
-                try:
-                    from pmm.commitments.tracker import CommitmentTracker
-
-                    CommitmentTracker(eventlog).supersede_reflection_commitments(
-                        by_reflection_id=int(last_ref.get("id") or 0)
-                    )
-                except Exception:
-                    pass
-                ref_text = (last_ref.get("content") or "").strip()
-                snippet = (
-                    ref_text[:240] if ref_text else "Reflection-sourced commitment"
-                )
-                _new_cid = _uuid.uuid4().hex
-                open_meta = {
-                    "cid": _new_cid,
-                    "reason": "reflection",
-                    "text": ref_text,
-                    "ref": last_ref.get("id"),
-                    "due": _compute_reflection_due_epoch(),
-                }
-                if commitment_protect_until_tick is not None:
-                    open_meta["protect_until_tick"] = int(commitment_protect_until_tick)
-                if open_autonomy_tick is not None:
-                    open_meta["open_autonomy_tick"] = int(open_autonomy_tick)
-                eventlog.append(
-                    kind="commitment_open",
-                    content=f"Commitment opened: {snippet}",
-                    meta=open_meta,
-                )
-    except Exception:
-        # Never block emit_reflection flow if commitment logic fails
-        pass
-    # Emit autonomy_directive events derived from the reflection content (final_text)
-    try:
-        for _d in _extract_directives(
-            final_text, source="reflection", origin_eid=int(rid)
-        ):
-            eventlog.append(
-                kind="autonomy_directive",
-                content=str(_d.content),
-                meta={"source": str(_d.source), "origin_eid": _d.origin_eid},
-            )
-    except Exception:
-        # Do not disrupt reflection path if directive extraction fails
-        pass
-    # Introspection audit after reflection: append audit_report events
-    try:
-        evs_a = eventlog.read_all()
-        audits = run_audit(evs_a, window=50)
-        if audits:
-            latest_id = int(evs_a[-1].get("id") or 0) if evs_a else 0
-            for a in audits:
-                m = dict((a.get("meta") or {}).items())
-                targets = m.get("target_eids") or []
-                clean_targets = sorted(
-                    {int(t) for t in targets if int(t) > 0 and int(t) < latest_id}
-                )
-                m["target_eids"] = clean_targets
-                content2 = str(a.get("content") or "")[:500]
-                eventlog.append(kind="audit_report", content=content2, meta=m)
-    except Exception:
-        pass
-    # Meta-reflection cadence: emit every N reflections with window metrics (idempotent)
-    try:
-        _maybe_emit_meta_reflection(eventlog, window=5)
-        _maybe_emit_self_assessment(eventlog, window=10)
-        _apply_self_assessment_policies(eventlog)
-        _maybe_rotate_assessment_formula(eventlog)
-    except Exception:
-        pass
-    return rid
-
-
-def maybe_reflect(
-    eventlog: EventLog,
-    cooldown: ReflectionCooldown,
-    *,
-    now: float | None = None,
-    novelty: float = 1.0,
-    override_min_turns: int | None = None,
-    override_min_seconds: int | None = None,
-    arm_means: dict | None = None,
-    guidance_items: list | None = None,
-    commitment_protect_until: int | None = None,
-    open_autonomy_tick: int | None = None,
-    llm_generate: callable | None = None,
-    memegraph=None,
-) -> tuple[bool, str]:
-    """Check cooldown gates with optional per-call overrides; emit reflection or breadcrumb debug event.
-
-    Returns (did_reflect, reason). If skipped, reason is the gate name.
-    """
-    # If cooldown is not provided, treat as disabled (no reflections attempted)
-    if cooldown is None:
-        return (False, "disabled")
-    # Be resilient to different cooldown stub signatures in tests
-    now_value = float(now) if now is not None else float(_time.time())
-    try:
-        # Prefer explicit overrides; otherwise, apply policy override only if present.
-        _events_for_gate = eventlog.read_all()
-        pol_mt, pol_ms = _resolve_reflection_policy_overrides(_events_for_gate)
-        use_mt = override_min_turns if override_min_turns is not None else pol_mt
-        use_ms = override_min_seconds if override_min_seconds is not None else pol_ms
-        ok, reason = cooldown.should_reflect(
-            now=now_value,
-            novelty=novelty,
-            override_min_turns=use_mt,
-            override_min_seconds=use_ms,
-            events=_events_for_gate,
-        )
-    except TypeError:
-        # Fallback: some stubs accept only (now, novelty)
-        try:
-            ok, reason = cooldown.should_reflect(
-                now=now_value, novelty=novelty, events=eventlog.read_all()
-            )
-        except TypeError:
-            # Final fallback: no-arg call
-            ok, reason = cooldown.should_reflect()
-    if not ok:
-        threshold = float(
-            getattr(
-                cooldown,
-                "last_effective_novelty_threshold",
-                getattr(cooldown, "novelty_threshold", 0.0),
-            )
-        )
-        turns_since = getattr(cooldown, "turns_since", None)
-        seconds_since = max(0.0, now_value - float(getattr(cooldown, "last_ts", 0.0)))
-        try:
-            novelty_val = float(novelty)
-        except Exception:
-            novelty_val = 0.0
-        logger.info(
-            "Reflection skipped: reason=%s novelty=%.3f threshold=%.3f turns=%s seconds_since=%.1f",
-            reason,
-            novelty_val,
-            threshold,
-            turns_since,
-            seconds_since,
-        )
-        eventlog.append(kind=REFLECTION_SKIPPED, content="", meta={"reason": reason})
-        if reason in _FORCEABLE_SKIP_REASONS:
-            streak = _consecutive_reflect_skips(eventlog, reason)
-            if streak >= _FORCED_SKIP_THRESHOLD:
-                forced_reason = f"skip_streak:{reason}"
-                rid_forced = emit_reflection(
-                    eventlog,
-                    forced=True,
-                    forced_reason=forced_reason,
-                    force_open_commitment=True,
-                    open_autonomy_tick=open_autonomy_tick,
-                    commitment_protect_until_tick=commitment_protect_until,
-                    llm_generate=llm_generate,
-                )
-                try:
-                    cooldown.reset()
-                except Exception:
-                    pass
-                eventlog.append(
-                    kind=NAME_ATTEMPT_USER,
-                    content="",
-                    meta={
-                        "forced_reflection": {
-                            "skip_reason": reason,
-                            "consecutive": streak,
-                            "forced_reflection_id": int(rid_forced),
-                            "mode": "forced_commitment_open",
-                        }
-                    },
-                )
-                return (True, f"forced_{reason}")
-        return (False, reason)
-    rid = emit_reflection(
-        eventlog,
-        forced=False,
-        open_autonomy_tick=open_autonomy_tick,
-        commitment_protect_until_tick=commitment_protect_until,
-        llm_generate=llm_generate,
-    )
-    if rid is None:
-        return (False, "rejected")
-    cooldown.reset()
-    if memegraph is not None:
-        try:
-            graph_policy_ids = memegraph.policy_updates_for_reflection(int(rid))
-            if logger.isEnabledFor(logging.DEBUG):
-                legacy_policy_ids = []
-                for ev in eventlog.read_all():
-                    if ev.get("kind") != "policy_update":
-                        continue
-                    meta = ev.get("meta") or {}
-                    src = meta.get("src_id") or meta.get("source_event_id")
-                    try:
-                        src_int = int(src)
-                    except Exception:
-                        continue
-                    if src_int == int(rid):
-                        try:
-                            legacy_policy_ids.append(int(ev.get("id") or 0))
-                        except Exception:
-                            continue
-                if set(legacy_policy_ids) != set(graph_policy_ids):
-                    logger.debug(
-                        "memegraph policy mismatch for reflection %s: legacy=%s graph=%s",
-                        rid,
-                        legacy_policy_ids,
-                        graph_policy_ids,
-                    )
-        except Exception:
-            logger.debug("memegraph policy lookup failed", exc_info=True)
-    # Bandit integration: choose arm via biased means when provided; otherwise fall back
-    try:
-        events_now_bt = eventlog.read_all()
-        tick_no_bandit = 1 + sum(
-            1 for ev in events_now_bt if ev.get("kind") == "autonomy_tick"
-        )
-        arm = None
-        if isinstance(arm_means, dict) and isinstance(guidance_items, list):
-            try:
-                arm, _delta_b = _choose_arm_biased(arm_means, guidance_items)
-            except Exception:
-                arm = None
-        if arm is None:
-            for ev in reversed(events_now_bt):
-                if ev.get("kind") == "reflection" and int(ev.get("id") or 0) == int(
-                    rid
-                ):
-                    arm = (ev.get("meta") or {}).get("prompt_template")
-                    break
-            arm = str(arm or "succinct")
-        # Idempotency: emit at most once per tick (since last autonomy_tick)
-        try:
-            evs_now_bt2 = eventlog.read_all()
-        except Exception:
-            evs_now_bt2 = events_now_bt
-        last_auto_id_bt2 = None
-        for be2 in reversed(evs_now_bt2):
-            if be2.get("kind") == "autonomy_tick":
-                last_auto_id_bt2 = int(be2.get("id") or 0)
-                break
-        already_bt2 = False
-        for be2 in reversed(evs_now_bt2):
-            if (
-                last_auto_id_bt2 is not None
-                and int(be2.get("id") or 0) <= last_auto_id_bt2
-            ):
-                break
-            if be2.get("kind") == "bandit_arm_chosen":
-                already_bt2 = True
-                break
-        if not already_bt2:
-            eventlog.append(
-                kind="bandit_arm_chosen",
-                content="",
-                meta={"arm": arm, "tick": int(tick_no_bandit)},
-            )
-    except Exception:
-        pass
-    return (True, "ok")
-
-
-# --- Phase 2 Step E: Stage-aware reflection cadence policy (module-level) ---
-CADENCE_BY_STAGE = {
-    "S0": {"min_turns": 2, "min_time_s": 20, "force_reflect_if_stuck": True},
-    "S1": {"min_turns": 3, "min_time_s": 35, "force_reflect_if_stuck": True},
-    "S2": {"min_turns": 4, "min_time_s": 50, "force_reflect_if_stuck": False},
-    "S3": {"min_turns": 5, "min_time_s": 70, "force_reflect_if_stuck": False},
-    "S4": {"min_turns": 6, "min_time_s": 90, "force_reflect_if_stuck": False},
-}
-
-_STUCK_REASONS = {
-    "due_to_min_turns",
-    "due_to_min_time",
-    "due_to_low_novelty",
-    "due_to_cadence",
-}
-_FORCEABLE_SKIP_REASONS = {"due_to_min_turns", "due_to_low_novelty"}
-_FORCED_SKIP_THRESHOLD = 2
-_COMMITMENT_PROTECT_TICKS = 3
-_IDENTITY_REEVAL_WINDOW = 6
-
-
-def _consecutive_reflect_skips(
-    eventlog: EventLog, reason: str, *, lookback: int = 8
-) -> int:
-    """Count consecutive reflection skip events for the same reason."""
-    try:
-        tail = eventlog.read_tail(limit=lookback)
-    except Exception:
-        try:
-            tail = eventlog.read_all()[-lookback:]
-        except Exception:
-            return 0
-    count = 0
-    for ev in reversed(tail):
-        if ev.get("kind") != REFLECTION_SKIPPED:
-            break
-        meta = ev.get("meta") or {}
-        if meta.get("reason") == reason:
-            count += 1
-        else:
-            break
-    return count
-
-
-def _detect_self_named(text: str) -> str | None:
-    """Return the name if the text contains a self-named line."""
-
-    if not text:
-        return None
-
-    try:
-        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-        if lines:
-            last = lines[-1]
-            if last.startswith("—") or last.startswith("-"):
-                candidate = last.lstrip("—- ").split()[0]
-                nm = _sanitize_name(candidate)
-                if nm:
-                    return nm
-    except Exception:
-        return None
-    return None
+# ---- Identity helpers extracted to pmm.runtime.loop.identity ----
+_NAME_BANLIST = _identity_module.NAME_BANLIST
+_sanitize_name = _identity_module.sanitize_name
+_affirmation_has_multiword_tail = _identity_module.affirmation_has_multiword_tail
+_detect_self_named = _identity_module.detect_self_named
 
 
 # --- Phase 2 Step F: Stage-aware drift multiplier policy (module-level) ---
@@ -4474,8 +2031,10 @@ class AutonomyLoop:
         self.cooldown = cooldown
         self.interval = max(0.01, float(interval_seconds))
         self.runtime = runtime
-        self._stop = _threading.Event()
-        self._thread: _threading.Thread | None = None
+        # Background tick scheduler (Stage 3 extraction)
+        self._scheduler: _scheduler.LoopScheduler | None = _scheduler.LoopScheduler(
+            on_tick=self.tick, interval_seconds=self.interval, name="PMM-AutonomyLoop"
+        )
         self._proposer = proposer
         # By default, identity adoption should be autonomous (proposal-driven) and
         # not depend on brittle first-person keyword cues. Tests can explicitly
@@ -4522,9 +2081,9 @@ class AutonomyLoop:
 
         # Ensure a deterministic bootstrap identity exists (ledger-backed via canonical handler)
         try:
-            events_boot = self.eventlog.read_all()
+            events_boot = self.eventlog.read_tail(limit=1000)
         except Exception:
-            events_boot = []
+            events_boot = self.eventlog.read_all()
         identity_boot = build_identity(events_boot)
         if bootstrap_identity:
             if not identity_boot.get("name"):
@@ -4552,7 +2111,7 @@ class AutonomyLoop:
         events = self.eventlog.read_all()
         identity = build_identity(events)
         self_model = build_self_model(events, eventlog=self.eventlog)
-        ias, gas = compute_ias_gas(events)
+        ias, gas = get_or_compute_ias_gas(self.eventlog)
         stage, stage_snapshot = StageTracker.infer_stage(events)
         last_id = int(events[-1]["id"]) if events else 0
         return LedgerSnapshot(
@@ -4583,9 +2142,12 @@ class AutonomyLoop:
         - Rebind open commitments that reference the old identity
         - Force a reflection immediately (override cadence)
         """
+        # Performance: Use RequestCache to eliminate redundant read_all() calls
+        # Now using read_tail(limit=500/1000) for better performance
+
         try:
             # Determine previous identity before adoption
-            events_before = self.eventlog.read_all()
+            events_before = self.eventlog.read_tail(limit=500)
             old_ident = build_identity(events_before)
             old_name = old_ident.get("name")
         except Exception:
@@ -4617,25 +2179,21 @@ class AutonomyLoop:
 
         # Also log a name_updated event to persist the change in a dedicated audit record
         try:
-            self.eventlog.append(
-                kind="name_updated",
-                content="",
-                meta={
-                    "old_name": old_name,
-                    "new_name": sanitized,
-                    "identity_adopt_event_id": adopt_eid,
-                    **(meta or {}),
-                },
+            _io.append_name_updated(
+                self.eventlog,
+                old_name=old_name,
+                new_name=sanitized,
+                source="autonomy",
             )
         except Exception:
             pass
 
         # Append a debug marker immediately to make adoption-triggered reflection intent traceable
         try:
-            self.eventlog.append(
-                kind=NAME_ATTEMPT_USER,
+            _io.append_name_attempt_user(
+                self.eventlog,
                 content="Forcing reflection due to identity adoption",
-                meta={
+                extra={
                     "forced_reflection_reason": "identity_adopt",
                     "identity_adopt_event_id": adopt_eid,
                 },
@@ -4645,21 +2203,17 @@ class AutonomyLoop:
 
         # Emit an identity_checkpoint snapshot (traits, commitments, stage)
         try:
-            evs_now = self.eventlog.read_all()
+            evs_now = self.eventlog.read_tail(limit=1000)
             model = build_self_model(evs_now, eventlog=self.eventlog)
             traits = model.get("traits", {})
             commitments = model.get("commitments", {})
             stage = model.get("stage", "S0")
-            self.eventlog.append(
-                kind="identity_checkpoint",
-                content="",
-                meta={
-                    "name": sanitized,
-                    "traits": traits,
-                    "commitments": commitments,
-                    "stage": stage,
-                    "identity_adopt_event_id": adopt_eid,
-                },
+            _io.append_identity_checkpoint(
+                self.eventlog,
+                name=sanitized,
+                traits=traits,
+                commitments=commitments,
+                stage=stage,
             )
             # Deterministic, bounded trait nudge on adoption for auditability
             try:
@@ -4673,14 +2227,11 @@ class AutonomyLoop:
                 if delta > 0.05:
                     delta = 0.05
                 delta = round(delta, 4)
-                self.eventlog.append(
-                    kind="trait_update",
-                    content="",
-                    meta={
-                        "changes": {"openness": float(delta)},
-                        "reason": "identity_shift",
-                        "identity_adopt_event_id": adopt_eid,
-                    },
+                _io.append_trait_update(
+                    self.eventlog,
+                    changes={"openness": float(delta)},
+                    reason="identity_shift",
+                    identity_adopt_event_id=adopt_eid,
                 )
             except Exception:
                 pass
@@ -4694,25 +2245,20 @@ class AutonomyLoop:
                         and txt_pre
                         and (str(old_name).lower() in txt_pre.lower())
                     ):
-                        self.eventlog.append(
-                            kind="commitment_rebind",
-                            content="",
-                            meta={
-                                "cid": str(cid_pre),
-                                "old_name": old_name,
-                                "new_name": sanitized,
-                                "original_text": txt_pre,
-                                "identity_adopt_event_id": adopt_eid,
-                            },
+                        _io.append_commitment_rebind(
+                            self.eventlog,
+                            cid=str(cid_pre),
+                            old_name=old_name,
+                            new_name=sanitized,
                         )
             except Exception:
                 pass
         except Exception:
             try:
-                self.eventlog.append(
-                    kind=NAME_ATTEMPT_USER,
+                _io.append_name_attempt_user(
+                    self.eventlog,
                     content=f"Failed to create identity_checkpoint for {sanitized}",
-                    meta={
+                    extra={
                         "error": "checkpoint_creation_failed",
                         "identity_adopt_event_id": adopt_eid,
                     },
@@ -4723,21 +2269,20 @@ class AutonomyLoop:
         # Force a reflection immediately after adoption (bypass all cadence gates),
         # but only once per autonomy tick
         try:
-            if _has_reflection_since_last_tick(self.eventlog):
+            if _has_reflection_since_last_tick(
+                self.eventlog, events=self.eventlog.read_tail(limit=1000)
+            ):
                 # Suppress duplicate reflection within same tick
-                self.eventlog.append(
-                    kind=REFLECTION_FORCED,
-                    content="",
-                    meta={
-                        "forced_reflection_reason": "identity_adopt",
-                        "identity_adopt_event_id": adopt_eid,
-                        "suppressed": "same_tick",
-                    },
+                _io.append_reflection_forced(
+                    self.eventlog,
+                    reason="identity_adopt",
+                    tick=None,
                 )
             else:
                 did_reflect, _reason = maybe_reflect(
                     self.eventlog,
                     self.cooldown,
+                    events=self.eventlog.read_tail(limit=1000),
                     override_min_turns=0,
                     override_min_seconds=0,
                     open_autonomy_tick=adopt_eid,
@@ -4747,10 +2292,10 @@ class AutonomyLoop:
                     memegraph=getattr(self, "memegraph", None),
                 )
                 # Always record a debug marker to indicate a forced reflection attempt
-                self.eventlog.append(
-                    kind=NAME_ATTEMPT_USER,
+                _io.append_name_attempt_user(
+                    self.eventlog,
                     content="Forced reflection after identity adoption",
-                    meta={
+                    extra={
                         "identity_adopt_event_id": adopt_eid,
                         "forced_reflection_reason": "identity_adopt",
                         "did_reflect": bool(did_reflect),
@@ -4758,14 +2303,10 @@ class AutonomyLoop:
                 )
                 # If reflection failed, emit a forced reflection marker
                 if not did_reflect:
-                    self.eventlog.append(
-                        kind=REFLECTION_FORCED,
-                        content="",
-                        meta={
-                            "forced_reflection_reason": "identity_adopt",
-                            "identity_adopt_event_id": adopt_eid,
-                            "reflection_failed": True,
-                        },
+                    _io.append_reflection_forced(
+                        self.eventlog,
+                        reason="identity_adopt",
+                        tick=None,
                     )
                 # Always emit a PMM-native reflection after adoption to ensure ontology-locked content
                 try:
@@ -4789,15 +2330,11 @@ class AutonomyLoop:
                         reason="identity_adopt",
                     )
                     try:
-                        ias, gas = compute_ias_gas(self.eventlog.read_all())
-                        self.eventlog.append(
-                            kind="metrics",
-                            content="",
-                            meta={
-                                "IAS": ias,
-                                "GAS": gas,
-                                "reason": "live_update",
-                            },
+                        ias, gas = get_or_compute_ias_gas(self.eventlog)
+                        _io.append_metrics(
+                            self.eventlog,
+                            ias=ias,
+                            gas=gas,
                         )
                     except Exception:
                         pass
@@ -4805,24 +2342,19 @@ class AutonomyLoop:
                     pass
         except Exception:
             try:
-                self.eventlog.append(
-                    kind=NAME_ATTEMPT_USER,
+                _io.append_name_attempt_user(
+                    self.eventlog,
                     content=f"Failed to force reflection after adopting identity {sanitized}",
-                    meta={
+                    extra={
                         "error": "forced_reflection_failed",
                         "identity_adopt_event_id": adopt_eid,
                     },
                 )
                 # Emit forced reflection marker on error
-                self.eventlog.append(
-                    kind=REFLECTION_FORCED,
-                    content="",
-                    meta={
-                        "forced_reflection_reason": "identity_adopt",
-                        "identity_adopt_event_id": adopt_eid,
-                        "reflection_failed": True,
-                        "error": "exception_during_reflection",
-                    },
+                _io.append_reflection_forced(
+                    self.eventlog,
+                    reason="identity_adopt",
+                    tick=None,
                 )
             except Exception:
                 pass
@@ -4833,7 +2365,7 @@ class AutonomyLoop:
             if old_name and str(old_name).strip() and old_name != sanitized:
                 # Capture baseline event id to detect new rebind events deterministically
                 try:
-                    int(self.eventlog.read_all()[-1].get("id") or 0)
+                    int(self.eventlog.read_tail(limit=1)[-1].get("id") or 0)
                 except Exception:
                     pass
                 tracker_rebind = getattr(self, "tracker", None)
@@ -4847,7 +2379,7 @@ class AutonomyLoop:
                 )
                 # Collect cids from rebind events appended after adopt
                 try:
-                    evs_after = self.eventlog.read_all()
+                    evs_after = self.eventlog.read_tail(limit=1000)
                 except Exception:
                     evs_after = []
                 for ev in evs_after:
@@ -4861,7 +2393,7 @@ class AutonomyLoop:
                 if not rebind_cids:
                     try:
                         model_after = build_self_model(
-                            self.eventlog.read_all(), eventlog=self.eventlog
+                            self.eventlog.read_tail(limit=1000), eventlog=self.eventlog
                         )
                         open_map_fb = (model_after.get("commitments") or {}).get(
                             "open", {}
@@ -4871,21 +2403,18 @@ class AutonomyLoop:
                             if not txt_fb:
                                 continue
                             if str(old_name).lower() in txt_fb.lower():
-                                self.eventlog.append(
-                                    kind="commitment_rebind",
-                                    content="",
-                                    meta={
-                                        "cid": str(cid_fb),
-                                        "old_name": old_name,
-                                        "new_name": sanitized,
-                                        "original_text": txt_fb,
-                                        "identity_adopt_event_id": adopt_eid,
-                                    },
+                                _io.append_commitment_rebind(
+                                    self.eventlog,
+                                    cid=str(cid_fb),
+                                    old_name=old_name,
+                                    new_name=sanitized,
+                                    original_text=txt_fb,
+                                    identity_adopt_event_id=adopt_eid,
                                 )
                                 rebind_cids.append(str(cid_fb))
                         # If still none, scan raw events for open commitments
                         if not rebind_cids:
-                            evs_all = self.eventlog.read_all()
+                            evs_all = self.eventlog.read_tail(limit=1000)
                             open_by_cid: dict[str, dict] = {}
                             closed: set[str] = set()
                             for ev in evs_all:
@@ -4903,23 +2432,19 @@ class AutonomyLoop:
                             for cid0, m0 in list(open_by_cid.items()):
                                 txt0 = str((m0 or {}).get("text") or "")
                                 if txt0 and (str(old_name).lower() in txt0.lower()):
-                                    self.eventlog.append(
-                                        kind="commitment_rebind",
-                                        content="",
-                                        meta={
-                                            "cid": str(cid0),
-                                            "old_name": old_name,
-                                            "new_name": sanitized,
-                                            "original_text": txt0,
-                                            "identity_adopt_event_id": adopt_eid,
-                                        },
+                                    _io.append_commitment_rebind(
+                                        self.eventlog,
+                                        cid=str(cid0),
+                                        old_name=old_name,
+                                        new_name=sanitized,
+                                        identity_adopt_event_id=adopt_eid,
                                     )
                                     rebind_cids.append(str(cid0))
                     except Exception:
                         pass
                     # After all fallbacks, rescan for any rebinds tagged with this adopt id
                     try:
-                        evs_scan = self.eventlog.read_all()
+                        evs_scan = self.eventlog.read_tail(limit=1000)
                     except Exception:
                         evs_scan = []
                     for ev in evs_scan:
@@ -4937,7 +2462,7 @@ class AutonomyLoop:
                             continue
             # Final aggregation: include any rebinds tagged with this adopt id
             try:
-                evs_scan2 = self.eventlog.read_all()
+                evs_scan2 = self.eventlog.read_tail(limit=1000)
             except Exception:
                 evs_scan2 = []
             for ev in evs_scan2:
@@ -4967,7 +2492,7 @@ class AutonomyLoop:
 
         # Final guarantee: emit identity_projection if any rebinds were tagged with this adopt id
         try:
-            evs_all2 = self.eventlog.read_all()
+            evs_all2 = self.eventlog.read_tail(limit=1000)
             cids2: list[str] = []
             for ev in evs_all2:
                 if ev.get("kind") != "commitment_rebind":
@@ -5092,20 +2617,19 @@ class AutonomyLoop:
             pass
 
     def start(self) -> None:
-        if self._thread and self._thread.is_alive():
-            return
-        self._stop.clear()
-        self._thread = _threading.Thread(
-            target=self._run, name="PMM-AutonomyLoop", daemon=True
-        )
-        self._thread.start()
+        if self._scheduler is None:
+            self._scheduler = _scheduler.LoopScheduler(
+                on_tick=self.tick,
+                interval_seconds=self.interval,
+                name="PMM-AutonomyLoop",
+            )
+        else:
+            self._scheduler.update_interval(self.interval)
+        self._scheduler.start()
 
     def stop(self) -> None:
-        self._stop.set()
-        t = self._thread
-        if t and t.is_alive():
-            t.join(timeout=self.interval * 2)
-        self._thread = None
+        if self._scheduler is not None:
+            self._scheduler.stop()
 
     def _run(self) -> None:
         next_at = _time.time() + self.interval
@@ -5121,6 +2645,8 @@ class AutonomyLoop:
             self._stop.wait(0.05)
 
     def tick(self) -> None:
+        # Performance: Use snapshot events throughout to avoid redundant database reads
+        # The snapshot already contains all events we need - no need to read_all() again!
         snapshot_tick = self._snapshot_for_tick()
         events = list(snapshot_tick.events)
         last_auto_id: int | None = None
@@ -5172,25 +2698,19 @@ class AutonomyLoop:
         )  # default to S0
         # Emit idempotently across entire history: if a policy_update already exists
         # with the same component, stage, and params, do not append again.
-        target_params = {
-            "min_turns": int(cadence["min_turns"]),
-            "min_time_s": int(cadence["min_time_s"]),
-            "force_reflect_if_stuck": bool(cadence["force_reflect_if_stuck"]),
-        }
+        from pmm.runtime.loop.autonomy import (
+            compute_reflection_target_params as _auto_reflect_params,
+        )
+        from pmm.runtime.loop.autonomy import (
+            policy_update_exists as _auto_policy_exists,
+        )
+
+        target_params = _auto_reflect_params(cadence)
         last_reflection_policy = getattr(self, "_last_reflection_policy", {})
         cached_reflection = last_reflection_policy.get(curr_stage)
-        exists_reflection = False
-        for _ev in reversed(events):
-            if _ev.get("kind") != "policy_update":
-                continue
-            _m = _ev.get("meta") or {}
-            if (
-                str(_m.get("component")) == "reflection"
-                and str(_m.get("stage")) == str(curr_stage)
-                and dict(_m.get("params") or {}) == target_params
-            ):
-                exists_reflection = True
-                break
+        exists_reflection = _auto_policy_exists(
+            events, component="reflection", stage=str(curr_stage), params=target_params
+        )
         if not exists_reflection and cached_reflection != target_params:
             _vprint(
                 f"[AutonomyLoop] Policy update: Reflection cadence set for stage {curr_stage} (tick {tick_no})"
@@ -5208,31 +2728,54 @@ class AutonomyLoop:
             last_reflection_policy[curr_stage] = target_params
             self._last_reflection_policy = last_reflection_policy
 
+        # Due-date scheduler: emits commitment_due once per cid/due_epoch (no flags).
+        try:
+            due_list = _due.compute_due(
+                events,
+                horizon_hours=int(REFLECTION_COMMIT_DUE_HOURS),
+                now_epoch=int(_time.time()),
+            )
+        except Exception:
+            due_list = []
+        if due_list:
+            # Idempotency across replays: compute seen from full history for determinism
+            seen: set[tuple[str, int]] = set()
+            for ev in events:
+                if ev.get("kind") != "commitment_due":
+                    continue
+                m = ev.get("meta") or {}
+                c = str(m.get("cid") or "")
+                try:
+                    de = int(m.get("due_epoch") or 0)
+                except Exception:
+                    de = 0
+                if c:
+                    seen.add((c, de))
+            for cid, due_epoch in due_list:
+                key = (str(cid), int(due_epoch))
+                if key in seen:
+                    continue
+                try:
+                    self.eventlog.append(
+                        kind="commitment_due",
+                        content="",
+                        meta={"cid": str(cid), "due_epoch": int(due_epoch)},
+                    )
+                except Exception:
+                    pass
+
         # 1b) Determine current drift multipliers and emit idempotent policy_update on change
         mult = DRIFT_MULT_BY_STAGE.get(
             curr_stage, DRIFT_MULT_BY_STAGE["S0"]
         )  # default to S0
-        cmp_params_drift = {
-            "mult": {
-                "openness": float(mult["openness"]),
-                "conscientiousness": float(mult["conscientiousness"]),
-                "neuroticism": float(mult["neuroticism"]),
-            }
-        }
+        from pmm.runtime.loop.autonomy import compute_drift_params as _auto_drift_params
+
+        cmp_params_drift = _auto_drift_params(mult)
         last_drift_policy = getattr(self, "_last_drift_policy", {})
         cached_drift = last_drift_policy.get(curr_stage)
-        exists_drift = False
-        for _ev in reversed(events):
-            if _ev.get("kind") != "policy_update":
-                continue
-            _m = _ev.get("meta") or {}
-            if (
-                str(_m.get("component")) == "drift"
-                and str(_m.get("stage")) == str(curr_stage)
-                and dict(_m.get("params") or {}) == cmp_params_drift
-            ):
-                exists_drift = True
-                break
+        exists_drift = _auto_policy_exists(
+            events, component="drift", stage=str(curr_stage), params=cmp_params_drift
+        )
         if not exists_drift and cached_drift != cmp_params_drift:
             self.eventlog.append(
                 kind="policy_update",
@@ -5301,13 +2844,15 @@ class AutonomyLoop:
                     continue
                 text0 = str((open_map.get(cid) or {}).get("text") or "")
                 try:
-                    self.eventlog.append(
-                        kind="commitment_expire",
-                        content=f"Commitment expired: {text0}",
-                        meta={
-                            "cid": cid,
-                            "reason": str((c or {}).get("reason") or "timeout"),
-                        },
+                    from pmm.commitments.tracker import api as _tracker_api
+
+                    _tracker_api.expire_commitment(
+                        self.eventlog,
+                        cid=cid,
+                        reason=str((c or {}).get("reason") or "timeout"),
+                        events=events,
+                        open_map=open_map,
+                        text0=text0,
                     )
                 except Exception:
                     pass
@@ -5422,6 +2967,7 @@ class AutonomyLoop:
             if force_reason:
                 rid_forced = emit_reflection(
                     self.eventlog,
+                    events=events,
                     forced=True,
                     forced_reason=force_reason,
                     force_open_commitment=True,
@@ -5435,10 +2981,10 @@ class AutonomyLoop:
                     self.cooldown.reset()
                 except Exception:
                     pass
-                self.eventlog.append(
-                    kind=NAME_ATTEMPT_USER,
+                _io.append_name_attempt_user(
+                    self.eventlog,
                     content="",
-                    meta={
+                    extra={
                         "forced_reflection": {
                             "skip_reason": force_reason,
                             "consecutive": 1,
@@ -5456,6 +3002,7 @@ class AutonomyLoop:
                 did, reason = maybe_reflect(
                     self.eventlog,
                     self.cooldown,
+                    events=events,
                     override_min_turns=int(cadence["min_turns"]),
                     override_min_seconds=int(cadence["min_time_s"]),
                     arm_means=_means,
@@ -5472,14 +3019,12 @@ class AutonomyLoop:
                     ),
                 )
         else:
-            self.eventlog.append(
-                kind=REFLECTION_SKIPPED, content="", meta={"reason": DUE_TO_CADENCE}
-            )
+            _io.append_reflection_skipped(self.eventlog, reason=DUE_TO_CADENCE)
             did, reason = (False, "cadence")
             # Emit bandit breadcrumb even when skipping reflection for observability
             try:
                 # Only emit if none exists since the last autonomy_tick
-                evs_now_bt = self.eventlog.read_all()
+                evs_now_bt = events
                 last_auto_id_bt = None
                 for be2 in reversed(evs_now_bt):
                     if be2.get("kind") == "autonomy_tick":
@@ -5512,17 +3057,23 @@ class AutonomyLoop:
                     tick_c = 1 + sum(
                         1 for ev in evs_now_bt if ev.get("kind") == "autonomy_tick"
                     )
-                    self.eventlog.append(
-                        kind="bandit_arm_chosen",
-                        content="",
-                        meta={"arm": str(arm or "succinct"), "tick": int(tick_c)},
+                    _io.append_bandit_arm_chosen(
+                        self.eventlog,
+                        arm=str(arm or "succinct"),
+                        tick=int(tick_c),
                     )
             except Exception:
                 pass
 
+        # Refresh events to include modifications emitted during this tick
+        try:
+            events = self.eventlog.read_tail(limit=10000)
+        except Exception:
+            events = self.eventlog.read_all()
+
         # Track new events since the prior autonomy tick to schedule follow-ups
         try:
-            evs_all_now = self.eventlog.read_all()
+            evs_all_now = events
             evs_since: list[dict] = []
             for ev in evs_all_now:
                 try:
@@ -5575,7 +3126,7 @@ class AutonomyLoop:
                                     build_self_model as _build_sm,
                                 )
 
-                                model_ck = _build_sm(self.eventlog.read_all())
+                                model_ck = _build_sm(events)
                             except Exception:
                                 model_ck = {
                                     "traits": {},
@@ -5601,7 +3152,7 @@ class AutonomyLoop:
                                 pass
                             # Apply bounded trait nudges based on recent context (mirror _adopt_identity)
                             try:
-                                evs_ctx = self.eventlog.read_all()
+                                evs_ctx = events
                                 recent_ctx = (
                                     evs_ctx[-20:] if len(evs_ctx) > 20 else evs_ctx
                                 )
@@ -5670,10 +3221,10 @@ class AutonomyLoop:
                                 )
                                 if did_reflect:
                                     try:
-                                        self.eventlog.append(
-                                            kind=NAME_ATTEMPT_USER,
+                                        _io.append_name_attempt_user(
+                                            self.eventlog,
                                             content="",
-                                            meta={
+                                            extra={
                                                 "forced_reflection": {
                                                     "mode": "post_identity_adopt",
                                                     "adopt_event_id": adopt_eid,
@@ -5694,10 +3245,10 @@ class AutonomyLoop:
                         if self._force_reason_next_tick is None:
                             self._force_reason_next_tick = "commitment_followup"
                         try:
-                            self.eventlog.append(
-                                kind=NAME_ATTEMPT_USER,
+                            _io.append_name_attempt_user(
+                                self.eventlog,
                                 content="",
-                                meta={
+                                extra={
                                     "commitment_followup": {
                                         "cid": cid_new,
                                         "open_event_id": int(ev.get("id") or 0),
@@ -5828,7 +3379,10 @@ class AutonomyLoop:
 
         # Helper: append insight_ready once per reflection if voicable and no response after it
         def _maybe_mark_insight_ready(reflection_id: int) -> None:
-            evs_now = self.eventlog.read_all()
+            try:
+                evs_now = self.eventlog.read_tail(limit=1000)
+            except Exception:
+                evs_now = self.eventlog.read_all()
             # Already marked?
             for e in reversed(evs_now):
                 if (
@@ -5878,6 +3432,7 @@ class AutonomyLoop:
             if self._stuck_count >= 4:
                 rid_forced = emit_reflection(
                     self.eventlog,
+                    events=events,
                     forced=True,
                     stage_override=curr_stage,
                     llm_generate=lambda context: (
@@ -5896,7 +3451,7 @@ class AutonomyLoop:
 
         # If reflection happened in normal path, consider tagging insight by fetching latest reflection id
         if did:
-            _evs_latest = self.eventlog.read_all()
+            _evs_latest = events
             _latest_refl_id = None
             for _e in reversed(_evs_latest):
                 if _e.get("kind") == "reflection":
@@ -6061,7 +3616,7 @@ class AutonomyLoop:
             try:
                 from pmm.storage.projection import build_identity as _build_identity
 
-                ident_now = _build_identity(self.eventlog.read_all())
+                ident_now = _build_identity(events)
                 traits_now = ident_now.get("traits") or {}
                 for k, v in changes.items():
                     if not str(k).startswith("traits."):
@@ -6080,7 +3635,7 @@ class AutonomyLoop:
                         continue
                     # Avoid duplicate emission within the same tick for same trait
                     already = False
-                    evs_now2 = self.eventlog.read_all()
+                    evs_now2 = events
                     for e in reversed(evs_now2):
                         if e.get("kind") != "trait_update":
                             continue
@@ -6106,7 +3661,7 @@ class AutonomyLoop:
             # Gate evolution emission to reduce noise: require >=3 reflections total and >=3 since last evolution
             ok_emit_evo = allow_persona_updates
             try:
-                evs_now_evo = self.eventlog.read_all()
+                evs_now_evo = events
                 last_evo_id = None
                 for e in reversed(evs_now_evo):
                     if e.get("kind") == "evolution":
@@ -6252,7 +3807,10 @@ class AutonomyLoop:
             try:
                 hints = POLICY_HINTS_BY_STAGE.get(curr_stage, {})
                 # refresh events to include the stage_update we just appended
-                events_h = self.eventlog.read_all()
+                try:
+                    events_h = self.eventlog.read_tail(limit=1000)
+                except Exception:
+                    events_h = self.eventlog.read_all()
                 for component, params in hints.items():
                     # Idempotency per (component, stage): allow new update on each stage transition
                     any_existing = any(
@@ -6435,10 +3993,10 @@ class AutonomyLoop:
             ):
                 fallback = candidate_prop or "Persona"
                 try:
-                    self.eventlog.append(
-                        kind=NAME_ATTEMPT_USER,
+                    _io.append_name_attempt_user(
+                        self.eventlog,
                         content="",
-                        meta={
+                        extra={
                             "identity_adopt": "bootstrap",
                             "src_id": int(last_prop_event.get("id") or 0),
                             "turns_since_proposal": int(tick_no - prop_tick),
@@ -6470,7 +4028,7 @@ class AutonomyLoop:
         # 2f) Trait drift hooks (event-native, identity-gated)
         # Identity gate: only consider drift if identity name exists
         if persona_name:
-            events = self.eventlog.read_all()
+            # Use events from snapshot (already have them)
             # Always define last_auto_id before use
             last_auto_id = None
             for ev in reversed(events):
@@ -6478,8 +4036,8 @@ class AutonomyLoop:
                     last_auto_id = int(ev.get("id") or 0)
                     break
             # Note: we compute reflection/close correlations per-window below; no need to cache last reflection id here
-            # Refresh events to include any debug/reflect_skip and other events appended earlier in this tick
-            events = self.eventlog.read_all()
+            # Events from snapshot are sufficient for trait drift analysis
+            # (new events appended during this tick are not needed for drift calculations)
             # Resolve multipliers again for safety in case stage perception changed within this tick
             mult = DRIFT_MULT_BY_STAGE.get(
                 curr_stage, DRIFT_MULT_BY_STAGE["S0"]
@@ -6668,16 +4226,16 @@ class AutonomyLoop:
         # 2e) Commitment due reminders: emit commitment_reminder when due is passed
         try:
             # Use projection to obtain open commitments and their metadata (including due)
-            evs_for_due = self.eventlog.read_all()
+            evs_for_due = events
             model_due = build_self_model(evs_for_due)
             open_map_due = (model_due.get("commitments") or {}).get("open") or {}
             now_s = _time.time()
             # Debug breadcrumb for diagnostics
             try:
-                self.eventlog.append(
-                    kind=NAME_ATTEMPT_USER,
+                _io.append_name_attempt_user(
+                    self.eventlog,
                     content="reminder_scan",
-                    meta={"open_count": int(len(open_map_due))},
+                    extra={"open_count": int(len(open_map_due))},
                 )
             except Exception:
                 pass
@@ -6761,7 +4319,7 @@ class AutonomyLoop:
 
         # 2f) Commitment TTL sweep (deterministic by tick count) BEFORE logging this tick
         try:
-            events_now = self.eventlog.read_all()
+            events_now = events
             # conservative default TTL of 10 ticks
             tracker_ttl = getattr(self, "tracker", None)
             if tracker_ttl is None:
@@ -6794,11 +4352,16 @@ class AutonomyLoop:
                             has_expire = True
                 if has_expire:
                     continue
-                self.eventlog.append(
-                    kind="commitment_expire",
-                    content="",
-                    meta={"cid": cid, "reason": str(c.get("reason") or "timeout")},
-                )
+                try:
+                    from pmm.commitments.tracker import api as _tracker_api
+
+                    _tracker_api.expire_commitment(
+                        self.eventlog,
+                        cid=cid,
+                        reason=str(c.get("reason") or "timeout"),
+                    )
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -6894,7 +4457,7 @@ class AutonomyLoop:
                         ):
                             # Determine current cooldown threshold and bump by +0.05 (clamped)
                             try:
-                                evs_boot = self.eventlog.read_all()
+                                evs_boot = events
                             except Exception:
                                 evs_boot = events
                             _st_cool, _cur_cool = _last_policy_params(
@@ -6967,7 +4530,7 @@ class AutonomyLoop:
                         # Global idempotency guard: if any prior policy_update already
                         # references this src_id anywhere in history, skip emitting another.
                         try:
-                            _evs_all_for_pu = self.eventlog.read_all()
+                            _evs_all_for_pu = events
                         except Exception:
                             _evs_all_for_pu = _tail
                         for _evx in reversed(_evs_all_for_pu):
@@ -7031,9 +4594,9 @@ class AutonomyLoop:
                 tail = self.eventlog.read_tail(limit=500)
         except AttributeError:
             # Fallback: approximate tail from full history
-            tail = self.eventlog.read_all()[-500:]
+            tail = events[-500:]
         except Exception:
-            tail = self.eventlog.read_all()[-500:]
+            tail = events[-500:]
         try:
             self._commit_tracker.open_violation_triage(tail, self.eventlog)
         except Exception:

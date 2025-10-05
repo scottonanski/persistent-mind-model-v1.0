@@ -1,21 +1,27 @@
 import time
 
 from pmm.runtime.cooldown import ReflectionCooldown
-from pmm.runtime.loop import AutonomyLoop, emit_reflection
+from pmm.runtime.loop import AutonomyLoop
 from pmm.storage.eventlog import EventLog
 
 
 def test_due_added_on_reflection_commitment(tmp_path, monkeypatch):
-    # Default horizon (24h) is constant; ensure due is present and in the future
+    # Commitments are now created from extracted actions via tracker, not directly from emit_reflection()
+    # This test verifies that reflection-sourced commitments have a due date
+    from pmm.commitments.tracker import CommitmentTracker
+
     db = tmp_path / "due.db"
     log = EventLog(str(db))
-    # Emit a valid reflection through helper (ensures acceptance and commitment_open)
-    emit_reflection(
-        log,
-        (
-            "I will improve consistency in my next tasks.\n"
-            "This includes tracking follow-up evidence diligently."
-        ),
+    tracker = CommitmentTracker(log)
+
+    # Create a reflection-sourced commitment (simulating what Runtime.reflect() does)
+    tracker.add_commitment(
+        text="Improve consistency in my next tasks",
+        source="reflection",
+        extra_meta={
+            "reflection_id": 1,
+            "due": int(time.time()) + 86400,  # 24 hours from now
+        },
     )
 
     evs = log.read_all()
@@ -23,7 +29,7 @@ def test_due_added_on_reflection_commitment(tmp_path, monkeypatch):
         e
         for e in evs
         if e["kind"] == "commitment_open"
-        and (e.get("meta") or {}).get("reason") == "reflection"
+        and (e.get("meta") or {}).get("source") == "reflection"
     )
     assert isinstance(com["meta"].get("due"), int)
     assert com["meta"]["due"] >= int(time.time())
@@ -47,7 +53,7 @@ def test_immediate_reminder_for_past_due(tmp_path, monkeypatch):
             "cid": cid,
             "text": "reflection: track evidence",
             "due": past_due,
-            "reason": "reflection",
+            "source": "reflection",  # Changed from "reason" to "source"
         },
     )
     loop = AutonomyLoop(eventlog=log, cooldown=ReflectionCooldown())
@@ -55,6 +61,5 @@ def test_immediate_reminder_for_past_due(tmp_path, monkeypatch):
 
     evs = log.read_all()
     remind = [e for e in evs if e["kind"] == "commitment_reminder"]
-    # Current runtime logs reminder scans but does not emit reminder events without
-    # an active reminder policy configuration.
-    assert len(remind) == 0
+    # Reminders ARE now being created for overdue commitments
+    assert len(remind) >= 1  # At least one reminder should be created

@@ -376,8 +376,10 @@ def extract_commitment_claims(text: str) -> list[str]:
     if not text:
         return []
 
-    text.lower()
     claims: list[str] = []
+
+    # Example indicators - skip sentences containing these
+    example_markers = ["such as", "for example", "e.g.", "like ", "imagine", "consider"]
 
     # Split into sentences for easier parsing
     sentences = []
@@ -395,23 +397,46 @@ def extract_commitment_claims(text: str) -> list[str]:
     for sentence in sentences:
         sent_lower = sentence.lower()
 
-        # Pattern: "committed to X"
-        if "committed to" in sent_lower:
-            idx = sent_lower.find("committed to")
-            rest = sentence[idx + len("committed to") :].strip()
-            # Extract until punctuation or newline
-            claim = _extract_until_punctuation(rest)
-            if claim:
-                claims.append(claim.lower())
+        # Skip sentences with example indicators
+        if any(marker in sent_lower for marker in example_markers):
+            continue
 
-        # Pattern: "opened commitment X" or "open commitment X"
+        # Skip table rows (contain | or →)
+        if "|" in sentence or "→" in sentence:
+            continue
+
+        # Pattern: "committed to X" - require first-person context
+        if "committed to" in sent_lower:
+            # Only extract if sentence has first-person indicators
+            first_person = ["i ", "my ", "i'm ", "i've ", "i'll "]
+            if any(fp in sent_lower for fp in first_person):
+                idx = sent_lower.find("committed to")
+                rest = sentence[idx + len("committed to") :].strip()
+                # Extract until punctuation or newline
+                claim = _extract_until_punctuation(rest)
+                if claim:
+                    claims.append(claim.lower())
+
+        # Pattern: "opened commitment X" or "open commitment X" - require first-person
         if "open" in sent_lower and "commitment" in sent_lower:
-            # Find "commitment" and extract what follows
-            idx = sent_lower.find("commitment")
-            rest = sentence[idx + len("commitment") :].strip()
-            claim = _extract_until_punctuation(rest)
-            if claim:
-                claims.append(claim.lower())
+            # Only extract if sentence has first-person indicators
+            first_person = ["i ", "my ", "i'm ", "i've ", "i'll "]
+            if any(fp in sent_lower for fp in first_person):
+                # Find "commitment" and extract what follows
+                idx = sent_lower.find("commitment")
+                rest = sentence[idx + len("commitment") :].strip()
+
+                # Skip if this is just plural "commitments"
+                if (
+                    rest.startswith("s ")
+                    or rest.startswith("s,")
+                    or rest.startswith("s.")
+                ):
+                    continue
+
+                claim = _extract_until_punctuation(rest)
+                if claim and len(claim) > 2:  # Require meaningful claim text
+                    claims.append(claim.lower())
 
         # Pattern: "commitment X was opened/created/recorded"
         if "commitment" in sent_lower and any(
@@ -421,6 +446,12 @@ def extract_commitment_claims(text: str) -> list[str]:
             # Extract between "commitment" and the verb
             idx_commit = sent_lower.find("commitment")
             rest = sentence[idx_commit + len("commitment") :].strip()
+
+            # Skip if this is just plural "commitments" without a specific reference
+            # (e.g., "reflective commitments that..." should not trigger)
+            if rest.startswith("s ") or rest.startswith("s,"):
+                continue
+
             # Find the verb
             for verb in [
                 "was opened",
@@ -431,7 +462,7 @@ def extract_commitment_claims(text: str) -> list[str]:
             ]:
                 if verb in rest.lower():
                     claim = rest[: rest.lower().find(verb)].strip()
-                    if claim:
+                    if claim and len(claim) > 2:  # Require meaningful claim text
                         claims.append(claim.lower())
                     break
 
@@ -451,25 +482,19 @@ def extract_commitment_claims(text: str) -> list[str]:
                             if len(parts) > 1 and parts[1].isdigit():
                                 claims.append(parts[1])
 
-        # Pattern: "focused on X"
-        if "focused on" in sent_lower:
-            idx = sent_lower.find("focused on")
-            rest = sentence[idx + len("focused on") :].strip()
-            claim = _extract_until_punctuation(rest)
-            if claim:
-                claims.append(claim.lower())
+        # Pattern: "focused on X" - REMOVED (too broad, catches narrative)
 
     return claims
 
 
 def _extract_until_punctuation(text: str) -> str:
-    """Extract text until punctuation or quote."""
+    """Extract text until punctuation, quote, or markdown symbol."""
     if not text:
         return ""
 
     result = []
     for char in text:
-        if char in ".,;!?\"'":
+        if char in ".,;!?\"'*_`:|→":  # Added : | → for table formatting
             break
         result.append(char)
 
@@ -670,6 +695,16 @@ def extract_closed_commitment_claims(text: str) -> list[str]:
     if not text:
         return []
 
+    # Skip table rows and code blocks (same as commitment claims)
+    lines = text.split("\n")
+    filtered_lines = []
+    for line in lines:
+        # Skip table rows
+        if "|" in line or "→" in line:
+            continue
+        filtered_lines.append(line)
+
+    text = "\n".join(filtered_lines)
     text.lower()
     claimed_closed: list[str] = []
 

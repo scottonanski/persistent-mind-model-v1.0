@@ -272,7 +272,11 @@ class MemeGraphProjection:
         }.get(kind)
         if edge_label:
             reason = meta.get("reason") or meta.get("source") or meta.get("state")
-            edge_attrs = {"reason": reason} if reason else {}
+            edge_attrs = {
+                "confidence": 0.85
+            }  # High confidence for direct state changes
+            if reason:
+                edge_attrs["reason"] = reason
             self._ensure_edge(edge_label, event_digest, commit_digest, edge_attrs)
         try:
             eid = int(event.get("id") or 0)
@@ -315,14 +319,18 @@ class MemeGraphProjection:
             "prompt": meta.get("prompt_template"),
         }
         refl_digest = self._ensure_node("reflection", attrs)
-        self._ensure_edge("captures", event_digest, refl_digest, {})
+        self._ensure_edge(
+            "captures", event_digest, refl_digest, {"confidence": 0.7}
+        )  # Medium confidence for reasoning captures
 
     def _handle_policy(self, event: dict[str, Any], event_digest: str) -> None:
         meta = event.get("meta") or {}
         component = meta.get("component") or "unknown"
         attrs = {"component": component, "stage": meta.get("stage")}
         policy_digest = self._ensure_node("policy", attrs)
-        self._ensure_edge("updates", event_digest, policy_digest, {})
+        self._ensure_edge(
+            "updates", event_digest, policy_digest, {"confidence": 0.9}
+        )  # Very high confidence for authoritative policies
 
     def _handle_stage(self, event: dict[str, Any], event_digest: str) -> None:
         meta = event.get("meta") or {}
@@ -335,11 +343,19 @@ class MemeGraphProjection:
         except Exception:
             eid = 0
         dst_digest = self._ensure_node("stage", {"name": stage_to})
-        self._ensure_edge("advances_to", event_digest, dst_digest, {})
+        self._ensure_edge(
+            "advances_to", event_digest, dst_digest, {"confidence": 0.85}
+        )  # High confidence for core state changes
         if stage_from:
             src_digest = self._ensure_node("stage", {"name": stage_from})
             self._ensure_edge(
-                "transition", src_digest, dst_digest, {"reason": meta.get("reason")}
+                "transition",
+                src_digest,
+                dst_digest,
+                {
+                    "confidence": 0.85,
+                    "reason": meta.get("reason"),
+                },  # High confidence for core state changes
             )
         if eid > 0:
             with self._lock:
@@ -350,7 +366,9 @@ class MemeGraphProjection:
         meta = event.get("meta") or {}
         attrs = {"kind": event.get("kind"), "meta": _normalize(meta)}
         node_digest = self._ensure_node("bandit", attrs)
-        self._ensure_edge("bandit_event", event_digest, node_digest, {})
+        self._ensure_edge(
+            "bandit_event", event_digest, node_digest, {"confidence": 0.7}
+        )  # Medium confidence for experimental learning
 
     def _handle_source_edges(self, event: dict[str, Any], event_digest: str) -> None:
         meta = event.get("meta") or {}
@@ -366,7 +384,9 @@ class MemeGraphProjection:
         if not src_digest:
             return
         label = f"references:{str(event.get('kind'))}"
-        self._ensure_edge(label, src_digest, event_digest, {})
+        self._ensure_edge(
+            label, src_digest, event_digest, {"confidence": 0.65}
+        )  # Lower confidence for indirect relationships
 
     def _ensure_node(
         self,
@@ -539,29 +559,6 @@ class MemeGraphProjection:
                 }:
                     continue
 
-                # Trace: Record node visits during graph traversal
-                if trace_buffer:
-                    # Log source node visit
-                    trace_buffer.record_node_visit(
-                        node_digest=src.digest,
-                        node_type=src.label,
-                        context_query=topic,
-                        traversal_depth=traversal_depth,
-                        confidence=edge_conf,
-                        edge_label=edge.label,
-                        reasoning_step=f"Examining {src.label} node via {edge.label} edge",
-                    )
-                    # Log destination node visit
-                    trace_buffer.record_node_visit(
-                        node_digest=dst.digest,
-                        node_type=dst.label,
-                        context_query=topic,
-                        traversal_depth=traversal_depth + 1,
-                        confidence=edge_conf,
-                        edge_label=edge.label,
-                        reasoning_step=f"Following {edge.label} to {dst.label} node",
-                    )
-
                 traversal_depth += 1
 
                 # Topic match heuristic: simple containment or token overlap
@@ -622,6 +619,25 @@ class MemeGraphProjection:
             for score, src, edge, dst in scored:
                 if len(result) >= limit:
                     break
+                if trace_buffer and not result:
+                    trace_buffer.record_node_visit(
+                        node_digest=src.digest,
+                        node_type=src.label,
+                        context_query=topic,
+                        traversal_depth=0,
+                        confidence=edge.attrs.get("confidence", 0.5),
+                        edge_label=edge.label,
+                        reasoning_step=f"Examining {src.label} node via {edge.label} edge",
+                    )
+                    trace_buffer.record_node_visit(
+                        node_digest=dst.digest,
+                        node_type=dst.label,
+                        context_query=topic,
+                        traversal_depth=1,
+                        confidence=edge.attrs.get("confidence", 0.5),
+                        edge_label=edge.label,
+                        reasoning_step=f"Following {edge.label} to {dst.label} node",
+                    )
                 src_eid = self._digest_to_event_id.get(src.digest)
                 dst_eid = self._digest_to_event_id.get(dst.digest)
                 relation = {

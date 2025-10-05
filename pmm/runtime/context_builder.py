@@ -54,6 +54,9 @@ def build_context_from_ledger(
     max_commitment_chars: int = 400,
     max_reflection_chars: int = 600,
     compact_mode: bool = False,
+    include_metrics: bool = True,
+    include_commitments: bool = True,
+    include_reflections: bool = True,
 ) -> str:
     """Return a formatted context block derived from the ledger.
 
@@ -116,6 +119,54 @@ def build_context_from_ledger(
     trait_str = ", ".join(
         f"{abbr}={traits.get(key, 0.5):.2f}" for key, abbr in trait_order
     )
+
+    # --- User Identity -----------------------------------------------------
+    # Retrieve user name from ledger (most recent user_identity_set event)
+    user_name: str | None = None
+    try:
+        for ev in reversed(events):
+            if ev.get("kind") == "user_identity_set":
+                meta = ev.get("meta", {})
+                user_name = meta.get("user_name")
+                if user_name:
+                    break
+    except Exception:
+        pass
+
+    # If tail slice missed user identity, fall back to full ledger read once.
+    fallback_events: list[dict[str, Any]] | None = None
+    if (
+        user_name is None
+        and snapshot is None
+        and use_tail_optimization
+        and len(events) >= 1000
+    ):
+        try:
+            all_events = eventlog.read_all()
+        except Exception:
+            all_events = events
+        if len(all_events) > len(events):
+            try:
+                for ev in reversed(all_events):
+                    if ev.get("kind") == "user_identity_set":
+                        meta = ev.get("meta", {})
+                        candidate = meta.get("user_name")
+                        if candidate:
+                            fallback_events = all_events
+                            user_name = candidate
+                            break
+            except Exception:
+                fallback_events = None
+
+    if fallback_events is not None:
+        events = fallback_events
+        # Recompute identity/traits deterministically against full ledger
+        identity = build_identity(events)
+        name = identity.get("name") or "Unknown"
+        traits = identity.get("traits", {})
+        trait_str = ", ".join(
+            f"{abbr}={traits.get(key, 0.5):.2f}" for key, abbr in trait_order
+        )
 
     # --- IAS / GAS / Stage --------------------------------------------------
     # Compute fresh metrics instead of relying on stale autonomy_tick
@@ -264,38 +315,57 @@ def build_context_from_ledger(
     if compact_mode:
         # Ultra-compact format (20-30% token reduction)
         lines: list[str] = [f"[STATE] {name} | {trait_str}"]
-        if ias is not None and gas is not None and stage is not None:
+        if user_name:
+            lines.append(f"User: {user_name}")
+        if (
+            include_metrics
+            and ias is not None
+            and gas is not None
+            and stage is not None
+        ):
             lines.append(f"IAS={ias:.2f} GAS={gas:.2f} {stage}")
         if memegraph_summary:
             lines.append(memegraph_summary)
-        if commitments_block:
+        if include_commitments:
             lines.append("Commitments:")
-            lines.extend(commitments_block)
-        if reflections_block:
+            if commitments_block:
+                lines.extend(commitments_block)
+            else:
+                lines.append("  (none)")
+        if include_reflections and reflections_block:
             lines.append("Reflections:")
             lines.extend(reflections_block)
     else:
         # Standard format
         lines: list[str] = ["[SYSTEM STATE — from ledger]"]
         lines.append(f"Identity: {name}")
+        if user_name:
+            lines.append(f"User: {user_name}")
         lines.append(f"Traits: {trait_str}")
-        # Guidance for LLM trait suggestions (side layer)
-        lines.append(
-            "You may suggest personality adjustments when context supports it "
-            "(e.g., 'I should increase openness by 0.02'). "
-            "Suggestions should be precise and justified."
-        )
-        if ias is not None and gas is not None and stage is not None:
+        if (
+            include_metrics
+            and ias is not None
+            and gas is not None
+            and stage is not None
+        ):
             lines.append(f"IAS={ias:.2f}, GAS={gas:.2f}, Stage={stage}")
+        else:
+            lines.append(
+                "Ledger metrics (IAS/GAS, commitments, reflections) available on request."
+            )
         if memegraph_summary:
             lines.append(memegraph_summary)
-        if commitments_block:
+        if include_commitments:
             lines.append("Open commitments:")
-            lines.extend(commitments_block)
-        if reflections_block:
+            if commitments_block:
+                lines.extend(commitments_block)
+            else:
+                lines.append("  (none)")
+        if include_reflections and reflections_block:
             lines.append("Recent reflections:")
             lines.extend(reflections_block)
-        lines.append("---")
+        if include_reflections:
+            lines.append("---")
 
     return "\n".join(lines)
 

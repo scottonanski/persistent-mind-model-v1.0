@@ -383,7 +383,11 @@ def test_name_validator_single_source(tmp_path, monkeypatch):
     assert not any(e["kind"] == "identity_propose" for e in evs)
     # Ensure no duplicate sanitizer function exists on Runtime class
     assert not hasattr(Runtime, "_NAME_BANLIST")
-    assert "def _sanitize_name(" in open("pmm/runtime/loop.py", encoding="utf-8").read()
+    # After refactoring, _sanitize_name is defined in identity.py and re-exported from loop.py
+    assert (
+        "def sanitize_name("
+        in open("pmm/runtime/loop/identity.py", encoding="utf-8").read()
+    )
 
 
 def test_renderer_signature_edge_cases():

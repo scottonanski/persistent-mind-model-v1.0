@@ -35,6 +35,11 @@ COMMITMENT_EXEMPLARS: dict[str, list[str]] = {
         "I plan to work on this",
         "I am committing to this action",
         "My goal is to accomplish this",
+        "I will adjust the threshold to 0.45",
+        "I will set openness to 0.52",
+        "I will increase the parameter",
+        "I will update the policy",
+        "I will use the name Ada",
     ],
     "close": [
         "I have completed this task",
@@ -49,6 +54,28 @@ COMMITMENT_EXEMPLARS: dict[str, list[str]] = {
     ],
 }
 
+# Negative exemplars: what analysis/reflection looks like (to reject)
+ANALYSIS_EXEMPLARS: list[str] = [
+    "This action leverages the threshold",
+    "This action leverages the threshold to improve alignment",
+    "The system indicates growth potential",
+    "Aligns with our growth mechanics",
+    "Expected IAS is approximately 0.35",
+    "The metrics suggest improvement",
+    "This approach indicates alignment",
+    "The data shows progression",
+    "Analysis reveals opportunities",
+    "The proposed action would leverage the threshold",
+    "Such a step utilizes mechanisms for alignment",
+    "The model processes events based on ledger state",
+    "When we start a new session the system will query",
+    "I'll use this approach to analyze future inputs",
+    "The LLM will generate responses by consulting",
+    "On the next turn I plan to check the metrics",
+]
+
+# Pre-compute analysis samples
+ANALYSIS_SAMPLES: list[dict[str, Any]] = []
 
 STRUCTURAL_EXEMPLARS: dict[str, list[str]] = {
     "first_person": [
@@ -103,6 +130,12 @@ def _prepare_samples(
 COMMITMENT_SAMPLES = _prepare_samples(COMMITMENT_EXEMPLARS)
 STRUCTURAL_SAMPLES = _prepare_samples(STRUCTURAL_EXEMPLARS)
 
+# Prepare analysis samples
+for text in ANALYSIS_EXEMPLARS:
+    vec = _embedding(text)
+    if vec:
+        ANALYSIS_SAMPLES.append({"text": text, "vector": vec})
+
 
 def _max_similarity(
     vec: list[float], samples: list[dict[str, Any]]
@@ -145,6 +178,7 @@ def detect_commitment(
 ) -> dict[str, Any]:
     """Detect semantic commitment intent for the given text via embeddings.
 
+    Uses dual exemplar matching: high commitment score AND low analysis score.
     Structural exemplars act as a soft boost rather than a hard requirement.
     """
     if not isinstance(text, str) or not text.strip():
@@ -163,6 +197,26 @@ def detect_commitment(
     intent, score, exemplar = _best_intent(vec)
     structures = _structural_scores(vec)
 
+    # Dual matching: check against analysis exemplars (negative signal)
+    analysis_score = 0.0
+    if vec and ANALYSIS_SAMPLES:
+        analysis_score, _ = _max_similarity(vec, ANALYSIS_SAMPLES)
+
+    # Comparative rejection: reject if analysis similarity is stronger or nearly as strong
+    # as commitment similarity. This treats detection as a binary classifier (commitment vs. analysis)
+    # and prevents false positives where analytical statements share vocabulary with commitments.
+    # Primary check: strict margin (0.05) for "open" intents where false positives are most common.
+    # Secondary check: if analysis_score is very high (>0.75) for any intent, likely pure analysis.
+    if (intent == "open" and analysis_score >= score - 0.05) or analysis_score > 0.75:
+        return {
+            "intent": "none",
+            "score": 0.0,
+            "threshold": threshold,
+            "exemplar": "",
+            "structure": structures,
+            "embedding_digest": digest,
+        }
+
     required = INTENT_STRUCTURE_REQUIREMENTS.get(intent, {})
     structure_terms = [structures.get(name, 0.0) for name in required.keys()]
     structure_avg = (
@@ -172,6 +226,16 @@ def detect_commitment(
     structure_boost = 0.9 + 0.25 * max(0.0, structure_avg - 0.5)
     structure_boost = min(1.1, max(0.9, structure_boost))
     adjusted_score = min(1.0, score * structure_boost)
+
+    # Apply analysis penalty: reduce score proportionally for high analysis similarity
+    # This catches residual cases where comparative rejection isn't sufficient
+    # Only apply to "open" intents where false positives are problematic
+    # Penalty starts at analysis_score > 0.55, capped at 40% reduction
+    if intent == "open" and analysis_score > 0.55:
+        analysis_penalty = min(
+            0.40, (analysis_score - 0.55) * 0.89
+        )  # ~0.40 at analysis=1.0
+        adjusted_score = max(0.0, adjusted_score * (1.0 - analysis_penalty))
 
     if adjusted_score < threshold:
         return {

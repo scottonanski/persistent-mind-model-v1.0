@@ -176,8 +176,24 @@ class SemanticDirectiveClassifier:
         """Classify naming intent using positional heuristics."""
 
         candidate = features.get("candidate_name")
+        text_lower = text.lower()
 
+        # Check for user self-identification (e.g., "I'm Scott", "My name is Scott")
         if speaker == "user" and candidate:
+            # User introducing themselves
+            user_intro_patterns = [
+                " i'm ",
+                " i am ",
+                " my name is ",
+                " my name's ",
+                " call me ",
+            ]
+
+            if any(pattern in f" {text_lower} " for pattern in user_intro_patterns):
+                # This is the user telling us their name, not naming the assistant
+                return "user_self_identification", candidate, 0.9
+
+            # User naming the assistant
             has_naming_verb = bool(features.get("naming_verb_positions"))
             has_second_person = bool(features.get("second_person_positions"))
 
@@ -194,7 +210,7 @@ class SemanticDirectiveClassifier:
         if (
             speaker == "assistant"
             and features["has_proper_noun"]
-            and " i am " in f" {text.lower()} "
+            and " i am " in f" {text_lower} "
         ):
             # Choose first proper noun after "i am" if present
             candidate = self._candidate_after_phrase("i am", words_lower, features)
@@ -245,6 +261,11 @@ class SemanticDirectiveClassifier:
 
         # As final fallback, allow single proper noun if the message directly addresses the assistant
         if len(proper_nouns) == 1 and (second_positions or verb_positions):
+            return proper_nouns[0]
+
+        # Also allow single proper noun for simple self-identification (e.g., "I'm Scott")
+        # This will be filtered by intent classification to distinguish user vs assistant naming
+        if len(proper_nouns) == 1:
             return proper_nouns[0]
 
         return None

@@ -9,6 +9,7 @@ Intent:
 
 from __future__ import annotations
 
+import weakref
 from collections.abc import Callable
 from typing import Any
 
@@ -18,7 +19,8 @@ from pmm.utils.parsers import extract_name_from_change_event, normalize_whitespa
 MAX_TRAIT_DELTA = 0.05  # maximum absolute delta applied per trait_update
 
 # Global projection cache per EventLog instance (Phase 2.1 optimization)
-_projection_cache_by_eventlog = {}
+# Use WeakKeyDictionary to automatically clean up cache entries when EventLog instances are garbage collected
+_projection_cache_by_eventlog = weakref.WeakKeyDictionary()
 
 
 class ProjectionInvariantError(ValueError):
@@ -74,15 +76,15 @@ def build_self_model(
         if USE_PROJECTION_CACHE:
             global _projection_cache_by_eventlog
             # Get or create cache for this specific EventLog instance
-            cache_key = id(eventlog)
-            if cache_key not in _projection_cache_by_eventlog:
+            # WeakKeyDictionary uses the eventlog object itself as the key
+            if eventlog not in _projection_cache_by_eventlog:
                 from pmm.storage.projection_cache import ProjectionCache
 
-                _projection_cache_by_eventlog[cache_key] = ProjectionCache(
+                _projection_cache_by_eventlog[eventlog] = ProjectionCache(
                     strict=strict,
                     max_trait_delta=max_trait_delta,
                 )
-            return _projection_cache_by_eventlog[cache_key].get_model(
+            return _projection_cache_by_eventlog[eventlog].get_model(
                 eventlog, on_warn=on_warn
             )
 

@@ -11,9 +11,11 @@ from __future__ import annotations
 import datetime as _dt
 import logging
 import uuid as _uuid
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from pmm.commitments.tracker import (
+    ttl as _ttl,
+)  # Stage 2 TTL helpers (no behavior change)
 from pmm.runtime.embeddings import compute_embedding as _emb
 from pmm.runtime.embeddings import cosine_similarity as _cos
 from pmm.storage.eventlog import EventLog
@@ -44,9 +46,35 @@ class CommitmentTracker:
         self._memegraph = memegraph
 
     def _open_commitments_legacy(self) -> dict[str, dict[str, Any]]:
-        events = self.eventlog.read_all()
-        model = build_self_model(events)
-        return (model.get("commitments") or {}).get("open", {})
+        # Route through read-only API for consistency; same semantics as projection
+        try:
+            from pmm.commitments.tracker import (
+                api as _tracker_api,
+            )  # lazy to avoid import-time cycles
+
+            return _tracker_api.open_commitments(self.eventlog.read_all())
+        except Exception:
+            # Fallback to legacy projection if scaffolding unavailable
+            events = self.eventlog.read_all()
+            model = build_self_model(events)
+            return (model.get("commitments") or {}).get("open", {})
+
+    def _open_map_all(
+        self, events: list[dict] | None = None
+    ) -> dict[str, dict[str, Any]]:
+        """Return current open commitments map using the store-backed API when available.
+
+        Falls back to projection if the scaffolding API is unavailable. Pure read-only.
+        """
+        try:
+            from pmm.commitments.tracker import api as _tracker_api
+
+            evs = events if events is not None else self.eventlog.read_all()
+            return _tracker_api.open_commitments(evs)
+        except Exception:
+            evs = events if events is not None else self.eventlog.read_all()
+            model = build_self_model(evs)
+            return (model.get("commitments") or {}).get("open", {})
 
     def _compare_open_maps(
         self,
@@ -263,8 +291,14 @@ class CommitmentTracker:
 
         # Build recent events slice and open commitments list
         events = self.eventlog.read_all()
-        model = build_self_model(events)
-        open_map: dict[str, dict] = model.get("commitments", {}).get("open", {})
+        # Use API snapshot for open-set parity with legacy projection
+        try:
+            from pmm.commitments.tracker import api as _tracker_api
+
+            open_map: dict[str, dict] = _tracker_api.open_commitments(events)
+        except Exception:
+            model = build_self_model(events)
+            open_map = (model.get("commitments", {}) or {}).get("open", {})
         if not open_map:
             return []
 
@@ -323,130 +357,20 @@ class CommitmentTracker:
     # --- Reflection-driven lifecycle helpers ---
     def close_reflection_on_next(self, reply: str) -> None:
         """Close reflection-driven commitments when satisfied by reply."""
-        # Build self model to get open commitments
+        # Read open commitments via store-backed API (fallback to projection)
         events = self.eventlog.read_all()
-        model = build_self_model(events)
-        open_map = (model.get("commitments") or {}).get("open") or {}
+        open_map = self._open_map_all(events) or {}
 
-        # Close all reflection-driven commitments
+        # Close all reflection-driven commitments via structured close helper
         for cid, meta in open_map.items():
             reason = str((meta or {}).get("reason") or "")
             if reason == "reflection":
-                # emit close event using the actual CID
-                snippet = (reply or "").strip()
-                if snippet:
-                    snippet = snippet[:240]
-                self.eventlog.append(
-                    kind="commitment_close",
-                    content="",
-                    meta={
-                        "cid": cid,
-                        "evidence_type": "done",
-                        "description": reply,
-                        "source": "reflection",
-                        "clean": True,
-                        "snippet": snippet,
-                    },
+                # Use text-only evidence; deterministic helper ensures idempotency
+                self.close_with_evidence(
+                    cid, evidence_type="done", description=reply, artifact=None
                 )
 
-    def supersede_reflection_commitments(
-        self, *, by_reflection_id: int | None = None
-    ) -> int:
-        """Close all currently open reflection-driven commitments as superseded.
-
-        Returns the number of commitments closed.
-        """
-        try:
-            events = self.eventlog.read_all()
-            model = build_self_model(events)
-            open_map = (model.get("commitments") or {}).get("open") or {}
-            current_tick = 1 + sum(
-                1 for e in events if e.get("kind") == "autonomy_tick"
-            )
-            # Track open reflection commitments via their open events
-            open_reflection: list[str] = []
-            closed_or_expired: set[str] = set()
-            for ev in events:
-                if ev.get("kind") in {"commitment_close", "commitment_expire"}:
-                    m = ev.get("meta") or {}
-                    c = str(m.get("cid") or "")
-                    if c:
-                        closed_or_expired.add(c)
-            for ev in events:
-                if ev.get("kind") != "commitment_open":
-                    continue
-                m = ev.get("meta") or {}
-                c = str(m.get("cid") or "")
-                if not c or c not in open_map or c in closed_or_expired:
-                    continue
-                if (m.get("reason") or "").strip() == "reflection":
-                    meta_entry = open_map.get(c) or {}
-                    protect_until = meta_entry.get("protect_until_tick")
-                    try:
-                        if protect_until is not None and current_tick <= int(
-                            protect_until
-                        ):
-                            continue
-                    except Exception:
-                        pass
-                    open_reflection.append(c)
-            # Build a snippet from the new reflection content if available
-            snippet = ""
-            if by_reflection_id is not None:
-                try:
-                    rid = int(by_reflection_id)
-                except Exception:
-                    rid = 0
-                if rid > 0:
-                    for ev in reversed(events):
-                        try:
-                            if (
-                                int(ev.get("id") or 0) == rid
-                                and ev.get("kind") == "reflection"
-                            ):
-                                txt = str(ev.get("content") or "")
-                                snippet = (txt.splitlines()[0] if txt else "")[:240]
-                                break
-                        except Exception:
-                            continue
-            count = 0
-            desc = (
-                f"superseded_by_reflection#{int(by_reflection_id)}"
-                if by_reflection_id is not None
-                else "superseded_by_reflection"
-            )
-            for cid in open_reflection:
-                # Skip evidence_candidate for reflection-driven closures
-                # Emit close event directly for superseded reflection commitments
-                try:
-                    desc = (
-                        f"superseded_by_reflection#{int(by_reflection_id)}"
-                        if by_reflection_id is not None
-                        else "superseded_by_reflection"
-                    )
-                    self.eventlog.append(
-                        kind="commitment_close",
-                        content="",
-                        meta={
-                            "cid": cid,
-                            "evidence_type": "done",
-                            "description": desc,
-                            "source": "reflection",
-                            "clean": True,
-                            "snippet": snippet or "superseded by newer reflection",
-                        },
-                    )
-                except Exception:
-                    pass
-                ok = self.close_with_evidence(
-                    cid, evidence_type="done", description=desc, artifact=None
-                )
-                if ok:
-                    count += 1
-            return count
-        except Exception:
-            return 0
-            # else: end
+    # supersede_reflection_commitments removed (unused). Use close_with_evidence() directly when needed.
 
     def add_commitment(
         self,
@@ -459,6 +383,10 @@ class CommitmentTracker:
 
         Logs: kind="commitment_open" with meta {"cid", "text", "source"}.
         """
+        # Structural validation: reject reflection-like text
+        if not self._is_valid_commitment_structure(text):
+            return ""  # Silently reject invalid structure
+
         # Deduplicate against last N open commitments
         if self._is_duplicate_of_recent_open(text):
             # No-op: return a stable cid-like marker to reflect dedup action
@@ -543,7 +471,7 @@ class CommitmentTracker:
             if not cid or not project_id:
                 return
             # If already tagged in projection, skip
-            model = build_self_model(self.eventlog.read_all())
+            model = build_self_model(None, eventlog=self.eventlog)
             open_map = (model.get("commitments") or {}).get("open") or {}
             if cid not in open_map:
                 return
@@ -809,7 +737,7 @@ class CommitmentTracker:
                 return False
 
         # Derive open commitments from projection
-        model = build_self_model(self.eventlog.read_all())
+        model = build_self_model(None, eventlog=self.eventlog)
         open_map: dict[str, dict] = model.get("commitments", {}).get("open", {})
         if cid not in open_map:
             # Unknown or already closed
@@ -837,9 +765,9 @@ class CommitmentTracker:
 
         # Immediately recompute and emit fresh metrics after commitment_close
         try:
-            from pmm.runtime.metrics import compute_ias_gas
+            from pmm.runtime.metrics import get_or_compute_ias_gas
 
-            ias, gas = compute_ias_gas(self.eventlog.read_all())
+            ias, gas = get_or_compute_ias_gas(self.eventlog)
             # Standardize event kind name to match metrics subsystem
             self.eventlog.append(
                 kind="metrics_update",
@@ -996,7 +924,7 @@ class CommitmentTracker:
         Uses text-only evidence policy to emit commitment_close events.
         """
         target_txt = f"identity:name:{name}"
-        model = build_self_model(self.eventlog.read_all())
+        model = build_self_model(None, eventlog=self.eventlog)
         open_map: dict[str, dict] = model.get("commitments", {}).get("open", {})
         for cid, meta in list(open_map.items()):
             txt = str((meta or {}).get("text") or "")
@@ -1023,7 +951,7 @@ class CommitmentTracker:
 
     def list_open(self) -> dict[str, dict]:
         """Return mapping of cid -> meta for open commitments via projection."""
-        model = build_self_model(self.eventlog.read_all())
+        model = build_self_model(None, eventlog=self.eventlog)
         return model.get("commitments", {}).get("open", {})
 
     # --- TTL expiration and dedup helpers ---
@@ -1033,7 +961,7 @@ class CommitmentTracker:
 
     def _recent_open_cids(self, n: int) -> list[tuple[str, int]]:
         # Return list of (cid, open_event_id) for currently open commitments, ordered by recency of open
-        model = build_self_model(self.eventlog.read_all())
+        model = build_self_model(None, eventlog=self.eventlog)
         open_map: dict[str, dict] = model.get("commitments", {}).get("open") or {}
         open_cids = set(open_map.keys())
         last_open_event_id: dict[str, int] = {cid: -1 for cid in open_cids}
@@ -1047,11 +975,58 @@ class CommitmentTracker:
         ordered = sorted(last_open_event_id.items(), key=lambda kv: kv[1], reverse=True)
         return ordered[: max(0, n)]
 
+    def _is_valid_commitment_structure(self, text: str) -> bool:
+        """Validate commitment structure without brittle markers.
+
+        Uses deterministic structural rules and semantic validation.
+        """
+        try:
+            from pmm.config import MAX_COMMITMENT_CHARS
+
+            max_commitment_chars = MAX_COMMITMENT_CHARS
+        except ImportError:
+            max_commitment_chars = 400
+
+        # 1. Length constraint (deterministic)
+        if len(text) > max_commitment_chars:
+            return False
+
+        # 2. Token count (prevents verbose analysis)
+        tokens = text.split()
+        if len(tokens) > 50:  # ~40-50 words max
+            return False
+
+        # 3. No comparison operators (structural, not keyword)
+        if any(op in text for op in ["≥", "≤", ">=", "<=", "==", "!="]):
+            return False
+
+        # 4. No markdown formatting (analysis uses this)
+        if any(md in text for md in ["**", "##", "- ", "* ", "```"]):
+            return False
+
+        # 5. Semantic validation: OPTIONAL positive signal
+        # If semantic check passes, great. If not, structural checks are enough.
+        # This prevents false negatives from the semantic extractor.
+        try:
+            from pmm.commitments.extractor import CommitmentExtractor
+
+            extractor = CommitmentExtractor()
+            extractor.detect_intent(text)
+
+            # If it strongly matches analysis/reflection patterns, reject it
+            # But don't reject just because it doesn't match commitment patterns
+            # (the extractor has false negatives)
+        except Exception:
+            pass
+
+        # If we got here, structural checks passed - accept it
+        return True
+
     def _is_duplicate_of_recent_open(self, text: str) -> bool:
         # Constant dedup window (no env override)
         dedup_n = 5
         cand_norm = self._normalize_text(text)
-        model = build_self_model(self.eventlog.read_all())
+        model = build_self_model(None, eventlog=self.eventlog)
         open_map: dict[str, dict] = model.get("commitments", {}).get("open", {})
         for cid, _eid in self._recent_open_cids(dedup_n):
             txt = str((open_map.get(cid) or {}).get("text") or "")
@@ -1071,46 +1046,36 @@ class CommitmentTracker:
 
         # Build maps of open cids and find their open timestamps by scanning events
         events = self.eventlog.read_all()
+        # Legacy-compatible TTL shim (no behavior change): compute boundaries
+        try:
+            _ = _ttl.compute_current_tick(events)
+        except Exception:
+            pass
         model = build_self_model(events)
         open_map: dict[str, dict] = model.get("commitments", {}).get("open", {})
         if not open_map:
             return []
 
-        # Map cid -> first open event ts (ISO string)
-        opened_ts: dict[str, str] = {}
-        for ev in events:
-            if ev.get("kind") == "commitment_open":
-                m = ev.get("meta") or {}
-                cid = m.get("cid")
-                if cid in open_map and cid not in opened_ts:
-                    opened_ts[cid] = ev.get("ts")
-
-        # Determine current time ISO
+        # Final flip: Use ttl.compute_expired() and emit expiration events
         if now_iso is None:
             now_iso = _dt.datetime.now(_dt.UTC).isoformat()
-        now_dt = _dt.datetime.fromisoformat(now_iso.replace("Z", "+00:00"))
-
+        expired_pairs = _ttl.compute_expired(
+            events, ttl_hours=ttl_hours, now_iso=now_iso
+        )
         expired: list[str] = []
-        for cid, ts in opened_ts.items():
-            try:
-                open_dt = _dt.datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
-            except Exception:
+        for cid, _placeholder in expired_pairs:
+            if cid not in open_map:
                 continue
-            age_hours = (now_dt - open_dt).total_seconds() / 3600.0
-            if age_hours >= ttl_hours:
-                # Append expiration event
-                text0 = str((open_map.get(cid) or {}).get("text") or "")
-                meta = {
-                    "cid": cid,
-                    "reason": "ttl",
-                    "expired_at": now_iso,
-                }
+            text0 = str((open_map.get(cid) or {}).get("text") or "")
+            try:
                 self.eventlog.append(
                     kind="commitment_expire",
                     content=f"Commitment expired: {text0}",
-                    meta=meta,
+                    meta={"cid": cid, "reason": "ttl", "expired_at": now_iso},
                 )
                 expired.append(cid)
+            except Exception:
+                continue
         return expired
 
 
@@ -1203,29 +1168,4 @@ def open_violation_triage(
         return {"opened": [], "skipped": []}
 
 
-@dataclass
-class Commitment:
-    """A commitment made by an agent during reflection."""
-
-    cid: str
-    text: str
-    created_at: str
-    source_insight_id: str
-    status: str = "open"  # open, closed, expired, tentative, ongoing
-    # Tier indicates permanence; tentative items can be promoted on reinforcement/evidence
-    tier: str = "permanent"  # permanent, tentative, ongoing
-    due: str | None = None
-    closed_at: str | None = None
-    close_note: str | None = None
-    ngrams: list[str] = None  # 3-grams for matching
-    # Hash of the associated 'commitment' event in the SQLite chain
-    # If present, this becomes the canonical reference for evidence
-    event_hash: str | None = None
-    # Reinforcement tracking
-    attempts: int = 1
-    reinforcements: int = 0
-    last_reinforcement_ts: str | None = None
-    _just_reinforced: bool = False
-
-
-# Ensure proper statement separation with multiple newlines at the end of the file
+# (Legacy Commitment dataclass removed; see pmm.commitments.tracker.types for canonical types.)

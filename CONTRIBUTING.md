@@ -58,27 +58,60 @@ black --check .
 
 ## Pull requests
 
-- Keep PRs focused and small when possible.
 - Include tests for new behavior and bug fixes.
 - Update documentation when behavior or APIs change.
 - Ensure CI passes (tests, lint, formatting).
 - Use clear, imperative commit messages and reference issues where relevant (e.g., "Fix: stabilize stage transitions near S1/S2 boundary").
 
-## No Regular Expressions in Runtime Logic
+## No Regular Expressions or Brittle Keywords in Runtime Logic
 
+### No Regex
 Regex patterns must not be used in PMM runtime code (ledger parsing, metrics, event validation, etc.).  
 Reasons:
 - Regex introduces fragile edge cases (e.g., mistaking `Event 2025-10-02` as `Event 2025`).
 - Regex undermines determinism and auditability.
-- Regex is hard to audit and conflicts with PMM’s kernel invariants (truth-first, reproducibility).
+- Regex is hard to audit and conflicts with PMM's kernel invariants (truth-first, reproducibility).
 
-Instead:
-- Use explicit parsers (string scanning, schema-based validation, deterministic FSM).
-- Always prefer clarity and reproducibility over brevity.
+### No Brittle Keyword Matching
+Avoid brittle keyword matching (e.g., `if "i should" in text.lower()`) in runtime logic.  
+Reasons:
+- Keyword matching is fragile and breaks with slight phrasing changes.
+- Different LLMs use different language patterns.
+- Hard to maintain as the list of keywords grows.
 
-Exceptions:
-- Regex may be used in **testing utilities** or **one-off developer tools**, but never in core runtime or ledger-affecting logic.
+**Instead, use semantic-based systems:**
+- **Embedding-based similarity** - Compare semantic meaning, not exact words
+- **Exemplar matching** - Define example phrases and match by similarity
+- **Structural patterns** - Detect intent through semantic structure
 
+**Example:**
+```python
+# BAD: Brittle keyword matching
+action = None
+for line in text.splitlines():
+    if "i should" in line.lower() or "to improve" in line.lower():
+        action = line
+        break
+
+# GOOD: Semantic extraction
+from pmm.commitments.extractor import extract_commitments
+
+matches = extract_commitments(text.splitlines())
+for text, intent, score in matches:
+    if intent == "open":  # Semantic match for commitment intent
+        action = text
+        break
+```
+
+The semantic extractor uses embedding similarity against exemplars like:
+- "I will complete this task"
+- "I plan to work on this"
+- "My goal is to accomplish this"
+
+This matches intent regardless of exact phrasing.
+
+**Exceptions:**
+- Regex/keywords may be used in **testing utilities** or **one-off developer tools**, but never in core runtime or ledger-affecting logic.
 
 ---
 

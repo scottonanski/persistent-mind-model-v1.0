@@ -48,7 +48,10 @@ def test_stage_progress_uses_computed_metrics(tmp_path, monkeypatch):
     from pmm.runtime import loop as loop_mod
     from pmm.runtime.cooldown import ReflectionCooldown
 
-    monkeypatch.setattr(loop_mod, "compute_ias_gas", lambda events: (0.75, 0.9))
+    # Monkeypatch the cached metrics API (used by _get_snapshot)
+    monkeypatch.setattr(
+        loop_mod, "get_or_compute_ias_gas", lambda eventlog: (0.75, 0.9)
+    )
 
     def fake_infer_stage(events):
         return (

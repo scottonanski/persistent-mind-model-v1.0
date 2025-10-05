@@ -10,8 +10,8 @@ without performance degradation through:
 
 from __future__ import annotations
 
+import hashlib
 import logging
-import random
 import threading
 import time
 import uuid
@@ -160,8 +160,15 @@ class TraceBuffer:
                         "reasoning_step": reasoning_step,
                     }
                 )
-            elif random.random() < self.sampling_rate:
-                should_log = True
+            else:
+                # Deterministic sampling based on (session_id, node_digest)
+                sid = session.session_id or ""
+                key = f"{sid}:{node_digest}".encode()
+                hv = hashlib.sha256(key).digest()
+                # Map first 8 bytes to [0,1)
+                val = int.from_bytes(hv[:8], "big") / 2**64
+                if val < self.sampling_rate:
+                    should_log = True
 
             if should_log:
                 trace_node = TraceNode(

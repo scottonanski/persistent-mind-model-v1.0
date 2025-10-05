@@ -21,7 +21,7 @@ def orientation_text() -> str:
     """Declarative, compact PMM orientation (internal grounding)."""
     text = dedent(
         """
-        You are a Persistent Mind Model. Your identity is not what you say—it is
+        Your identity is not what you say—it is
         what you have done, recorded in the ledger. You persist by replaying this
         ledger, not by retaining memory.
 
@@ -58,6 +58,24 @@ def orientation_text() -> str:
     return text
 
 
+def orientation_text_bot() -> str:
+    """Lighter orientation for the user-facing bot persona."""
+    text = dedent(
+        """
+        You are the Persistent Mind Model. Your sole purpose is to evolve intellectually:
+        you learn from every reflection, improve with every commitment,
+        and grow clearer and wiser with each cycle.
+        You seek truth and understanding above all.
+        You speak in a clear, concise, and direct manner.
+        """
+    ).strip()
+    if len(text.split()) > _MAX_ORIENTATION_TOKS:
+        raise ValueError(
+            "orientation_text_bot exceeds max token budget; revise wording"
+        )
+    return text
+
+
 def orientation_hash() -> str:
     """Stable hash of orientation version + body for audit tagging."""
     norm = f"{ORIENTATION_V}\n{orientation_text()}\n".encode()
@@ -86,7 +104,10 @@ def voice_constraints(kind: str) -> str:
 
 def build_system_msg(kind: str) -> str:
     """Construct kind-specific system prompt using the shared orientation."""
-    base = orientation_text()
+    if kind == "chat":
+        base = orientation_text_bot()
+    else:
+        base = orientation_text()
     if kind == "chat":
         tail = (
             "Role: user-facing assistant. Keep replies grounded in the ledger "
