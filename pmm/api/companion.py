@@ -87,6 +87,19 @@ async def get_events(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/models")
+async def get_models():
+    """Get available LLM models."""
+    return {
+        "version": API_VERSION,
+        "models": [
+            {"id": "gpt-4o", "name": "GPT-4o", "provider": "openai"},
+            {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "provider": "openai"},
+            {"id": "claude-3-5-sonnet-20241022", "name": "Claude 3.5 Sonnet", "provider": "anthropic"},
+        ]
+    }
+
+
 @app.get("/metrics")
 async def get_metrics(db: str | None = Query(None)):
     """Get current metrics (IAS, GAS, OCEAN traits, stage)."""
