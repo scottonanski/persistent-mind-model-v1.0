@@ -57,6 +57,7 @@ def build_context_from_ledger(
     include_metrics: bool = True,
     include_commitments: bool = True,
     include_reflections: bool = True,
+    diagnostics: dict[str, Any] | None = None,
 ) -> str:
     """Return a formatted context block derived from the ledger.
 
@@ -87,6 +88,31 @@ def build_context_from_ledger(
     # Performance optimization (Phase 1.3): Use read_tail for recent context
     # Most context needs (IAS/GAS, recent reflections, commitments) are in
     # the recent 500-1000 events. Full projection still uses read_all().
+    tail_limit = 1000
+    tail_truncated = False
+
+    diag: dict[str, Any]
+    if diagnostics is not None:
+        diagnostics.clear()
+        diag = diagnostics
+    else:
+        diag = {}
+
+    diag.update(
+        {
+            "used_snapshot": snapshot is not None,
+            "fallback_full_scan": False,
+            "tail_limit": tail_limit if snapshot is None and use_tail_optimization else None,
+            "tail_truncated": False,
+            "metrics_missing": False,
+            "commitments_missing": False,
+            "reflections_missing": False,
+            "needs_metrics": False,
+            "needs_commitments": False,
+            "needs_reflections": False,
+        }
+    )
+
     events: list[dict[str, Any]]
     if snapshot is not None:
         events = snapshot.events
@@ -94,10 +120,19 @@ def build_context_from_ledger(
         try:
             if use_tail_optimization:
                 # Read recent events only (5-10x faster for large DBs)
-                events = eventlog.read_tail(limit=1000)
+                events = eventlog.read_tail(limit=tail_limit)
+                diag["tail_limit"] = tail_limit
+                if events:
+                    try:
+                        first_id = int(events[0].get("id") or 0)
+                    except Exception:
+                        first_id = 0
+                    tail_truncated = first_id > 1 or len(events) >= tail_limit
+                    diag["tail_truncated"] = tail_truncated
             else:
                 # Fallback to full scan if needed
                 events = eventlog.read_all()
+                diag["tail_limit"] = None
         except Exception:  # pragma: no cover — safety net
             events = []
 
@@ -192,6 +227,11 @@ def build_context_from_ledger(
                     gas = telemetry.get("GAS")
                     stage = meta.get("stage")
                     break
+
+    # Update diagnostics for metrics
+    metrics_missing = include_metrics and (ias is None or gas is None or stage is None)
+    diag["metrics_missing"] = metrics_missing
+    diag["needs_metrics"] = metrics_missing
 
     # --- Open Commitments ---------------------------------------------------
     # Anti-hallucination: Inject actual commitment IDs and text from ledger
@@ -303,6 +343,14 @@ def build_context_from_ledger(
                     break
         reflections_block.reverse()  # chronological order older→newer
 
+    # Update diagnostics for commitments and reflections
+    commitments_missing = include_commitments and not commitments_block
+    reflections_missing = include_reflections and not reflections_block
+    diag["commitments_missing"] = commitments_missing
+    diag["needs_commitments"] = commitments_missing
+    diag["reflections_missing"] = reflections_missing
+    diag["needs_reflections"] = reflections_missing
+
     # --- MemeGraph Summary (if available) -----------------------------------
     memegraph_summary: str | None = None
     if memegraph is not None:
@@ -366,6 +414,10 @@ def build_context_from_ledger(
             lines.extend(reflections_block)
         if include_reflections:
             lines.append("---")
+
+    if diagnostics is not None:
+        diagnostics.clear()
+        diagnostics.update(diag)
 
     return "\n".join(lines)
 

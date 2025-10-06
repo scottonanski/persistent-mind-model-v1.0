@@ -59,6 +59,7 @@ def build_context_block(
     *,
     max_commitment_chars: int,
     max_reflection_chars: int,
+    diagnostics: dict | None = None,
 ) -> str:
     """Wrapper around build_context_from_ledger with fixed knobs.
 
@@ -82,6 +83,7 @@ def build_context_block(
         include_metrics=False,
         include_commitments=False,
         include_reflections=False,
+        diagnostics=diagnostics,
     )
 
 

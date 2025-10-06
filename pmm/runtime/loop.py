@@ -114,7 +114,7 @@ from pmm.runtime.stage_tracker import (
     stage_str_to_level,
 )
 from pmm.runtime.trace_buffer import TraceBuffer
-from pmm.storage.eventlog import EventLog
+from pmm.runtime.eventlog import EventLog
 from pmm.storage.projection import build_identity, build_self_model
 
 logger = logging.getLogger(__name__)
@@ -1242,6 +1242,7 @@ class Runtime:
             _io.add_trace_step(self.trace_buffer, "Building context from ledger")
 
         # Phase 1 Optimization: Build context with character budgets (always enabled)
+        context_diagnostics: dict[str, object] = {}
         with profiler.measure("context_build"):
             context_block = _pipeline.build_context_block(
                 self.eventlog,
@@ -1249,7 +1250,9 @@ class Runtime:
                 self.memegraph,
                 max_commitment_chars=MAX_COMMITMENT_CHARS,
                 max_reflection_chars=MAX_REFLECTION_CHARS,
+                diagnostics=context_diagnostics,
             )
+        self._last_context_diagnostics = context_diagnostics
 
         # CRITICAL: Ontology must come FIRST, before context data
         # This ensures the identity anchor isn't buried under ledger details
@@ -1410,12 +1413,14 @@ class Runtime:
         _pipeline.finalize_telemetry(self.eventlog, profiler, request_log)
 
         # Anti-hallucination: Verify commitment claims against ledger
+        commitment_hallucinated = False
         try:
-            _verify_commitment_claims(reply, events_cached)
+            commitment_hallucinated = bool(_verify_commitment_claims(reply, events_cached))
         except Exception:
             logger.debug("Commitment verification failed", exc_info=True)
 
         # Anti-hallucination: Verify commitment status claims (open vs closed)
+        status_hallucinated = False
         try:
             status_valid, mismatched_cids = _verify_commitment_status(
                 reply, self.eventlog
@@ -1423,6 +1428,7 @@ class Runtime:
             if not status_valid:
                 # Store for chat UI to display in status sequence
                 self._last_status_mismatches = mismatched_cids
+                status_hallucinated = True
                 logger.debug(
                     f"⚠️  Commitment status hallucination detected: "
                     f"LLM claimed wrong status for: {mismatched_cids}"
@@ -1433,6 +1439,7 @@ class Runtime:
             logger.debug("Commitment status verification failed", exc_info=True)
 
         # Anti-hallucination: Verify event ID references against ledger
+        fake_ids: list[int] | None = None
         try:
             is_valid, fake_ids = _verify_event_ids(reply, self.eventlog)
             if not is_valid:
@@ -1455,6 +1462,61 @@ class Runtime:
                 self._last_hallucination_ids = None
         except Exception:
             logger.debug("Event ID verification failed", exc_info=True)
+
+        # Check diagnostics flags instead of literal phrase
+        context_diag = getattr(self, "_last_context_diagnostics", {}) or {}
+        needs_metrics_followup = context_diag.get("needs_metrics", False)
+
+        if commitment_hallucinated or status_hallucinated or (fake_ids and len(fake_ids) > 0):
+            corrections: list[str] = []
+            if commitment_hallucinated:
+                corrections.append(
+                    "I previously cited a commitment that doesn't match the ledger."
+                )
+            if status_hallucinated:
+                corrections.append(
+                    "I misreported a commitment's status; the ledger takes precedence."
+                )
+            if fake_ids:
+                corrections.append(
+                    "One or more event IDs I referenced were not found in the ledger."
+                )
+            correction_text = " " .join(corrections)
+            if correction_text:
+                try:
+                    _io.append_response(
+                        self.eventlog,
+                        correction_text,
+                        meta={
+                            "kind": "auto_correction",
+                            "source": "validator",
+                        },
+                    )
+                except Exception:
+                    logger.debug("Failed to append correction response", exc_info=True)
+                try:
+                    yield correction_text
+                except Exception:
+                    logger.debug("Failed to stream correction message", exc_info=True)
+
+        if needs_metrics_followup:
+            followup_text = self._build_metrics_followup()
+            if followup_text:
+                try:
+                    _io.append_response(
+                        self.eventlog,
+                        followup_text,
+                        meta={
+                            "kind": "auto_followup",
+                            "source": "metrics_snapshot",
+                        },
+                    )
+                except Exception:
+                    logger.debug("Failed to append metrics follow-up", exc_info=True)
+                try:
+                    yield followup_text
+                except Exception:
+                    logger.debug("Failed to stream metrics follow-up", exc_info=True)
 
     def _ngram_repeat_telemetry_enabled(self) -> bool:
         cache = getattr(self, "_ngram_repeat_directive_cache", None)
@@ -1496,6 +1558,20 @@ class Runtime:
 
         self._ngram_repeat_directive_cache = (latest_id, state)
         return state
+
+    def _build_metrics_followup(self) -> str | None:
+        from pmm.runtime.metrics import compute_ias_gas
+        
+        try:
+            ias, gas = compute_ias_gas(self.eventlog)
+            if ias is None or gas is None:
+                return None
+            return (
+                f"Ledger metrics (deterministic): IAS={ias:.3f}, GAS={gas:.3f}. "
+                "Ask if you need additional details."
+            )
+        except Exception:
+            return None
 
     def _ngram_repeat_report_exists(
         self, reply_event_id: int, fingerprint: str
