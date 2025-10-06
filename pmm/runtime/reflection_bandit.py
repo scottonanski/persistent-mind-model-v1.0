@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random as _random
 
+from pmm.runtime.loop import io as _io
 from pmm.runtime.metrics import compute_ias_gas, get_or_compute_ias_gas
 from pmm.storage.eventlog import get_default_eventlog
 
@@ -285,11 +286,12 @@ def maybe_log_reward(eventlog, *, horizon: int = 3) -> int | None:
         return None
     reward, arm_calc, _ = compute_reward(events, horizon=horizon)
     arm_final = arm_calc or arm_u
-    # Append reward
-    return eventlog.append(
-        kind="bandit_reward",
-        content="",
-        meta={"arm": arm_final, "reward": float(reward), "tick": tick_now},
+    # Append reward using standardized helper
+    return _io.append_bandit_reward(
+        eventlog,
+        component="reflection",
+        arm=arm_final,
+        reward=reward,
     )
 
 

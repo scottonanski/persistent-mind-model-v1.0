@@ -287,11 +287,11 @@ class TestEmergenceManager:
         assert result
         eventlog.append.assert_called_once()
 
-        # Check call arguments
+        # Check call arguments (now uses keyword args via helper)
         call_args = eventlog.append.call_args
-        assert call_args[0][0] == "emergence_report"
-        assert call_args[0][1] == ""
-        assert "digest" in call_args[0][2]
+        assert call_args.kwargs["kind"] == "emergence_report"
+        assert call_args.kwargs["content"] == "analysis"
+        assert "digest" in call_args.kwargs["meta"]
 
     def test_stage_transition_weight_upward(self):
         """Upward transitions should be weighted by emergence score."""

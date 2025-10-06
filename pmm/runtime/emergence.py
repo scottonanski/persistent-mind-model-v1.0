@@ -18,7 +18,7 @@ import math
 from textwrap import dedent
 from typing import Any
 
-from pmm.config import REFLECTION_FORCED
+from pmm.runtime.loop import io as _io
 from pmm.runtime.pmm_prompts import build_system_msg
 
 
@@ -183,9 +183,16 @@ class EmergenceManager:
         except Exception:
             pass
 
-        # Emit new report
+        # Emit new report using standardized helper
         try:
-            self.eventlog.append("emergence_report", "", report)
+            _io.append_emergence_report(
+                self.eventlog,
+                metrics=report["metrics"],
+                window_size=report["window_size"],
+                event_count=report["event_count"],
+                digest=report["digest"],
+                timestamp=report.get("timestamp"),
+            )
             return True
         except Exception:
             return False
@@ -283,7 +290,7 @@ def pmm_native_reflection(
     """
     try:
         # always mark the attempt for traceability
-        eventlog.append(REFLECTION_FORCED, "", {"forced_reflection_reason": reason})
+        _io.append_reflection_forced(eventlog, reason=reason)
     except Exception:
         pass
 

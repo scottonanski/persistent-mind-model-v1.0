@@ -85,6 +85,7 @@ __all__ = [
     "append_self_assessment",
     "append_reflection_rejected",
     "append_reflection_skipped",
+    "append_emergence_report",
 ]
 
 
@@ -668,4 +669,42 @@ def append_reflection_skipped(eventlog, *, reason: str):
         kind=REFLECTION_SKIPPED,
         content="",
         meta={"reason": str(reason)},
+    )
+
+
+def append_emergence_report(
+    eventlog,
+    *,
+    metrics: dict,
+    window_size: int,
+    event_count: int,
+    digest: str,
+    timestamp: str | None = None,
+):
+    """Append an emergence_report event with standard meta fields.
+
+    Args:
+        metrics: Dict with ias_score, gas_score, commitment_score,
+                 reflection_score, composite_score
+        window_size: Event window size used for analysis
+        event_count: Total events analyzed
+        digest: SHA256 hash (16 chars) for idempotency
+        timestamp: Optional ISO timestamp from last event
+
+    Returns:
+        Event ID of appended event
+    """
+    meta = {
+        "metrics": dict(metrics),
+        "window_size": int(window_size),
+        "event_count": int(event_count),
+        "digest": str(digest),
+    }
+    if timestamp is not None:
+        meta["timestamp"] = timestamp
+
+    return eventlog.append(
+        kind="emergence_report",
+        content="analysis",
+        meta=meta,
     )
