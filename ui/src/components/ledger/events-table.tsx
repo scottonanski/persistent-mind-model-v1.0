@@ -77,7 +77,8 @@ export function EventsTable() {
         limit,
       });
     },
-    staleTime: 30000, // 30 seconds
+    staleTime: 0, // Always fetch fresh data
+    refetchInterval: 5000, // Auto-refresh every 5 seconds for live autonomy events
     gcTime: 5 * 60 * 1000, // 5 minutes
   });
 

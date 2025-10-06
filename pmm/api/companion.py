@@ -8,31 +8,87 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
 
 from pmm.api import probe
+from pmm.llm.factory import LLMConfig
+from pmm.runtime.loop import Runtime
 from pmm.runtime.metrics import compute_ias_gas
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
 
 logger = logging.getLogger(__name__)
 
-API_VERSION = "1.0.0"
+API_VERSION = "0.1.0"
 
 app = FastAPI(title="PMM Companion API", version=API_VERSION)
 
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "HEAD", "OPTIONS", "POST"],
+    allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
 )
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Stop autonomy loop on server shutdown."""
+    global _global_runtime
+    if _global_runtime is not None:
+        try:
+            _global_runtime.stop_autonomy()
+            logger.info("Stopped PMM Runtime autonomy loop")
+        except Exception:
+            pass
+
+# Global runtime instance with autonomy loop
+_global_runtime: Runtime | None = None
+_global_eventlog: EventLog | None = None
 
 
 def _get_evlog(db: str | None) -> EventLog:
     return EventLog(db) if db else EventLog()
+
+
+def _get_or_create_runtime(model: str, db: str | None = None) -> Runtime:
+    """Get or create a singleton Runtime instance with autonomy loop running."""
+    global _global_runtime, _global_eventlog
+    
+    # For now, use default eventlog (can be extended to support multiple DBs)
+    evlog = _get_evlog(db)
+    
+    # Check if we need to create or recreate runtime
+    if _global_runtime is None or _global_eventlog != evlog:
+        # Stop existing autonomy loop if any
+        if _global_runtime is not None:
+            try:
+                _global_runtime.stop_autonomy()
+            except Exception:
+                pass
+        
+        # Determine provider from model name
+        provider = "ollama" if not model.startswith("gpt-") else "openai"
+        cfg = LLMConfig(provider=provider, model=model)
+        
+        # Create new runtime and start autonomy loop
+        _global_runtime = Runtime(cfg, evlog)
+        _global_runtime.start_autonomy(interval_seconds=10.0, bootstrap_identity=True)
+        _global_eventlog = evlog
+        
+        logger.info(f"Started PMM Runtime with autonomy loop (model={model}, provider={provider})")
+    
+    return _global_runtime
+
+
+class ChatRequest(BaseModel):
+    messages: list[dict[str, str]]
+    model: str | None = None
+    stream: bool = True
+    db: str | None = None
 
 
 @app.get("/events")
@@ -87,16 +143,93 @@ async def get_events(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/chat")
+async def chat(request: ChatRequest):
+    """Stream chat responses from PMM Runtime with persistent autonomy loop."""
+    try:
+        model = request.model or "gpt-3.5-turbo"
+        runtime = _get_or_create_runtime(model, request.db)
+        
+        # Extract the last user message
+        user_message = ""
+        for msg in reversed(request.messages):
+            if msg.get("role") == "user":
+                user_message = msg.get("content", "")
+                break
+        
+        if not user_message:
+            raise HTTPException(status_code=400, detail="No user message found")
+        
+        def generate():
+            import json
+            try:
+                for chunk in runtime.handle_user_stream(user_message):
+                    # Format as OpenAI-compatible streaming response
+                    payload = {
+                        "choices": [
+                            {
+                                "delta": {
+                                    "content": chunk
+                                }
+                            }
+                        ]
+                    }
+                    yield f"data: {json.dumps(payload)}\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception as e:
+                logger.exception("Stream generation failed")
+                error_payload = {
+                    "error": {
+                        "message": str(e),
+                        "type": "stream_error"
+                    }
+                }
+                yield f"data: {json.dumps(error_payload)}\n\n"
+        
+        return StreamingResponse(generate(), media_type="text/event-stream")
+    except Exception as e:
+        logger.exception("Chat endpoint failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/models")
 async def get_models():
-    """Get available LLM models."""
+    """Get available LLM models from Ollama and OpenAI."""
+    import subprocess
+    
+    models = []
+    
+    # Get Ollama models
+    try:
+        result = subprocess.run(
+            ["ollama", "list"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')[1:]  # Skip header
+            for line in lines:
+                if line.strip():
+                    name = line.split()[0]  # First column is the model name
+                    models.append({
+                        "id": name,
+                        "name": name,
+                        "provider": "ollama"
+                    })
+    except Exception:
+        pass
+    
+    # Add OpenAI models
+    models.extend([
+        {"id": "gpt-3.5-turbo", "name": "gpt-3.5-turbo", "provider": "openai"},
+        {"id": "gpt-4o", "name": "gpt-4o", "provider": "openai"},
+        {"id": "gpt-4o-mini", "name": "gpt-4o-mini", "provider": "openai"},
+    ])
+    
     return {
         "version": API_VERSION,
-        "models": [
-            {"id": "gpt-4o", "name": "GPT-4o", "provider": "openai"},
-            {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "provider": "openai"},
-            {"id": "claude-3-5-sonnet-20241022", "name": "Claude 3.5 Sonnet", "provider": "anthropic"},
-        ]
+        "models": models
     }
 
 

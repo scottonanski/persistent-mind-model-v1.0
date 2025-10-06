@@ -6,12 +6,40 @@
 echo "🚀 Starting PMM Companion..."
 echo "================================"
 
+# Kill any existing PMM processes
+echo "🧹 Cleaning up any existing processes..."
+pkill -f "pmm.api.companion" 2>/dev/null
+pkill -f "next dev" 2>/dev/null
+pkill -f "node.*next" 2>/dev/null
+
+# Clear Next.js cache to prevent port detection issues
+rm -rf ui/.next 2>/dev/null
+
+sleep 1
+
 # Function to cleanup background processes on exit
 cleanup() {
     echo ""
     echo "🛑 Shutting down PMM Companion..."
-    kill $API_PID $UI_PID 2>/dev/null
+    
+    # Kill the API server
+    if [ ! -z "$API_PID" ]; then
+        kill $API_PID 2>/dev/null
+    fi
+    
+    # Kill the UI server and all its children (Next.js spawns multiple processes)
+    if [ ! -z "$UI_PID" ]; then
+        # Kill the entire process group
+        pkill -P $UI_PID 2>/dev/null
+        kill $UI_PID 2>/dev/null
+    fi
+    
+    # Also kill any lingering Next.js processes
+    pkill -f "next dev" 2>/dev/null
+    
+    # Wait for processes to terminate
     wait $API_PID $UI_PID 2>/dev/null
+    
     echo "✅ Shutdown complete"
     exit 0
 }

@@ -71,8 +71,10 @@ def build_context_block(
     The snapshot parameter is still passed to the caller for cached projections.
     """
     from pmm.runtime.context_builder import build_context_from_ledger
+    import json
+    from pathlib import Path
 
-    return build_context_from_ledger(
+    context_block = build_context_from_ledger(
         eventlog,
         n_reflections=3,
         snapshot=None,  # Let context_builder use read_tail optimization
@@ -81,10 +83,21 @@ def build_context_block(
         max_reflection_chars=max_reflection_chars,
         compact_mode=False,
         include_metrics=False,
-        include_commitments=False,
+        include_commitments=True,  # Always include commitments for visibility
         include_reflections=False,
         diagnostics=diagnostics,
     )
+    
+    # DEBUG: Log context to file for inspection
+    try:
+        log_dir = Path(".logs")
+        log_dir.mkdir(exist_ok=True)
+        log_path = log_dir / "context_preview.txt"
+        log_path.write_text(context_block, encoding="utf-8")
+    except Exception:
+        pass  # Don't fail if logging fails
+    
+    return context_block
 
 
 def post_process_reply(eventlog, bridge, reply: str) -> tuple[str, int]:

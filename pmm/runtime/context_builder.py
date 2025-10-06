@@ -88,7 +88,8 @@ def build_context_from_ledger(
     # Performance optimization (Phase 1.3): Use read_tail for recent context
     # Most context needs (IAS/GAS, recent reflections, commitments) are in
     # the recent 500-1000 events. Full projection still uses read_all().
-    tail_limit = 1000
+    # Increase limit when commitments are requested to ensure visibility
+    tail_limit = 5000 if include_commitments else 1000
     tail_truncated = False
 
     diag: dict[str, Any]
@@ -242,7 +243,7 @@ def build_context_from_ledger(
         # First, get actual commitment_open events from ledger (last 10)
         closed_cids = set()
         for ev in reversed(events):
-            if ev.get("kind") == "commitment_close":
+            if ev.get("kind") in ("commitment_close", "commitment_expire"):
                 cid = (ev.get("meta") or {}).get("cid")
                 if cid:
                     closed_cids.add(cid)
@@ -257,6 +258,25 @@ def build_context_from_ledger(
                         break
 
         commitment_events.reverse()  # Chronological order
+        
+        # DEBUG: Log commitment search results
+        try:
+            from pathlib import Path
+            log_dir = Path(".logs")
+            log_dir.mkdir(exist_ok=True)
+            debug_log = log_dir / "commitment_debug.txt"
+            debug_info = f"""
+Commitment Search Debug:
+- Events scanned: {len(events)}
+- Closed CIDs found: {len(closed_cids)}
+- Closed CIDs: {list(closed_cids)[:5]}
+- Open commitments found: {len(commitment_events)}
+- Open commitment IDs: {[ev.get('id') for ev in commitment_events]}
+- Tail limit used: {tail_limit}
+"""
+            debug_log.write_text(debug_info, encoding="utf-8")
+        except Exception:
+            pass
 
         # Build commitment block with event IDs for verification
         if commitment_events:
