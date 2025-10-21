@@ -62,6 +62,33 @@ POLICY_HINTS_BY_STAGE = {
 }
 
 
+def policy_arm_for_stage(stage: str | None) -> str | None:
+    """Return the reflection_style arm for a given stage, or None if not found.
+
+    Centralizes stage → arm lookup with normalization. Returns bandit-compatible
+    arm names (e.g., 'question_form' not 'question').
+
+    Args:
+        stage: Stage string (e.g., 'S0', 'S1', ..., 'S4')
+
+    Returns:
+        Arm name string (e.g., 'succinct', 'question_form') or None
+    """
+    if not stage:
+        return None
+    try:
+        hints = POLICY_HINTS_BY_STAGE.get(str(stage).strip())
+        if not hints:
+            return None
+        style_params = hints.get("reflection_style")
+        if not isinstance(style_params, dict):
+            return None
+        arm = str(style_params.get("arm") or "").strip()
+        return arm if arm else None
+    except Exception:
+        return None
+
+
 def _telemetry_from_event(ev: dict) -> tuple[float, float] | None:
     if ev.get("kind") == "autonomy_tick":
         tel = (ev.get("meta") or {}).get("telemetry") or {}

@@ -3,8 +3,7 @@ from __future__ import annotations
 import random as _random
 
 from pmm.runtime.loop import io as _io
-from pmm.runtime.metrics import compute_ias_gas, get_or_compute_ias_gas
-from pmm.storage.eventlog import get_default_eventlog
+from pmm.runtime.metrics import compute_ias_gas
 
 # Fixed arms and templates (names only used for logging; prompt integration optional)
 ARMS: tuple[str, ...] = (
@@ -14,6 +13,24 @@ ARMS: tuple[str, ...] = (
     "checklist",
     "analytical",
 )
+
+# Bidirectional label mappings to prevent drift between bandit arms and prompt templates
+# Bandit uses "question_form", templates use "question" internally
+PROMPT_LABEL_TO_ARM: dict[str, str] = {
+    "succinct": "succinct",
+    "question": "question_form",  # Legacy template label -> bandit arm
+    "narrative": "narrative",
+    "checklist": "checklist",
+    "analytical": "analytical",
+}
+
+ARM_TO_PROMPT_LABEL: dict[str, str] = {
+    "succinct": "succinct",
+    "question_form": "question",  # Bandit arm -> template label
+    "narrative": "narrative",
+    "checklist": "checklist",
+    "analytical": "analytical",
+}
 
 _EPSILON = 0.10
 _rng = _random.Random(42)  # deterministic RNG
@@ -35,13 +52,36 @@ def _current_tick(events: list[dict]) -> int:
     return 1 + sum(1 for ev in events if ev.get("kind") == "autonomy_tick")
 
 
-def _arm_rewards(events: list[dict]) -> dict[str, list[float]]:
+def _arm_rewards(
+    events: list[dict], stage: str | None = None
+) -> dict[str, list[float]]:
+    """Aggregate rewards by arm, optionally filtered by stage context.
+
+    Args:
+        events: Event log entries
+        stage: If provided, only include rewards from this stage (e.g., "S0", "S1")
+
+    Returns:
+        Dict mapping arm names to lists of reward values
+    """
     scores: dict[str, list[float]] = {a: [] for a in ARMS}
     for ev in events:
         if ev.get("kind") != "bandit_reward":
             continue
         m = ev.get("meta") or {}
+
+        # Filter by stage if provided (context-aware aggregation)
+        if stage is not None:
+            ev_stage = m.get("stage")
+            if ev_stage != stage:
+                continue
+
         arm = str(m.get("arm") or "")
+
+        # Normalize legacy "question" label to "question_form"
+        if arm == "question":
+            arm = "question_form"
+
         try:
             r = float(m.get("reward") or 0.0)
         except Exception:
@@ -63,18 +103,24 @@ def _best_arm_by_mean(rew: dict[str, list[float]]) -> str:
     return best or ARMS[0]
 
 
-def choose_arm(events: list[dict]) -> tuple[str, int]:
+def choose_arm(events: list[dict], stage: str | None = None) -> tuple[str, int]:
     """
-    Deterministic epsilon-greedy arm selection.
-    Returns (arm, tick).
+    Deterministic epsilon-greedy arm selection with optional context filtering.
+
+    Args:
+        events: Event log entries
+        stage: If provided, uses stage-specific reward history for exploitation
+
+    Returns:
+        (arm, tick) tuple
     """
     tick = _current_tick(events)
     # exploration
     if _rng.random() < _EPSILON:
         arm = ARMS[_rng.randrange(len(ARMS))]
         return (arm, tick)
-    # exploitation
-    rewards = _arm_rewards(events)
+    # exploitation - use context-aware rewards if stage provided
+    rewards = _arm_rewards(events, stage=stage)
     arm = _best_arm_by_mean(rewards)
     return (arm, tick)
 
@@ -253,7 +299,7 @@ def maybe_log_reward(eventlog, *, horizon: int = 3) -> int | None:
     # Current tick
     tick_now = _current_tick(events)
     # Build FIFO of chosen arms with ticks and mark rewards to find the oldest unmatched choice
-    chosen_queue: list[tuple[str, int]] = []
+    chosen_queue: list[tuple[str, int, str | None]] = []  # (arm, tick, stage)
     rewarded_counts: list[str] = []
     for ev in events:
         k = ev.get("kind")
@@ -264,56 +310,52 @@ def maybe_log_reward(eventlog, *, horizon: int = 3) -> int | None:
                 t = int(m.get("tick") or 0)
             except Exception:
                 t = 0
-            chosen_queue.append((arm, t))
+            # Extract stage context from choice event
+            stage = (
+                (m.get("extra") or {}).get("stage")
+                if isinstance(m.get("extra"), dict)
+                else None
+            )
+            chosen_queue.append((arm, t, stage))
         elif k == "bandit_reward":
             m = ev.get("meta") or {}
             arm = str(m.get("arm") or "")
             rewarded_counts.append(arm)
     # Pop off matched choices one-by-one by arm occurrence order
-    unmatched: tuple[str, int] | None = None
+    unmatched: tuple[str, int, str | None] | None = None
     arm_match_progress: dict[str, int] = {}
-    for arm, t in chosen_queue:
+    for arm, t, stage in chosen_queue:
         count_used = arm_match_progress.get(arm, 0)
         if rewarded_counts.count(arm) > count_used:
             arm_match_progress[arm] = count_used + 1
             continue  # matched
-        unmatched = (arm, t)
+        unmatched = (arm, t, stage)
         break
     if not unmatched:
         return None
-    arm_u, tick_chosen = unmatched
+    arm_u, tick_chosen, stage_chosen = unmatched
     if tick_chosen <= 0 or (tick_now - tick_chosen) < horizon:
         return None
     reward, arm_calc, _ = compute_reward(events, horizon=horizon)
     arm_final = arm_calc or arm_u
-    # Append reward using standardized helper
+
+    # Infer current stage if not captured at choice time
+    if stage_chosen is None:
+        try:
+            from pmm.runtime.stage_tracker import StageTracker
+
+            stage_chosen, _ = StageTracker.infer_stage(events)
+        except Exception:
+            stage_chosen = None
+
+    # Append reward with stage context for future filtering
     return _io.append_bandit_reward(
         eventlog,
         component="reflection",
         arm=arm_final,
         reward=reward,
+        extra={"stage": stage_chosen} if stage_chosen else None,
     )
 
 
-def emit_reflection(
-    self,
-    content: str,
-    refs: list[dict],
-    stage_level: int,
-    quality_score: float,
-    forced: bool = False,
-) -> None:
-    """Emit a reflection event with telemetry."""
-
-    eventlog = get_default_eventlog()
-    ias, gas = get_or_compute_ias_gas(eventlog)
-
-    meta = {
-        "source": "reflection_bandit",
-        "telemetry": {"IAS": ias, "GAS": gas},
-        "refs": refs,
-        "stage_level": stage_level,
-        "quality_score": quality_score,
-        "forced": forced,
-    }
-    eventlog.append("reflection", content, meta)
+# Removed duplicate emit_reflection() - use pmm.runtime.loop.reflection.emit_reflection() instead

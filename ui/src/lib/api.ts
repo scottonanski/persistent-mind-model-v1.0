@@ -48,6 +48,52 @@ export interface MetricsResponse {
   };
 }
 
+export interface DetailedMetricsResponse {
+  version: string;
+  metrics: {
+    telemetry: {
+      IAS: number;
+      GAS: number;
+    };
+    reflect_skip: string;
+    stage: string;
+    open_commitments: {
+      count: number;
+      top3: Array<{
+        cid: string;
+        text: string;
+      }>;
+    };
+    priority_top5: Array<{
+      cid: string;
+      score: number;
+    }>;
+    identity: {
+      name: string;
+      top_traits: Array<{
+        trait: string;
+        v: number;
+      }>;
+      traits_full: {
+        O: string;
+        C: string;
+        E: string;
+        A: string;
+        N: string;
+      };
+    };
+    self_model_lines: string[];
+    memegraph?: {
+      nodes?: number;
+      edges?: number;
+      batch_events?: number;
+      duration_ms?: number;
+      rss_kb?: number;
+    };
+  };
+  last_updated: string;
+}
+
 export interface ReflectionsResponse {
   version: string;
   reflections: PMMEvent[];
@@ -198,6 +244,13 @@ class APIClient {
 
   async getMetrics(db?: string): Promise<MetricsResponse> {
     return this.request<MetricsResponse>('/metrics', { db });
+  }
+
+  async getDetailedMetrics(db?: string): Promise<DetailedMetricsResponse> {
+    return this.request<DetailedMetricsResponse>('/metrics', { 
+      db,
+      detailed: 'true'
+    });
   }
 
   async getConsciousness(db?: string): Promise<ConsciousnessResponse> {

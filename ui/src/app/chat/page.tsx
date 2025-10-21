@@ -9,7 +9,7 @@ export default function ChatPage() {
         <div className="mb-6 space-y-2">
           <h1 className="text-3xl font-bold">Chat</h1>
           <p className="text-sm text-muted-foreground">
-            Converse with the Persistent Mind Model using a LibreChat-inspired interface. Conversations persist in the PMM ledger.
+            Converse with the Persistent Mind Model using the Companion interface. Conversations persist in the PMM ledger.
           </p>
         </div>
         <div className="h-[calc(100vh-220px)] min-h-[520px]">

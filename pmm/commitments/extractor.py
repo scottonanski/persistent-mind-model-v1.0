@@ -286,22 +286,64 @@ class CommitmentExtractor:
         return float(analysis["score"])
 
     def extract_best_sentence(self, text: str) -> str | None:
-        """Return the highest scoring commitment sentence from the input text."""
+        """Return the highest scoring commitment sentence from the input text.
+
+        Uses a paragraph-aware approach that:
+        1. Splits text into lines or sentences depending on structure
+        2. Filters out short headings (< 20 chars or ending with ':')
+        3. Evaluates each segment for commitment intent
+        4. Returns the segment with the highest commitment score
+        """
         if not isinstance(text, str) or not text.strip():
             return None
 
-        sentences = [segment.strip() for segment in text.replace("\n", " ").split(".")]
-        sentences = [s for s in sentences if s]
+        # Determine if text has multi-line structure or is a single line
+        lines = [line.strip() for line in text.splitlines()]
+        lines = [line for line in lines if line]
+
+        # If text has multiple lines, use line-based splitting (paragraph-aware)
+        # Otherwise, split on periods for single-line text
+        if len(lines) > 1:
+            segments = lines
+        else:
+            # Single line: split on periods but preserve context
+            segments = [seg.strip() for seg in text.split(".")]
+            segments = [seg for seg in segments if seg]
+
+        # Filter out likely headings: very short segments or segments ending with ':'
+        # Headings are typically < 20 chars and often end with colons
+        candidates = []
+        for segment in segments:
+            # Skip markdown headers
+            if segment.startswith("#") or segment.startswith("**"):
+                continue
+            if segment.startswith("-") or segment.startswith("*"):
+                # Keep bullet points but strip the marker
+                segment = segment.lstrip("-*").strip()
+            if segment and segment[0].isdigit() and "." in segment[:3]:
+                # Strip numbered list markers like "1. "
+                segment = (
+                    segment.split(".", 1)[1].strip() if "." in segment else segment
+                )
+
+            # Skip very short segments or segments that are just headings
+            if len(segment) < 20 or segment.endswith(":"):
+                continue
+
+            candidates.append(segment)
+
+        if not candidates:
+            return None
 
         best_sentence: str | None = None
         best_analysis: dict[str, Any] | None = None
 
-        for sentence in sentences:
-            analysis = self.detect_intent(sentence)
+        for candidate in candidates:
+            analysis = self.detect_intent(candidate)
             if analysis["intent"] == "none":
                 continue
             if best_analysis is None or analysis["score"] > best_analysis["score"]:
-                best_sentence = sentence
+                best_sentence = candidate
                 best_analysis = analysis
 
         if self.eventlog is not None:

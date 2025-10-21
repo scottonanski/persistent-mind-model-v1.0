@@ -1,6 +1,6 @@
 [project]
 name = "persistent-mind-model"
-version = "0.0.0"
+version = "1.0.0"
 description = "PMM refactor scaffold: persistent, model-agnostic AI mind (skeleton)."
 readme = "README.md"
 requires-python = ">=3.10"

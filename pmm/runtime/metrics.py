@@ -272,7 +272,7 @@ def get_or_compute_ias_gas(eventlog) -> tuple[float, float]:
     ias, gas, last_metrics_id = get_ias_gas_from_db(eventlog)
 
     if last_metrics_id > 0:
-        logger.info(
+        logger.debug(
             f"Read metrics from DB: IAS={ias:.3f}, GAS={gas:.3f}, event_id={last_metrics_id}"
         )
     else:

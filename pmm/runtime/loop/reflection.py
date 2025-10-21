@@ -32,6 +32,7 @@ def emit_reflection(
     events: list[dict] | None = None,
     forced: bool = False,
     stage_override: str | None = None,
+    style_override_arm: str | None = None,
     forced_reason: str | None = None,
     force_open_commitment: bool = False,
     open_autonomy_tick: int | None = None,
@@ -147,13 +148,47 @@ def emit_reflection(
         ),
     }
     tmpl_label, tmpl_instr = templates.get(int(stage_level), templates[0])
+    # Apply explicit style override arm, if provided by the caller.
+    style_source = "stage_default"
+    try:
+        if style_override_arm:
+            import logging
+
+            from pmm.runtime.reflection_bandit import ARM_TO_PROMPT_LABEL, ARMS
+
+            logger = logging.getLogger(__name__)
+
+            # Validate arm is known
+            _arm_str = str(style_override_arm)
+            if _arm_str not in ARMS:
+                logger.debug(
+                    "Unknown style_override_arm '%s', defaulting to succinct. Valid arms: %s",
+                    _arm_str,
+                    ARMS,
+                )
+                _arm_str = "succinct"
+
+            _lbl = ARM_TO_PROMPT_LABEL.get(_arm_str)
+            if _lbl is not None:
+                for _, (lab, instr) in templates.items():
+                    if lab == _lbl:
+                        tmpl_label, tmpl_instr = lab, instr
+                        style_source = "policy_override"
+                        break
+    except Exception:
+        pass
     telemetry_preamble = (
         f"System status: IAS={ias:.3f}, GAS={gas:.3f}, Stage={stage_str}. "
         f"Traits (OCEAN): {trait_summary}. Policy knobs: {policy_summary}."
     )
-    context_forced = f"{telemetry_preamble} Reflecting on current state after forced reflection trigger."
+    style_guidance = f"\n\nStyle: {tmpl_label}. Instructions: {tmpl_instr}"
+    context_forced = (
+        f"{telemetry_preamble} Reflecting on current state after forced reflection trigger."  # noqa: E501
+        f"{style_guidance}"
+    )
     context_regular = (
-        f"{telemetry_preamble} Reflecting on current state and proposing next actions."
+        f"{telemetry_preamble} Reflecting on current state and proposing next actions."  # noqa: E501
+        f"{style_guidance}"
     )
 
     def _fallback_text(_: str) -> str:
@@ -294,7 +329,9 @@ def emit_reflection(
         },
         "refs": sel,
         "stage_level": int(stage_level),
+        "stage": stage_str,  # Add stage for context-aware analysis
         "prompt_template": tmpl_label,
+        "style_source": style_source,  # Track whether style came from policy or default
     }
     # Force quality score in metadata for stage advancement
     quality_score = _reject_meta.get("quality_score", 0.8) if _reject_meta else 0.8
@@ -394,6 +431,7 @@ def maybe_reflect(
     open_autonomy_tick: int | None = None,
     llm_generate: Callable | None = None,
     memegraph=None,
+    style_override_arm: str | None = None,
 ) -> tuple[bool, str]:
     """Check cooldown gates with optional per-call overrides; emit reflection or breadcrumb debug event.
 
@@ -406,6 +444,9 @@ def maybe_reflect(
         cooldown: Reflection cooldown instance
         events: Optional pre-fetched events list (performance optimization)
         ... (other parameters)
+        style_override_arm: Optional explicit arm name (e.g., 'succinct',
+            'question_form') to enforce a stage/policy style without scanning
+            ledger state inside this function.
     """
     # Import helpers from loop (executed facade)
     from pmm.runtime.loop import (
@@ -513,6 +554,7 @@ def maybe_reflect(
         open_autonomy_tick=open_autonomy_tick,
         commitment_protect_until_tick=commitment_protect_until,
         llm_generate=llm_generate,
+        style_override_arm=style_override_arm,
     )
     if rid is None:
         return (False, "rejected")
@@ -545,18 +587,48 @@ def maybe_reflect(
                     )
         except Exception:
             logger.debug("memegraph policy lookup failed", exc_info=True)
-    # Bandit integration: choose arm via biased means when provided; otherwise fall back
+    # Bandit integration: choose arm via context-aware selection with guidance bias
     try:
+        from pmm.runtime.reflection_bandit import (
+            ARMS,
+            PROMPT_LABEL_TO_ARM,
+        )
+        from pmm.runtime.reflection_bandit import (
+            choose_arm as _choose_arm_contextual,
+        )
+        from pmm.runtime.stage_tracker import StageTracker
+
         events_now_bt = events
         tick_no_bandit = 1 + sum(
             1 for ev in events_now_bt if ev.get("kind") == "autonomy_tick"
         )
+
+        # Infer current stage for context-aware arm selection
+        try:
+            current_stage, _ = StageTracker.infer_stage(events_now_bt)
+        except Exception:
+            current_stage = None
+
         arm = None
+        arm_source = "bandit"
+
+        # Priority 1: Use guidance-biased selection if guidance available
         if isinstance(arm_means, dict) and isinstance(guidance_items, list):
             try:
                 arm, _delta_b = _choose_arm_biased(arm_means, guidance_items)
+                arm_source = "bandit_biased"
             except Exception:
                 arm = None
+
+        # Priority 2: Use context-aware epsilon-greedy selection
+        if arm is None:
+            try:
+                arm, _tick = _choose_arm_contextual(events_now_bt, stage=current_stage)
+                arm_source = "bandit_contextual" if current_stage else "bandit"
+            except Exception:
+                arm = None
+
+        # Priority 3: Fall back to last reflection's template
         if arm is None:
             for ev in reversed(events_now_bt):
                 if ev.get("kind") == "reflection" and int(ev.get("id") or 0) == int(
@@ -565,6 +637,7 @@ def maybe_reflect(
                     arm = (ev.get("meta") or {}).get("prompt_template")
                     break
             arm = str(arm or "succinct")
+            arm_source = "fallback"
         # Idempotency: emit at most once per tick (since last autonomy_tick)
         try:
             evs_now_bt2 = events
@@ -586,10 +659,37 @@ def maybe_reflect(
                 already_bt2 = True
                 break
         if not already_bt2:
+            # Normalize arm label to bandit ARMS naming (question -> question_form)
+            try:
+                # Use explicit style_override_arm if provided, otherwise use computed arm
+                if style_override_arm:
+                    _arm_norm = str(style_override_arm)
+                    arm_source = "policy"
+                else:
+                    _arm_norm = str(arm or "")
+                    # Normalize template label to arm name
+                    _arm_norm = PROMPT_LABEL_TO_ARM.get(_arm_norm, _arm_norm)
+
+                # Validate arm is known, default to succinct if not
+                if _arm_norm not in ARMS:
+                    logger.debug(
+                        "Unknown arm '%s' for bandit_arm_chosen, defaulting to succinct. Valid: %s",
+                        _arm_norm,
+                        ARMS,
+                    )
+                    _arm_norm = "succinct"
+            except Exception:
+                _arm_norm = str(arm or "succinct")
+
+            # Include context metadata for future contextual bandit analysis
             _io.append_bandit_arm_chosen(
                 eventlog,
-                arm=arm,
+                arm=_arm_norm,
                 tick=int(tick_no_bandit),
+                extra={
+                    "stage": current_stage,
+                    "source": arm_source,  # "policy" or "bandit"
+                },
             )
     except Exception:
         pass

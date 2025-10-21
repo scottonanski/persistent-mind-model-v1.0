@@ -50,10 +50,18 @@ trap cleanup SIGINT SIGTERM
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Check if virtual environment exists, if not create it
+if [ ! -d "$SCRIPT_DIR/.venv" ]; then
+    echo "📦 Creating virtual environment..."
+    python3 -m venv "$SCRIPT_DIR/.venv"
+    echo "📥 Installing Python dependencies..."
+    "$SCRIPT_DIR/.venv/bin/pip" install -q -r "$SCRIPT_DIR/requirements.txt"
+fi
+
 # Start the backend API server
 echo "📡 Starting backend API server on http://localhost:8001..."
 cd "$SCRIPT_DIR"
-python3 -m pmm.api.companion &
+"$SCRIPT_DIR/.venv/bin/python" -m pmm.api.companion &
 API_PID=$!
 
 # Wait a moment for API to start

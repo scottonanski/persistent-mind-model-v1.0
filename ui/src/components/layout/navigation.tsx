@@ -9,6 +9,7 @@ import { ThemeToggle } from './theme-toggle';
 import config from '@/lib/config';
 
 const navigationItems = [
+  { href: '/chat', label: 'Chat' },
   { href: '/identity', label: 'Identity' },
   { href: '/ledger', label: 'Ledger' },
   { href: '/dashboard', label: 'Dashboard' },
@@ -21,7 +22,7 @@ export function Navigation() {
   const pathname = usePathname();
   
   // Determine active tab based on pathname
-  const activeTab = pathname === '/' ? '/dashboard' : pathname;
+  const activeTab = pathname === '/' ? '/chat' : pathname;
 
   return (
     <header className="border-b">
@@ -33,7 +34,7 @@ export function Navigation() {
             </Link>
             
             <Tabs value={activeTab} className="w-auto">
-              <TabsList className="grid w-full grid-cols-6">
+              <TabsList className="grid w-full grid-cols-7">
                 {navigationItems.map((item) => (
                   <TabsTrigger key={item.href} value={item.href} asChild>
                     <Link href={item.href}>

@@ -65,6 +65,7 @@ from pmm.runtime.evaluators.performance import (
 from pmm.runtime.evaluators.report import (
     maybe_emit_evaluation_summary as _maybe_eval_summary,
 )
+from pmm.runtime.eventlog import EventLog
 from pmm.runtime.evolution_reporter import EvolutionReporter
 from pmm.runtime.graph_trigger import GraphInsightTrigger
 from pmm.runtime.introspection import run_audit
@@ -81,7 +82,7 @@ from pmm.runtime.loop import traits as _traits_module
 from pmm.runtime.loop import validators as _validators_module
 from pmm.runtime.memegraph import MemeGraphProjection
 from pmm.runtime.metrics import get_or_compute_ias_gas
-from pmm.runtime.ngram_filter import NGramFilter
+from pmm.runtime.ngram_filter import SubstringFilter
 from pmm.runtime.planning import (
     maybe_append_planning_thought as _maybe_planning,
 )
@@ -114,7 +115,6 @@ from pmm.runtime.stage_tracker import (
     stage_str_to_level,
 )
 from pmm.runtime.trace_buffer import TraceBuffer
-from pmm.runtime.eventlog import EventLog
 from pmm.storage.projection import build_identity, build_self_model
 
 logger = logging.getLogger(__name__)
@@ -470,7 +470,7 @@ class Runtime:
                 self.eventlog, memegraph=getattr(self, "memegraph", None)
             )
             self._autonomy: AutonomyLoop | None = None
-            self._ngram_filter = NGramFilter(getattr(self, "_ngram_bans", None))
+            self._ngram_filter = SubstringFilter(getattr(self, "_ngram_bans", None))
             self._renderer = ResponseRenderer()
             self.directive_hierarchy = (
                 DirectiveHierarchy(self.eventlog) if self.eventlog else None
@@ -988,8 +988,9 @@ class Runtime:
                     normalized = commit_text
                     # Deterministic check for "I'll use the name X" or "I will use the name X"
                     if "use the name" in text_lower:
-                        # Find the name after "use the name"
-                        idx = text_lower.find("use the name")
+                        # Find the name after "use the name" in the normalized text
+                        commit_text_lower = commit_text.lower()
+                        idx = commit_text_lower.find("use the name")
                         rest = commit_text[idx + len("use the name") :].strip()
                         # Extract first token (the name)
                         name_tokens = rest.split()
@@ -1043,7 +1044,8 @@ class Runtime:
 
         lowered = text.lower()
 
-        if "novelty_threshold" in lowered:
+        # Handler 1: novelty_threshold policy updates
+        if "novelty_threshold" in lowered or "novelty threshold" in lowered:
             # Extract numeric value using deterministic parsing
             new_value = None
             for word in lowered.split():
@@ -1107,6 +1109,44 @@ class Runtime:
                 return
             return
 
+        # Handler 2: Trait adjustments (example: "adjust conscientiousness to 0.45")
+        # Future expansion point for deterministic trait updates
+        # Pattern: "adjust <trait> to <value>" or "set <trait> = <value>"
+        trait_keywords = {
+            "openness": "O",
+            "conscientiousness": "C",
+            "extraversion": "E",
+            "agreeableness": "A",
+            "neuroticism": "N",
+        }
+        for trait_name, trait_key in trait_keywords.items():
+            if trait_name in lowered:
+                # Extract target value
+                target_value = None
+                words = lowered.split()
+                for i, word in enumerate(words):
+                    if word in {"to", "=", "equals"}:
+                        # Look for number after the keyword
+                        for j in range(i + 1, min(i + 3, len(words))):
+                            try:
+                                val = float(words[j])
+                                if 0.0 <= val <= 1.0:
+                                    target_value = val
+                                    break
+                            except ValueError:
+                                continue
+                        if target_value is not None:
+                            break
+
+                if target_value is not None:
+                    # Trait adjustment found - log as advisory for now
+                    # Future: emit trait_update event with proper validation
+                    _record_discard(
+                        f"trait_adjustment_advisory:{trait_key}={target_value}"
+                    )
+                    return
+
+        # No supported action pattern matched
         _record_discard("unsupported_action")
 
     def _record_embedding_skip(self, eid: int) -> None:
@@ -1415,7 +1455,9 @@ class Runtime:
         # Anti-hallucination: Verify commitment claims against ledger
         commitment_hallucinated = False
         try:
-            commitment_hallucinated = bool(_verify_commitment_claims(reply, events_cached))
+            commitment_hallucinated = bool(
+                _verify_commitment_claims(reply, events_cached)
+            )
         except Exception:
             logger.debug("Commitment verification failed", exc_info=True)
 
@@ -1467,7 +1509,11 @@ class Runtime:
         context_diag = getattr(self, "_last_context_diagnostics", {}) or {}
         needs_metrics_followup = context_diag.get("needs_metrics", False)
 
-        if commitment_hallucinated or status_hallucinated or (fake_ids and len(fake_ids) > 0):
+        if (
+            commitment_hallucinated
+            or status_hallucinated
+            or (fake_ids and len(fake_ids) > 0)
+        ):
             corrections: list[str] = []
             if commitment_hallucinated:
                 corrections.append(
@@ -1481,7 +1527,7 @@ class Runtime:
                 corrections.append(
                     "One or more event IDs I referenced were not found in the ledger."
                 )
-            correction_text = " " .join(corrections)
+            correction_text = " ".join(corrections)
             if correction_text:
                 try:
                     _io.append_response(
@@ -1561,7 +1607,7 @@ class Runtime:
 
     def _build_metrics_followup(self) -> str | None:
         from pmm.runtime.metrics import compute_ias_gas
-        
+
         try:
             ias, gas = compute_ias_gas(self.eventlog)
             if ias is None or gas is None:
@@ -1776,23 +1822,28 @@ class Runtime:
             sel = [i for i in reversed(sel) if i > 0]
         except Exception:
             sel = []
-        # Parse actionable suggestion using pure semantic extraction
+        # Parse actionable suggestion using paragraph-aware semantic extraction
         action = None
         try:
-            from pmm.commitments.extractor import extract_commitments
+            from pmm.commitments.extractor import CommitmentExtractor
 
-            # Use semantic extractor to find commitment-like statements
-            lines = [ln.strip() for ln in note.splitlines() if ln.strip()]
-            if lines:
-                matches = extract_commitments(lines)
-                # Find the best "open" intent match
-                for text, intent, score in matches:
-                    if intent == "open":
-                        action = text
-                        break
+            # Use paragraph-aware extractor to find the best commitment sentence
+            # This avoids extracting headings and prefers actionable content
+            extractor = CommitmentExtractor()
+            action = extractor.extract_best_sentence(note)
 
-                # Fallback: use last line if no semantic match found
-                if not action:
+            # Fallback: use last non-empty, non-heading line if no semantic match found
+            # Apply same filtering as extract_best_sentence to avoid heading fallback
+            if not action:
+                lines = [ln.strip() for ln in note.splitlines() if ln.strip()]
+                # Filter out short lines and headings (same logic as extractor)
+                candidates = [
+                    ln for ln in lines if len(ln) >= 20 and not ln.endswith(":")
+                ]
+                if candidates:
+                    action = candidates[-1]
+                elif lines:
+                    # Ultimate fallback: use last line even if it's short/heading
                     action = lines[-1]
         except Exception:
             # Fallback to last line if extractor fails
@@ -1874,7 +1925,9 @@ class Runtime:
                 _append_reflection_check(self.eventlog, int(rid_reflection), note)
             except Exception:
                 pass
-            # Create commitment from extracted action (if present)
+            # Extract and apply policy actions from reflection (if present)
+            # ADR-001: Reflections no longer auto-create commitments
+            # Only deterministic policy updates (e.g., novelty_threshold) execute
             if action:
                 _vprint(f"[Reflection] Actionable insight: {action}")
                 _io.append_reflection_action(
@@ -1882,26 +1935,8 @@ class Runtime:
                     content=action,
                     style=label,
                 )
-                # Create commitment from action text
-                # Structural validation now handled by tracker.add_commitment()
-                try:
-                    tracker = getattr(self, "tracker", None)
-                    if tracker is None:
-                        tracker = CommitmentTracker(
-                            self.eventlog, memegraph=getattr(self, "memegraph", None)
-                        )
-                        self.tracker = tracker
-                    tracker.add_commitment(
-                        text=action,
-                        source="reflection",
-                        extra_meta={
-                            "reflection_id": int(rid_reflection),
-                            "due": _compute_reflection_due_epoch(),
-                        },
-                    )
-                except Exception:
-                    # Never block reflection flow if commitment logic fails
-                    pass
+                # Apply supported policy actions (novelty_threshold, trait adjustments, etc.)
+                # Unsupported actions are logged as reflection_discarded for observability
                 try:
                     self._apply_policy_from_reflection(
                         action,
@@ -2355,6 +2390,18 @@ class AutonomyLoop:
                     tick=None,
                 )
             else:
+                # Determine style override from current stage for this immediate reflection
+                try:
+                    _evs_adopt = self.eventlog.read_tail(limit=1000)
+                except Exception:
+                    _evs_adopt = self.eventlog.read_all()
+                try:
+                    _stage_now, _ = StageTracker.infer_stage(_evs_adopt)
+                except Exception:
+                    _stage_now = None
+                from pmm.runtime.stage_tracker import policy_arm_for_stage
+
+                _style_arm_now = policy_arm_for_stage(_stage_now)
                 did_reflect, _reason = maybe_reflect(
                     self.eventlog,
                     self.cooldown,
@@ -2366,6 +2413,7 @@ class AutonomyLoop:
                         self.runtime.reflect(context) if self.runtime else None
                     ),
                     memegraph=getattr(self, "memegraph", None),
+                    style_override_arm=_style_arm_now or None,
                 )
                 # Always record a debug marker to indicate a forced reflection attempt
                 _io.append_name_attempt_user(
@@ -2787,6 +2835,8 @@ class AutonomyLoop:
         exists_reflection = _auto_policy_exists(
             events, component="reflection", stage=str(curr_stage), params=target_params
         )
+        # Emit if doesn't exist in ledger for this stage+params combination
+        # Cache prevents duplicate emissions within same session
         if not exists_reflection and cached_reflection != target_params:
             _vprint(
                 f"[AutonomyLoop] Policy update: Reflection cadence set for stage {curr_stage} (tick {tick_no})"
@@ -2885,6 +2935,9 @@ class AutonomyLoop:
                     continue
                 m = ev.get("meta") or {}
                 arm = str(m.get("arm") or "")
+                # Normalize legacy names to current ARMS
+                if arm == "question":
+                    arm = "question_form"
                 try:
                     r = float(m.get("reward") or 0.0)
                 except Exception:
@@ -3075,6 +3128,10 @@ class AutonomyLoop:
             else:
                 # Emit reflection normally; prompt injection occurs inside emit_reflection via stage template
                 # Use biased chooser for bandit arm by passing precomputed means and items
+                # Determine explicit style from stage hints without scanning ledger inside selector
+                from pmm.runtime.stage_tracker import policy_arm_for_stage
+
+                _style_arm = policy_arm_for_stage(curr_stage)
                 did, reason = maybe_reflect(
                     self.eventlog,
                     self.cooldown,
@@ -3093,6 +3150,7 @@ class AutonomyLoop:
                         if self.runtime is not None
                         else getattr(self, "memegraph", None)
                     ),
+                    style_override_arm=_style_arm or None,
                 )
         else:
             _io.append_reflection_skipped(self.eventlog, reason=DUE_TO_CADENCE)
@@ -3130,6 +3188,23 @@ class AutonomyLoop:
                         arm, _delta2 = _choose_arm_biased(_means, _guidance_items)
                     except Exception:
                         arm = None
+                    # Apply explicit style from current stage policy hints, if available
+                    try:
+                        _ov_arm = str(
+
+                                POLICY_HINTS_BY_STAGE.get(curr_stage, {})
+                                .get("reflection_style", {})
+                                .get("arm")
+                                or ""
+
+                        ).strip()
+                        if _ov_arm:
+                            arm = _ov_arm
+                    except Exception:
+                        pass
+                    # Normalize legacy label to ARMS naming
+                    if arm == "question":
+                        arm = "question_form"
                     tick_c = 1 + sum(
                         1 for ev in evs_now_bt if ev.get("kind") == "autonomy_tick"
                     )
@@ -3284,6 +3359,12 @@ class AutonomyLoop:
                                 pass
                             # Force a reflection promptly to integrate the adoption
                             try:
+                                # Use explicit style override derived from current stage hints
+                                from pmm.runtime.stage_tracker import (
+                                    policy_arm_for_stage,
+                                )
+
+                                _style_arm2 = policy_arm_for_stage(curr_stage)
                                 did_reflect, _reason = maybe_reflect(
                                     self.eventlog,
                                     self.cooldown,
@@ -3294,6 +3375,7 @@ class AutonomyLoop:
                                         if self.runtime
                                         else None
                                     ),
+                                    style_override_arm=_style_arm2 or None,
                                 )
                                 if did_reflect:
                                     try:
@@ -3913,6 +3995,13 @@ class AutonomyLoop:
             except Exception:
                 pass
         # Emit stage_progress event every tick
+        # Compute net open commitments from projection (not naive count)
+        from pmm.storage.projection import build_self_model
+
+        model = build_self_model(events)
+        open_commitments = (model.get("commitments") or {}).get("open", {})
+        net_open_count = len(open_commitments)
+
         self.eventlog.append(
             kind="stage_progress",
             content="",
@@ -3920,9 +4009,7 @@ class AutonomyLoop:
                 "stage": curr_stage,
                 "IAS": ias,
                 "GAS": gas,
-                "commitment_count": sum(
-                    1 for e in events if e.get("kind") == "commitment_open"
-                ),
+                "commitment_count": net_open_count,
                 "reflection_count": sum(
                     1 for e in events if e.get("kind") == "reflection"
                 ),

@@ -82,12 +82,14 @@ export function CommitmentCluster({ onNodeSelect }: CommitmentClusterProps) {
       target: `project-${commitment.project}`
     }));
 
-    // Create force simulation with proper spacing for larger view
+    // Create force simulation with stronger centering and boundaries
     const simulation = d3.forceSimulation(nodes)
-      .force('link', d3.forceLink(links).id((d: any) => d.id).distance(40))
-      .force('charge', d3.forceManyBody().strength(-80))
-      .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collision', d3.forceCollide().radius(12));
+      .force('link', d3.forceLink(links).id((d: any) => d.id).distance(50).strength(0.5))
+      .force('charge', d3.forceManyBody().strength(-150))
+      .force('center', d3.forceCenter(width / 2, height / 2).strength(0.1))
+      .force('collision', d3.forceCollide().radius(15))
+      .force('x', d3.forceX(width / 2).strength(0.05))
+      .force('y', d3.forceY(height / 2).strength(0.05));
 
     // Add links to the main group
     const link = g.append('g')
@@ -175,8 +177,15 @@ export function CommitmentCluster({ onNodeSelect }: CommitmentClusterProps) {
     zoomRef.current = zoom;
     svg.call(zoom);
 
-    // Update positions on simulation tick
+    // Update positions on simulation tick with boundary constraints
     simulation.on('tick', () => {
+      // Constrain nodes within bounds
+      nodes.forEach(d => {
+        const radius = d.type === 'project' ? 10 : 6;
+        d.x = Math.max(radius + 20, Math.min(width - radius - 20, d.x!));
+        d.y = Math.max(radius + 20, Math.min(height - radius - 20, d.y!));
+      });
+
       link
         .attr('x1', (d: any) => d.source.x)
         .attr('y1', (d: any) => d.source.y)

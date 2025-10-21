@@ -86,7 +86,9 @@ def _get_reflections(events):
 
 
 def test_cadence_applies_by_stage(log, monkeypatch):
-    _monkey_stage(monkeypatch, ["S0", "S1", "S2"])  # drive stage changes per tick
+    # Note: AutonomyLoop.__init__ calls infer_stage once, then each tick() calls it again
+    # So we need 4 stages: one for init (ignored), then S0, S1, S2 for the three ticks
+    _monkey_stage(monkeypatch, ["S0", "S0", "S1", "S2"])
 
     loop = AutonomyLoop(eventlog=log, cooldown=_CDControlled(), interval_seconds=0.01)
 

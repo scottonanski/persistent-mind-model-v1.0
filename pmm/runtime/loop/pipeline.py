@@ -70,9 +70,9 @@ def build_context_block(
     providing 50-100× speedup on large databases (100K+ events).
     The snapshot parameter is still passed to the caller for cached projections.
     """
-    from pmm.runtime.context_builder import build_context_from_ledger
-    import json
     from pathlib import Path
+
+    from pmm.runtime.context_builder import build_context_from_ledger
 
     context_block = build_context_from_ledger(
         eventlog,
@@ -87,7 +87,7 @@ def build_context_block(
         include_reflections=False,
         diagnostics=diagnostics,
     )
-    
+
     # DEBUG: Log context to file for inspection
     try:
         log_dir = Path(".logs")
@@ -96,7 +96,7 @@ def build_context_block(
         log_path.write_text(context_block, encoding="utf-8")
     except Exception:
         pass  # Don't fail if logging fails
-    
+
     return context_block
 
 

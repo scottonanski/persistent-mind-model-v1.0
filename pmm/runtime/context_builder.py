@@ -103,7 +103,9 @@ def build_context_from_ledger(
         {
             "used_snapshot": snapshot is not None,
             "fallback_full_scan": False,
-            "tail_limit": tail_limit if snapshot is None and use_tail_optimization else None,
+            "tail_limit": (
+                tail_limit if snapshot is None and use_tail_optimization else None
+            ),
             "tail_truncated": False,
             "metrics_missing": False,
             "commitments_missing": False,
@@ -258,10 +260,11 @@ def build_context_from_ledger(
                         break
 
         commitment_events.reverse()  # Chronological order
-        
+
         # DEBUG: Log commitment search results
         try:
             from pathlib import Path
+
             log_dir = Path(".logs")
             log_dir.mkdir(exist_ok=True)
             debug_log = log_dir / "commitment_debug.txt"

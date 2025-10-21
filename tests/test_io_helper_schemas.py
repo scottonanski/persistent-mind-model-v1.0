@@ -13,10 +13,8 @@ Tests ensure:
 
 from __future__ import annotations
 
-import pytest
-
-from pmm.runtime.loop import io as _io
 from pmm.runtime.emergence import EmergenceManager
+from pmm.runtime.loop import io as _io
 from pmm.storage.eventlog import EventLog
 
 
@@ -29,7 +27,7 @@ class TestBanditRewardSchema:
         eventlog = EventLog(str(db_path))
 
         # Emit bandit_reward using helper
-        eid = _io.append_bandit_reward(
+        _io.append_bandit_reward(
             eventlog,
             component="reflection",
             arm="succinct",
@@ -56,7 +54,7 @@ class TestBanditRewardSchema:
         db_path = tmp_path / "test_bandit_optional.db"
         eventlog = EventLog(str(db_path))
 
-        eid = _io.append_bandit_reward(
+        _io.append_bandit_reward(
             eventlog,
             component="planning",
             arm="detailed",
@@ -103,7 +101,7 @@ class TestReflectionForcedSchema:
         db_path = tmp_path / "test_forced.db"
         eventlog = EventLog(str(db_path))
 
-        eid = _io.append_reflection_forced(
+        _io.append_reflection_forced(
             eventlog,
             reason="identity_adopt",
         )
@@ -117,7 +115,9 @@ class TestReflectionForcedSchema:
         assert "meta" in event
 
         meta = event["meta"]
-        assert "reason" in meta, "Must use 'reason' key (not 'forced_reflection_reason')"
+        assert (
+            "reason" in meta
+        ), "Must use 'reason' key (not 'forced_reflection_reason')"
         assert meta["reason"] == "identity_adopt"
         assert "forced_reflection_reason" not in meta, "Legacy key should not exist"
 
@@ -301,9 +301,7 @@ class TestSchemaConsistency:
         eventlog = EventLog(str(db_path))
 
         # Telemetry events should have content=""
-        _io.append_bandit_reward(
-            eventlog, component="test", arm="test", reward=0.5
-        )
+        _io.append_bandit_reward(eventlog, component="test", arm="test", reward=0.5)
         _io.append_reflection_forced(eventlog, reason="test")
 
         events = eventlog.read_all()

@@ -33,7 +33,9 @@ export function MetricsSidebar() {
   const { data: metrics, isLoading } = useQuery({
     queryKey: ['chat-metrics'],
     queryFn: () => apiClient.getMetrics(),
-    refetchInterval: 30000,
+    refetchInterval: 5000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
   });
 
   if (isLoading || !metrics?.metrics) {
@@ -59,7 +61,7 @@ export function MetricsSidebar() {
   return (
     <aside className="flex w-80 flex-col gap-4">
       {/* IAS & GAS Card */}
-      <div className="rounded-3xl border border-border/40 bg-[#202125] p-4 shadow-lg">
+      <div className="rounded-t-3xl border border-border/40 bg-[#202125] p-4 shadow-lg">
         <div className="flex items-center justify-around">
           {/* IAS */}
           <div className="flex flex-col items-center">
@@ -89,7 +91,7 @@ export function MetricsSidebar() {
       </div>
 
       {/* Stage Progress Card */}
-      <div className="rounded-3xl border border-border/40 bg-[#202125] shadow-lg">
+      <div className="border border-border/40 bg-[#202125] shadow-lg">
         <div className="border-b border-border/40 px-4 py-3">
           <h3 className="text-sm font-semibold text-foreground">Stage Progress</h3>
           <p className="text-xs text-muted-foreground">Currently at {rawStage}</p>
@@ -149,7 +151,7 @@ export function MetricsSidebar() {
       </div>
 
       {/* OCEAN Traits Card */}
-      <div className="flex flex-col rounded-3xl border border-border/40 bg-[#202125] shadow-lg">
+      <div className="flex flex-col rounded-b-3xl border border-border/40 bg-[#202125] shadow-lg">
         <div className="border-b border-border/40 px-4 py-3">
           <h3 className="text-sm font-semibold text-foreground">OCEAN Traits</h3>
           <p className="text-xs text-muted-foreground">Current personality profile</p>

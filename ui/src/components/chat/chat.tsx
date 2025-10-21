@@ -1,20 +1,23 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
 import config from '@/lib/config';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { MarkdownMessage } from '@/components/MarkdownMessage';
 import { MetricsSidebar } from './metrics-sidebar';
+import { apiClient } from '@/lib/api';
 
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   pending?: boolean;
+  streaming?: boolean;
   model?: string;
+  isMetrics?: boolean;
 }
 
 interface ModelInfo {
@@ -187,6 +190,7 @@ export function Chat() {
       next[idx] = {
         ...current,
         pending: false,
+        streaming: true,
         content: `${current.content}${delta}`,
       };
       return next;
@@ -200,7 +204,11 @@ export function Chat() {
         return prev;
       }
       const next = [...prev];
-      next[idx] = { ...next[idx], pending: false };
+      next[idx] = { 
+        ...next[idx], 
+        pending: false,
+        streaming: false,
+      };
       assistantIndexRef.current = null;
       return next;
     });
@@ -238,9 +246,102 @@ export function Chat() {
     abortControllerRef.current = new AbortController();
   }, []);
 
+  const formatMetricsMessage = useCallback((data: any) => {
+    const m = data.metrics;
+    const ias = m.telemetry.IAS;
+    const gas = m.telemetry.GAS;
+    const stage = m.stage;
+    const reflectSkip = m.reflect_skip;
+    const openCount = m.open_commitments.count;
+    const identity = m.identity;
+    const priority = m.priority_top5 || [];
+    const memegraph = m.memegraph;
+    const selfLines = m.self_model_lines || [];
+
+    // Format as plain text matching CLI output
+    let metricsText = 'METRICS\n\n';
+    metricsText += `IAS ${ias.toFixed(3)}   GAS ${gas.toFixed(3)}   Stage ${stage}\n`;
+    
+    if (reflectSkip !== 'none') {
+      metricsText += `Reflection gate ${reflectSkip}\n`;
+    }
+    
+    metricsText += `Open commitments ${openCount}\n`;
+    
+    metricsText += `Identity ${identity.name || '—'}`;
+    if (identity.top_traits && identity.top_traits.length > 0) {
+      const traits = identity.top_traits.map((t: any) => `${t.trait} ${t.v.toFixed(2)}`).join(', ');
+      metricsText += `   Traits ${traits}`;
+    }
+    metricsText += '\n';
+    
+    if (identity.traits_full) {
+      const tf = identity.traits_full;
+      metricsText += `OCEAN O ${tf.O}  C ${tf.C}  E ${tf.E}  A ${tf.A}  N ${tf.N}\n`;
+    }
+    
+    if (priority.length > 0) {
+      const items = priority.map((p: any) => `${p.cid} ${p.score.toFixed(2)}`).join(' | ');
+      metricsText += `Priority ${items}\n`;
+    }
+    
+    if (memegraph) {
+      const parts = [];
+      if (memegraph.nodes !== undefined) parts.push(`nodes ${memegraph.nodes}`);
+      if (memegraph.edges !== undefined) parts.push(`edges ${memegraph.edges}`);
+      if (memegraph.batch_events !== undefined) parts.push(`batch ${memegraph.batch_events}`);
+      if (memegraph.duration_ms !== undefined) parts.push(`ms ${memegraph.duration_ms.toFixed(3)}`);
+      if (memegraph.rss_kb !== undefined) parts.push(`rss_kb ${memegraph.rss_kb}`);
+      if (parts.length > 0) {
+        metricsText += `MemeGraph ${parts.join(' | ')}\n`;
+      }
+    }
+    
+    if (selfLines.length > 0) {
+      metricsText += '\n';
+      selfLines.forEach((line: string) => {
+        metricsText += `${line}\n`;
+      });
+    }
+    
+    return metricsText;
+  }, []);
+
   const handleSend = useCallback(async () => {
     const prompt = input.trim();
     if (!prompt || isStreaming || !selectedModel) {
+      return;
+    }
+
+    // Handle --@metrics command
+    if (prompt === '--@metrics') {
+      setInput('');
+      const userMessage: ChatMessage = {
+        id: createMessageId(),
+        role: 'user',
+        content: prompt,
+      };
+      
+      try {
+        const metricsData = await apiClient.getDetailedMetrics();
+        const metricsText = formatMetricsMessage(metricsData);
+        const metricsMessage: ChatMessage = {
+          id: createMessageId(),
+          role: 'assistant',
+          content: metricsText,
+          model: 'system',
+          isMetrics: true,
+        };
+        setMessages((prev) => [...prev, userMessage, metricsMessage]);
+      } catch (err) {
+        const errorMessage: ChatMessage = {
+          id: createMessageId(),
+          role: 'assistant',
+          content: '⚠️ Unable to load metrics snapshot.',
+          model: 'system',
+        };
+        setMessages((prev) => [...prev, userMessage, errorMessage]);
+      }
       return;
     }
 
@@ -259,6 +360,7 @@ export function Chat() {
       role: 'assistant',
       content: '',
       pending: true,
+      streaming: true,
       model: selectedModel,
     };
 
@@ -318,7 +420,7 @@ export function Chat() {
     } finally {
       setIsStreaming(false);
     }
-  }, [appendAssistantContent, finalizeAssistant, historyPayload, input, isStreaming, parseStreamChunk, resetAbortController, selectedModel]);
+  }, [appendAssistantContent, finalizeAssistant, formatMetricsMessage, historyPayload, input, isStreaming, parseStreamChunk, resetAbortController, selectedModel]);
 
   const handleStop = useCallback(() => {
     if (isStreaming) {
@@ -349,7 +451,7 @@ export function Chat() {
           </div>
         )}
 
-        <div className="flex-1 p-4 overflow-hidden rounded-3xl border border-border/40 bg-[#202125] shadow-lg">
+        <div className="flex-1 p-4 overflow-hidden rounded-3xl border border-border/40 bg-card shadow-lg">
         <ScrollArea className="h-full">
           <div className="flex flex-col gap-6 p-6">
             {!hasMessages && (
@@ -373,13 +475,26 @@ export function Chat() {
                   )}
                   <div
                     className={cn(
-                      'max-w-3xl rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm',
+                      'max-w-3xl rounded-2xl shadow-sm',
                       message.role === 'user'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-card text-card-foreground ring-1 ring-border',
+                        ? 'bg-primary text-primary-foreground px-4 py-3 text-sm leading-relaxed font-normal antialiased'
+                        : message.isMetrics
+                        ? 'bg-[#0d1117] border-2 border-blue-500/60 p-4 font-mono text-[11px] leading-[1.6] overflow-x-auto'
+                        : 'px-4 py-3 text-sm leading-relaxed font-normal antialiased text-card-foreground',
                     )}
                   >
-                    {message.content || (message.pending ? '…' : '')}
+                    {message.content ? (
+                      message.isMetrics ? (
+                        <pre className="whitespace-pre-wrap break-words text-gray-200 m-0 font-mono">{message.content}</pre>
+                      ) : (
+                        <MarkdownMessage 
+                          text={message.content} 
+                          isStreaming={message.streaming} 
+                        />
+                      )
+                    ) : (
+                      message.pending ? '…' : ''
+                    )}
                   </div>
                 </div>
               </div>

@@ -529,15 +529,24 @@ def append_assessment_policy_update(eventlog, *, meta: dict):
     )
 
 
-def append_bandit_arm_chosen(eventlog, *, arm: str, tick: int):
-    """Append a bandit_arm_chosen event with standard meta fields."""
+def append_bandit_arm_chosen(
+    eventlog, *, arm: str, tick: int, extra: dict | None = None
+):
+    """Append a bandit_arm_chosen event with standard meta fields.
+
+    Args:
+        eventlog: EventLog instance
+        arm: Chosen arm name (e.g., 'succinct', 'question_form')
+        tick: Autonomy tick number
+        extra: Optional additional metadata (e.g., stage, source)
+    """
+    meta = {"arm": arm, "tick": tick}
+    if extra:
+        meta.update(extra)
     return eventlog.append(
         kind="bandit_arm_chosen",
         content="",
-        meta={
-            "arm": str(arm),
-            "tick": int(tick),
-        },
+        meta=meta,
     )
 
 
@@ -550,8 +559,20 @@ def append_bandit_reward(
     source: str | None = None,
     window: int | None = None,
     ref: int | None = None,
+    extra: dict | None = None,
 ):
-    """Append a bandit_reward event with standard meta fields."""
+    """Append a bandit_reward event with standard meta fields.
+
+    Args:
+        eventlog: EventLog instance
+        component: Component name (e.g., "reflection")
+        arm: Arm name (e.g., "succinct", "question_form")
+        reward: Reward value (typically 0.0-1.0)
+        source: Optional source identifier
+        window: Optional window size
+        ref: Optional reference event ID
+        extra: Optional dict of additional metadata (e.g., {"stage": "S0"})
+    """
     meta = {
         "component": str(component),
         "arm": str(arm),
@@ -563,6 +584,8 @@ def append_bandit_reward(
         meta["window"] = int(window)
     if ref is not None:
         meta["ref"] = int(ref)
+    if extra is not None:
+        meta.update(extra)
     return eventlog.append(
         kind="bandit_reward",
         content="",

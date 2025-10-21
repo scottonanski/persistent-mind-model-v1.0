@@ -37,7 +37,7 @@ class MetricsView:
         self.enabled = False
 
     def snapshot(self, eventlog, memegraph=None) -> dict:
-        events: list[dict] = eventlog.read_tail(limit=1000)
+        events: list[dict] = eventlog.read_all()
         reflect_skip: str = "none"
         stage: str = "none"
         priority_top5: list[dict] = []

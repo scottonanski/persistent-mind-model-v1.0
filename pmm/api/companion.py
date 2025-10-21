@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any
 
@@ -12,9 +13,11 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from pmm.api import probe
+from pmm.config import load_dotenv
 from pmm.llm.factory import LLMConfig
 from pmm.runtime.loop import Runtime
 from pmm.runtime.metrics import compute_ias_gas
+from pmm.runtime.metrics_view import MetricsView
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
 
@@ -22,7 +25,31 @@ logger = logging.getLogger(__name__)
 
 API_VERSION = "0.1.0"
 
-app = FastAPI(title="PMM Companion API", version=API_VERSION)
+# Load environment variables from .env
+load_dotenv()
+
+# Global runtime instance with autonomy loop
+_global_runtime: Runtime | None = None
+_global_db_path: str | None = None
+_global_model: str | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events."""
+    # Startup: nothing to do
+    yield
+    # Shutdown: stop autonomy loop
+    global _global_runtime
+    if _global_runtime is not None:
+        try:
+            _global_runtime.stop_autonomy()
+            logger.info("Stopped PMM Runtime autonomy loop")
+        except Exception:
+            pass
+
+
+app = FastAPI(title="PMM Companion API", version=API_VERSION, lifespan=lifespan)
 
 # CORS middleware
 app.add_middleware(
@@ -34,53 +61,55 @@ app.add_middleware(
 )
 
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Stop autonomy loop on server shutdown."""
-    global _global_runtime
-    if _global_runtime is not None:
-        try:
-            _global_runtime.stop_autonomy()
-            logger.info("Stopped PMM Runtime autonomy loop")
-        except Exception:
-            pass
-
-# Global runtime instance with autonomy loop
-_global_runtime: Runtime | None = None
-_global_eventlog: EventLog | None = None
-
-
 def _get_evlog(db: str | None) -> EventLog:
     return EventLog(db) if db else EventLog()
 
 
 def _get_or_create_runtime(model: str, db: str | None = None) -> Runtime:
-    """Get or create a singleton Runtime instance with autonomy loop running."""
-    global _global_runtime, _global_eventlog
-    
-    # For now, use default eventlog (can be extended to support multiple DBs)
-    evlog = _get_evlog(db)
-    
+    """Get or create a singleton Runtime instance with autonomy loop running.
+
+    Caches by (db_path, model) to avoid unnecessary recreation and autonomy restarts.
+    """
+    global _global_runtime, _global_db_path, _global_model
+
+    # Normalize db path for comparison (None vs default path)
+    # Use EventLog default path when not provided
+    try:
+        default_path = EventLog().path
+    except Exception:
+        default_path = ".data/pmm.db"
+    db_path = db if db else default_path
+
     # Check if we need to create or recreate runtime
-    if _global_runtime is None or _global_eventlog != evlog:
+    # Only recreate if db path or model changed
+    if _global_runtime is None or _global_db_path != db_path or _global_model != model:
         # Stop existing autonomy loop if any
         if _global_runtime is not None:
             try:
                 _global_runtime.stop_autonomy()
+                logger.info("Stopped previous autonomy loop for runtime recreation")
             except Exception:
                 pass
-        
+
+        # Create new eventlog
+        evlog = _get_evlog(db)
+
         # Determine provider from model name
         provider = "ollama" if not model.startswith("gpt-") else "openai"
         cfg = LLMConfig(provider=provider, model=model)
-        
+
         # Create new runtime and start autonomy loop
         _global_runtime = Runtime(cfg, evlog)
         _global_runtime.start_autonomy(interval_seconds=10.0, bootstrap_identity=True)
-        _global_eventlog = evlog
-        
-        logger.info(f"Started PMM Runtime with autonomy loop (model={model}, provider={provider})")
-    
+        _global_db_path = db_path
+        _global_model = model
+
+        logger.info(
+            f"Started PMM Runtime with autonomy loop (model={model}, provider={provider}, db={db_path})"
+        )
+    else:
+        logger.debug(f"Reusing existing Runtime (model={model}, db={db_path})")
+
     return _global_runtime
 
 
@@ -149,43 +178,31 @@ async def chat(request: ChatRequest):
     try:
         model = request.model or "gpt-3.5-turbo"
         runtime = _get_or_create_runtime(model, request.db)
-        
+
         # Extract the last user message
         user_message = ""
         for msg in reversed(request.messages):
             if msg.get("role") == "user":
                 user_message = msg.get("content", "")
                 break
-        
+
         if not user_message:
             raise HTTPException(status_code=400, detail="No user message found")
-        
+
         def generate():
             import json
+
             try:
                 for chunk in runtime.handle_user_stream(user_message):
                     # Format as OpenAI-compatible streaming response
-                    payload = {
-                        "choices": [
-                            {
-                                "delta": {
-                                    "content": chunk
-                                }
-                            }
-                        ]
-                    }
+                    payload = {"choices": [{"delta": {"content": chunk}}]}
                     yield f"data: {json.dumps(payload)}\n\n"
                 yield "data: [DONE]\n\n"
             except Exception as e:
                 logger.exception("Stream generation failed")
-                error_payload = {
-                    "error": {
-                        "message": str(e),
-                        "type": "stream_error"
-                    }
-                }
+                error_payload = {"error": {"message": str(e), "type": "stream_error"}}
                 yield f"data: {json.dumps(error_payload)}\n\n"
-        
+
         return StreamingResponse(generate(), media_type="text/event-stream")
     except Exception as e:
         logger.exception("Chat endpoint failed")
@@ -196,78 +213,90 @@ async def chat(request: ChatRequest):
 async def get_models():
     """Get available LLM models from Ollama and OpenAI."""
     import subprocess
-    
+
     models = []
-    
+
     # Get Ollama models
     try:
         result = subprocess.run(
-            ["ollama", "list"],
-            capture_output=True,
-            text=True,
-            timeout=5
+            ["ollama", "list"], capture_output=True, text=True, timeout=5
         )
         if result.returncode == 0:
-            lines = result.stdout.strip().split('\n')[1:]  # Skip header
+            lines = result.stdout.strip().split("\n")[1:]  # Skip header
             for line in lines:
                 if line.strip():
                     name = line.split()[0]  # First column is the model name
-                    models.append({
-                        "id": name,
-                        "name": name,
-                        "provider": "ollama"
-                    })
+                    models.append({"id": name, "name": name, "provider": "ollama"})
     except Exception:
         pass
-    
+
     # Add OpenAI models
-    models.extend([
-        {"id": "gpt-3.5-turbo", "name": "gpt-3.5-turbo", "provider": "openai"},
-        {"id": "gpt-4o", "name": "gpt-4o", "provider": "openai"},
-        {"id": "gpt-4o-mini", "name": "gpt-4o-mini", "provider": "openai"},
-    ])
-    
-    return {
-        "version": API_VERSION,
-        "models": models
-    }
+    models.extend(
+        [
+            {"id": "gpt-3.5-turbo", "name": "gpt-3.5-turbo", "provider": "openai"},
+            {"id": "gpt-4o", "name": "gpt-4o", "provider": "openai"},
+            {"id": "gpt-4o-mini", "name": "gpt-4o-mini", "provider": "openai"},
+        ]
+    )
+
+    return {"version": API_VERSION, "models": models}
 
 
 @app.get("/metrics")
-async def get_metrics(db: str | None = Query(None)):
-    """Get current metrics (IAS, GAS, OCEAN traits, stage)."""
+async def get_metrics(db: str | None = Query(None), detailed: bool = Query(False)):
+    """Get current metrics (IAS, GAS, OCEAN traits, stage).
+
+    Args:
+        db: Optional database path
+        detailed: If True, returns full metrics snapshot with all details (like CLI --@metrics)
+    """
     try:
         evlog = _get_evlog(db)
-        events = evlog.read_all()
 
-        model = build_self_model(events)
-        identity = model.get("identity", {})
-        traits = identity.get("traits", {})
+        if detailed:
+            # Return full metrics snapshot like CLI --@metrics command
+            metrics_view = MetricsView()
+            memegraph = (
+                getattr(_global_runtime, "memegraph", None) if _global_runtime else None
+            )
+            snapshot = metrics_view.snapshot(evlog, memegraph)
 
-        try:
-            ias, gas = compute_ias_gas(events)
-        except Exception:
-            ias, gas = 0.0, 0.0
-
-        # Determine current stage from events
-        current_stage = "S0"
-        for event in reversed(events):
-            if event.get("kind") == "stage_progress":
-                stage_from_event = event.get("meta", {}).get("stage")
-                if stage_from_event:
-                    current_stage = str(stage_from_event)
-                    break
-
-        return {
-            "version": API_VERSION,
-            "metrics": {
-                "ias": float(ias),
-                "gas": float(gas),
-                "traits": traits,
-                "stage": {"current": current_stage},
+            return {
+                "version": API_VERSION,
+                "metrics": snapshot,
                 "last_updated": datetime.now().isoformat(),
-            },
-        }
+            }
+        else:
+            # Return basic metrics (backward compatible)
+            events = evlog.read_all()
+            model = build_self_model(events)
+            identity = model.get("identity", {})
+            traits = identity.get("traits", {})
+
+            try:
+                ias, gas = compute_ias_gas(events)
+            except Exception:
+                ias, gas = 0.0, 0.0
+
+            # Determine current stage from events
+            current_stage = "S0"
+            for event in reversed(events):
+                if event.get("kind") == "stage_progress":
+                    stage_from_event = event.get("meta", {}).get("stage")
+                    if stage_from_event:
+                        current_stage = str(stage_from_event)
+                        break
+
+            return {
+                "version": API_VERSION,
+                "metrics": {
+                    "ias": float(ias),
+                    "gas": float(gas),
+                    "traits": traits,
+                    "stage": {"current": current_stage},
+                    "last_updated": datetime.now().isoformat(),
+                },
+            }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -316,15 +345,15 @@ async def get_consciousness(db: str | None = Query(None)):
             except Exception:
                 days_alive = 0
 
-        # Count reflections and commitments
+        # Count reflections and net open commitments
         reflection_count = sum(
             1 for e in events if e.get("kind") in ["reflection", "meta_reflection"]
         )
-        commitment_count = sum(
-            1
-            for e in events
-            if e.get("kind") in ["commitment_open", "commitment_close"]
-        )
+
+        # Get net open commitments from projection (not naive count)
+        model = build_self_model(events)
+        open_commitments = (model.get("commitments") or {}).get("open", {})
+        commitment_count = len(open_commitments)
 
         # Find latest identity-related reflection
         latest_identity_reflection = None
