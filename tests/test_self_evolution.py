@@ -1,6 +1,7 @@
 from pmm.runtime.cooldown import ReflectionCooldown
 from pmm.runtime.loop import AutonomyLoop
 from pmm.runtime.self_evolution import SelfEvolution
+from pmm.runtime.traits import normalize_key
 from pmm.storage.eventlog import EventLog
 
 
@@ -49,7 +50,8 @@ def test_commitment_drift_high_close_rate(tmp_path):
             meta={"cid": cid},
         )
     changes, _ = SelfEvolution.apply_policies(log.read_all(), {"IAS": 0.0, "GAS": 0.0})
-    assert changes.get("traits.Conscientiousness") == 0.51
+    key = f"traits.{normalize_key('conscientiousness')}"
+    assert changes.get(key) == 0.51
 
 
 def test_commitment_drift_low_close_rate(tmp_path):
@@ -71,7 +73,8 @@ def test_commitment_drift_low_close_rate(tmp_path):
             meta={"cid": cid},
         )
     changes, _ = SelfEvolution.apply_policies(log.read_all(), {"IAS": 0.0, "GAS": 0.0})
-    assert round(float(changes.get("traits.Conscientiousness")), 2) == 0.49
+    key = f"traits.{normalize_key('conscientiousness')}"
+    assert round(float(changes.get(key)), 2) == 0.49
 
 
 def test_bounds_and_evolution_event_logged(tmp_path):
@@ -85,7 +88,7 @@ def test_bounds_and_evolution_event_logged(tmp_path):
         meta={
             "changes": {
                 "cooldown.novelty_threshold": 0.88,
-                "traits.Conscientiousness": 0.99,
+                f"traits.{normalize_key('conscientiousness')}": 0.99,
             }
         },
     )

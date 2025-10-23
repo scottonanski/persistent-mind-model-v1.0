@@ -67,6 +67,7 @@ from pmm.runtime.evaluators.report import (
     maybe_emit_evaluation_summary as _maybe_eval_summary,
 )
 from pmm.runtime.eventlog import EventLog
+from pmm.runtime.evolution_kernel import EvolutionKernel
 from pmm.runtime.evolution_reporter import EvolutionReporter
 from pmm.runtime.graph_trigger import GraphInsightTrigger
 from pmm.runtime.introspection import run_audit
@@ -482,6 +483,13 @@ class Runtime:
                 else None
             )
             self._last_embedding_exception: Exception | None = None
+
+        if hasattr(self, "tracker") and hasattr(self, "cooldown"):
+            self.evolution_kernel = EvolutionKernel(
+                self.eventlog,
+                self.tracker,
+                self.cooldown,
+            )
 
     def force_graph_context(self) -> None:
         """Force graph evidence injection on the next user turn."""
@@ -2337,6 +2345,41 @@ class AutonomyLoop:
                 pass
         return self._build_snapshot_fallback()
 
+    def _kernel_trait_targets(
+        self, kernel_state: dict[str, Any] | None
+    ) -> dict[str, float]:
+        if not kernel_state:
+            return {}
+        adjustments = kernel_state.get("trait_adjustments") or {}
+        if not isinstance(adjustments, dict):
+            return {}
+        targets: dict[str, float] = {}
+        for trait, payload in adjustments.items():
+            if not trait:
+                continue
+            data = payload if isinstance(payload, dict) else {}
+            target = data.get("target")
+            if target is None:
+                continue
+            try:
+                target_f = float(target)
+            except Exception:
+                continue
+            trait_key = f"traits.{str(trait).strip().lower()}"
+            targets[trait_key] = max(0.0, min(1.0, target_f))
+        return targets
+
+    @staticmethod
+    def _identity_adjust_digest(payload: dict[str, Any]) -> str:
+        core = {
+            "traits": payload.get("traits", {}),
+            "context": payload.get("context", {}),
+        }
+        blob = _json.dumps(core, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+        return _hashlib.sha256(blob).hexdigest()[:16]
+
     def handle_identity_adopt(self, new_name: str, meta: dict | None = None) -> None:
         """Explicitly handle identity adoption and its side-effects.
 
@@ -2903,11 +2946,40 @@ class AutonomyLoop:
         # preserves ledger determinism across ticks.
         forced_stage_reason: str | None = None
 
+        kernel_state: dict[str, Any] | None = None
+        kernel_trait_targets: dict[str, float] = {}
+        kernel_force_reason: str | None = None
+        kernel_identity_proposal: dict[str, Any] | None = None
+        try:
+            kernel = None
+            if self.runtime is not None:
+                kernel = getattr(self.runtime, "evolution_kernel", None)
+            else:
+                kernel = getattr(self, "evolution_kernel", None)
+            if kernel is not None:
+                kernel_state = kernel.evaluate_identity_evolution(
+                    snapshot=snapshot_tick, events=events
+                )
+                if kernel_state:
+                    kernel_trait_targets = self._kernel_trait_targets(kernel_state)
+                    if kernel_state.get("reflection_needed"):
+                        kernel_force_reason = "evolution_kernel"
+                    kernel_identity_proposal = kernel.propose_identity_adjustment(
+                        snapshot=snapshot_tick, events=events
+                    )
+        except Exception:
+            kernel_state = None
+            kernel_trait_targets = {}
+            kernel_force_reason = None
+            kernel_identity_proposal = None
+
         # Compute current tick number once for deterministic metadata across this tick
         tick_no = 1 + sum(1 for ev in events if ev.get("kind") == "autonomy_tick")
         protect_until_tick = tick_no + _COMMITMENT_PROTECT_TICKS
         force_reason = self._force_reason_next_tick
         self._force_reason_next_tick = None
+        if force_reason is None and kernel_force_reason is not None:
+            force_reason = kernel_force_reason
         # Keep telemetry aligned with freshly computed metrics; snapshot means are
         # reserved for hysteresis decisions and should not overwrite IAS/GAS here.
         cadence = CADENCE_BY_STAGE.get(
@@ -3758,6 +3830,12 @@ class AutonomyLoop:
         changes, evo_details = SelfEvolution.apply_policies(
             events, {"IAS": ias, "GAS": gas}
         )
+        if kernel_trait_targets:
+            changes.update(kernel_trait_targets)
+            kernel_detail = f"Kernel: {kernel_trait_targets}"
+            evo_details = (
+                f"{evo_details}; {kernel_detail}" if evo_details else kernel_detail
+            )
         if changes:
             # Apply runtime-affecting changes: cooldown novelty threshold
             if "cooldown.novelty_threshold" in changes:
@@ -3792,6 +3870,43 @@ class AutonomyLoop:
             except Exception:
                 total_reflections = 0
             allow_persona_updates = total_reflections >= 3
+
+            if kernel_identity_proposal:
+                proposal = {
+                    "traits": kernel_identity_proposal.get("traits") or {},
+                    "context": kernel_identity_proposal.get("context") or {},
+                    "reason": kernel_identity_proposal.get("reason"),
+                }
+                digest = self._identity_adjust_digest(proposal)
+                try:
+                    evs_recent = events[-100:] if len(events) > 100 else events
+                except Exception:
+                    evs_recent = events
+                already_logged = False
+                for ev in reversed(evs_recent):
+                    if ev.get("kind") != "identity_adjust_proposal":
+                        continue
+                    meta_ev = ev.get("meta") or {}
+                    if str(meta_ev.get("digest")) == digest:
+                        already_logged = True
+                        break
+                if not already_logged:
+                    meta_payload = {
+                        "source": "evolution_kernel",
+                        "traits": proposal["traits"],
+                        "context": proposal["context"],
+                        "reason": proposal.get("reason"),
+                        "tick": tick_no,
+                        "digest": digest,
+                    }
+                    try:
+                        self.eventlog.append(
+                            kind="identity_adjust_proposal",
+                            content="",
+                            meta=meta_payload,
+                        )
+                    except Exception:
+                        pass
 
             # Add semantic growth analysis after reflection analysis
             try:
@@ -3829,40 +3944,6 @@ class AutonomyLoop:
             except Exception as e:
                 _vprint(f"[SemanticGrowth] Error in semantic growth analysis: {e}")
                 # Don't fail the tick if semantic growth fails
-        if changes:
-            # Apply runtime-affecting changes: cooldown novelty threshold
-            if "cooldown.novelty_threshold" in changes:
-                new_thr = None
-                try:
-                    new_thr = float(changes["cooldown.novelty_threshold"])
-                    self.cooldown.novelty_threshold = new_thr
-                except Exception:
-                    new_thr = None
-                # Emit idempotent policy_update for cooldown params if different from last
-                try:
-                    params_obj = (
-                        {"novelty_threshold": float(new_thr)}
-                        if new_thr is not None
-                        else {}
-                    )
-                    _append_policy_update(
-                        self.eventlog,
-                        component="cooldown",
-                        params=params_obj,
-                        stage=curr_stage,
-                        tick=tick_no,
-                    )
-                except Exception:
-                    pass
-            _vprint(f"[SelfEvolution] Policy applied: {evo_details}")
-            # Gate trait/evolution emissions until sufficient reflections exist
-            try:
-                total_reflections = sum(
-                    1 for e in events if e.get("kind") == "reflection"
-                )
-            except Exception:
-                total_reflections = 0
-            allow_persona_updates = total_reflections >= 3
             # Emit trait_update for any trait targets in changes (absolute target → delta)
             try:
                 from pmm.storage.projection import build_identity as _build_identity

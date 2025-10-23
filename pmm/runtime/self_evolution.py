@@ -5,6 +5,25 @@ from typing import Any
 from pmm.config import (
     REFLECTION_SKIPPED,
 )
+from pmm.runtime.traits import normalize_key
+
+
+def _read_trait_val(traits: dict, name: str, default: float = 0.0) -> float:
+    """Read a trait value tolerating legacy capitalization."""
+    name_l = normalize_key(name)
+    candidates = (
+        name_l,
+        name_l.capitalize(),
+        f"traits.{name_l}",
+        f"traits.{name_l.capitalize()}",
+    )
+    for cand in candidates:
+        if cand in traits:
+            try:
+                return float(traits[cand])
+            except Exception:
+                return default
+    return default
 
 
 class SelfEvolution:
@@ -25,15 +44,31 @@ class SelfEvolution:
     @staticmethod
     def _last_setting_from_evolution(events: list[dict], key: str, default: Any) -> Any:
         """Scan evolution events to retrieve the last known value for `key`.
-        key examples: 'cooldown.novelty_threshold', 'traits.Conscientiousness'
+        key examples: 'cooldown.novelty_threshold', 'traits.conscientiousness'
         """
         val = default
+        key_candidates = {key}
+        if key.startswith("traits."):
+            suffix = key.split(".", 1)[1]
+            norm = normalize_key(suffix)
+            key_candidates.update(
+                {
+                    f"traits.{norm}",
+                    f"traits.{suffix}",
+                    f"traits.{suffix.capitalize()}",
+                    f"traits.{norm.capitalize()}",
+                }
+            )
+        else:
+            norm = normalize_key(key)
+            key_candidates.update({norm, norm.capitalize()})
         for ev in events:
             if ev.get("kind") != "evolution":
                 continue
             changes = (ev.get("meta") or {}).get("changes") or {}
-            if key in changes:
-                val = changes[key]
+            for cand in key_candidates:
+                if cand in changes:
+                    val = changes[cand]
         return val
 
     @staticmethod
@@ -105,8 +140,9 @@ class SelfEvolution:
                     closed.add(cid)
         rate = len(closed) / float(len(opens))
 
+        trait_key = f"traits.{normalize_key('conscientiousness')}"
         current = cls._last_setting_from_evolution(
-            events, "traits.Conscientiousness", cls.DEFAULT_CONSCIENTIOUSNESS
+            events, trait_key, cls.DEFAULT_CONSCIENTIOUSNESS
         )
         new_val = current
         if rate > 0.8:
@@ -115,7 +151,7 @@ class SelfEvolution:
             new_val = max(0.0, float(current) - 0.01)
 
         if new_val != current:
-            changes["traits.Conscientiousness"] = new_val
+            changes[trait_key] = new_val
         return changes
 
     @classmethod
@@ -309,9 +345,9 @@ def propose_trait_ratchet(eventlog, *, tick: int, stage: str) -> int | None:
             "traits": {"openness": 0.5, "conscientiousness": 0.5, "extraversion": 0.5}
         }
     traits = (ident.get("traits") or {}).copy()
-    opn = float(traits.get("openness", 0.5))
-    con = float(traits.get("conscientiousness", 0.5))
-    ext = float(traits.get("extraversion", 0.5))
+    opn = _read_trait_val(traits, "openness", 0.5)
+    con = _read_trait_val(traits, "conscientiousness", 0.5)
+    ext = _read_trait_val(traits, "extraversion", 0.5)
 
     # Metrics hints from latest performance report
     rpt = _latest_perf_report(tail)
