@@ -441,6 +441,14 @@ class Runtime:
         """Initialize or reinitialize the LLM backend from current config."""
         bundle = LLMFactory.from_config(self.cfg)
         self.chat = bundle.chat
+        self.embed_adapter = bundle.embed
+
+        from pmm.personality.self_evolution import SemanticTraitDriftManager
+
+        if self.embed_adapter:
+            self.trait_drift_manager = SemanticTraitDriftManager(self.embed_adapter)
+        else:
+            self.trait_drift_manager = None
 
         # Rebuild bridge per model to keep sanitizer consistent
         if not hasattr(self, "bridge") or self.bridge is None:
@@ -1017,24 +1025,19 @@ class Runtime:
         accepted_intents: list[str] = []
         for commit_text, intent, score in matches:
             if intent == "open":
+                normalized = commit_text
                 try:
-                    # Structural validation now handled by tracker.add_commitment()
-                    # No brittle marker lists needed
-                    normalized = commit_text
-                    # Deterministic check for "I'll use the name X" or "I will use the name X"
                     if "use the name" in text_lower:
-                        # Find the name after "use the name" in the normalized text
                         commit_text_lower = commit_text.lower()
                         idx = commit_text_lower.find("use the name")
                         rest = commit_text[idx + len("use the name") :].strip()
-                        # Extract first token (the name)
                         name_tokens = rest.split()
                         if name_tokens:
                             raw = name_tokens[0].strip(".,;!?\"'")
                             safe = _sanitize_name(raw) or raw
                             normalized = f"identity:name:{safe}"
-                    accepted_intents.append(intent)
-                    tracker.add_commitment(
+
+                    cid = tracker.add_commitment(
                         normalized,
                         source=speaker,
                         extra_meta={
@@ -1043,7 +1046,38 @@ class Runtime:
                             "original_text": commit_text,
                         },
                     )
-                except Exception:
+                    if cid:
+                        accepted_intents.append(intent)
+                    else:
+                        try:
+                            self.eventlog.append(
+                                kind="commitment_rejected",
+                                content=commit_text,
+                                meta={
+                                    "reason": "tracker_rejected",
+                                    "intent": "open",
+                                    "semantic_score": round(float(score), 3),
+                                    "normalized_text": normalized,
+                                    "source_event_id": int(source_event_id),
+                                },
+                            )
+                        except Exception:
+                            pass
+                except Exception as exc:
+                    try:
+                        self.eventlog.append(
+                            kind="commitment_rejected",
+                            content=commit_text,
+                            meta={
+                                "error": f"{type(exc).__name__}: {exc}",
+                                "intent": "open",
+                                "semantic_score": round(float(score), 3),
+                                "normalized_text": normalized,
+                                "source_event_id": int(source_event_id),
+                            },
+                        )
+                    except Exception:
+                        pass
                     continue
             elif intent == "close":
                 try:
@@ -1435,16 +1469,31 @@ class Runtime:
             e.get("kind") == "identity_propose" for e in recent_events_for_gate
         )
 
+        try:
+            evs_all_for_gate = _events(refresh=True)
+            turns_since_adopt = self._turns_since_last_identity_adopt(evs_all_for_gate)
+        except Exception:
+            turns_since_adopt = 0
+
         gate_debug = (
             f"[DEBUG] Streaming gate check: intent={intent}, candidate={candidate_name}, "
-            f"conf={confidence:.3f}, has_proposal={has_proposal}"
+            f"conf={confidence:.3f}, has_proposal={has_proposal}, turns_since_last_adopt={turns_since_adopt}"
         )
         print(gate_debug, file=sys.stderr, flush=True)
+
+        from pmm.config import (
+            ASSISTANT_NAMING_MIN_CONFIDENCE,
+            IDENTITY_ADOPT_MIN_TURNS,
+        )
 
         if (
             intent == "assign_assistant_name"
             and candidate_name
-            and ((confidence >= 0.7) or (has_proposal and confidence >= 0.6))
+            and confidence >= float(ASSISTANT_NAMING_MIN_CONFIDENCE)
+            and (
+                turns_since_adopt == -1
+                or turns_since_adopt >= int(IDENTITY_ADOPT_MIN_TURNS)
+            )
         ):
             print(
                 f"[DEBUG] Streaming gate PASSED for '{candidate_name}'",
@@ -1578,6 +1627,7 @@ class Runtime:
                     raw_reply_for_telemetry=reply,
                     skip_embedding=False,
                     apply_validators=False,
+                    run_commitment_hooks=True,
                     emit_directives=False,
                 )
             except Exception:
@@ -3835,8 +3885,9 @@ class AutonomyLoop:
         # rely on the due-based reminder logic later in the tick.
 
         # 2b) Apply self-evolution policies intrinsically
+        trait_manager = getattr(self.runtime, "trait_drift_manager", None)
         changes, evo_details = SelfEvolution.apply_policies(
-            events, {"IAS": ias, "GAS": gas}
+            events, {"IAS": ias, "GAS": gas}, trait_drift_manager=trait_manager
         )
         if kernel_trait_targets:
             changes.update(kernel_trait_targets)

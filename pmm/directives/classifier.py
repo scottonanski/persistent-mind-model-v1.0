@@ -178,6 +178,29 @@ class SemanticDirectiveClassifier:
         candidate = features.get("candidate_name")
         text_lower = text.lower()
 
+        if speaker == "user" and candidate:
+            has_naming_verb = bool(features.get("naming_verb_positions"))
+            has_second_person = bool(features.get("second_person_positions"))
+            candidate_positions = features.get("proper_positions", [])
+            candidate_pos = candidate_positions[0] if candidate_positions else None
+            is_sentence_initial = candidate_pos == 0
+            explicit_patterns = [
+                " call you ",
+                " call u ",
+                " name you ",
+                " your name is ",
+            ]
+            has_explicit_pattern = any(
+                pat in f" {text_lower} " for pat in explicit_patterns
+            )
+            if (
+                is_sentence_initial
+                and not has_naming_verb
+                and not has_second_person
+                and not has_explicit_pattern
+            ):
+                return "irrelevant", None, 0.2
+
         # Check for user self-identification (e.g., "I'm Scott", "My name is Scott")
         if speaker == "user" and candidate:
             # User introducing themselves
@@ -193,16 +216,21 @@ class SemanticDirectiveClassifier:
                 # This is the user telling us their name, not naming the assistant
                 return "user_self_identification", candidate, 0.9
 
-            # User naming the assistant
+            # User naming the assistant - REQUIRES explicit naming context
             has_naming_verb = bool(features.get("naming_verb_positions"))
             has_second_person = bool(features.get("second_person_positions"))
+
+            # Only classify as naming if there's clear contextual evidence
+            # Require EITHER a naming verb OR second-person reference
+            # This prevents false positives from random proper nouns in philosophical text
+            if not has_naming_verb and not has_second_person:
+                # No naming context - just a proper noun in regular text
+                return "irrelevant", None, 0.0
 
             # Confidence scales with contextual evidence
             confidence = 0.9 if has_naming_verb else 0.75
             if has_naming_verb and has_second_person:
                 confidence = 0.95
-            elif not has_naming_verb and not has_second_person:
-                confidence = 0.7
 
             return "assign_assistant_name", candidate, confidence
 
@@ -254,14 +282,17 @@ class SemanticDirectiveClassifier:
                 if verb_index < pos <= window_limit:
                     return name
 
-        # Otherwise, require the noun appear after a second-person reference
+        # Require the noun appear IMMEDIATELY after a second-person reference (within 3 words)
+        # This prevents false positives like "Unlike a normal AI session, you are..."
+        # where "AI" is before "you" but not in a naming context
         for pos, name in zip(proper_positions, proper_nouns):
-            if any(sp < pos for sp in second_positions):
+            # Check if there's a second-person reference within 3 words BEFORE this noun
+            if any(sp < pos <= sp + 3 for sp in second_positions):
                 return name
 
-        # As final fallback, allow single proper noun ONLY if the message has clear naming context
-        # Require at least one second-person reference or naming verb to avoid false positives
-        if len(proper_nouns) == 1 and (second_positions or verb_positions):
+        # As final fallback, allow single proper noun ONLY if there's a naming verb
+        # Removed second_person fallback to prevent false positives
+        if len(proper_nouns) == 1 and verb_positions:
             return proper_nouns[0]
 
         # No fallback for isolated proper nouns without context

@@ -77,7 +77,7 @@ def test_autonomy_tick_overhead_under_15_percent(tmp_path, monkeypatch):
     monkeypatch.setattr(
         _self_evolution.SelfEvolution,
         "apply_policies",
-        staticmethod(lambda events, metrics: ({}, "stub")),
+        staticmethod(lambda events, metrics, **kwargs: ({}, "stub")),
     )
 
     monkeypatch.setattr(loop_mod, "emit_reflection", lambda *a, **k: 0)

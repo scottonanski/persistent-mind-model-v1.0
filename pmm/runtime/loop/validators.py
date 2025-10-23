@@ -20,6 +20,55 @@ from pmm.utils.parsers import (
 logger = logging.getLogger(__name__)
 
 
+def verify_event_existence_claims(
+    reply: str, eventlog: EventLog
+) -> tuple[bool, list[str]]:
+    """Validate claims about the existence of event kinds in the ledger."""
+
+    if not reply:
+        return True, []
+
+    text = f" {reply.strip().lower()} "
+    candidate_kinds = [
+        "commitment_open",
+        "commitment_close",
+        "commitment_expire",
+        "stage_update",
+        "identity_adopt",
+        "trait_update",
+        "policy_update",
+        "reflection",
+    ]
+    patterns = [
+        " there is a {k} event",
+        " there is an {k} event",
+        " the ledger shows {k}",
+        " i found a {k} event",
+        " shows a {k} event",
+    ]
+
+    claimed: set[str] = set()
+    for kind in candidate_kinds:
+        for pat in patterns:
+            if pat.format(k=kind) in text:
+                claimed.add(kind)
+                break
+
+    if not claimed:
+        return True, []
+
+    missing: list[str] = []
+    for kind in sorted(claimed):
+        try:
+            count = eventlog.count_events(kind)
+        except Exception:
+            count = 0
+        if count <= 0:
+            missing.append(kind)
+
+    return (len(missing) == 0, missing)
+
+
 def verify_commitment_claims(reply: str, events: list[dict[str, Any]]) -> bool:
     """Verify that commitment claims in LLM response match ledger reality.
 
@@ -227,4 +276,5 @@ __all__ = [
     "verify_commitment_claims",
     "verify_commitment_status",
     "verify_event_ids",
+    "verify_event_existence_claims",
 ]

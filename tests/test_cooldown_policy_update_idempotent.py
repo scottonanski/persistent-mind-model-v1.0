@@ -10,7 +10,7 @@ def test_cooldown_policy_update_once_across_ticks(tmp_path, monkeypatch):
     eventlog = EventLog(str(tmp_path / "pmm-cooldown.db"))
     rt = Runtime(cfg, eventlog)
 
-    def _fake_apply_policies(events, metrics):
+    def _fake_apply_policies(events, metrics, **kwargs):
         return ({"cooldown.novelty_threshold": 0.42}, "force same cooldown")
 
     from pmm.runtime import self_evolution as _se

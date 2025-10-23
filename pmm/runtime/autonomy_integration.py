@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import time
 
-from pmm.commitments.manager import ProactiveCommitmentManager
-from pmm.personality.self_evolution import TraitDriftManager
+import numpy as np
 
-# IntrospectionEngine removed - functionality integrated into emergence system
+from pmm.commitments.manager import ProactiveCommitmentManager
+from pmm.personality.self_evolution import SemanticTraitDriftManager
 from pmm.runtime.adaptive_cadence import AdaptiveReflectionCadence
 from pmm.runtime.snapshot import LedgerSnapshot
 from pmm.runtime.stage_behaviors import StageBehaviorManager
@@ -30,16 +30,24 @@ from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
 
 
+class MockEmbeddingAdapter:
+    """A mock embedding adapter for testing purposes."""
+
+    def embed(self, text: str) -> np.ndarray:
+        """Returns a zero vector of the correct dimension."""
+        return np.zeros(1536)
+
+
 class AutonomousSystemsManager:
     """Manages all autonomous PMM systems with coordinated event processing."""
 
     def __init__(self, eventlog: EventLog):
         self.eventlog = eventlog
+        adapter = MockEmbeddingAdapter()
 
         # Initialize all autonomous systems
-        self.trait_drift = TraitDriftManager()
+        self.trait_drift = SemanticTraitDriftManager(adapter)
         self.stage_behavior = StageBehaviorManager()
-        # IntrospectionEngine replaced by EmergenceManager
         from pmm.runtime.emergence import EmergenceManager
 
         self.emergence = EmergenceManager(eventlog)
@@ -52,15 +60,7 @@ class AutonomousSystemsManager:
         context: dict,
         snapshot: LedgerSnapshot | None = None,
     ) -> dict:
-        """Process a single autonomy tick through all systems.
-
-        Args:
-            tick_id: Unique identifier for this tick
-            context: Contextual information including stage, confidence, etc.
-
-        Returns:
-            Dict with processing results and recommendations
-        """
+        """Process a single autonomy tick through all systems."""
         if snapshot is not None:
             events = snapshot.events
         else:
@@ -73,10 +73,8 @@ class AutonomousSystemsManager:
             "recommendations": [],
         }
 
-        # Track events before processing
         events_before = len(events)
 
-        # 1. Process trait drift for recent events
         try:
             recent_events = events[-50:] if len(events) > 50 else events
             for event in recent_events:
@@ -92,7 +90,6 @@ class AutonomousSystemsManager:
             results["errors"] = results.get("errors", [])
             results["errors"].append(f"trait_drift: {str(e)}")
 
-        # 2. Update stage behaviors if stage changed
         try:
             current_stage = context.get("stage", "S0")
             confidence = context.get("confidence", 0.5)
@@ -104,7 +101,6 @@ class AutonomousSystemsManager:
             results["errors"] = results.get("errors", [])
             results["errors"].append(f"stage_behavior: {str(e)}")
 
-        # 3. Run emergence analysis (replaces introspection)
         try:
             window_events = events[-100:] if len(events) > 100 else events
             self.emergence.emit_emergence_report(window_events)
@@ -113,7 +109,6 @@ class AutonomousSystemsManager:
             results["errors"] = results.get("errors", [])
             results["errors"].append(f"emergence: {str(e)}")
 
-        # 4. Evaluate reflection cadence
         try:
             should_reflect = self.reflection_cadence.should_reflect(
                 self.eventlog, tick_id, context
@@ -134,7 +129,6 @@ class AutonomousSystemsManager:
             results["errors"] = results.get("errors", [])
             results["errors"].append(f"reflection_cadence: {str(e)}")
 
-        # 5. Assess commitment health
         try:
             commitment_events = [
                 e for e in events if e.get("kind", "").startswith("commitment_")
@@ -143,7 +137,6 @@ class AutonomousSystemsManager:
                 self.eventlog, commitment_events
             )
 
-            # Generate recommendations based on health
             health = self.commitment_manager.evaluate_commitment_health(
                 commitment_events
             )
@@ -162,7 +155,6 @@ class AutonomousSystemsManager:
             results["errors"] = results.get("errors", [])
             results["errors"].append(f"commitment_manager: {str(e)}")
 
-        # Count new events emitted
         events_after = len(self.eventlog.read_all())
         results["events_emitted"] = events_after - events_before
 
@@ -175,7 +167,6 @@ class AutonomousSystemsManager:
         else:
             events = self.eventlog.read_all()
 
-        # Get current stage and model
         current_stage, stage_snapshot = StageTracker.infer_stage(events)
         model = build_self_model(events, eventlog=self.eventlog)
 
@@ -241,22 +232,7 @@ def integrate_autonomous_systems_into_tick(
     ias: float,
     gas: float,
 ) -> dict:
-    """Integration function to be called from AutonomyLoop.tick().
-
-    This function processes all autonomous systems during an autonomy tick
-    and returns results for logging and decision making.
-
-    Args:
-        eventlog: The event log instance
-        tick_id: Unique identifier for this tick
-        stage: Current PMM stage (S0-S4)
-        confidence: Stage confidence level (0.0-1.0)
-        ias: Current IAS metric
-        gas: Current GAS metric
-
-    Returns:
-        Dict with processing results and recommendations
-    """
+    """Integration function to be called from AutonomyLoop.tick()."""
     manager = AutonomousSystemsManager(eventlog)
 
     context = {
@@ -271,17 +247,7 @@ def integrate_autonomous_systems_into_tick(
 
 
 def validate_autonomous_event_emissions(eventlog: EventLog) -> dict:
-    """Validate that all autonomous systems emit events according to CONTRIBUTING.md.
-
-    Checks:
-    - Events are deterministic and idempotent
-    - Metadata is complete and consistent
-    - No duplicate events for same conditions
-    - Event structure follows PMM conventions
-
-    Returns:
-        Dict with validation results
-    """
+    """Validate that all autonomous systems emit events according to CONTRIBUTING.md."""
     events = eventlog.read_all()
     results = {
         "total_events": len(events),
@@ -291,7 +257,6 @@ def validate_autonomous_event_emissions(eventlog: EventLog) -> dict:
         "systems_validated": [],
     }
 
-    # Track autonomous event types
     autonomous_kinds = {
         "policy_update",
         "emergence_report",
@@ -300,7 +265,6 @@ def validate_autonomous_event_emissions(eventlog: EventLog) -> dict:
         "trait_update",
     }
 
-    # Validate each autonomous event
     for event in events:
         kind = event.get("kind", "")
         if kind not in autonomous_kinds:
@@ -308,11 +272,9 @@ def validate_autonomous_event_emissions(eventlog: EventLog) -> dict:
 
         results["autonomous_events"] += 1
 
-        # Check required fields - EventLog automatically adds timestamp, so skip that check
         if not event.get("id"):
             results["validation_errors"].append(f"Event {kind} missing id")
 
-        # Check metadata completeness
         meta = event.get("meta", {})
         if not meta.get("component"):
             results["validation_warnings"].append(
@@ -323,14 +285,12 @@ def validate_autonomous_event_emissions(eventlog: EventLog) -> dict:
                 f"Event {kind} missing deterministic flag"
             )
 
-        # Check for proper digest/idempotency keys where expected
         if kind in ["emergence_report", "commitment_health"]:
             if not meta.get("digest"):
                 results["validation_errors"].append(
                     f"Event {kind} missing digest for idempotency"
                 )
 
-    # Check for duplicate events (basic idempotency validation)
     event_signatures = {}
     for event in events:
         kind = event.get("kind", "")
@@ -340,7 +300,6 @@ def validate_autonomous_event_emissions(eventlog: EventLog) -> dict:
         meta = event.get("meta", {})
         component = meta.get("component", "")
 
-        # Create signature for idempotency check
         if kind == "policy_update":
             sig = f"{kind}:{component}:{meta.get('stage')}:{str(meta.get('params'))}"
         elif kind == "emergence_report":

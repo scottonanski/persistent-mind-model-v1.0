@@ -72,9 +72,9 @@ class ReflectionCooldown:
         high_novelty_bypass = novelty >= 0.95
 
         if self.turns_since < min_turns and not high_novelty_bypass:
-            return (False, "min_turns")
+            return (False, "due_to_min_turns")
         if (now - self.last_ts) < min_seconds and not high_novelty_bypass:
-            return (False, "min_time")
+            return (False, "due_to_min_time")
         if novelty < novelty_thr:
             return (False, "due_to_low_novelty")
         return (True, "ok")

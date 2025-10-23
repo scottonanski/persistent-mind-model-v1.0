@@ -6,6 +6,7 @@ from pmm.config import (
     REFLECTION_SKIPPED,
 )
 from pmm.runtime.traits import normalize_key
+from pmm.storage.projection import build_identity
 
 
 def _read_trait_val(traits: dict, name: str, default: float = 0.0) -> float:
@@ -27,25 +28,15 @@ def _read_trait_val(traits: dict, name: str, default: float = 0.0) -> float:
 
 
 class SelfEvolution:
-    """Applies intrinsic, append-only self-evolution policies.
+    """Applies intrinsic, append-only self-evolution policies."""
 
-    Policies implemented (Stage 1):
-    - Adaptive Reflection Cooldown: adjust novelty threshold based on recent skips/success.
-    - Personality Drift (Conscientiousness stub): nudge trait based on recent commitment close rate.
-    """
-
-    # Defaults (must match runtime when not previously evolved)
     DEFAULT_NOVELTY_THRESHOLD = 0.2
     NOVELTY_MIN = 0.1
     NOVELTY_MAX = 0.9
 
-    DEFAULT_CONSCIENTIOUSNESS = 0.5
-
     @staticmethod
     def _last_setting_from_evolution(events: list[dict], key: str, default: Any) -> Any:
-        """Scan evolution events to retrieve the last known value for `key`.
-        key examples: 'cooldown.novelty_threshold', 'traits.conscientiousness'
-        """
+        """Scan evolution events to retrieve the last known value for `key`."""
         val = default
         key_candidates = {key}
         if key.startswith("traits."):
@@ -85,7 +76,6 @@ class SelfEvolution:
     def _adaptive_cooldown(cls, events: list[dict]) -> dict[str, Any]:
         changes: dict[str, Any] = {}
 
-        # Recognize reflection skip events for novelty_low
         def is_skip_novelty_low(ev: dict) -> bool:
             if ev.get("kind") == REFLECTION_SKIPPED:
                 meta = ev.get("meta") or {}
@@ -95,8 +85,6 @@ class SelfEvolution:
         def is_reflection(ev: dict) -> bool:
             return ev.get("kind") == "reflection"
 
-        # Consider only reflection-relevant events when computing consecutive tails,
-        # so unrelated trailing events do not break the streak.
         relevant = [
             e for e in events if e.get("kind") in {"reflection", REFLECTION_SKIPPED}
         ]
@@ -117,63 +105,81 @@ class SelfEvolution:
         return changes
 
     @classmethod
-    def _commitment_drift(cls, events: list[dict]) -> dict[str, Any]:
-        changes: dict[str, Any] = {}
-        # Collect the last 10 commitment_open cids (in order)
-        opens: list[str] = []
-        for ev in events:
-            if ev.get("kind") == "commitment_open":
-                cid = (ev.get("meta") or {}).get("cid")
-                if cid:
-                    opens.append(cid)
-        opens = opens[-10:]
-        if not opens:
-            return changes
+    def _semantic_trait_drift(
+        cls, events: list[dict], trait_drift_manager
+    ) -> dict[str, Any]:
+        if not trait_drift_manager:
+            return {}
 
-        # Count closes for those cids (exclude expirations for completion rate)
-        closed = set()
-        open_set = set(opens)
-        for ev in events:
-            if ev.get("kind") == "commitment_close":
-                cid = (ev.get("meta") or {}).get("cid")
-                if cid in open_set:
-                    closed.add(cid)
-        rate = len(closed) / float(len(opens))
+        all_deltas = []
+        for event in events[-20:]:
+            if event.get("kind") in ["user", "response"] and event.get("content"):
+                try:
+                    deltas = trait_drift_manager.apply_event_effects(event, {})
+                    all_deltas.extend(deltas)
+                except Exception:
+                    continue
 
-        trait_key = f"traits.{normalize_key('conscientiousness')}"
-        current = cls._last_setting_from_evolution(
-            events, trait_key, cls.DEFAULT_CONSCIENTIOUSNESS
-        )
-        new_val = current
-        if rate > 0.8:
-            new_val = min(1.0, float(current) + 0.01)
-        elif rate < 0.2:
-            new_val = max(0.0, float(current) - 0.01)
+        if not all_deltas:
+            return {}
 
-        if new_val != current:
-            changes[trait_key] = new_val
+        aggregated_deltas = {}
+        for delta_item in all_deltas:
+            trait = delta_item["trait"]
+            delta = delta_item["delta"]
+            if trait not in aggregated_deltas:
+                aggregated_deltas[trait] = 0.0
+            aggregated_deltas[trait] += delta
+
+        try:
+            identity = build_identity(events)
+            current_traits = identity.get("traits", {})
+        except Exception:
+            current_traits = {}
+
+        changes = {}
+        for trait_code, total_delta in aggregated_deltas.items():
+            trait_name = {
+                "O": "openness",
+                "C": "conscientiousness",
+                "E": "extraversion",
+                "A": "agreeableness",
+                "N": "neuroticism",
+            }.get(trait_code.upper())
+            if not trait_name:
+                continue
+
+            trait_key = f"traits.{trait_name}"
+            current_value = _read_trait_val(current_traits, trait_name, 0.5)
+
+            capped_delta = max(-0.1, min(0.1, total_delta))
+
+            new_value = current_value + capped_delta
+            new_value = max(0.0, min(1.0, new_value))
+
+            if abs(new_value - current_value) > 1e-4:
+                changes[trait_key] = round(new_value, 4)
+
         return changes
 
     @classmethod
     def apply_policies(
-        cls, events: list[dict], metrics: dict[str, float]
+        cls, events: list[dict], metrics: dict[str, float], trait_drift_manager=None
     ) -> tuple[dict[str, Any], str]:
-        """Apply self-evolution rules based on recent events and metrics.
-        Return (dict of changes applied, details string for telemetry).
-        """
+        """Apply self-evolution rules based on recent events and metrics."""
         changes: dict[str, Any] = {}
         details = []
-        # Adaptive reflection cooldown
+
         cooldown_changes = cls._adaptive_cooldown(events)
         if cooldown_changes:
             changes.update(cooldown_changes)
             details.append(f"Cooldown: {cooldown_changes}")
-        # Personality drift stub
-        drift_changes = cls._commitment_drift(events)
-        if drift_changes:
-            changes.update(drift_changes)
-            details.append(f"Drift: {drift_changes}")
-        # Commitment completion rate
+
+        semantic_drift_changes = cls._semantic_trait_drift(events, trait_drift_manager)
+        if semantic_drift_changes:
+            changes.update(semantic_drift_changes)
+            details.append(f"SemanticDrift: {semantic_drift_changes}")
+
         recent_commits = [e for e in events[-20:] if e.get("kind") == "commitment_open"]
         recent_closes = [e for e in events[-20:] if e.get("kind") == "commitment_close"]
         if recent_commits and not recent_closes:
@@ -181,7 +187,7 @@ class SelfEvolution:
             details.append(
                 "No commitments closed in last 20 events, suggest increasing reflection cadence."
             )
-        # Reflection novelty
+
         recent_reflections = [e for e in events[-20:] if e.get("kind") == "reflection"]
         if recent_reflections:
             novel = any(
@@ -193,16 +199,15 @@ class SelfEvolution:
                 details.append(
                     "Recent reflections lack novelty, suggest more creative prompt."
                 )
-        # User feedback
+
         feedback = [e for e in events[-20:] if e.get("kind") == "user_feedback"]
         if feedback:
             changes["user_feedback"] = feedback[-1].get("content")
             details.append(f"User feedback: {feedback[-1].get('content')}")
+
         return changes, "; ".join(details)
 
 
-# -------------------- S4(E): Trait Ratchet (deterministic, monotonic) --------------------
-# No env flags; all constants here
 RATCHET_MIN_REFLECTIONS = 3
 RATCHET_MIN_TICK_GAP = 5
 RATCHET_STEP = 0.01
@@ -239,8 +244,8 @@ RATCHET_BOUNDS = {
 def _read_tail(evlog, n: int = 600) -> list[dict]:
     try:
         return evlog.read_tail(limit=n)
-    except TypeError:  # legacy signature fallback
-        return evlog.read_tail(n)  # type: ignore[arg-type]
+    except TypeError:
+        return evlog.read_tail(n)
 
 
 def _latest_perf_report(tail: list[dict]) -> dict | None:
@@ -291,19 +296,11 @@ def _ratchet_emitted_this_tick(tail: list[dict]) -> bool:
 
 
 def propose_trait_ratchet(eventlog, *, tick: int, stage: str) -> int | None:
-    """Propose a monotonic trait ratchet as a single combined trait_update.
-
-    Gates:
-    - At least RATCHET_MIN_REFLECTIONS since last ratchet
-    - Last trait_update at least RATCHET_MIN_TICK_GAP ticks ago
-    - At most once per tick (skip if a ratchet already emitted since last autonomy_tick)
-    """
+    """Propose a monotonic trait ratchet as a single combined trait_update."""
     tail = _read_tail(eventlog, n=1000)
-    # Single-emission per tick
     if _ratchet_emitted_this_tick(tail):
         return None
 
-    # Reflections since last ratchet
     last_ratchet_id = 0
     for e in reversed(tail):
         if (
@@ -326,7 +323,6 @@ def propose_trait_ratchet(eventlog, *, tick: int, stage: str) -> int | None:
     if refl_cnt < RATCHET_MIN_REFLECTIONS:
         return None
 
-    # Tick-gap gate for any trait_update
     last_trait_tick = _last_trait_update_tick(tail)
     try:
         curr_tick = int(tick)
@@ -335,11 +331,8 @@ def propose_trait_ratchet(eventlog, *, tick: int, stage: str) -> int | None:
     if last_trait_tick and (curr_tick - last_trait_tick) < int(RATCHET_MIN_TICK_GAP):
         return None
 
-    # Current identity traits (bounded tail projection is acceptable)
     try:
-        from pmm.storage.projection import build_identity as _build_identity
-
-        ident = _build_identity(tail)
+        ident = build_identity(tail)
     except Exception:
         ident = {
             "traits": {"openness": 0.5, "conscientiousness": 0.5, "extraversion": 0.5}
@@ -349,7 +342,6 @@ def propose_trait_ratchet(eventlog, *, tick: int, stage: str) -> int | None:
     con = _read_trait_val(traits, "conscientiousness", 0.5)
     ext = _read_trait_val(traits, "extraversion", 0.5)
 
-    # Metrics hints from latest performance report
     rpt = _latest_perf_report(tail)
     metrics = (rpt.get("meta") or {}).get("metrics") if rpt else {}
     try:
@@ -361,7 +353,6 @@ def propose_trait_ratchet(eventlog, *, tick: int, stage: str) -> int | None:
     except Exception:
         win = 0.0
 
-    # Proposed deltas
     d_opn = 0.0
     d_con = 0.0
     d_ext = 0.0
@@ -369,11 +360,9 @@ def propose_trait_ratchet(eventlog, *, tick: int, stage: str) -> int | None:
         d_opn += RATCHET_STEP
     if win < 0.25:
         d_con += RATCHET_STEP
-        # If heavy reflection volume but flat acceptance, reduce verbosity proxy
         if refl_cnt >= RATCHET_MIN_REFLECTIONS:
             d_ext -= RATCHET_STEP
 
-    # Clamp to stage bounds
     bounds = RATCHET_BOUNDS.get(str(stage), RATCHET_BOUNDS.get("S0"))
 
     def _clamp(val: float, mn: float, mx: float) -> float:
@@ -385,7 +374,6 @@ def propose_trait_ratchet(eventlog, *, tick: int, stage: str) -> int | None:
     )
     new_ext = _clamp(ext + d_ext, *bounds["extraversion"]) if bounds else (ext + d_ext)
 
-    # Final deltas after clamp
     f_opn = round(new_opn - opn, 3)
     f_con = round(new_con - con, 3)
     f_ext = round(new_ext - ext, 3)

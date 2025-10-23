@@ -12,6 +12,7 @@ openai>=1.0.0
 
 # Visualization (optional, for metrics)
 matplotlib>=3.6.0
+numpy>=1.26.0
 
 # Server
 uvicorn[standard]>=0.28.0

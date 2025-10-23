@@ -59,7 +59,7 @@ def test_no_reflect_emits_skip_breadcrumb(tmp_path):
     # Use novelty < 0.95 to avoid high-novelty bypass
     cd.note_user_turn()
     did, reason = maybe_reflect(log, cd, now=0.0, novelty=0.8)
-    assert did is False and reason == "min_turns"
+    assert did is False and reason == "due_to_min_turns"
 
     evs = log.read_all()
     skip = [
@@ -70,4 +70,5 @@ def test_no_reflect_emits_skip_breadcrumb(tmp_path):
     assert skip and skip[-1]["meta"]["reason"] in (
         "min_turns",
         "min_time",
+        "due_to_min_turns",
     )

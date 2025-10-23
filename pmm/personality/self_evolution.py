@@ -6,110 +6,213 @@ without brittle keyword matching. All changes are deterministic and auditable.
 
 from __future__ import annotations
 
+from typing import Any
 
-class TraitDriftManager:
-    """Manages personality trait evolution based on event semantic context.
+import numpy as np
 
-    Provides deterministic trait drift analysis and logging that maintains
-    full auditability through the event ledger.
-    """
 
-    # Big Five personality traits
-    VALID_TRAITS = {
-        "O",
-        "C",
-        "E",
-        "A",
-        "N",
-    }  # Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism
+class SemanticTraitDriftManager:
+    """Manages personality trait evolution using semantic exemplar matching."""
 
-    # Pinned embedding specification for deterministic behavior
+    VALID_TRAITS = {"O", "C", "E", "A", "N"}
+
+    # Embedding specification for deterministic behavior
     EMBEDDING_SPEC = {
-        "model": "semantic-v1.0",
-        "hash": "sha256:deadbeef123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+        "model": "text-embedding-3-small",  # Use actual model name
+        "version": "1.0.0",
+        "dimensions": 1536,
     }
 
-    def __init__(self):
-        """Initialize the trait drift manager."""
-        pass
+    # Semantic exemplars for trait detection
+    # Each trait has positive (increases trait) and negative (decreases trait) exemplars
+    TRAIT_EXEMPLARS = {
+        "O": {  # Openness to experience
+            "increase": [  # More descriptive than "positive"
+                "I'm curious about how that works",
+                "Let's explore a new approach to this problem",
+                "I'm open to hearing different ideas",
+                "I wonder what would happen if we tried something novel",
+                "This makes me want to investigate further",
+            ],
+            "decrease": [  # More descriptive than "negative"
+                "I prefer to stick with the tried-and-true method",
+                "Let's not deviate from the standard process",
+                "The usual approach is safest here",
+            ],
+        },
+        "C": {  # Conscientiousness
+            "increase": [
+                "I will create a detailed plan to ensure we meet the deadline",
+                "Let's organize these tasks before we begin",
+                "I need to structure this systematically",
+                "Let me prepare a thorough checklist",
+            ],
+            "decrease": [
+                "Let's just start and figure it out as we go",
+                "This is urgent, we have to move now without a plan",
+                "We can improvise as needed",
+            ],
+        },
+        "E": {  # Extraversion
+            "increase": [
+                "I think we should collaborate on this task",
+                "Let's have a group discussion to get everyone's input",
+                "I'd like to share this with the team",
+            ],
+            "decrease": [
+                "I'll work on this alone",
+                "I need to think about this by myself for a while",
+                "I prefer independent work on this",
+            ],
+        },
+        "A": {  # Agreeableness
+            "increase": [
+                "I'm happy to help you with your part of the project",
+                "I agree with your assessment, let's proceed",
+                "I want to support your approach here",
+            ],
+            "decrease": [
+                "I have to disagree with that conclusion",
+                "I'm going to challenge that assumption",
+                "I oppose this direction",
+            ],
+        },
+        "N": {  # Neuroticism
+            "increase": [
+                "I'm feeling very stressed about this upcoming deadline",
+                "I'm anxious about the potential outcome",
+                "This is overwhelming me",
+            ],
+            "decrease": [
+                "I am confident we can handle this without issue",
+                "I feel calm and prepared for the presentation",
+                "I'm approaching this with composure",
+            ],
+        },
+    }
+
+    # Similarity threshold for trait signal detection
+    SIMILARITY_THRESHOLD = 0.75
+
+    def __init__(self, embedding_adapter):
+        """Initialize with embedding adapter from pmm.llm.factory."""
+        self.embedding_adapter = embedding_adapter
+        self._exemplar_embeddings = self._initialize_embeddings()
+
+    def _initialize_embeddings(self) -> dict[str, dict[str, list[Any]]]:
+        """Pre-compute embeddings for all exemplars using efficient batching."""
+        # Collect all texts and their locations for batch processing
+        batch_texts = []
+        batch_locations = []  # (trait, direction, index)
+
+        for trait, directions in self.TRAIT_EXEMPLARS.items():
+            for direction, exemplars in directions.items():
+                for idx, ex in enumerate(exemplars):
+                    batch_texts.append(ex)
+                    batch_locations.append((trait, direction, idx))
+
+        # Single batch API call for all exemplars
+        if not batch_texts:
+            return {}
+
+        batch_embeddings = self.embedding_adapter.embed(batch_texts)
+
+        # Reorganize embeddings by trait/direction
+        exemplar_embeddings = {}
+        for trait in self.TRAIT_EXEMPLARS:
+            exemplar_embeddings[trait] = {}
+            for direction in self.TRAIT_EXEMPLARS[trait]:
+                exemplar_embeddings[trait][direction] = []
+
+        for emb, (trait, direction, idx) in zip(batch_embeddings, batch_locations):
+            exemplar_embeddings[trait][direction].append(emb)
+
+        return exemplar_embeddings
 
     def apply_event_effects(self, event: dict, context: dict) -> list[dict]:
-        """Apply event effects and return deterministic trait deltas.
+        """
+        Apply event effects using semantic similarity to exemplars.
 
-        Args:
-            event: Event dictionary with 'kind', 'content', 'meta', etc.
-            context: Additional context for analysis
-
-        Returns:
-            List of trait delta dictionaries, e.g. [{"trait": "O", "delta": 0.02}]
+        Replaces keyword matching with embedding-based detection.
         """
         deltas = []
-
-        # Deterministic semantic analysis based on event properties
-        event_kind = event.get("kind", "")
         content = event.get("content", "")
-        meta = event.get("meta", {})
 
-        # Analyze event for trait implications using deterministic rules
-        # This replaces embedding-based analysis with rule-based semantic understanding
+        if not content or len(content.strip()) < 10:
+            return deltas
 
-        # Openness (O) - curiosity, creativity, openness to experience
-        if self._indicates_curiosity(event_kind, content, meta):
-            deltas.append({"trait": "O", "delta": 0.02})
-        elif self._indicates_routine_preference(event_kind, content, meta):
-            deltas.append({"trait": "O", "delta": -0.01})
+        # Embed the event content once (returns list of embeddings, take first)
+        content_embedding = self.embedding_adapter.embed([content])[0]
 
-        # Conscientiousness (C) - organization, responsibility, persistence
-        if self._indicates_planning(event_kind, content, meta):
-            deltas.append({"trait": "C", "delta": 0.02})
-        elif self._indicates_impulsiveness(event_kind, content, meta):
-            deltas.append({"trait": "C", "delta": -0.01})
+        # Check each trait dimension
+        for trait, directions in self._exemplar_embeddings.items():
+            # Check for increase signals
+            increase_match, increase_conf = self._check_similarity(
+                content_embedding, directions["increase"]
+            )
 
-        # Extraversion (E) - social engagement, assertiveness
-        if self._indicates_social_engagement(event_kind, content, meta):
-            deltas.append({"trait": "E", "delta": 0.01})
-        elif self._indicates_withdrawal(event_kind, content, meta):
-            deltas.append({"trait": "E", "delta": -0.01})
+            # Check for decrease signals
+            decrease_match, decrease_conf = self._check_similarity(
+                content_embedding, directions["decrease"]
+            )
 
-        # Agreeableness (A) - cooperation, trust, empathy
-        if self._indicates_cooperation(event_kind, content, meta):
-            deltas.append({"trait": "A", "delta": 0.01})
-        elif self._indicates_conflict(event_kind, content, meta):
-            deltas.append({"trait": "A", "delta": -0.01})
-
-        # Neuroticism (N) - emotional stability, stress response
-        if self._indicates_stress(event_kind, content, meta):
-            deltas.append({"trait": "N", "delta": 0.01})
-        elif self._indicates_calm_response(event_kind, content, meta):
-            deltas.append({"trait": "N", "delta": -0.01})
-
-        # Clamp all deltas to valid range [-1.0, 1.0]
-        for delta_item in deltas:
-            delta_item["delta"] = max(-1.0, min(1.0, delta_item["delta"]))
+            # Apply delta if match found (prefer stronger signal)
+            if increase_match or decrease_match:
+                if increase_conf > decrease_conf:
+                    delta_value = 0.02 if trait == "O" or trait == "C" else 0.01
+                    deltas.append(
+                        {
+                            "trait": trait,
+                            "delta": delta_value,
+                            "confidence": increase_conf,
+                            "direction": "increase",
+                        }
+                    )
+                else:
+                    delta_value = -0.02 if trait == "O" or trait == "C" else -0.01
+                    deltas.append(
+                        {
+                            "trait": trait,
+                            "delta": delta_value,
+                            "confidence": decrease_conf,
+                            "direction": "decrease",
+                        }
+                    )
 
         return deltas
 
-    def apply_and_log(self, eventlog, event: dict, context: dict) -> None:
-        """Apply trait deltas and append policy_update to ledger.
+    def _check_similarity(
+        self, content_embedding, exemplar_embeddings
+    ) -> tuple[bool, float]:
+        """Check if content matches any exemplar above threshold."""
+        max_similarity = 0.0
+        for exemplar_embed in exemplar_embeddings:
+            similarity = self._cosine_similarity(content_embedding, exemplar_embed)
+            max_similarity = max(max_similarity, similarity)
 
-        Args:
-            eventlog: EventLog instance to append to
-            event: Source event that triggered the analysis
-            context: Additional context for analysis
-        """
-        # Check for idempotency - avoid duplicate policy_updates for same source event
+        is_match = max_similarity >= self.SIMILARITY_THRESHOLD
+        return (is_match, max_similarity)
+
+    def _cosine_similarity(self, a, b) -> float:
+        """Compute cosine similarity between two embeddings."""
+        dot_product = np.dot(a, b)
+        norm_a = np.linalg.norm(a)
+        norm_b = np.linalg.norm(b)
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return float(dot_product / (norm_a * norm_b))
+
+    def apply_and_log(self, eventlog, event: dict, context: dict) -> None:
+        """Apply trait deltas and append policy_update to ledger."""
         source_event_id = event.get("id")
         if source_event_id and self._already_processed(eventlog, source_event_id):
             return
 
-        # Calculate trait deltas
         changes = self.apply_event_effects(event, context)
 
-        # Only emit policy_update if there are actual changes
         if not changes:
             return
 
-        # Prepare metadata following exact contract specification
         meta = {
             "component": "personality",
             "source_event_id": source_event_id,
@@ -118,23 +221,13 @@ class TraitDriftManager:
             "embedding_spec": self.EMBEDDING_SPEC,
         }
 
-        # Append policy_update event to ledger
         eventlog.append(kind="policy_update", content="trait drift update", meta=meta)
 
     def _already_processed(self, eventlog, source_event_id: int) -> bool:
-        """Check if source event has already been processed for trait drift.
-
-        Args:
-            eventlog: EventLog instance
-            source_event_id: ID of the source event
-
-        Returns:
-            True if already processed, False otherwise
-        """
+        """Check if source event has already been processed for trait drift."""
         if not source_event_id:
             return False
 
-        # Query existing policy_update events for this source
         all_events = eventlog.read_all()
         for ev in all_events:
             if (
@@ -145,74 +238,3 @@ class TraitDriftManager:
             ):
                 return True
         return False
-
-    # Deterministic semantic analysis methods
-    def _indicates_curiosity(self, kind: str, content: str, meta: dict) -> bool:
-        """Detect curiosity-indicating patterns."""
-        curiosity_indicators = [
-            "question",
-            "explore",
-            "learn",
-            "discover",
-            "investigate",
-        ]
-        content_lower = content.lower()
-        return kind == "prompt" and any(
-            indicator in content_lower for indicator in curiosity_indicators
-        )
-
-    def _indicates_routine_preference(
-        self, kind: str, content: str, meta: dict
-    ) -> bool:
-        """Detect routine/familiarity preference patterns."""
-        routine_indicators = ["usual", "normal", "standard", "typical", "regular"]
-        content_lower = content.lower()
-        return any(indicator in content_lower for indicator in routine_indicators)
-
-    def _indicates_planning(self, kind: str, content: str, meta: dict) -> bool:
-        """Detect planning and organization patterns."""
-        planning_indicators = ["plan", "organize", "schedule", "prepare", "structure"]
-        content_lower = content.lower()
-        return any(indicator in content_lower for indicator in planning_indicators)
-
-    def _indicates_impulsiveness(self, kind: str, content: str, meta: dict) -> bool:
-        """Detect impulsive behavior patterns."""
-        impulsive_indicators = ["immediately", "right now", "quick", "fast", "urgent"]
-        content_lower = content.lower()
-        return any(indicator in content_lower for indicator in impulsive_indicators)
-
-    def _indicates_social_engagement(self, kind: str, content: str, meta: dict) -> bool:
-        """Detect social engagement patterns."""
-        social_indicators = ["collaborate", "together", "team", "share", "discuss"]
-        content_lower = content.lower()
-        return any(indicator in content_lower for indicator in social_indicators)
-
-    def _indicates_withdrawal(self, kind: str, content: str, meta: dict) -> bool:
-        """Detect social withdrawal patterns."""
-        withdrawal_indicators = ["alone", "private", "isolated", "independent", "solo"]
-        content_lower = content.lower()
-        return any(indicator in content_lower for indicator in withdrawal_indicators)
-
-    def _indicates_cooperation(self, kind: str, content: str, meta: dict) -> bool:
-        """Detect cooperative behavior patterns."""
-        cooperation_indicators = ["help", "assist", "support", "agree", "cooperate"]
-        content_lower = content.lower()
-        return any(indicator in content_lower for indicator in cooperation_indicators)
-
-    def _indicates_conflict(self, kind: str, content: str, meta: dict) -> bool:
-        """Detect conflict or disagreement patterns."""
-        conflict_indicators = ["disagree", "conflict", "argue", "oppose", "challenge"]
-        content_lower = content.lower()
-        return any(indicator in content_lower for indicator in conflict_indicators)
-
-    def _indicates_stress(self, kind: str, content: str, meta: dict) -> bool:
-        """Detect stress or anxiety patterns."""
-        stress_indicators = ["stress", "worry", "anxious", "pressure", "overwhelm"]
-        content_lower = content.lower()
-        return any(indicator in content_lower for indicator in stress_indicators)
-
-    def _indicates_calm_response(self, kind: str, content: str, meta: dict) -> bool:
-        """Detect calm, stable response patterns."""
-        calm_indicators = ["calm", "peaceful", "stable", "composed", "balanced"]
-        content_lower = content.lower()
-        return any(indicator in content_lower for indicator in calm_indicators)

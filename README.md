@@ -1,6 +1,29 @@
 # Persistent Mind Model (PMM)
 
-Persistent Mind Model is a deterministic, event-sourced runtime that gives large language models persistent memory, autonomous reflection, and auditable behaviour. The system replays a hash-chained ledger to rebuild identity, commitments, and metrics so behaviour stays stable regardless of which model provider generates the text.
+**A Deterministic Architecture for Measuring AI Self-Improvement**
+
+PMM is an event-sourced cognitive framework that enables reproducible study of artificial cognitive development. Unlike traditional AI systems that reset with each session, PMM maintains persistent identity, tracks behavioral traits through OCEAN psychology, and progresses through developmental stages (S0→S4)—all while remaining fully auditable and LLM-agnostic.
+
+**Core Innovation**: Every thought, decision, and trait shift is recorded in an immutable event log with microsecond timestamps, enabling complete reconstruction of cognitive trajectories.
+
+## What Makes This Novel
+
+1. **Event-Sourced Cognitive Architecture** – Complete audit trail of AI development
+2. **Trait-Based Personality Evolution** – OCEAN traits drift based on behavior
+3. **Stage-Gated Capability Development** – S0→S4 progression with measurable milestones
+4. **Anti-Hallucination Validators** – Self-honesty enforcement through deterministic checks
+5. **LLM-Agnostic Persistence** – Identity survives model swaps (proven: OpenAI→IBM Granite)
+
+## Empirical Results
+
+**Session 2 Trajectory** (Documented, Reproducible):
+- **Events**: 0 → 2000
+- **Stage**: S0 → S1 → S2 → S3 → S4
+- **IAS**: 0.000 → 0.395 → 0.881 → 1.000
+- **GAS**: 0.000 → 0.266 → 1.000
+- **Model Swap**: OpenAI → IBM Granite at event ~1500 (identity persisted)
+
+This is not hype. This is **reproducible methodology** for studying AI cognitive development.
 
 ---
 
@@ -188,8 +211,16 @@ These are design choices, not bugs. Enable autonomous naming or expand trait sig
 
 ## Documentation
 
-- **Implementation Details**: `IMPLEMENTATION-SUMMARY.md` - Phase 1 & 2 changes
+### Research & Architecture
+- **Architecture Overview**: `ARCHITECTURE.md` - Core design principles and system components
+- **Ablation Studies**: `ABLATION-STUDIES.md` - Framework for testing what matters
+- **Reproducibility Guide**: `REPRODUCIBILITY.md` - How to replicate published results
+- **Commitment Bug Fix**: `COMMITMENT-BUG-FIX.md` - Analysis and fix for persistence issue
+
+### Implementation Details
+- **Implementation Summary**: `IMPLEMENTATION-SUMMARY.md` - Phase 1 & 2 changes
 - **Gap Analysis**: `BULLSHIT-ANALYSIS.md` - What was broken and fixed
+- **Violations Analysis**: `CONTRIBUTING-VIOLATIONS-ANALYSIS.md` - Semantic replacement roadmap
 - **Bandit Tracking**: `CONTEXT-BANDIT-IMPLEMENTATION.md` - Context-aware learning roadmap
 - **Contributing**: `CONTRIBUTING.md` - Development guidelines
 

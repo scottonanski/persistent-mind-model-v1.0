@@ -20,3 +20,25 @@ class EventLog(_StorageEventLog):
     """
 
     __slots__ = ()
+
+    def count_events(self, kind: str) -> int:
+        """Return count of events of a given kind.
+
+        Uses SQL count when available and falls back to projection if needed, to
+        preserve deterministic ledger reads.
+        """
+
+        try:
+            with self._lock:  # type: ignore[attr-defined]
+                row = self._conn.execute(  # type: ignore[attr-defined]
+                    "SELECT COUNT(*) FROM events WHERE kind=?",
+                    (str(kind),),
+                ).fetchone()
+            return int(row[0]) if row else 0
+        except Exception:
+            try:
+                return sum(
+                    1 for event in self.read_all() if event.get("kind") == str(kind)
+                )
+            except Exception:
+                return 0

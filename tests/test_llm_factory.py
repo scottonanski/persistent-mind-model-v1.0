@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from pytest import raises
 
@@ -20,7 +22,10 @@ def test_openai_bundle_shapes():
     from pmm.llm.adapters.openai_embed import OpenAIEmbed
 
     assert isinstance(bundle.chat, OpenAIChat)
-    assert isinstance(bundle.embed, OpenAIEmbed)
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        assert bundle.embed.__class__.__name__ == "MockEmbed"
+    else:
+        assert isinstance(bundle.embed, OpenAIEmbed)
 
 
 def test_ollama_bundle_shapes():

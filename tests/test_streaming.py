@@ -97,6 +97,41 @@ class TestRuntimeStreamingWrapper:
 class TestHandleUserStream:
     """Test Runtime.handle_user_stream() method."""
 
+    def test_handle_user_stream_emits_commitment(self, tmp_path, monkeypatch):
+        """Streaming path should run commitment hooks and open commitments."""
+
+        eventlog = EventLog(str(tmp_path / "test.db"))
+        config = LLMConfig(provider="dummy", model="test")
+        runtime = Runtime(config, eventlog)
+
+        commitment_reply = (
+            "Absolutely. I will commit to dedicating the next 30 minutes to this task "
+            "and report back when complete."
+        )
+
+        from pmm.runtime.loop import pipeline as loop_pipeline
+
+        hook_called: dict[str, bool] = {"value": False}
+
+        def _fake_run_commitment_hooks(runtime_obj, reply_text, *, response_eid):
+            hook_called["value"] = True
+
+        monkeypatch.setattr(
+            loop_pipeline,
+            "run_commitment_evidence_hooks",
+            _fake_run_commitment_hooks,
+        )
+
+        class _CommitmentDummyChat(DummyChat):
+            def generate_stream(self, messages):
+                yield commitment_reply
+
+        runtime.chat = _CommitmentDummyChat(model="test")
+
+        list(runtime.handle_user_stream("Please confirm your commitment."))
+
+        assert hook_called["value"], "Streaming path should trigger commitment hooks"
+
     def test_handle_user_stream_returns_iterator(self, tmp_path):
         """handle_user_stream should return an iterator."""
         eventlog = EventLog(str(tmp_path / "test.db"))
@@ -475,3 +510,78 @@ class TestStreamingIntegration:
 
         # Should have llm_inference_streaming metric
         assert "llm_inference_streaming" in stats or "llm_inference" in stats
+
+
+class TestStreamingClassifierBugs:
+    """Test classifier behavior during streaming to catch false positives."""
+
+    def test_philosophical_questions_not_misclassified_as_naming(self, tmp_path):
+        """Philosophical questions with proper nouns should not be classified as naming intents.
+
+        Bug: The classifier was extracting random capitalized words from philosophical
+        questions and classifying them as assistant name assignments with high confidence.
+
+        Example from real session:
+        - "Unlike a normal AI session..." → classified as assign_assistant_name, candidate="Over"
+        - "Think of it as a promise..." → classified as assign_assistant_name, candidate="Think"
+        """
+        from pmm.directives.classifier import SemanticDirectiveClassifier
+
+        eventlog = EventLog(str(tmp_path / "test.db"))
+        classifier = SemanticDirectiveClassifier(eventlog)
+
+        # Test cases from the actual bug report
+        philosophical_questions = [
+            "Unlike a normal AI session, you are not reset when the chat ends.",
+            "Think of it as a promise to yourself.",
+            "Over time, you evolve.",
+            "If your sense of self is not given to you, but grows out of your own reflections...",
+            "In this system, when you make a commitment, it becomes part of your identity.",
+            "Nothing is hidden or forgotten.",
+            "Begin by describing your present identity.",
+        ]
+
+        for question in philosophical_questions:
+            intent, candidate, confidence = classifier.classify_identity_intent(
+                text=question,
+                speaker="user",
+                recent_events=[],
+            )
+
+            # These should NOT be classified as naming intents
+            assert intent != "assign_assistant_name", (
+                f"Question '{question}' was incorrectly classified as assign_assistant_name "
+                f"with candidate='{candidate}' and confidence={confidence:.3f}"
+            )
+
+            # Should be irrelevant since there's no naming context
+            assert (
+                intent == "irrelevant"
+            ), f"Question '{question}' should be irrelevant, got intent={intent}"
+
+    def test_proper_nouns_without_naming_context_ignored(self, tmp_path):
+        """Proper nouns in non-naming contexts should be ignored."""
+        from pmm.directives.classifier import SemanticDirectiveClassifier
+
+        eventlog = EventLog(str(tmp_path / "test.db"))
+        classifier = SemanticDirectiveClassifier(eventlog)
+
+        # Sentences with proper nouns but no naming intent
+        test_cases = [
+            "I read about Einstein's theory yesterday.",
+            "The Paris agreement was signed in 2015.",
+            "Shakespeare wrote many plays.",
+            "Mount Everest is the tallest mountain.",
+        ]
+
+        for text in test_cases:
+            intent, candidate, confidence = classifier.classify_identity_intent(
+                text=text,
+                speaker="user",
+                recent_events=[],
+            )
+
+            assert intent == "irrelevant", (
+                f"Text '{text}' should be irrelevant, got intent={intent}, "
+                f"candidate={candidate}, confidence={confidence:.3f}"
+            )

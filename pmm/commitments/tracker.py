@@ -117,8 +117,77 @@ class CommitmentTracker:
         except Exception:
             # Do not fail user flow if expiration has issues
             pass
-        # Free-text commitment opening is disabled; use explicit structural events
-        return []
+
+        if not text:
+            return []
+
+        # Use semantic extraction to detect commitment intents
+        try:
+            from pmm.commitments.extractor import extract_commitments
+
+            # Simple sentence splitting for semantic analysis
+            segments = []
+            for sent in text.split("."):
+                s = sent.strip()
+                if s and len(s) > 10:  # Skip very short fragments
+                    segments.append(s)
+
+            if not segments:
+                return []
+
+            matches = extract_commitments(segments)
+            opened_cids = []
+
+            for commit_text, intent, score in matches:
+                if intent == "open":
+                    try:
+                        cid = self.add_commitment(
+                            commit_text,
+                            source="assistant",
+                            extra_meta={
+                                "score": float(score),
+                                "reply_event_id": reply_event_id,
+                            },
+                        )
+                        if cid:
+                            opened_cids.append(cid)
+                            # Diagnostic: Log successful commitment opening
+                            try:
+                                self.eventlog.append(
+                                    kind="commitment_debug",
+                                    content=f"Opened: {commit_text[:100]}",
+                                    meta={
+                                        "cid": cid,
+                                        "score": float(score),
+                                        "source": "assistant",
+                                        "reply_event_id": reply_event_id,
+                                        "full_text": commit_text,
+                                    },
+                                )
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        # Diagnostic: Log commitment opening failures
+                        try:
+                            self.eventlog.append(
+                                kind="commitment_error",
+                                content=commit_text[:100],
+                                meta={
+                                    "error": str(e),
+                                    "error_type": type(e).__name__,
+                                    "score": float(score),
+                                    "intent": intent,
+                                },
+                            )
+                        except Exception:
+                            pass
+                        # Continue processing other commitments if one fails
+                        continue
+
+            return opened_cids
+        except Exception:
+            # If extraction fails, return empty list (non-blocking)
+            return []
 
     # --- Identity helpers (compat with legacy tracker) ---
     def _rebind_commitments_on_identity_adopt(
@@ -385,11 +454,26 @@ class CommitmentTracker:
         """
         # Structural validation: reject reflection-like text
         if not self._is_valid_commitment_structure(text):
-            return ""  # Silently reject invalid structure
+            try:
+                self.eventlog.append(
+                    kind="commitment_rejected",
+                    content=text,
+                    meta={"reason": "structural_validation_failed"},
+                )
+            except Exception:
+                pass
+            return ""
 
         # Deduplicate against last N open commitments
         if self._is_duplicate_of_recent_open(text):
-            # No-op: return a stable cid-like marker to reflect dedup action
+            try:
+                self.eventlog.append(
+                    kind="commitment_rejected",
+                    content=text,
+                    meta={"reason": "duplicate_open"},
+                )
+            except Exception:
+                pass
             return ""
         cid = _uuid.uuid4().hex
         meta: dict = {"cid": cid, "text": text}

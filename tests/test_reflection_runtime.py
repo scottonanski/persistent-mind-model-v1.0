@@ -17,11 +17,11 @@ def test_no_reflect_emits_skip_breadcrumb(tmp_path):
     cd.note_user_turn()
     did, reason = maybe_reflect(log, cd, now=cd.last_ts + 1.0, novelty=0.8)
     assert did is False
-    assert reason == "min_time"
+    assert reason == "due_to_min_time"
 
     evs = log.read_all()
     skips = [e for e in evs if e["kind"] == REFLECTION_SKIPPED]
-    assert skips and (skips[-1].get("meta") or {}).get("reason") == "min_time"
+    assert skips and (skips[-1].get("meta") or {}).get("reason") == "due_to_min_time"
 
 
 def test_reflect_resets_cooldown(tmp_path):

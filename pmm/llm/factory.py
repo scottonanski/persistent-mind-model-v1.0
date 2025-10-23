@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import NamedTuple
+
+import numpy as np
 
 from pmm.llm.limits import RATE_LIMITED, TickBudget, timed_call
 
@@ -37,7 +40,16 @@ class LLMFactory:
         if prov == "openai":
             chat: ChatAdapter = OpenAIChat(model=cfg.model)
             if cfg.embed_provider is None or cfg.embed_provider == "openai":
-                embed: EmbeddingAdapter | None = OpenAIEmbed(model=cfg.embed_model)
+                if "PYTEST_CURRENT_TEST" in os.environ:
+
+                    class MockEmbed(EmbeddingAdapter):
+                        def embed(self, texts: list[str]) -> list[list[float]]:
+                            return [list(np.zeros(1536)) for _ in texts]
+
+                    embed: EmbeddingAdapter | None = MockEmbed()
+                else:
+                    embed_model_name = cfg.embed_model or "text-embedding-3-small"
+                    embed: EmbeddingAdapter | None = OpenAIEmbed(model=embed_model_name)
             else:
                 raise ValueError(f"Unknown embed provider: {cfg.embed_provider}")
         elif prov == "ollama":

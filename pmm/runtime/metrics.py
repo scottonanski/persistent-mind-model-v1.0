@@ -333,6 +333,20 @@ def get_or_compute_ias_gas(eventlog) -> tuple[float, float]:
         logger.info(
             f"Wrote metrics to DB: IAS={ias:.3f}, GAS={gas:.3f}, event_id={new_metrics_id}"
         )
+
+        try:
+            eventlog.append(
+                kind="gas_breakdown",
+                content="",
+                meta={
+                    "total": float(gas),
+                    "ias": float(ias),
+                    "diagnosis": diagnosis,
+                    "metrics_event_id": int(new_metrics_id),
+                },
+            )
+        except Exception:
+            pass
     else:
         logger.info("Metrics are current, using cached values from database")
 
