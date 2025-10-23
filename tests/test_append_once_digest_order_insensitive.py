@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from pmm.runtime.eventlog_helpers import append_once
 
 
@@ -11,12 +12,14 @@ class FakeEventLog:
 
     def append(self, kind: str, content: str, meta: dict | None = None):
         eid = len(self.events) + 1
-        self.events.append({
-            "id": eid,
-            "kind": kind,
-            "content": content,
-            "meta": meta or {},
-        })
+        self.events.append(
+            {
+                "id": eid,
+                "kind": kind,
+                "content": content,
+                "meta": meta or {},
+            }
+        )
         return eid
 
 

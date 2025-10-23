@@ -3,12 +3,12 @@ from __future__ import annotations
 import statistics
 import time
 
+import pmm.runtime.loop as loop_mod
 from pmm.llm.factory import LLMConfig
 from pmm.runtime import self_evolution as _self_evolution
 from pmm.runtime.cooldown import ReflectionCooldown
 from pmm.runtime.eventlog import EventLog
 from pmm.runtime.loop import AutonomyLoop, Runtime
-import pmm.runtime.loop as loop_mod
 
 
 class NoOpKernel:
@@ -90,6 +90,7 @@ def test_autonomy_tick_overhead_under_15_percent(tmp_path, monkeypatch):
     except ImportError:  # pragma: no cover - module optional
         semantic_growth = None
     if semantic_growth is not None:
+
         class _StubGrowth:
             def analyze_texts(self, texts):
                 return {"total_texts": len(texts)}

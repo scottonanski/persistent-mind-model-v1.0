@@ -8,9 +8,9 @@ Validates:
 4. Trace summaries contain expected data
 """
 
-import time
 import statistics
 import tempfile
+import time
 from pathlib import Path
 
 from pmm.runtime.memegraph import MemeGraphProjection

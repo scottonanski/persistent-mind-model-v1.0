@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from pmm.runtime.eventlog_helpers import append_policy_update_once
 
 
@@ -11,7 +12,9 @@ class FakeEventLog:
 
     def append(self, kind: str, content: str, meta: dict | None = None):
         eid = len(self.events) + 1
-        self.events.append({"id": eid, "kind": kind, "content": content, "meta": meta or {}})
+        self.events.append(
+            {"id": eid, "kind": kind, "content": content, "meta": meta or {}}
+        )
         return eid
 
 
@@ -56,7 +59,12 @@ def test_policy_update_dedupes_by_component_params_stage():
     )
 
     kinds = [
-        (e["kind"], e["meta"].get("component"), e["meta"].get("stage"), e["meta"].get("tick"))
+        (
+            e["kind"],
+            e["meta"].get("component"),
+            e["meta"].get("stage"),
+            e["meta"].get("tick"),
+        )
         for e in log.events
     ]
     assert ok1 is True and ok2 is False and ok3 is True and ok4 is True
