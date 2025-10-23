@@ -67,6 +67,7 @@ from pmm.runtime.evaluators.report import (
     maybe_emit_evaluation_summary as _maybe_eval_summary,
 )
 from pmm.runtime.eventlog import EventLog
+from pmm.runtime.eventlog_helpers import append_once
 from pmm.runtime.evolution_kernel import EvolutionKernel
 from pmm.runtime.evolution_reporter import EvolutionReporter
 from pmm.runtime.graph_trigger import GraphInsightTrigger
@@ -3911,41 +3912,22 @@ class AutonomyLoop:
             allow_persona_updates = total_reflections >= 3
 
             if kernel_identity_proposal:
-                proposal = {
-                    "traits": kernel_identity_proposal.get("traits") or {},
-                    "context": kernel_identity_proposal.get("context") or {},
-                    "reason": kernel_identity_proposal.get("reason"),
+                proposal_key = {
+                    "traits": kernel_identity_proposal.get("traits", {}),
+                    "context": kernel_identity_proposal.get("context", {}),
                 }
-                digest = self._identity_adjust_digest(proposal)
-                try:
-                    evs_recent = events[-100:] if len(events) > 100 else events
-                except Exception:
-                    evs_recent = events
-                already_logged = False
-                for ev in reversed(evs_recent):
-                    if ev.get("kind") != "identity_adjust_proposal":
-                        continue
-                    meta_ev = ev.get("meta") or {}
-                    if str(meta_ev.get("digest")) == digest:
-                        already_logged = True
-                        break
-                if not already_logged:
-                    meta_payload = {
+                append_once(
+                    self.eventlog,
+                    kind="identity_adjust_proposal",
+                    content="",
+                    meta={
                         "source": "evolution_kernel",
-                        "traits": proposal["traits"],
-                        "context": proposal["context"],
-                        "reason": proposal.get("reason"),
+                        "reason": kernel_identity_proposal.get("reason"),
                         "tick": tick_no,
-                        "digest": digest,
-                    }
-                    try:
-                        self.eventlog.append(
-                            kind="identity_adjust_proposal",
-                            content="",
-                            meta=meta_payload,
-                        )
-                    except Exception:
-                        pass
+                    },
+                    key=proposal_key,
+                    window=100,
+                )
 
             # Add semantic growth analysis after reflection analysis
             try:
