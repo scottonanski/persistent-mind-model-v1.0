@@ -2388,39 +2388,6 @@ class AutonomyLoop:
                 pass
         return self._build_snapshot_fallback()
 
-    def _kernel_trait_targets(
-        self, kernel_state: dict[str, Any] | None
-    ) -> dict[str, float]:
-        if not kernel_state:
-            return {}
-        adjustments = kernel_state.get("trait_adjustments") or {}
-        if not isinstance(adjustments, dict):
-            return {}
-        targets: dict[str, float] = {}
-        for trait, payload in adjustments.items():
-            if not trait:
-                continue
-            data = payload if isinstance(payload, dict) else {}
-            target = data.get("target")
-            if target is None:
-                continue
-            try:
-                target_f = float(target)
-            except Exception:
-                continue
-            trait_key = f"traits.{str(trait).strip().lower()}"
-            targets[trait_key] = max(0.0, min(1.0, target_f))
-        return targets
-
-    @staticmethod
-    def _identity_adjust_digest(payload: dict[str, Any]) -> str:
-        core = {
-            "traits": payload.get("traits", {}),
-            "context": payload.get("context", {}),
-        }
-        blob = _json.dumps(core, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        return _hashlib.sha256(blob).hexdigest()[:16]
-
     def handle_identity_adopt(self, new_name: str, meta: dict | None = None) -> None:
         """Explicitly handle identity adoption and its side-effects.
 
@@ -3002,7 +2969,23 @@ class AutonomyLoop:
                     snapshot=snapshot_tick, events=events
                 )
                 if kernel_state:
-                    kernel_trait_targets = self._kernel_trait_targets(kernel_state)
+                    adjustments = kernel_state.get("trait_adjustments") or {}
+                    targets: dict[str, float] = {}
+                    if isinstance(adjustments, dict):
+                        for trait, payload in adjustments.items():
+                            if not trait:
+                                continue
+                            data = payload if isinstance(payload, dict) else {}
+                            target = data.get("target")
+                            if target is None:
+                                continue
+                            try:
+                                target_f = float(target)
+                            except Exception:
+                                continue
+                            trait_key = f"traits.{str(trait).strip().lower()}"
+                            targets[trait_key] = max(0.0, min(1.0, target_f))
+                    kernel_trait_targets = targets
                     if kernel_state.get("reflection_needed"):
                         kernel_force_reason = "evolution_kernel"
                     kernel_identity_proposal = kernel.propose_identity_adjustment(
