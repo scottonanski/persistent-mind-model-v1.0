@@ -8,8 +8,9 @@ Validates:
 4. Trace summaries contain expected data
 """
 
-import tempfile
 import time
+import statistics
+import tempfile
 from pathlib import Path
 
 from pmm.runtime.memegraph import MemeGraphProjection
@@ -179,28 +180,37 @@ def test_trace_performance():
         # Create memegraph
         memegraph = MemeGraphProjection(eventlog)
 
-        # Measure without tracing
-        start = time.perf_counter()
-        for _ in range(10):
-            memegraph.graph_slice(
-                topic="test commitment",
-                limit=3,
-                trace_buffer=None,
-            )
-        baseline_ms = (time.perf_counter() - start) * 1000
+        iterations = 20
+        samples = 5
 
-        # Measure with tracing (1% sampling)
-        buffer = TraceBuffer(sampling_rate=0.01, min_confidence_always_log=0.8)
-        buffer.start_session("Performance test")
+        def measure(trace_buffer):
+            start = time.perf_counter()
+            for _ in range(iterations):
+                memegraph.graph_slice(
+                    topic="test commitment",
+                    limit=3,
+                    trace_buffer=trace_buffer,
+                )
+            return (time.perf_counter() - start) * 1000
 
-        start = time.perf_counter()
-        for _ in range(10):
-            memegraph.graph_slice(
-                topic="test commitment",
-                limit=3,
-                trace_buffer=buffer,
-            )
-        traced_ms = (time.perf_counter() - start) * 1000
+        # Warmup runs to stabilize caches
+        measure(None)
+        warm_buf = TraceBuffer(sampling_rate=0.01, min_confidence_always_log=0.8)
+        warm_buf.start_session("Performance warmup")
+        measure(warm_buf)
+        warm_buf.end_session()
+
+        baseline_runs = [measure(None) for _ in range(samples)]
+
+        traced_runs = []
+        for _ in range(samples):
+            buffer = TraceBuffer(sampling_rate=0.01, min_confidence_always_log=0.8)
+            buffer.start_session("Performance test")
+            traced_runs.append(measure(buffer))
+            buffer.end_session()
+
+        baseline_ms = statistics.median(baseline_runs)
+        traced_ms = statistics.median(traced_runs)
 
         overhead_ms = traced_ms - baseline_ms
         overhead_pct = (overhead_ms / baseline_ms * 100) if baseline_ms > 0 else 0
