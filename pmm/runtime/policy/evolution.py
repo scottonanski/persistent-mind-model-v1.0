@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+
 @dataclass
 class EvolutionPolicy:
     """Policy configuration for EvolutionKernel thresholds and behaviors."""
+
     # Commitment closure rate thresholds for trait adjustments
     closure_rate_high: float = 0.8
     closure_rate_low: float = 0.2
@@ -27,6 +29,7 @@ class EvolutionPolicy:
         for key, value in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, value)
+
 
 # Default policy instance
 DEFAULT_POLICY = EvolutionPolicy()

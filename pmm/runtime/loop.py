@@ -26,7 +26,7 @@ from typing import Any
 
 import pmm.runtime.embeddings as _emb
 from pmm.bridge.manager import BridgeManager
-from pmm.commitments.extractor import extract_commitments, detect_commitment
+from pmm.commitments.extractor import detect_commitment, extract_commitments
 from pmm.commitments.restructuring import CommitmentRestructurer
 from pmm.commitments.tracker import CommitmentTracker
 from pmm.commitments.tracker import due as _due
@@ -1300,7 +1300,11 @@ class Runtime:
 
         Delegates to the extracted handlers module for improved maintainability.
         """
-        print(f"[DEBUG] handle_user called with: {user_text[:50]}", file=sys.stderr, flush=True)
+        print(
+            f"[DEBUG] handle_user called with: {user_text[:50]}",
+            file=sys.stderr,
+            flush=True,
+        )
         return _handlers_module.handle_user_input(self, user_text)
 
     def handle_user_stream(self, user_text: str):
@@ -1402,7 +1406,11 @@ class Runtime:
                     recent_events=recent_events,
                 )
             )
-            print(f"[DEBUG] Streaming: classified intent={intent}, candidate={candidate_name}, conf={confidence:.3f}", file=sys.stderr, flush=True)
+            debug_msg = (
+                f"[DEBUG] Streaming: classified intent={intent}, candidate={candidate_name}, "
+                f"conf={confidence:.3f}"
+            )
+            print(debug_msg, file=sys.stderr, flush=True)
         except Exception:
             intent, candidate_name, confidence = ("irrelevant", None, 0.0)
 
@@ -1423,19 +1431,30 @@ class Runtime:
             recent_events_for_gate = _events(refresh=True)[-5:]
         except Exception:
             recent_events_for_gate = []
-        has_proposal = any(e.get("kind") == "identity_propose" for e in recent_events_for_gate)
-        
-        print(f"[DEBUG] Streaming gate check: intent={intent}, candidate={candidate_name}, conf={confidence:.3f}, has_proposal={has_proposal}", file=sys.stderr, flush=True)
-        
+        has_proposal = any(
+            e.get("kind") == "identity_propose" for e in recent_events_for_gate
+        )
+
+        gate_debug = (
+            f"[DEBUG] Streaming gate check: intent={intent}, candidate={candidate_name}, "
+            f"conf={confidence:.3f}, has_proposal={has_proposal}"
+        )
+        print(gate_debug, file=sys.stderr, flush=True)
+
         if (
             intent == "assign_assistant_name"
             and candidate_name
             and ((confidence >= 0.7) or (has_proposal and confidence >= 0.6))
         ):
-            print(f"[DEBUG] Streaming gate PASSED for '{candidate_name}'", file=sys.stderr, flush=True)
+            print(
+                f"[DEBUG] Streaming gate PASSED for '{candidate_name}'",
+                file=sys.stderr,
+                flush=True,
+            )
             # Adopt the identity
             try:
                 from pmm.runtime.loop import identity as _identity_module
+
                 sanitized = _identity_module.sanitize_name(candidate_name)
                 if sanitized:
                     meta = {
@@ -1443,15 +1462,39 @@ class Runtime:
                         "intent": intent,
                         "confidence": float(confidence),
                     }
-                    print(f"[DEBUG] Streaming: calling _adopt_identity('{sanitized}', source='{meta['source']}', intent='{meta['intent']}', confidence={meta['confidence']})", file=sys.stderr, flush=True)
+                    adopt_msg = (
+                        "[DEBUG] Streaming: calling _adopt_identity('{name}', "
+                        "source='{source}', intent='{intent}', confidence={conf})"
+                    ).format(
+                        name=sanitized,
+                        source=meta["source"],
+                        intent=meta["intent"],
+                        conf=meta["confidence"],
+                    )
+                    print(adopt_msg, file=sys.stderr, flush=True)
                     self._adopt_identity(sanitized, **meta)
-                    print(f"[DEBUG] Streaming: _adopt_identity returned successfully", file=sys.stderr, flush=True)
+                    print(
+                        "[DEBUG] Streaming: _adopt_identity returned successfully",
+                        file=sys.stderr,
+                        flush=True,
+                    )
                     _refresh_snapshot()
             except Exception as e:
                 import traceback
-                print(f"[DEBUG] Streaming: adoption failed: {e}", file=sys.stderr, flush=True)
-                print(f"[DEBUG] Traceback: {traceback.format_exc()}", file=sys.stderr, flush=True)
-                logger.debug("Identity adoption failed in streaming path", exc_info=True)
+
+                print(
+                    f"[DEBUG] Streaming: adoption failed: {e}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                print(
+                    f"[DEBUG] Traceback: {traceback.format_exc()}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                logger.debug(
+                    "Identity adoption failed in streaming path", exc_info=True
+                )
 
         # Handle user self-identification
         if intent == "user_self_identification" and candidate_name:
@@ -2375,9 +2418,7 @@ class AutonomyLoop:
             "traits": payload.get("traits", {}),
             "context": payload.get("context", {}),
         }
-        blob = _json.dumps(core, sort_keys=True, separators=(",", ":")).encode(
-            "utf-8"
-        )
+        blob = _json.dumps(core, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return _hashlib.sha256(blob).hexdigest()[:16]
 
     def handle_identity_adopt(self, new_name: str, meta: dict | None = None) -> None:
@@ -3356,12 +3397,10 @@ class AutonomyLoop:
                     # Apply explicit style from current stage policy hints, if available
                     try:
                         _ov_arm = str(
-
-                                POLICY_HINTS_BY_STAGE.get(curr_stage, {})
-                                .get("reflection_style", {})
-                                .get("arm")
-                                or ""
-
+                            POLICY_HINTS_BY_STAGE.get(curr_stage, {})
+                            .get("reflection_style", {})
+                            .get("arm")
+                            or ""
                         ).strip()
                         if _ov_arm:
                             arm = _ov_arm

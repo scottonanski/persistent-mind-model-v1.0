@@ -39,7 +39,7 @@ def handle_user_input(
     user_text: str,
 ) -> str:
     """Handle user input: classify intent, build context, generate reply, log events.
-    
+
     Args:
         runtime: The Runtime instance
         user_text: User's input message
@@ -51,7 +51,11 @@ def handle_user_input(
     import sys
 
     logger = logging.getLogger(__name__)
-    print(f"[DEBUG] handle_user_input called with: {user_text[:50]}", file=sys.stderr, flush=True)
+    print(
+        f"[DEBUG] handle_user_input called with: {user_text[:50]}",
+        file=sys.stderr,
+        flush=True,
+    )
     # Import here to avoid circular dependencies
     from pmm.runtime.loop import identity as _identity_module
     from pmm.runtime.loop import io as _io
@@ -211,9 +215,13 @@ def handle_user_input(
 
     # User-initiated naming: lower threshold since users have authority
     # Classifier returns scores 0.6-1.0 for valid naming intents
-    print(f"[DEBUG] Checking gate: intent={intent}, candidate={candidate_name}, conf={confidence:.3f}, has_proposal={has_proposal}", file=sys.stderr, flush=True)
-    with open("/tmp/debug.log", "a") as f:
-        f.write(f"[DEBUG] Checking gate: intent={intent}, candidate={candidate_name}, conf={confidence:.3f}, has_proposal={has_proposal}\n")
+    gate_msg = (
+        f"[DEBUG] Checking gate: intent={intent}, candidate={candidate_name}, "
+        f"conf={confidence:.3f}, has_proposal={has_proposal}"
+    )
+    print(gate_msg, file=sys.stderr, flush=True)
+    with open("/tmp/debug.log", "a", encoding="utf-8") as f:
+        f.write(gate_msg + "\n")
         f.flush()
     logger.debug(
         f"Checking adoption gate: intent={intent}, candidate={candidate_name}, "
@@ -224,7 +232,9 @@ def handle_user_input(
         and candidate_name
         and ((confidence >= 0.7) or (has_proposal and confidence >= 0.6))
     ):
-        print(f"[DEBUG] Gate PASSED for '{candidate_name}'", file=sys.stderr, flush=True)
+        print(
+            f"[DEBUG] Gate PASSED for '{candidate_name}'", file=sys.stderr, flush=True
+        )
         logger.debug(f"Adoption gate PASSED for '{candidate_name}'")
         # Canonical adoption path via AutonomyLoop
         sanitized = _identity_module.sanitize_name(candidate_name)
@@ -254,8 +264,7 @@ def handle_user_input(
             except Exception as e:
                 adoption_error = str(e)
                 logger.warning(
-                    f"Identity adoption failed for '{sanitized}': {e}",
-                    exc_info=True
+                    f"Identity adoption failed for '{sanitized}': {e}", exc_info=True
                 )
                 # Minimal fallback to avoid losing the intent
                 try:
@@ -268,7 +277,7 @@ def handle_user_input(
                 except Exception as fallback_e:
                     logger.error(
                         f"Fallback identity adoption also failed: {fallback_e}",
-                        exc_info=True
+                        exc_info=True,
                     )
             # Instrumentation: record decision with accurate success status
             try:

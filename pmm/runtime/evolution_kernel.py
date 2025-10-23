@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import time as _time
-
-from typing import Any, Optional, Sequence
+from collections.abc import Sequence
+from math import isnan
+from typing import Any
 
 from pmm.commitments.tracker import CommitmentTracker
 from pmm.runtime.cooldown import ReflectionCooldown
 from pmm.runtime.eventlog import EventLog
 from pmm.runtime.metrics import get_or_compute_ias_gas
-from pmm.runtime.snapshot import LedgerSnapshot
 from pmm.runtime.policy.evolution import DEFAULT_POLICY, EvolutionPolicy
+from pmm.runtime.snapshot import LedgerSnapshot
 from pmm.runtime.traits import normalize_key
 from pmm.storage.projection import build_identity, build_self_model
 
@@ -23,14 +24,17 @@ def _clamp01(value: float) -> float:
 
 
 class EvolutionKernel:
-    """Central module to orchestrate feedback loops between reflections, commitments,
-    and metrics for driving self-evolving AI identity.
+    """Coordinate feedback loops between reflections, commitments, and metrics.
 
     Responsibilities:
-    - Advisory Role: Evaluates the current state of identity, commitments, and metrics to propose adjustments to traits or identity.
-    - Proposal Generation: Generates proposals for trait adjustments or identity changes, which are consumed by autonomy components for action.
-    - Reflection Triggering: May request reflections based on evaluation, but only emits its own reflection events when explicitly forced.
-    - Non-Mutative: Does not directly mutate the ledger beyond reflection events it emits; all other changes are proposals for other components to act upon.
+    - Advisory Role: Evaluates the current state of identity, commitments, and
+      metrics to propose adjustments to traits or identity.
+    - Proposal Generation: Produces trait or identity proposals that autonomy
+      components can act upon.
+    - Reflection Triggering: May request reflections, but only emits its own
+      reflection events when explicitly forced.
+    - Non-Mutative: Avoids mutating the ledger beyond forced reflections; other
+      changes are surfaced as proposals.
     """
 
     def __init__(
@@ -131,7 +135,7 @@ class EvolutionKernel:
         Returns:
             float: Rate of commitment closure (closed / total opened).
         """
-        recent_tail = list(events)[-self.policy.recent_events_window:]
+        recent_tail = list(events)[-self.policy.recent_events_window :]
         recent_opens = [
             e for e in recent_tail if str(e.get("kind")) == "commitment_open"
         ]
@@ -140,6 +144,7 @@ class EvolutionKernel:
         ]
         if not recent_opens:
             return 0.0
+
         def _cid_from(event: dict[str, Any]) -> str:
             meta = event.get("meta") or {}
             raw = meta.get("cid")
@@ -157,48 +162,58 @@ class EvolutionKernel:
         *,
         snapshot: LedgerSnapshot | None = None,
         events: Sequence[dict[str, Any]] | None = None,
-        force: bool = False,
-    ) -> Optional[int]:
-        """Trigger a reflection event if conditions are met or if forced.
-
-        Args:
-            force: If True, bypass cooldown and trigger reflection immediately.
-
-        Returns:
-            Optional[int]: ID of the reflection event if triggered, None otherwise.
+    ) -> int | None:
+        """Emit a reflection event if policy thresholds indicate it’s needed.
+        Returns the new event id or None if no emission occurred.
         """
-        should_reflect, reason = self.cooldown.should_reflect(
-            now=_time.time(), novelty=1.0
-        )
-        if force or should_reflect:
-            evaluation = self.evaluate_identity_evolution(
-                snapshot=snapshot, events=events
-            )
-            reflection_content = self._generate_reflection_content(evaluation)
-            trait_adjustments = evaluation.get("trait_adjustments") or {}
-            targets = {}
-            for trait, payload in trait_adjustments.items():
-                key = normalize_key(trait)
-                data = payload if isinstance(payload, dict) else {"target": payload}
-                try:
-                    target_val = float(data.get("target"))
-                except Exception:
-                    continue
-                targets[key] = _clamp01(target_val)
+        try:
+            evald = self.evaluate_identity_evolution(snapshot=snapshot, events=events)
+        except Exception:
+            return None
+
+        need = bool(evald.get("reflection_needed"))
+        if not need:
+            return None
+
+        # Cooldown gate
+        try:
+            now = float(_time.time())
+        except Exception:
+            now = 0.0
+        # novelty is not computed here; pass 0.0 as neutral
+        try:
+            ok, _ = self.cooldown.should_reflect(now, 0.0)  # type: ignore[arg-type]
+        except Exception:
+            ok = True
+        if not ok:
+            return None
+
+        # Build reflection content + meta
+        content = self._generate_reflection_content(evald)
+        trait_adjustments = evald.get("trait_adjustments") or {}
+        try:
             summary = ", ".join(
-                f"{name}:{value:.2f}" for name, value in sorted(targets.items())
+                f"{k}:{float(v.get('target', 0.0)):.2f}"
+                for k, v in sorted(
+                    (
+                        (str(k), v if isinstance(v, dict) else {"target": v})
+                        for k, v in trait_adjustments.items()
+                    ),
+                    key=lambda kv: kv[0],
+                )
+                if not isnan(float(v.get("target", 0.0)))
             )
-            reflection_id = self.eventlog.append(
-                kind="reflection",
-                content=reflection_content,
-                meta={
-                    "source": "evolution_kernel",
-                    "reason": reason,
-                    "targets_summary": summary,
-                },
-            )
-            return reflection_id
-        return None
+        except Exception:
+            summary = ""
+        meta = {
+            "source": "evolution_kernel",
+            "reason": "policy_thresholds",
+            "targets_summary": summary,
+        }
+        try:
+            return self.eventlog.append("reflection", content, meta)
+        except Exception:
+            return None
 
     def _generate_reflection_content(self, evaluation: dict[str, Any]) -> str:
         """Generate content for a reflection event based on current evaluation.
@@ -209,9 +224,7 @@ class EvolutionKernel:
         Returns:
             str: Content string for the reflection event.
         """
-        ias, gas = float(evaluation.get("ias", 0.0)), float(
-            evaluation.get("gas", 0.0)
-        )
+        ias, gas = float(evaluation.get("ias", 0.0)), float(evaluation.get("gas", 0.0))
         open_commitments = evaluation.get("open_commitments", [])
         trait_adjustments = evaluation.get("trait_adjustments", {})
 
@@ -253,16 +266,14 @@ class EvolutionKernel:
         *,
         snapshot: LedgerSnapshot | None = None,
         events: Sequence[dict[str, Any]] | None = None,
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Propose adjustments to identity traits or name based on historical data
         and current metrics.
 
         Returns:
             Optional[Dict]: Proposed identity adjustments if any, None otherwise.
         """
-        evaluation = self.evaluate_identity_evolution(
-            snapshot=snapshot, events=events
-        )
+        evaluation = self.evaluate_identity_evolution(snapshot=snapshot, events=events)
         trait_adjustments = evaluation.get("trait_adjustments", {})
         if not trait_adjustments:
             return None
@@ -271,9 +282,7 @@ class EvolutionKernel:
         if events is None and snapshot is not None:
             events = snapshot.events
         events_list = (
-            list(events)
-            if events is not None
-            else self.eventlog.read_tail(limit=1000)
+            list(events) if events is not None else self.eventlog.read_tail(limit=1000)
         )
         identity_adoptions = [
             e for e in events_list if str(e.get("kind")) == "identity_adopt"

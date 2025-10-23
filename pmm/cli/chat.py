@@ -211,21 +211,30 @@ def _metrics_panel(snap: dict) -> Panel:
             if d_ias is not None:
                 try:
                     d_line.append("IAS ", style="bright_cyan")
-                    d_line.append(("+" if float(d_ias) >= 0 else "") + f"{float(d_ias):.3f}", style="bold white")
+                    d_line.append(
+                        ("+" if float(d_ias) >= 0 else "") + f"{float(d_ias):.3f}",
+                        style="bold white",
+                    )
                 except Exception:
                     d_line.append("IAS ?", style="bold white")
                 d_line.append("   ")
             if d_gas is not None:
                 try:
                     d_line.append("GAS ", style="bright_cyan")
-                    d_line.append(("+" if float(d_gas) >= 0 else "") + f"{float(d_gas):.3f}", style="bold white")
+                    d_line.append(
+                        ("+" if float(d_gas) >= 0 else "") + f"{float(d_gas):.3f}",
+                        style="bold white",
+                    )
                 except Exception:
                     d_line.append("GAS ?", style="bold white")
                 d_line.append("   ")
             if open_prev is not None:
                 try:
                     d_line.append("Open commitments ", style="bright_cyan")
-                    d_line.append(f"{int(open_prev)}→{open_count} (Δ{open_count - int(open_prev)})", style="bold white")
+                    d_line.append(
+                        f"{int(open_prev)}→{open_count} (Δ{open_count - int(open_prev)})",
+                        style="bold white",
+                    )
                 except Exception:
                     pass
             grid.add_row(d_line)
@@ -292,7 +301,11 @@ def _metrics_panel(snap: dict) -> Panel:
         if isinstance(c_sig, dict) and c_sig:
             try:
                 pieces.append(
-                    f"commit:{c_sig.get('status','none')} score={c_sig.get('best_score','0.00')} src={c_sig.get('speaker','?')}"
+                    "commit:{status} score={score} src={source}".format(
+                        status=c_sig.get("status", "none"),
+                        score=c_sig.get("best_score", "0.00"),
+                        source=c_sig.get("speaker", "?"),
+                    )
                 )
             except Exception:
                 pass
@@ -302,7 +315,12 @@ def _metrics_panel(snap: dict) -> Panel:
                 conf = i_sig.get("confidence")
                 confs = f"{float(conf):.2f}" if isinstance(conf, (int, float)) else "?"
                 pieces.append(
-                    f"identity:{i_sig.get('candidate','?')} conf={confs} accepted={acc} src={i_sig.get('source','?')}"
+                    "identity:{candidate} conf={conf} accepted={accepted} src={source}".format(
+                        candidate=i_sig.get("candidate", "?"),
+                        conf=confs,
+                        accepted=acc,
+                        source=i_sig.get("source", "?"),
+                    )
                 )
             except Exception:
                 pass
@@ -329,7 +347,9 @@ def _metrics_panel(snap: dict) -> Panel:
             parts.append(f"ΔGAS={sign}{float(d_gas):.3f}")
         if open_prev is not None:
             delta_commits = open_count - int(open_prev)
-            parts.append(f"commitments {int(open_prev)}→{open_count} (Δ{delta_commits})")
+            parts.append(
+                f"commitments {int(open_prev)}→{open_count} (Δ{delta_commits})"
+            )
         delta_line.append(" | ".join(parts), style="bold white")
         grid.add_row(delta_line)
 
@@ -351,7 +371,9 @@ def _metrics_panel(snap: dict) -> Panel:
             conf_str = f"{float(conf):.2f}" if isinstance(conf, (int, float)) else "?"
             accepted = "yes" if identity_sig.get("accepted") else "no"
             source = identity_sig.get("source", "?")
-            sig_parts.append(f"identity:{candidate} conf={conf_str} accepted={accepted} src={source}")
+            sig_parts.append(
+                f"identity:{candidate} conf={conf_str} accepted={accepted} src={source}"
+            )
         sig_line.append(" | ".join(sig_parts), style="bold white")
         grid.add_row(sig_line)
 
@@ -376,7 +398,7 @@ def main() -> None:
         except Exception:
             pass  # Ignore errors, cache clearing is best-effort
 
-    print(f"[DEBUG] CLI main() started", file=sys.stderr, flush=True)
+    print("[DEBUG] CLI main() started", file=sys.stderr, flush=True)
 
     assistant_console = Console(highlight=False)
     log_console = Console(stderr=True, highlight=False)

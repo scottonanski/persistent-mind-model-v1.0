@@ -70,7 +70,7 @@ class MetricsView:
         open_prev = None
         if prev_metrics is not None:
             try:
-                m = (prev_metrics.get("meta") or {})
+                m = prev_metrics.get("meta") or {}
                 ias_prev = float(m.get("IAS")) if m.get("IAS") is not None else None
                 gas_prev = float(m.get("GAS")) if m.get("GAS") is not None else None
             except Exception:
@@ -88,7 +88,9 @@ class MetricsView:
                     if eid and eid <= cut_id:
                         prev_events.append(e)
                 model_prev = build_self_model(prev_events)
-                open_prev = len((model_prev.get("commitments", {}) or {}).get("open", {}))
+                open_prev = len(
+                    (model_prev.get("commitments", {}) or {}).get("open", {})
+                )
             except Exception:
                 open_prev = None
         deltas = {
@@ -209,7 +211,11 @@ class MetricsView:
                 m = last_commit_scan.get("meta") or {}
                 best_score = float(m.get("best_score") or 0.0)
                 accepted_count = int(m.get("accepted_count") or 0)
-                status = "accepted" if accepted_count > 0 else ("rejected" if best_score > 0 else "none")
+                status = (
+                    "accepted"
+                    if accepted_count > 0
+                    else ("rejected" if best_score > 0 else "none")
+                )
                 sig_commit = {
                     "status": status,
                     "best_score": round(best_score, 2),
@@ -224,7 +230,8 @@ class MetricsView:
             if last_id_decision is not None:
                 m = last_id_decision.get("meta") or {}
                 sig_identity = {
-                    "candidate": m.get("candidate") or (last_id_decision.get("content") or ""),
+                    "candidate": m.get("candidate")
+                    or (last_id_decision.get("content") or ""),
                     "confidence": m.get("confidence"),
                     "accepted": bool(m.get("accepted")),
                     "source": m.get("source") or "",
@@ -311,11 +318,20 @@ class MetricsView:
             d_gas = d.get("GAS_delta")
             open_prev = d.get("open_prev")
             if d_ias is not None or d_gas is not None or open_prev is not None:
-                fmt_ias = ("+" if float(d_ias) >= 0 else "") + f"{float(d_ias):.3f}" if d_ias is not None else "?"
-                fmt_gas = ("+" if float(d_gas) >= 0 else "") + f"{float(d_gas):.3f}" if d_gas is not None else "?"
+                fmt_ias = (
+                    ("+" if float(d_ias) >= 0 else "") + f"{float(d_ias):.3f}"
+                    if d_ias is not None
+                    else "?"
+                )
+                fmt_gas = (
+                    ("+" if float(d_gas) >= 0 else "") + f"{float(d_gas):.3f}"
+                    if d_gas is not None
+                    else "?"
+                )
                 if open_prev is not None:
                     parts.append(
-                        f"[DELTA] ΔIAS={fmt_ias} ΔGAS={fmt_gas} | commitments {int(open_prev)}→{ocn} (Δ{ocn - int(open_prev)})"
+                        f"[DELTA] ΔIAS={fmt_ias} ΔGAS={fmt_gas} | commitments {int(open_prev)}→{ocn} "
+                        f"(Δ{ocn - int(open_prev)})"
                     )
                 else:
                     parts.append(f"[DELTA] ΔIAS={fmt_ias} ΔGAS={fmt_gas}")
@@ -332,14 +348,25 @@ class MetricsView:
                 parts_line = []
                 if show_commit:
                     parts_line.append(
-                        f"commit:{cs.get('status','none')} score={cs.get('best_score','0.00')} src={cs.get('speaker','?')}"
+                        "commit:{status} score={score} src={source}".format(
+                            status=cs.get("status", "none"),
+                            score=cs.get("best_score", "0.00"),
+                            source=cs.get("speaker", "?"),
+                        )
                     )
                 if show_ident:
                     acc = "yes" if isg.get("accepted") else "no"
                     conf = isg.get("confidence")
-                    confs = f"{float(conf):.2f}" if isinstance(conf, (int, float)) else "?"
+                    confs = (
+                        f"{float(conf):.2f}" if isinstance(conf, (int, float)) else "?"
+                    )
                     parts_line.append(
-                        f"identity:{isg.get('candidate','?')} conf={confs} accepted={acc} src={isg.get('source','?')}"
+                        "identity:{candidate} conf={conf} accepted={accepted} src={source}".format(
+                            candidate=isg.get("candidate", "?"),
+                            conf=confs,
+                            accepted=acc,
+                            source=isg.get("source", "?"),
+                        )
                     )
                 parts.append("[SIGNALS] " + " | ".join(parts_line))
         except Exception:
