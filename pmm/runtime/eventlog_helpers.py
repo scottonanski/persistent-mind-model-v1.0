@@ -34,3 +34,33 @@ def append_once(
     m["digest"] = digest
     eventlog.append(kind, content or "", m)
     return True
+
+
+# Idempotent policy_update emission keyed by (component, params, stage)
+def append_policy_update_once(
+    eventlog,
+    *,
+    component: str,
+    params: dict | None = None,
+    stage: str | None = None,
+    tick: int | None = None,
+    window: int = 100,
+) -> bool:
+    key = {
+        "component": str(component),
+        "params": dict(params or {}),
+        "stage": str(stage) if stage is not None else None,
+    }
+    meta = {
+        "component": str(component),
+        "stage": stage,
+        "tick": tick,
+    }
+    return append_once(
+        eventlog,
+        kind="policy_update",
+        content="",
+        meta=meta,
+        key=key,
+        window=window,
+    )

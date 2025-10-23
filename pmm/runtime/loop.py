@@ -3855,17 +3855,22 @@ class AutonomyLoop:
                     new_thr = None
                 # Emit idempotent policy_update for cooldown params if different from last
                 try:
+                    from pmm.runtime.eventlog_helpers import (
+                        append_policy_update_once as _append_policy_update_once,
+                    )
+
                     params_obj = (
                         {"novelty_threshold": float(new_thr)}
                         if new_thr is not None
                         else {}
                     )
-                    _append_policy_update(
+                    _append_policy_update_once(
                         self.eventlog,
                         component="cooldown",
                         params=params_obj,
                         stage=curr_stage,
                         tick=tick_no,
+                        window=200,
                     )
                 except Exception:
                     pass
