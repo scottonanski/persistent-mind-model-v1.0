@@ -67,7 +67,6 @@ from pmm.runtime.evaluators.report import (
     maybe_emit_evaluation_summary as _maybe_eval_summary,
 )
 from pmm.runtime.eventlog import EventLog
-from pmm.runtime.eventlog_helpers import append_once
 from pmm.runtime.evolution_kernel import EvolutionKernel
 from pmm.runtime.evolution_reporter import EvolutionReporter
 from pmm.runtime.graph_trigger import GraphInsightTrigger
@@ -3916,7 +3915,9 @@ class AutonomyLoop:
                     "traits": kernel_identity_proposal.get("traits", {}),
                     "context": kernel_identity_proposal.get("context", {}),
                 }
-                append_once(
+                from pmm.runtime.eventlog_helpers import append_once as _append_once
+
+                _append_once(
                     self.eventlog,
                     kind="identity_adjust_proposal",
                     content="",
