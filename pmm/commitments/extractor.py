@@ -40,6 +40,12 @@ COMMITMENT_EXEMPLARS: dict[str, list[str]] = {
         "I will increase the parameter",
         "I will update the policy",
         "I will use the name Ada",
+        # Time-bounded/self-directed forms (capture meta-cognitive commitments)
+        "For the next five minutes, I will focus on writing",
+        "I will concentrate for the next 10 minutes",
+        "For the next hour I will work on the report",
+        "I will write a paragraph for five minutes",
+        "I will focus on reflection for the next few minutes",
     ],
     "close": [
         "I have completed this task",

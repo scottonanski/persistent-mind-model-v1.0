@@ -200,6 +200,38 @@ def _metrics_panel(snap: dict) -> Panel:
         )
         grid.add_row(tf_line)
 
+    # Deltas (IAS/GAS and commitments) if provided by MetricsView
+    deltas = snap.get("deltas") or {}
+    try:
+        d_ias = deltas.get("IAS_delta")
+        d_gas = deltas.get("GAS_delta")
+        open_prev = deltas.get("open_prev")
+        if d_ias is not None or d_gas is not None or open_prev is not None:
+            d_line = Text("Δ ", style="bright_blue")
+            if d_ias is not None:
+                try:
+                    d_line.append("IAS ", style="bright_cyan")
+                    d_line.append(("+" if float(d_ias) >= 0 else "") + f"{float(d_ias):.3f}", style="bold white")
+                except Exception:
+                    d_line.append("IAS ?", style="bold white")
+                d_line.append("   ")
+            if d_gas is not None:
+                try:
+                    d_line.append("GAS ", style="bright_cyan")
+                    d_line.append(("+" if float(d_gas) >= 0 else "") + f"{float(d_gas):.3f}", style="bold white")
+                except Exception:
+                    d_line.append("GAS ?", style="bold white")
+                d_line.append("   ")
+            if open_prev is not None:
+                try:
+                    d_line.append("Open commitments ", style="bright_cyan")
+                    d_line.append(f"{int(open_prev)}→{open_count} (Δ{open_count - int(open_prev)})", style="bold white")
+                except Exception:
+                    pass
+            grid.add_row(d_line)
+    except Exception:
+        pass
+
     if priority:
         pr_line = Text("Priority ", style="magenta")
         items: list[str] = []
@@ -251,6 +283,78 @@ def _metrics_panel(snap: dict) -> Panel:
         for ln in self_lines:
             grid.add_row(Text(str(ln), style="dim"))
 
+    # Signals (last commitment/identity decisions) if provided by MetricsView
+    signals = snap.get("signals") or {}
+    try:
+        c_sig = signals.get("commitment") or {}
+        i_sig = signals.get("identity") or {}
+        pieces: list[str] = []
+        if isinstance(c_sig, dict) and c_sig:
+            try:
+                pieces.append(
+                    f"commit:{c_sig.get('status','none')} score={c_sig.get('best_score','0.00')} src={c_sig.get('speaker','?')}"
+                )
+            except Exception:
+                pass
+        if isinstance(i_sig, dict) and i_sig:
+            try:
+                acc = "yes" if i_sig.get("accepted") else "no"
+                conf = i_sig.get("confidence")
+                confs = f"{float(conf):.2f}" if isinstance(conf, (int, float)) else "?"
+                pieces.append(
+                    f"identity:{i_sig.get('candidate','?')} conf={confs} accepted={acc} src={i_sig.get('source','?')}"
+                )
+            except Exception:
+                pass
+        if pieces:
+            sig_line = Text("Signals ", style="bright_blue")
+            sig_line.append(" | ".join(pieces), style="bold white")
+            grid.add_row(sig_line)
+    except Exception:
+        pass
+
+    # Render deltas (per-turn changes)
+    deltas = snap.get("deltas") or {}
+    d_ias = deltas.get("IAS_delta")
+    d_gas = deltas.get("GAS_delta")
+    open_prev = deltas.get("open_prev")
+    if d_ias is not None or d_gas is not None or open_prev is not None:
+        delta_line = Text("DELTA ", style="bright_yellow")
+        parts = []
+        if d_ias is not None:
+            sign = "+" if float(d_ias) >= 0 else ""
+            parts.append(f"ΔIAS={sign}{float(d_ias):.3f}")
+        if d_gas is not None:
+            sign = "+" if float(d_gas) >= 0 else ""
+            parts.append(f"ΔGAS={sign}{float(d_gas):.3f}")
+        if open_prev is not None:
+            delta_commits = open_count - int(open_prev)
+            parts.append(f"commitments {int(open_prev)}→{open_count} (Δ{delta_commits})")
+        delta_line.append(" | ".join(parts), style="bold white")
+        grid.add_row(delta_line)
+
+    # Render signals (commitment scan and identity adoption decisions)
+    signals = snap.get("signals") or {}
+    commit_sig = signals.get("commitment") or {}
+    identity_sig = signals.get("identity") or {}
+    if commit_sig or identity_sig:
+        sig_line = Text("SIGNALS ", style="bright_cyan")
+        sig_parts = []
+        if commit_sig:
+            status = commit_sig.get("status", "none")
+            score = commit_sig.get("best_score", 0.0)
+            speaker = commit_sig.get("speaker", "?")
+            sig_parts.append(f"commit:{status} score={score:.2f} src={speaker}")
+        if identity_sig:
+            candidate = identity_sig.get("candidate", "?")
+            conf = identity_sig.get("confidence")
+            conf_str = f"{float(conf):.2f}" if isinstance(conf, (int, float)) else "?"
+            accepted = "yes" if identity_sig.get("accepted") else "no"
+            source = identity_sig.get("source", "?")
+            sig_parts.append(f"identity:{candidate} conf={conf_str} accepted={accepted} src={source}")
+        sig_line.append(" | ".join(sig_parts), style="bold white")
+        grid.add_row(sig_line)
+
     return Panel(
         grid,
         title="[blue]METRICS[/]",
@@ -271,6 +375,8 @@ def main() -> None:
             shutil.rmtree(cache_dir)
         except Exception:
             pass  # Ignore errors, cache clearing is best-effort
+
+    print(f"[DEBUG] CLI main() started", file=sys.stderr, flush=True)
 
     assistant_console = Console(highlight=False)
     log_console = Console(stderr=True, highlight=False)
@@ -325,6 +431,8 @@ def main() -> None:
     metrics_view_enabled = False
     metrics_logs_enabled = False
     metrics_logger = logging.getLogger("pmm.runtime.metrics")
+    debug_logs_enabled = False
+    debug_logger = logging.getLogger("pmm.runtime.loop.handlers")
 
     runtime.start_autonomy(
         max(0.01, float(env.autonomy_interval or 10)), bootstrap_identity=False
@@ -344,6 +452,7 @@ def main() -> None:
             "  --@metrics off  → stop the live metrics panel\n"
             "  --@metrics      → print a one-time metrics snapshot\n"
             "  --@metrics logs on/off → toggle runtime metrics logging\n"
+            "  --@debug on/off → toggle debug logging (identity, commitments)\n"
             "  --@graph on    → inject graph evidence on the next turn\n"
             "  --@graph off   → suppress graph evidence on the next turn",
             title="commands",
@@ -460,9 +569,51 @@ def main() -> None:
                 else:
                     assistant_console.print(
                         _system_panel(
-                            "Metrics logger already silenced.",
+                            "Metrics logging already off.",
                             title="metrics",
-                            border_style="cyan",
+                            border_style="dim",
+                        )
+                    )
+                continue
+
+            if normalized == "--@debug on":
+                if not debug_logs_enabled:
+                    debug_logger.setLevel(logging.DEBUG)
+                    debug_logs_enabled = True
+                    assistant_console.print(
+                        _system_panel(
+                            "Debug logging enabled (identity, commitments).",
+                            title="debug",
+                            border_style="green",
+                        )
+                    )
+                else:
+                    assistant_console.print(
+                        _system_panel(
+                            "Debug logging already on.",
+                            title="debug",
+                            border_style="dim",
+                        )
+                    )
+                continue
+
+            if normalized == "--@debug off":
+                if debug_logs_enabled:
+                    debug_logger.setLevel(logging.WARNING)
+                    debug_logs_enabled = False
+                    assistant_console.print(
+                        _system_panel(
+                            "Debug logging disabled.",
+                            title="debug",
+                            border_style="yellow",
+                        )
+                    )
+                else:
+                    assistant_console.print(
+                        _system_panel(
+                            "Debug logging already off.",
+                            title="debug",
+                            border_style="dim",
                         )
                     )
                 continue

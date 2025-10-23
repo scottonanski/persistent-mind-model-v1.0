@@ -38,16 +38,8 @@ def handle_user_input(
     runtime: Runtime,
     user_text: str,
 ) -> str:
-    """Handle user input and generate a response.
-
-    This is the main entry point for processing user messages. It:
-    1. Builds context from the ledger
-    2. Detects identity intents
-    3. Persists user input with embeddings
-    4. Generates LLM response
-    5. Applies post-processing (constraints, validators, etc.)
-    6. Persists response and emits events
-
+    """Handle user input: classify intent, build context, generate reply, log events.
+    
     Args:
         runtime: The Runtime instance
         user_text: User's input message
@@ -55,6 +47,11 @@ def handle_user_input(
     Returns:
         The processed response text
     """
+    import logging
+    import sys
+
+    logger = logging.getLogger(__name__)
+    print(f"[DEBUG] handle_user_input called with: {user_text[:50]}", file=sys.stderr, flush=True)
     # Import here to avoid circular dependencies
     from pmm.runtime.loop import identity as _identity_module
     from pmm.runtime.loop import io as _io
@@ -120,8 +117,12 @@ def handle_user_input(
                 recent_events=recent_events,
             )
         )
+        logger.debug(
+            f"User identity classification: intent={intent}, candidate={candidate_name}, confidence={confidence:.3f}"
+        )
     except Exception:
         intent, candidate_name, confidence = ("irrelevant", None, 0.0)
+        logger.debug("Identity classification failed", exc_info=True)
 
     # Debug breadcrumb: audit naming gate (user path)
     try:
@@ -210,11 +211,21 @@ def handle_user_input(
 
     # User-initiated naming: lower threshold since users have authority
     # Classifier returns scores 0.6-1.0 for valid naming intents
+    print(f"[DEBUG] Checking gate: intent={intent}, candidate={candidate_name}, conf={confidence:.3f}, has_proposal={has_proposal}", file=sys.stderr, flush=True)
+    with open("/tmp/debug.log", "a") as f:
+        f.write(f"[DEBUG] Checking gate: intent={intent}, candidate={candidate_name}, conf={confidence:.3f}, has_proposal={has_proposal}\n")
+        f.flush()
+    logger.debug(
+        f"Checking adoption gate: intent={intent}, candidate={candidate_name}, "
+        f"confidence={confidence:.3f}, has_proposal={has_proposal}"
+    )
     if (
         intent == "assign_assistant_name"
         and candidate_name
         and ((confidence >= 0.7) or (has_proposal and confidence >= 0.6))
     ):
+        print(f"[DEBUG] Gate PASSED for '{candidate_name}'", file=sys.stderr, flush=True)
+        logger.debug(f"Adoption gate PASSED for '{candidate_name}'")
         # Canonical adoption path via AutonomyLoop
         sanitized = _identity_module.sanitize_name(candidate_name)
         if sanitized:
@@ -223,6 +234,8 @@ def handle_user_input(
                 "intent": intent,
                 "confidence": float(confidence),
             }
+            adoption_succeeded = False
+            adoption_error = None
             try:
                 if getattr(runtime, "_autonomy", None) is not None:
                     runtime._autonomy.handle_identity_adopt(sanitized, meta=meta)
@@ -237,7 +250,13 @@ def handle_user_input(
                         allow_affirmation=False,
                     )
                     tmp.handle_identity_adopt(sanitized, meta=meta)
-            except Exception:
+                adoption_succeeded = True
+            except Exception as e:
+                adoption_error = str(e)
+                logger.warning(
+                    f"Identity adoption failed for '{sanitized}': {e}",
+                    exc_info=True
+                )
                 # Minimal fallback to avoid losing the intent
                 try:
                     _io.append_identity_adopt(
@@ -245,8 +264,29 @@ def handle_user_input(
                         name=sanitized,
                         meta={"name": sanitized, **meta, "confidence": 0.9},
                     )
-                except Exception:
-                    pass
+                    adoption_succeeded = True
+                except Exception as fallback_e:
+                    logger.error(
+                        f"Fallback identity adoption also failed: {fallback_e}",
+                        exc_info=True
+                    )
+            # Instrumentation: record decision with accurate success status
+            try:
+                runtime.eventlog.append(
+                    kind="identity_adopt_decision",
+                    content=str(sanitized),
+                    meta={
+                        "candidate": str(candidate_name),
+                        "sanitized": str(sanitized),
+                        "confidence": float(confidence),
+                        "accepted": adoption_succeeded,
+                        "has_proposal": bool(has_proposal),
+                        "source": "user",
+                        "error": adoption_error if not adoption_succeeded else None,
+                    },
+                )
+            except Exception:
+                pass
     # User-driven one-shot commitment execution is disabled; commitments open autonomously.
     exec_commit = False
     exec_text = ""
@@ -575,6 +615,22 @@ def handle_user_input(
                     )
                 except Exception:
                     pass
+            # Instrumentation: record decision
+            try:
+                runtime.eventlog.append(
+                    kind="identity_adopt_decision",
+                    content=str(sanitized),
+                    meta={
+                        "candidate": str(candidate_reply),
+                        "sanitized": str(sanitized),
+                        "confidence": float(confidence_reply),
+                        "accepted": True,
+                        "has_proposal": bool(has_proposal),
+                        "source": "assistant",
+                    },
+                )
+            except Exception:
+                pass
     elif intent == "assign_assistant_name" and candidate_name:
         # Log failed adoption attempts for debugging
         logger.debug(
@@ -582,6 +638,22 @@ def handle_user_input(
             f"(confidence={confidence:.3f}, has_proposal={has_proposal}, "
             f"threshold={'0.9 (no proposal)' if not has_proposal else '0.8 (with proposal)'})"
         )
+        # Instrumentation: record rejection
+        try:
+            runtime.eventlog.append(
+                kind="identity_adopt_decision",
+                content=str(candidate_name),
+                meta={
+                    "candidate": str(candidate_name),
+                    "sanitized": _identity_module.sanitize_name(candidate_name) or "",
+                    "confidence": float(confidence),
+                    "accepted": False,
+                    "has_proposal": bool(has_proposal),
+                    "source": "user",
+                },
+            )
+        except Exception:
+            pass
     elif (
         intent_reply == "affirm_assistant_name"
         and candidate_reply
@@ -610,6 +682,22 @@ def handle_user_input(
             f"(confidence={confidence_reply:.3f}, has_proposal={has_proposal}, "
             f"threshold={'0.9 (no proposal)' if not has_proposal else '0.8 (with proposal)'})"
         )
+        # Instrumentation: record rejection
+        try:
+            runtime.eventlog.append(
+                kind="identity_adopt_decision",
+                content=str(candidate_reply),
+                meta={
+                    "candidate": str(candidate_reply),
+                    "sanitized": _identity_module.sanitize_name(candidate_reply) or "",
+                    "confidence": float(confidence_reply),
+                    "accepted": False,
+                    "has_proposal": bool(has_proposal),
+                    "source": "assistant",
+                },
+            )
+        except Exception:
+            pass
     # Post-process with n-gram filter (telemetry inspects pre-scrub text)
     raw_reply_for_telemetry = reply
     reply = runtime._ngram_filter.filter(reply)

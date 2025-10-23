@@ -259,15 +259,13 @@ class SemanticDirectiveClassifier:
             if any(sp < pos for sp in second_positions):
                 return name
 
-        # As final fallback, allow single proper noun if the message directly addresses the assistant
+        # As final fallback, allow single proper noun ONLY if the message has clear naming context
+        # Require at least one second-person reference or naming verb to avoid false positives
         if len(proper_nouns) == 1 and (second_positions or verb_positions):
             return proper_nouns[0]
 
-        # Also allow single proper noun for simple self-identification (e.g., "I'm Scott")
-        # This will be filtered by intent classification to distinguish user vs assistant naming
-        if len(proper_nouns) == 1:
-            return proper_nouns[0]
-
+        # No fallback for isolated proper nouns without context
+        # This prevents false positives like "Let's" in markdown blocks
         return None
 
     # _extract_candidate_name removed - proper nouns now extracted in _extract_naming_features

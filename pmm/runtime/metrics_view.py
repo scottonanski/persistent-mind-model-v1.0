@@ -42,6 +42,8 @@ class MetricsView:
         stage: str = "none"
         priority_top5: list[dict] = []
         memegraph_metrics: dict | None = None
+        deltas: dict | None = None
+        signals: dict | None = None
 
         # Use the new hybrid approach: read from DB first, recompute only if needed
         from pmm.runtime.loop import (
@@ -52,6 +54,48 @@ class MetricsView:
         from pmm.runtime.metrics import get_or_compute_ias_gas
 
         ias, gas = get_or_compute_ias_gas(eventlog)
+
+        # Compute deltas from last two metrics_update events
+        last_metrics = None
+        prev_metrics = None
+        for ev in reversed(events):
+            if ev.get("kind") == "metrics_update":
+                if last_metrics is None:
+                    last_metrics = ev
+                elif prev_metrics is None:
+                    prev_metrics = ev
+                    break
+        ias_prev = None
+        gas_prev = None
+        open_prev = None
+        if prev_metrics is not None:
+            try:
+                m = (prev_metrics.get("meta") or {})
+                ias_prev = float(m.get("IAS")) if m.get("IAS") is not None else None
+                gas_prev = float(m.get("GAS")) if m.get("GAS") is not None else None
+            except Exception:
+                ias_prev = None
+                gas_prev = None
+            # Rebuild open commitments as of prev_metrics id
+            try:
+                cut_id = int(prev_metrics.get("id") or 0)
+                prev_events = []
+                for e in events:
+                    try:
+                        eid = int(e.get("id") or 0)
+                    except Exception:
+                        eid = 0
+                    if eid and eid <= cut_id:
+                        prev_events.append(e)
+                model_prev = build_self_model(prev_events)
+                open_prev = len((model_prev.get("commitments", {}) or {}).get("open", {}))
+            except Exception:
+                open_prev = None
+        deltas = {
+            "IAS_delta": (None if ias_prev is None else float(ias) - float(ias_prev)),
+            "GAS_delta": (None if gas_prev is None else float(gas) - float(gas_prev)),
+            "open_prev": open_prev,
+        }
 
         # Walk from tail for other fields
         for ev in reversed(events):
@@ -153,6 +197,42 @@ class MetricsView:
             f"N:{_fmt_float(dmult.get('neuroticism', 1.0))}}}"
         )
 
+        # Compose signals (last commitment scan and last identity decision)
+        try:
+            last_commit_scan = None
+            for ev in reversed(events):
+                if ev.get("kind") == "commitment_scan":
+                    last_commit_scan = ev
+                    break
+            sig_commit = None
+            if last_commit_scan is not None:
+                m = last_commit_scan.get("meta") or {}
+                best_score = float(m.get("best_score") or 0.0)
+                accepted_count = int(m.get("accepted_count") or 0)
+                status = "accepted" if accepted_count > 0 else ("rejected" if best_score > 0 else "none")
+                sig_commit = {
+                    "status": status,
+                    "best_score": round(best_score, 2),
+                    "speaker": m.get("speaker") or "",
+                }
+            last_id_decision = None
+            for ev in reversed(events):
+                if ev.get("kind") == "identity_adopt_decision":
+                    last_id_decision = ev
+                    break
+            sig_identity = None
+            if last_id_decision is not None:
+                m = last_id_decision.get("meta") or {}
+                sig_identity = {
+                    "candidate": m.get("candidate") or (last_id_decision.get("content") or ""),
+                    "confidence": m.get("confidence"),
+                    "accepted": bool(m.get("accepted")),
+                    "source": m.get("source") or "",
+                }
+            signals = {"commitment": sig_commit, "identity": sig_identity}
+        except Exception:
+            signals = None
+
         return {
             "telemetry": {"IAS": ias, "GAS": gas},
             "reflect_skip": reflect_skip,
@@ -162,6 +242,8 @@ class MetricsView:
             "identity": {"name": name, "top_traits": top_traits, "traits_full": tv},
             "self_model_lines": [line1, line2],
             "memegraph": memegraph_metrics,
+            "deltas": deltas,
+            "signals": signals,
         }
 
     @staticmethod
@@ -222,4 +304,44 @@ class MetricsView:
                 f"rss_kb={_fmt_metric('rss_kb')}"
             )
             parts.append(graph_line)
+        # Deltas block
+        d = snap.get("deltas") or {}
+        try:
+            d_ias = d.get("IAS_delta")
+            d_gas = d.get("GAS_delta")
+            open_prev = d.get("open_prev")
+            if d_ias is not None or d_gas is not None or open_prev is not None:
+                fmt_ias = ("+" if float(d_ias) >= 0 else "") + f"{float(d_ias):.3f}" if d_ias is not None else "?"
+                fmt_gas = ("+" if float(d_gas) >= 0 else "") + f"{float(d_gas):.3f}" if d_gas is not None else "?"
+                if open_prev is not None:
+                    parts.append(
+                        f"[DELTA] ΔIAS={fmt_ias} ΔGAS={fmt_gas} | commitments {int(open_prev)}→{ocn} (Δ{ocn - int(open_prev)})"
+                    )
+                else:
+                    parts.append(f"[DELTA] ΔIAS={fmt_ias} ΔGAS={fmt_gas}")
+        except Exception:
+            pass
+        # Signals block
+        sig = snap.get("signals") or {}
+        cs = sig.get("commitment") or {}
+        isg = sig.get("identity") or {}
+        try:
+            show_commit = isinstance(cs, dict) and cs
+            show_ident = isinstance(isg, dict) and isg
+            if show_commit or show_ident:
+                parts_line = []
+                if show_commit:
+                    parts_line.append(
+                        f"commit:{cs.get('status','none')} score={cs.get('best_score','0.00')} src={cs.get('speaker','?')}"
+                    )
+                if show_ident:
+                    acc = "yes" if isg.get("accepted") else "no"
+                    conf = isg.get("confidence")
+                    confs = f"{float(conf):.2f}" if isinstance(conf, (int, float)) else "?"
+                    parts_line.append(
+                        f"identity:{isg.get('candidate','?')} conf={confs} accepted={acc} src={isg.get('source','?')}"
+                    )
+                parts.append("[SIGNALS] " + " | ".join(parts_line))
+        except Exception:
+            pass
         return "\n".join(parts)

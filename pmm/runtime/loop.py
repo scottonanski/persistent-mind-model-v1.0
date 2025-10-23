@@ -19,13 +19,14 @@ import datetime as _dt
 import hashlib as _hashlib
 import json as _json
 import logging
+import sys
 import threading as _threading
 import time as _time
 from typing import Any
 
 import pmm.runtime.embeddings as _emb
 from pmm.bridge.manager import BridgeManager
-from pmm.commitments.extractor import extract_commitments
+from pmm.commitments.extractor import extract_commitments, detect_commitment
 from pmm.commitments.restructuring import CommitmentRestructurer
 from pmm.commitments.tracker import CommitmentTracker
 from pmm.commitments.tracker import due as _due
@@ -971,6 +972,31 @@ class Runtime:
             return
 
         if not matches:
+            # Instrumentation: record best detected intent/score even if below threshold
+            try:
+                best = {"intent": "none", "score": 0.0, "text": ""}
+                for seg in segments:
+                    analysis = detect_commitment(seg)
+                    sc = float(analysis.get("score") or 0.0)
+                    if sc > best["score"]:
+                        best = {
+                            "intent": str(analysis.get("intent") or "none"),
+                            "score": sc,
+                            "text": seg[:160],
+                        }
+                self.eventlog.append(
+                    kind="commitment_scan",
+                    content=str(text)[:200],
+                    meta={
+                        "source_event_id": int(source_event_id),
+                        "speaker": str(speaker),
+                        "best_intent": best["intent"],
+                        "best_score": float(best["score"]),
+                        "accepted_count": 0,
+                    },
+                )
+            except Exception:
+                pass
             return
 
         tracker = getattr(self, "tracker", None)
@@ -980,6 +1006,7 @@ class Runtime:
             )
             self.tracker = tracker
 
+        accepted_intents: list[str] = []
         for commit_text, intent, score in matches:
             if intent == "open":
                 try:
@@ -998,6 +1025,7 @@ class Runtime:
                             raw = name_tokens[0].strip(".,;!?\"'")
                             safe = _sanitize_name(raw) or raw
                             normalized = f"identity:name:{safe}"
+                    accepted_intents.append(intent)
                     tracker.add_commitment(
                         normalized,
                         source=speaker,
@@ -1011,14 +1039,42 @@ class Runtime:
                     continue
             elif intent == "close":
                 try:
+                    accepted_intents.append(intent)
                     tracker.process_evidence(commit_text)
                 except Exception:
                     continue
             elif intent == "expire":
                 try:
+                    accepted_intents.append(intent)
                     tracker.process_evidence(commit_text)
                 except Exception:
                     continue
+
+        # Instrumentation: summarize this scan and acceptance
+        try:
+            # Compute best segment score post-acceptance
+            best_sc = 0.0
+            best_intent = "none"
+            for seg in segments:
+                analysis = detect_commitment(seg)
+                sc = float(analysis.get("score") or 0.0)
+                if sc > best_sc:
+                    best_sc = sc
+                    best_intent = str(analysis.get("intent") or "none")
+            self.eventlog.append(
+                kind="commitment_scan",
+                content=str(text)[:200],
+                meta={
+                    "source_event_id": int(source_event_id),
+                    "speaker": str(speaker),
+                    "best_intent": best_intent,
+                    "best_score": float(best_sc),
+                    "accepted_count": int(len(matches)),
+                    "accepted_intents": list(accepted_intents),
+                },
+            )
+        except Exception:
+            pass
 
     def _apply_policy_from_reflection(
         self, action_text: str, *, reflection_id: int, stage: str | None
@@ -1236,6 +1292,7 @@ class Runtime:
 
         Delegates to the extracted handlers module for improved maintainability.
         """
+        print(f"[DEBUG] handle_user called with: {user_text[:50]}", file=sys.stderr, flush=True)
         return _handlers_module.handle_user_input(self, user_text)
 
     def handle_user_stream(self, user_text: str):
@@ -1337,6 +1394,7 @@ class Runtime:
                     recent_events=recent_events,
                 )
             )
+            print(f"[DEBUG] Streaming: classified intent={intent}, candidate={candidate_name}, conf={confidence:.3f}", file=sys.stderr, flush=True)
         except Exception:
             intent, candidate_name, confidence = ("irrelevant", None, 0.0)
 
@@ -1351,6 +1409,41 @@ class Runtime:
             _refresh_snapshot()
         except Exception:
             pass
+
+        # Check adoption gate (user path)
+        try:
+            recent_events_for_gate = _events(refresh=True)[-5:]
+        except Exception:
+            recent_events_for_gate = []
+        has_proposal = any(e.get("kind") == "identity_propose" for e in recent_events_for_gate)
+        
+        print(f"[DEBUG] Streaming gate check: intent={intent}, candidate={candidate_name}, conf={confidence:.3f}, has_proposal={has_proposal}", file=sys.stderr, flush=True)
+        
+        if (
+            intent == "assign_assistant_name"
+            and candidate_name
+            and ((confidence >= 0.7) or (has_proposal and confidence >= 0.6))
+        ):
+            print(f"[DEBUG] Streaming gate PASSED for '{candidate_name}'", file=sys.stderr, flush=True)
+            # Adopt the identity
+            try:
+                from pmm.runtime.loop import identity as _identity_module
+                sanitized = _identity_module.sanitize_name(candidate_name)
+                if sanitized:
+                    meta = {
+                        "source": "user",
+                        "intent": intent,
+                        "confidence": float(confidence),
+                    }
+                    print(f"[DEBUG] Streaming: calling _adopt_identity('{sanitized}', source='{meta['source']}', intent='{meta['intent']}', confidence={meta['confidence']})", file=sys.stderr, flush=True)
+                    self._adopt_identity(sanitized, **meta)
+                    print(f"[DEBUG] Streaming: _adopt_identity returned successfully", file=sys.stderr, flush=True)
+                    _refresh_snapshot()
+            except Exception as e:
+                import traceback
+                print(f"[DEBUG] Streaming: adoption failed: {e}", file=sys.stderr, flush=True)
+                print(f"[DEBUG] Traceback: {traceback.format_exc()}", file=sys.stderr, flush=True)
+                logger.debug("Identity adoption failed in streaming path", exc_info=True)
 
         # Handle user self-identification
         if intent == "user_self_identification" and candidate_name:
