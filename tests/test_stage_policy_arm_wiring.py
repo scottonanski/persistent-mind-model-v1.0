@@ -5,7 +5,6 @@ Verifies that:
 2. Label normalization ensures rewards aggregate correctly
 """
 
-
 from pmm.runtime.loop import reflection as _refl
 from pmm.runtime.reflection_bandit import _arm_rewards
 from pmm.runtime.stage_tracker import policy_arm_for_stage

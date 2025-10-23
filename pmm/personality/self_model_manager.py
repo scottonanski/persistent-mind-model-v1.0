@@ -123,7 +123,7 @@ class SelfModelManager:
                             )
                             last_update_id = event_id
                 else:
-                    # Handle nested trait keys like "traits.Conscientiousness"
+                    # Handle nested trait keys like "traits.conscientiousness"
                     for k, v in meta.items():
                         if k.startswith("traits."):
                             t = _norm_trait_key(k)
@@ -174,7 +174,7 @@ class SelfModelManager:
                 changes = meta.get("changes", {})
                 if isinstance(changes, dict):
                     for key, value in changes.items():
-                        # Look for trait keys like "traits.O", "traits.C", etc.
+                        # Look for trait keys like "traits.o", "traits.c", etc.
                         if key.startswith("traits."):
                             trait = _norm_trait_key(key)
                             if trait in self.TRAIT_KEYS:

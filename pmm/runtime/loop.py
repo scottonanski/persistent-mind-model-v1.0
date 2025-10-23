@@ -26,7 +26,7 @@ from typing import Any
 
 import pmm.runtime.embeddings as _emb
 from pmm.bridge.manager import BridgeManager
-from pmm.commitments.extractor import extract_commitments, detect_commitment
+from pmm.commitments.extractor import detect_commitment, extract_commitments
 from pmm.commitments.restructuring import CommitmentRestructurer
 from pmm.commitments.tracker import CommitmentTracker
 from pmm.commitments.tracker import due as _due
@@ -67,6 +67,7 @@ from pmm.runtime.evaluators.report import (
     maybe_emit_evaluation_summary as _maybe_eval_summary,
 )
 from pmm.runtime.eventlog import EventLog
+from pmm.runtime.evolution_kernel import EvolutionKernel
 from pmm.runtime.evolution_reporter import EvolutionReporter
 from pmm.runtime.graph_trigger import GraphInsightTrigger
 from pmm.runtime.introspection import run_audit
@@ -482,6 +483,13 @@ class Runtime:
                 else None
             )
             self._last_embedding_exception: Exception | None = None
+
+        if hasattr(self, "tracker") and hasattr(self, "cooldown"):
+            self.evolution_kernel = EvolutionKernel(
+                self.eventlog,
+                self.tracker,
+                self.cooldown,
+            )
 
     def force_graph_context(self) -> None:
         """Force graph evidence injection on the next user turn."""
@@ -1292,7 +1300,11 @@ class Runtime:
 
         Delegates to the extracted handlers module for improved maintainability.
         """
-        print(f"[DEBUG] handle_user called with: {user_text[:50]}", file=sys.stderr, flush=True)
+        print(
+            f"[DEBUG] handle_user called with: {user_text[:50]}",
+            file=sys.stderr,
+            flush=True,
+        )
         return _handlers_module.handle_user_input(self, user_text)
 
     def handle_user_stream(self, user_text: str):
@@ -1394,7 +1406,11 @@ class Runtime:
                     recent_events=recent_events,
                 )
             )
-            print(f"[DEBUG] Streaming: classified intent={intent}, candidate={candidate_name}, conf={confidence:.3f}", file=sys.stderr, flush=True)
+            debug_msg = (
+                f"[DEBUG] Streaming: classified intent={intent}, candidate={candidate_name}, "
+                f"conf={confidence:.3f}"
+            )
+            print(debug_msg, file=sys.stderr, flush=True)
         except Exception:
             intent, candidate_name, confidence = ("irrelevant", None, 0.0)
 
@@ -1415,19 +1431,30 @@ class Runtime:
             recent_events_for_gate = _events(refresh=True)[-5:]
         except Exception:
             recent_events_for_gate = []
-        has_proposal = any(e.get("kind") == "identity_propose" for e in recent_events_for_gate)
-        
-        print(f"[DEBUG] Streaming gate check: intent={intent}, candidate={candidate_name}, conf={confidence:.3f}, has_proposal={has_proposal}", file=sys.stderr, flush=True)
-        
+        has_proposal = any(
+            e.get("kind") == "identity_propose" for e in recent_events_for_gate
+        )
+
+        gate_debug = (
+            f"[DEBUG] Streaming gate check: intent={intent}, candidate={candidate_name}, "
+            f"conf={confidence:.3f}, has_proposal={has_proposal}"
+        )
+        print(gate_debug, file=sys.stderr, flush=True)
+
         if (
             intent == "assign_assistant_name"
             and candidate_name
             and ((confidence >= 0.7) or (has_proposal and confidence >= 0.6))
         ):
-            print(f"[DEBUG] Streaming gate PASSED for '{candidate_name}'", file=sys.stderr, flush=True)
+            print(
+                f"[DEBUG] Streaming gate PASSED for '{candidate_name}'",
+                file=sys.stderr,
+                flush=True,
+            )
             # Adopt the identity
             try:
                 from pmm.runtime.loop import identity as _identity_module
+
                 sanitized = _identity_module.sanitize_name(candidate_name)
                 if sanitized:
                     meta = {
@@ -1435,15 +1462,39 @@ class Runtime:
                         "intent": intent,
                         "confidence": float(confidence),
                     }
-                    print(f"[DEBUG] Streaming: calling _adopt_identity('{sanitized}', source='{meta['source']}', intent='{meta['intent']}', confidence={meta['confidence']})", file=sys.stderr, flush=True)
+                    adopt_msg = (
+                        "[DEBUG] Streaming: calling _adopt_identity('{name}', "
+                        "source='{source}', intent='{intent}', confidence={conf})"
+                    ).format(
+                        name=sanitized,
+                        source=meta["source"],
+                        intent=meta["intent"],
+                        conf=meta["confidence"],
+                    )
+                    print(adopt_msg, file=sys.stderr, flush=True)
                     self._adopt_identity(sanitized, **meta)
-                    print(f"[DEBUG] Streaming: _adopt_identity returned successfully", file=sys.stderr, flush=True)
+                    print(
+                        "[DEBUG] Streaming: _adopt_identity returned successfully",
+                        file=sys.stderr,
+                        flush=True,
+                    )
                     _refresh_snapshot()
             except Exception as e:
                 import traceback
-                print(f"[DEBUG] Streaming: adoption failed: {e}", file=sys.stderr, flush=True)
-                print(f"[DEBUG] Traceback: {traceback.format_exc()}", file=sys.stderr, flush=True)
-                logger.debug("Identity adoption failed in streaming path", exc_info=True)
+
+                print(
+                    f"[DEBUG] Streaming: adoption failed: {e}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                print(
+                    f"[DEBUG] Traceback: {traceback.format_exc()}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                logger.debug(
+                    "Identity adoption failed in streaming path", exc_info=True
+                )
 
         # Handle user self-identification
         if intent == "user_self_identification" and candidate_name:
@@ -2903,11 +2954,56 @@ class AutonomyLoop:
         # preserves ledger determinism across ticks.
         forced_stage_reason: str | None = None
 
+        kernel_state: dict[str, Any] | None = None
+        kernel_trait_targets: dict[str, float] = {}
+        kernel_force_reason: str | None = None
+        kernel_identity_proposal: dict[str, Any] | None = None
+        try:
+            kernel = None
+            if self.runtime is not None:
+                kernel = getattr(self.runtime, "evolution_kernel", None)
+            else:
+                kernel = getattr(self, "evolution_kernel", None)
+            if kernel is not None:
+                kernel_state = kernel.evaluate_identity_evolution(
+                    snapshot=snapshot_tick, events=events
+                )
+                if kernel_state:
+                    adjustments = kernel_state.get("trait_adjustments") or {}
+                    targets: dict[str, float] = {}
+                    if isinstance(adjustments, dict):
+                        for trait, payload in adjustments.items():
+                            if not trait:
+                                continue
+                            data = payload if isinstance(payload, dict) else {}
+                            target = data.get("target")
+                            if target is None:
+                                continue
+                            try:
+                                target_f = float(target)
+                            except Exception:
+                                continue
+                            trait_key = f"traits.{str(trait).strip().lower()}"
+                            targets[trait_key] = max(0.0, min(1.0, target_f))
+                    kernel_trait_targets = targets
+                    if kernel_state.get("reflection_needed"):
+                        kernel_force_reason = "evolution_kernel"
+                    kernel_identity_proposal = kernel.propose_identity_adjustment(
+                        snapshot=snapshot_tick, events=events
+                    )
+        except Exception:
+            kernel_state = None
+            kernel_trait_targets = {}
+            kernel_force_reason = None
+            kernel_identity_proposal = None
+
         # Compute current tick number once for deterministic metadata across this tick
         tick_no = 1 + sum(1 for ev in events if ev.get("kind") == "autonomy_tick")
         protect_until_tick = tick_no + _COMMITMENT_PROTECT_TICKS
         force_reason = self._force_reason_next_tick
         self._force_reason_next_tick = None
+        if force_reason is None and kernel_force_reason is not None:
+            force_reason = kernel_force_reason
         # Keep telemetry aligned with freshly computed metrics; snapshot means are
         # reserved for hysteresis decisions and should not overwrite IAS/GAS here.
         cadence = CADENCE_BY_STAGE.get(
@@ -2957,31 +3053,17 @@ class AutonomyLoop:
         except Exception:
             due_list = []
         if due_list:
-            # Idempotency across replays: compute seen from full history for determinism
-            seen: set[tuple[str, int]] = set()
-            for ev in events:
-                if ev.get("kind") != "commitment_due":
-                    continue
-                m = ev.get("meta") or {}
-                c = str(m.get("cid") or "")
-                try:
-                    de = int(m.get("due_epoch") or 0)
-                except Exception:
-                    de = 0
-                if c:
-                    seen.add((c, de))
+            from pmm.runtime.eventlog_helpers import append_once as _append_once
+
             for cid, due_epoch in due_list:
-                key = (str(cid), int(due_epoch))
-                if key in seen:
-                    continue
-                try:
-                    self.eventlog.append(
-                        kind="commitment_due",
-                        content="",
-                        meta={"cid": str(cid), "due_epoch": int(due_epoch)},
-                    )
-                except Exception:
-                    pass
+                _append_once(
+                    self.eventlog,
+                    kind="commitment_due",
+                    content="",
+                    meta={"cid": str(cid), "due_epoch": int(due_epoch)},
+                    key={"cid": str(cid), "due_epoch": int(due_epoch)},
+                    window=500,
+                )
 
         # 1b) Determine current drift multipliers and emit idempotent policy_update on change
         mult = DRIFT_MULT_BY_STAGE.get(
@@ -3284,12 +3366,10 @@ class AutonomyLoop:
                     # Apply explicit style from current stage policy hints, if available
                     try:
                         _ov_arm = str(
-
-                                POLICY_HINTS_BY_STAGE.get(curr_stage, {})
-                                .get("reflection_style", {})
-                                .get("arm")
-                                or ""
-
+                            POLICY_HINTS_BY_STAGE.get(curr_stage, {})
+                            .get("reflection_style", {})
+                            .get("arm")
+                            or ""
                         ).strip()
                         if _ov_arm:
                             arm = _ov_arm
@@ -3758,6 +3838,12 @@ class AutonomyLoop:
         changes, evo_details = SelfEvolution.apply_policies(
             events, {"IAS": ias, "GAS": gas}
         )
+        if kernel_trait_targets:
+            changes.update(kernel_trait_targets)
+            kernel_detail = f"Kernel: {kernel_trait_targets}"
+            evo_details = (
+                f"{evo_details}; {kernel_detail}" if evo_details else kernel_detail
+            )
         if changes:
             # Apply runtime-affecting changes: cooldown novelty threshold
             if "cooldown.novelty_threshold" in changes:
@@ -3769,17 +3855,22 @@ class AutonomyLoop:
                     new_thr = None
                 # Emit idempotent policy_update for cooldown params if different from last
                 try:
+                    from pmm.runtime.eventlog_helpers import (
+                        append_policy_update_once as _append_policy_update_once,
+                    )
+
                     params_obj = (
                         {"novelty_threshold": float(new_thr)}
                         if new_thr is not None
                         else {}
                     )
-                    _append_policy_update(
+                    _append_policy_update_once(
                         self.eventlog,
                         component="cooldown",
                         params=params_obj,
                         stage=curr_stage,
                         tick=tick_no,
+                        window=200,
                     )
                 except Exception:
                     pass
@@ -3792,6 +3883,26 @@ class AutonomyLoop:
             except Exception:
                 total_reflections = 0
             allow_persona_updates = total_reflections >= 3
+
+            if kernel_identity_proposal:
+                proposal_key = {
+                    "traits": kernel_identity_proposal.get("traits", {}),
+                    "context": kernel_identity_proposal.get("context", {}),
+                }
+                from pmm.runtime.eventlog_helpers import append_once as _append_once
+
+                _append_once(
+                    self.eventlog,
+                    kind="identity_adjust_proposal",
+                    content="",
+                    meta={
+                        "source": "evolution_kernel",
+                        "reason": kernel_identity_proposal.get("reason"),
+                        "tick": tick_no,
+                    },
+                    key=proposal_key,
+                    window=100,
+                )
 
             # Add semantic growth analysis after reflection analysis
             try:
@@ -3829,40 +3940,6 @@ class AutonomyLoop:
             except Exception as e:
                 _vprint(f"[SemanticGrowth] Error in semantic growth analysis: {e}")
                 # Don't fail the tick if semantic growth fails
-        if changes:
-            # Apply runtime-affecting changes: cooldown novelty threshold
-            if "cooldown.novelty_threshold" in changes:
-                new_thr = None
-                try:
-                    new_thr = float(changes["cooldown.novelty_threshold"])
-                    self.cooldown.novelty_threshold = new_thr
-                except Exception:
-                    new_thr = None
-                # Emit idempotent policy_update for cooldown params if different from last
-                try:
-                    params_obj = (
-                        {"novelty_threshold": float(new_thr)}
-                        if new_thr is not None
-                        else {}
-                    )
-                    _append_policy_update(
-                        self.eventlog,
-                        component="cooldown",
-                        params=params_obj,
-                        stage=curr_stage,
-                        tick=tick_no,
-                    )
-                except Exception:
-                    pass
-            _vprint(f"[SelfEvolution] Policy applied: {evo_details}")
-            # Gate trait/evolution emissions until sufficient reflections exist
-            try:
-                total_reflections = sum(
-                    1 for e in events if e.get("kind") == "reflection"
-                )
-            except Exception:
-                total_reflections = 0
-            allow_persona_updates = total_reflections >= 3
             # Emit trait_update for any trait targets in changes (absolute target → delta)
             try:
                 from pmm.storage.projection import build_identity as _build_identity

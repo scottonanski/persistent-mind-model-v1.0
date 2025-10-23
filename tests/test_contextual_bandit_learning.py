@@ -4,7 +4,6 @@ Verifies that the bandit learns stage-specific arm preferences and uses
 stage context during exploitation.
 """
 
-
 from pmm.runtime.loop import io as _io
 from pmm.runtime.reflection_bandit import _arm_rewards, choose_arm
 from pmm.storage.eventlog import EventLog

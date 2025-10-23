@@ -26,6 +26,28 @@ def _make_runtime() -> Runtime:
     finally:
         LLMFactory.from_config = prev
     rt.chat.generate = lambda *a, **k: ""
+
+    def _stub_classify(text: str, *_args, **_kwargs):
+        lowered = text.lower().strip()
+        if "my name is" in lowered:
+            candidate = text.split("name is", 1)[1].strip(" .!?")
+            return "user_self_identification", sanitize(candidate), 0.95
+        if lowered.startswith("i'm ") or lowered.startswith("im "):
+            candidate = text.split(" ", 1)[1].strip(" .!?")
+            return "user_self_identification", sanitize(candidate), 0.95
+        if "call me" in lowered:
+            candidate = text.split("call me", 1)[1].strip(" .!?")
+            return "user_self_identification", sanitize(candidate), 0.9
+        if "call you" in lowered or "your name is" in lowered:
+            tokens = [tok.strip(" .!?") for tok in text.split() if tok]
+            candidate = tokens[-1] if tokens else ""
+            if not candidate or candidate.lower() in {"you", "me"}:
+                return "assign_assistant_name", None, 0.4
+            return "assign_assistant_name", sanitize(candidate), 0.95
+        return "irrelevant", None, 0.0
+
+    if getattr(rt, "classifier", None) is not None:
+        rt.classifier.classify_identity_intent = _stub_classify  # type: ignore[assignment]
     return rt
 
 
