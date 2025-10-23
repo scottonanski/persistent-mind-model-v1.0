@@ -3053,31 +3053,17 @@ class AutonomyLoop:
         except Exception:
             due_list = []
         if due_list:
-            # Idempotency across replays: compute seen from full history for determinism
-            seen: set[tuple[str, int]] = set()
-            for ev in events:
-                if ev.get("kind") != "commitment_due":
-                    continue
-                m = ev.get("meta") or {}
-                c = str(m.get("cid") or "")
-                try:
-                    de = int(m.get("due_epoch") or 0)
-                except Exception:
-                    de = 0
-                if c:
-                    seen.add((c, de))
+            from pmm.runtime.eventlog_helpers import append_once as _append_once
+
             for cid, due_epoch in due_list:
-                key = (str(cid), int(due_epoch))
-                if key in seen:
-                    continue
-                try:
-                    self.eventlog.append(
-                        kind="commitment_due",
-                        content="",
-                        meta={"cid": str(cid), "due_epoch": int(due_epoch)},
-                    )
-                except Exception:
-                    pass
+                _append_once(
+                    self.eventlog,
+                    kind="commitment_due",
+                    content="",
+                    meta={"cid": str(cid), "due_epoch": int(due_epoch)},
+                    key={"cid": str(cid), "due_epoch": int(due_epoch)},
+                    window=500,
+                )
 
         # 1b) Determine current drift multipliers and emit idempotent policy_update on change
         mult = DRIFT_MULT_BY_STAGE.get(
