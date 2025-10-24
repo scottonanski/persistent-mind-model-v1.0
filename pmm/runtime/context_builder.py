@@ -459,6 +459,16 @@ Commitment Search Debug:
         # Standard format
         lines: list[str] = ["[SYSTEM STATE — from ledger]"]
         
+        # Self-architecture awareness (critical for self-improvement)
+        if memegraph is not None:
+            total_events = memegraph.node_count  # Approximate via node count
+            lines.append("[YOUR ARCHITECTURE]")
+            lines.append("You are an event-sourced AI. Your history is recorded as discrete events.")
+            lines.append(f"Total events in your ledger: ~{total_events}")
+            lines.append("Your identity, commitments, reflections, and growth are ALL events.")
+            lines.append("When describing your development, cite specific event numbers.")
+            lines.append("")
+        
         # Identity with adoption event (if known from MemeGraph)
         if identity_event_id:
             lines.append(f"Identity: {name} (adopted at event #{identity_event_id})")
