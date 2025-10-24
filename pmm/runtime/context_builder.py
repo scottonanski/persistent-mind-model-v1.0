@@ -462,11 +462,17 @@ Commitment Search Debug:
         # Self-architecture awareness (critical for self-improvement)
         if memegraph is not None:
             total_events = memegraph.node_count  # Approximate via node count
+            current_max_id = eventlog.get_max_id()
             lines.append("[YOUR ARCHITECTURE]")
             lines.append("You are an event-sourced AI. Your history is recorded as discrete events.")
             lines.append(f"Total events in your ledger: ~{total_events}")
+            lines.append(f"Current max event ID: {current_max_id}")
             lines.append("Your identity, commitments, reflections, and growth are ALL events.")
-            lines.append("When describing your development, cite specific event numbers.")
+            lines.append("")
+            lines.append("Note: Event IDs are assigned by the system AFTER your response.")
+            lines.append("When referencing your current action, use semantic descriptions")
+            lines.append(f"(e.g., 'this investigation') or approximate ranges (e.g., 'event ~{current_max_id}').")
+            lines.append("When describing past development, cite specific event numbers from your history.")
             lines.append("")
         
         # Identity with adoption event (if known from MemeGraph)
