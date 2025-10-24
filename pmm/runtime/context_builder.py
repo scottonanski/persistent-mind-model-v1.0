@@ -142,7 +142,7 @@ def build_context_from_ledger(
     # --- Identity & Traits -------------------------------------------------
     # Priority: MemeGraph (full history) > Snapshot > Events (tail)
     identity_event_id: int | None = None
-    
+
     if snapshot is not None:
         identity = snapshot.identity
     elif memegraph is not None:
@@ -174,7 +174,7 @@ def build_context_from_ledger(
             identity = build_identity(events)
     else:
         identity = build_identity(events)
-    
+
     name = identity.get("name") or "Unknown"
     traits: dict[str, float] = identity.get("traits", {})
     # Keep Big-Five order consistent for determinism
@@ -244,7 +244,7 @@ def build_context_from_ledger(
 
     ias = gas = stage = None
     stage_progression: list[str] = []
-    
+
     if snapshot is not None:
         ias = snapshot.ias
         gas = snapshot.gas
@@ -458,34 +458,44 @@ Commitment Search Debug:
     else:
         # Standard format
         lines: list[str] = ["[SYSTEM STATE — from ledger]"]
-        
+
         # Self-architecture awareness (critical for self-improvement)
         if memegraph is not None:
             total_events = memegraph.node_count  # Approximate via node count
             current_max_id = eventlog.get_max_id()
             lines.append("[YOUR ARCHITECTURE]")
-            lines.append("You are an event-sourced AI. Your history is recorded as discrete events.")
+            lines.append(
+                "You are an event-sourced AI. Your history is recorded as discrete events."
+            )
             lines.append(f"Total events in your ledger: ~{total_events}")
             lines.append(f"Current max event ID: {current_max_id}")
-            lines.append("Your identity, commitments, reflections, and growth are ALL events.")
+            lines.append(
+                "Your identity, commitments, reflections, and growth are ALL events."
+            )
             lines.append("")
-            lines.append("Note: You do NOT create events directly. The runtime appends events when you respond.")
+            lines.append(
+                "Note: You do NOT create events directly. The runtime appends events when you respond."
+            )
             lines.append("Event IDs are assigned by the system AFTER your response.")
-            lines.append("When referencing your current action, use semantic descriptions (e.g., 'this investigation').")
-            lines.append("When describing past development, cite specific event numbers from your history (e.g., event #333).")
+            lines.append(
+                "When referencing your current action, use semantic descriptions (e.g., 'this investigation')."
+            )
+            lines.append(
+                "When describing past development, cite specific event numbers from your history (e.g., event #333)."
+            )
             lines.append("Never guess or fabricate future event IDs.")
             lines.append("")
-        
+
         # Identity with adoption event (if known from MemeGraph)
         if identity_event_id:
             lines.append(f"Identity: {name} (adopted at event #{identity_event_id})")
         else:
             lines.append(f"Identity: {name}")
-        
+
         if user_name:
             lines.append(f"User: {user_name}")
         lines.append(f"Traits: {trait_str}")
-        
+
         if (
             include_metrics
             and ias is not None

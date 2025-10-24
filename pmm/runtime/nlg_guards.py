@@ -6,7 +6,6 @@ Applied post-generation, pre-emit to ensure factual accuracy.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 
@@ -55,10 +54,28 @@ def guard_capability_claims(text: str, ctx: ClaimContext) -> str:
     if ctx.pending_event_id is None:
         # Strip patterns like 'Event #12345' or 'Event ~12345' when not confirmed
         # Keep historical references (event #333) but remove future speculation
-        result = re.sub(
-            r"Event\s*[#~]\s*(\d{4,})",  # Match 4+ digit IDs (likely future)
-            "a new runtime event",
-            result,
-        )
+        # Use deterministic token-based parsing instead of regex
+        tokens = result.split()
+        cleaned_tokens = []
+        i = 0
+        while i < len(tokens):
+            token = tokens[i]
+            # Check for "Event" followed by "#" or "~" and a 4+ digit number
+            if token.lower() == "event" and i + 1 < len(tokens):
+                next_token = tokens[i + 1]
+                # Check if next token is #12345 or ~12345
+                if next_token and next_token[0] in ("#", "~"):
+                    num_part = next_token[1:]
+                    if num_part.isdigit() and len(num_part) >= 4:
+                        # Replace with generic phrase
+                        cleaned_tokens.append("a")
+                        cleaned_tokens.append("new")
+                        cleaned_tokens.append("runtime")
+                        cleaned_tokens.append("event")
+                        i += 2  # Skip both "Event" and "#12345"
+                        continue
+            cleaned_tokens.append(token)
+            i += 1
+        result = " ".join(cleaned_tokens)
 
     return result

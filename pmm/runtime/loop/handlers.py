@@ -913,8 +913,8 @@ def handle_user_input(
     _pipeline.finalize_telemetry(runtime.eventlog, profiler, request_log)
 
     # Anti-hallucination: Verify commitment claims against ledger
-    from pmm.runtime.loop import validators as _validators_module
     from pmm.runtime.fact_bridge import FactBridge
+    from pmm.runtime.loop import validators as _validators_module
 
     try:
         _validators_module.verify_commitment_claims(reply, events_cached)
