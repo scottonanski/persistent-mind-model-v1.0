@@ -512,6 +512,19 @@ def handle_user_input(
     except Exception:
         pass
 
+    # Guard capability claims (truth-first)
+    try:
+        from pmm.runtime.nlg_guards import ClaimContext, guard_capability_claims
+
+        claim_ctx = ClaimContext(
+            can_direct_append=False,  # Echo never calls append directly
+            pending_event_id=None,  # Event created after response
+            next_event_id=None,  # Not exposed to Echo
+        )
+        reply = guard_capability_claims(reply, claim_ctx)
+    except Exception:
+        pass  # Fail-open: don't block response on guard failure
+
     try:
         intent_reply, candidate_reply, confidence_reply = (
             runtime.classifier.classify_identity_intent(
