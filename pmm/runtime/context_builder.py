@@ -140,10 +140,34 @@ def build_context_from_ledger(
             events = []
 
     # --- Identity & Traits -------------------------------------------------
+    # Priority: MemeGraph (full history) > Snapshot > Events (tail)
+    identity_event_id: int | None = None
+    
     if snapshot is not None:
         identity = snapshot.identity
+    elif memegraph is not None:
+        # Use MemeGraph for identity (has full history, no tail truncation)
+        try:
+            identity_index = memegraph._identity_index
+            if identity_index:
+                # Get most recent identity name
+                name = list(identity_index.keys())[0] if identity_index else "Unknown"
+                # Get identity adoption event ID from graph
+                identity_digest = identity_index.get(name)
+                if identity_digest:
+                    identity_event_id = memegraph._digest_to_event_id.get(identity_digest)
+            else:
+                name = "Unknown"
+            # Still need traits from events (not in MemeGraph yet)
+            identity = build_identity(events)
+            if name != "Unknown":
+                identity["name"] = name  # Override with MemeGraph name
+        except Exception:
+            # Fallback to event-based identity
+            identity = build_identity(events)
     else:
         identity = build_identity(events)
+    
     name = identity.get("name") or "Unknown"
     traits: dict[str, float] = identity.get("traits", {})
     # Keep Big-Five order consistent for determinism
@@ -207,15 +231,31 @@ def build_context_from_ledger(
         )
 
     # --- IAS / GAS / Stage --------------------------------------------------
-    # Compute fresh metrics instead of relying on stale autonomy_tick
+    # Priority: MemeGraph (full history) > Snapshot > Events (tail)
     from pmm.runtime.metrics import compute_ias_gas
     from pmm.runtime.stage_tracker import StageTracker
 
     ias = gas = stage = None
+    stage_progression: list[str] = []
+    
     if snapshot is not None:
         ias = snapshot.ias
         gas = snapshot.gas
         stage = snapshot.stage
+    elif memegraph is not None:
+        # Use MemeGraph for stage (has full progression history)
+        try:
+            stage = memegraph.latest_stage()
+            stage_history = memegraph.stage_history()
+            if stage_history:
+                # Get last 5 stages for progression display
+                stage_progression = [h[2] for h in stage_history[-5:]]
+            # Still compute IAS/GAS from events (not in MemeGraph)
+            ias, gas = compute_ias_gas(events)
+        except Exception:
+            # Fallback to event-based computation
+            ias, gas = compute_ias_gas(events)
+            stage, _ = StageTracker.infer_stage(events)
     else:
         try:
             ias, gas = compute_ias_gas(events)
@@ -411,17 +451,30 @@ Commitment Search Debug:
     else:
         # Standard format
         lines: list[str] = ["[SYSTEM STATE — from ledger]"]
-        lines.append(f"Identity: {name}")
+        
+        # Identity with adoption event (if known from MemeGraph)
+        if identity_event_id:
+            lines.append(f"Identity: {name} (adopted at event #{identity_event_id})")
+        else:
+            lines.append(f"Identity: {name}")
+        
         if user_name:
             lines.append(f"User: {user_name}")
         lines.append(f"Traits: {trait_str}")
+        
         if (
             include_metrics
             and ias is not None
             and gas is not None
             and stage is not None
         ):
-            lines.append(f"IAS={ias:.2f}, GAS={gas:.2f}, Stage={stage}")
+            # Include stage progression if available from MemeGraph
+            if stage_progression:
+                progression_str = " → ".join(stage_progression)
+                lines.append(f"IAS={ias:.2f}, GAS={gas:.2f}, Stage={stage}")
+                lines.append(f"Stage progression: {progression_str}")
+            else:
+                lines.append(f"IAS={ias:.2f}, GAS={gas:.2f}, Stage={stage}")
         else:
             lines.append(
                 "Ledger metrics (IAS/GAS, commitments, reflections) available on request."
