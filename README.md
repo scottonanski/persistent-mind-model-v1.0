@@ -31,9 +31,9 @@ This is not hype. This is **reproducible methodology** for studying AI cognitive
 
 - **Ledger-defined identity** – every interaction becomes an append-only event with SHA-256 chaining for tamper detection (`pmm/storage/eventlog.py:44`). The ledger is the mind; replay it and you deterministically rebuild identity, commitments, and traits.
 - **Model-agnostic orchestration** – the runtime builds the same prompt context for any adapter via `LLMFactory` (`pmm/llm/factory.py:32`). Adapters for OpenAI, Ollama-hosted models, and a dummy test harness ship today; adding Claude, Grok, Gemini, or others is just a new `ChatAdapter`.
-- **Autonomous evolution loop** – a background scheduler recomputes IAS/GAS, runs reflections, re-evaluates identity, and maintains commitments without user nudges (`pmm/runtime/loop.py:2088`).
+- **Autonomous evolution loop** – a background scheduler recomputes IAS/GAS, runs reflections, re-evaluates identity, and maintains commitments without user nudges (`pmm/runtime/loop.py:1`).
 - **Deterministic reflection + commitment pipeline** – reflections follow templated prompts, log rewards, and drive commitment extraction and restructuring (`pmm/runtime/loop/reflection.py:1`, `pmm/commitments/extractor.py:1`).
-- **Real-time observability** – the Companion API and Next.js UI expose ledger state, metrics, traces, and commitments for inspection (`pmm/api/companion.py:95`, `ui/src/components/chat/detailed-metrics-panel.tsx:1`).
+- **Real-time observability** – the Companion API and Next.js UI expose ledger state, metrics, traces, and commitments for inspection (`pmm/api/companion.py:1`, `ui/src/components/dashboard/metrics-panel.tsx:1`).
 
 ---
 
@@ -73,9 +73,9 @@ Companion API  →  UI / integrations / analytics
 
 ## Core Concepts
 
-- **Event Log** – `EventLog` maintains the append-only SQLite ledger with SHA-256 hash chaining. Hash verification is opt-in via `verify_chain()` and used by invariant checks (`pmm/storage/eventlog.py:421`, `pmm/runtime/invariants_rt.py:44`). Copy `.data/pmm.db` to migrate or back up state.
+- **Event Log** – `EventLog` maintains the append-only SQLite ledger with SHA-256 hash chaining. Hash verification is opt-in via `verify_chain()` and used by invariant checks (`pmm/storage/eventlog.py:1`, `pmm/runtime/invariants_rt.py:1`). Copy `.data/pmm.db` to migrate or back up state.
 - **Context Builder** – `build_context_from_ledger` assembles deterministic system prompts using tail slices, with fallbacks to full snapshots when data is missing (`pmm/runtime/context_builder.py:1`).
-- **Reflections & Bandit** – forced and autonomous reflections share templated instructions, log telemetry, and use a context-aware epsilon-greedy bandit for style selection. Stage context is stored in rewards; full stage-aware exploitation is partially wired (`pmm/runtime/loop/reflection.py:589`, `pmm/runtime/reflection_bandit.py:56`).
+- **Reflections & Bandit** – forced and autonomous reflections share templated instructions, log telemetry, and use a context-aware epsilon-greedy bandit for style selection. Stage context is stored in rewards; full stage-aware exploitation is partially wired (`pmm/runtime/loop/reflection.py:1`, `pmm/runtime/reflection_bandit.py:1`).
 - **Commitment Lifecycle** – commitments are detected semantically, restructured, tracked, and prioritised so the runtime can open, close, or expire them deterministically (`pmm/commitments/extractor.py:1`, `pmm/commitments/tracker.py:1`).
 - **Metrics & Evolution** – IAS/GAS are recomputed when relevant events occur, decay over time, and feed stage progression and introspection reports (`pmm/runtime/metrics.py:1`, `pmm/runtime/stage_tracker.py:1`).
 
@@ -210,6 +210,8 @@ These are design choices, not bugs. Enable autonomous naming or expand trait sig
 ---
 
 ## Documentation
+
+For code-first docs and a structured component map, see `documentation/README.md`.
 
 ### Research & Architecture
 - **Architecture Overview**: `ARCHITECTURE.md` - Core design principles and system components
