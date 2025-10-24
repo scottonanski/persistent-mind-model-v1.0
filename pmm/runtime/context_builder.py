@@ -374,33 +374,13 @@ Commitment Search Debug:
     diag["reflections_missing"] = reflections_missing
     diag["needs_reflections"] = reflections_missing
 
-    # --- Semantic Activity Summary (if available) ------------------------------
-    # Instead of exposing graph structure (nodes/edges), expose semantic meaning
-    # (what Echo has done/become, not how it's implemented)
-    activity_summary: str | None = None
+    # --- MemeGraph Summary (if available) -----------------------------------
+    # Keep structural info for now - Echo was using it accurately
+    # TODO: Refactor to semantic-only after understanding what Echo needs
+    memegraph_summary: str | None = None
     if memegraph is not None:
         try:
-            # Build semantic summary of recent activity
-            activity_lines: list[str] = []
-            
-            # Stage progression (semantic)
-            stage_history = memegraph.stage_history()
-            if stage_history and len(stage_history) > 1:
-                recent_stages = [h[2] for h in stage_history[-5:]]  # Last 5 stages
-                activity_lines.append(f"Stage progression: {' → '.join(recent_stages)}")
-            
-            # Open commitments (semantic, with text)
-            open_commits = memegraph.open_commitments_snapshot()
-            if open_commits:
-                activity_lines.append(f"Active commitments: {len(open_commits)}")
-                # Show first 2 with text
-                for cid, data in list(open_commits.items())[:2]:
-                    text = data.get('text', '')[:60]
-                    if text:
-                        activity_lines.append(f"  • {text}...")
-            
-            if activity_lines:
-                activity_summary = "Recent Activity: " + "; ".join(activity_lines)
+            memegraph_summary = memegraph.get_summary()
         except Exception:
             pass
 
@@ -417,8 +397,8 @@ Commitment Search Debug:
             and stage is not None
         ):
             lines.append(f"IAS={ias:.2f} GAS={gas:.2f} {stage}")
-        if activity_summary:
-            lines.append(activity_summary)
+        if memegraph_summary:
+            lines.append(memegraph_summary)
         if include_commitments:
             lines.append("Commitments:")
             if commitments_block:
@@ -446,8 +426,8 @@ Commitment Search Debug:
             lines.append(
                 "Ledger metrics (IAS/GAS, commitments, reflections) available on request."
             )
-        if activity_summary:
-            lines.append(activity_summary)
+        if memegraph_summary:
+            lines.append(memegraph_summary)
         if include_commitments:
             lines.append("Open commitments:")
             if commitments_block:
