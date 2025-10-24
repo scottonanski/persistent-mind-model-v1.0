@@ -152,10 +152,17 @@ def build_context_from_ledger(
             if identity_index:
                 # Get most recent identity name
                 name = list(identity_index.keys())[0] if identity_index else "Unknown"
-                # Get identity adoption event ID from graph
-                identity_digest = identity_index.get(name)
-                if identity_digest:
-                    identity_event_id = memegraph._digest_to_event_id.get(identity_digest)
+                # Find the identity_adopt event for this name
+                # Search through event nodes for identity_adopt kind
+                for node in memegraph._nodes.values():
+                    if node.label == "event":
+                        attrs = node.attrs or {}
+                        if attrs.get("kind") == "identity_adopt":
+                            # This is an identity adoption event
+                            event_id = attrs.get("id")
+                            if event_id:
+                                identity_event_id = int(event_id)
+                                break  # Use first (earliest) identity adoption
             else:
                 name = "Unknown"
             # Still need traits from events (not in MemeGraph yet)
