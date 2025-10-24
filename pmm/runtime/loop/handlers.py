@@ -914,10 +914,19 @@ def handle_user_input(
 
     # Anti-hallucination: Verify commitment claims against ledger
     from pmm.runtime.loop import validators as _validators_module
+    from pmm.runtime.fact_bridge import FactBridge
 
     try:
         _validators_module.verify_commitment_claims(reply, events_cached)
     except Exception:
         logger.debug("Commitment verification failed", exc_info=True)
+
+    # Verify commitment count claims against ledger
+    try:
+        facts = FactBridge(runtime.eventlog)
+        actual_open = facts.assert_open_commitments()
+        _validators_module.verify_commitment_count_claims(reply, actual_open)
+    except Exception:
+        logger.debug("Commitment count verification failed", exc_info=True)
 
     return reply

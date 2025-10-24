@@ -272,9 +272,54 @@ def verify_event_ids(reply: str, eventlog: EventLog) -> tuple[bool, list[int]]:
     return len(fake_ids) == 0, fake_ids
 
 
+def verify_commitment_count_claims(reply: str, actual_open_count: int) -> bool:
+    """Verify that commitment count claims match ledger reality.
+
+    Catches claims like "I have no active commitments" when commitments are open.
+    Only fires on affirmative factual claims, not questions or conditionals.
+
+    Args:
+        reply: The LLM's response text
+        actual_open_count: Actual count of open commitments from ledger
+
+    Returns:
+        True if hallucination detected, False otherwise
+    """
+    if actual_open_count == 0:
+        return False  # No mismatch possible if truly zero
+
+    # Match only affirmative factual claims about zero commitments
+    claim = reply.strip().lower()
+    bad_phrases = [
+        "i have no active commitments",
+        "i have no open commitments",
+        "there are no open commitments",
+        "open commitments: 0",
+        "no active commitments",
+        "0 open commitments",
+        "zero open commitments",
+        "zero active commitments",
+    ]
+
+    for phrase in bad_phrases:
+        if phrase in claim:
+            logger.warning(
+                f"⚠️  Commitment count hallucination: "
+                f"LLM claimed zero commitments, but ledger shows {actual_open_count} open"
+            )
+            print("😕 Hmm, that doesn't match the ledger...")
+            import time
+
+            time.sleep(0.8)
+            return True
+
+    return False
+
+
 __all__ = [
     "verify_commitment_claims",
     "verify_commitment_status",
+    "verify_commitment_count_claims",
     "verify_event_ids",
     "verify_event_existence_claims",
 ]
