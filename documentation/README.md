@@ -15,6 +15,7 @@ Technical documentation for the Persistent Mind Model (PMM) cognitive architectu
 - **[Observability](OBSERVABILITY.md)** - Monitoring and debugging interfaces
 - **[Runtime](RUNTIME.md)** - Execution pipeline and lifecycle
 - **[Glossary](GLOSSARY.md)** - Terminology reference
+- **[Verification Guide](VERIFICATION_GUIDE.md)** - How to verify PMM's breakthrough claims using live ledger data
 
 ## Getting Started
 
