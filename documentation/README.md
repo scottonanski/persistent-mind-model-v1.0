@@ -1,29 +1,28 @@
-# PMM Documentation Index
+# PMM Documentation
 
-This folder contains code-first documentation for the Persistent Mind Model (PMM). It explains how identity, commitments, reflections, and metrics emerge from an append-only ledger and how the runtime orchestrates behavior across LLM providers.
+Technical documentation for the Persistent Mind Model (PMM) cognitive architecture.
 
-Start here for a guided overview, then drill into focused topics below.
+## Core Documentation
 
-- Architecture overview: `documentation/ARCHITECTURE.md`
-- Ledger and projections: `documentation/LEDGER.md`
-- Runtime pipeline: `documentation/RUNTIME.md`
-- Components map: `documentation/COMPONENTS.md`
-- Core concepts: `documentation/CONCEPTS.md`
-- Glossary: `documentation/GLOSSARY.md`
-- API reference: `documentation/API.md`
-- Event kinds: `documentation/EVENTS.md`
-- Invariants crosswalk: `documentation/INVARIANTS.md`
-- Sequences: `documentation/SEQUENCES.md`
-- Observability: `documentation/OBSERVABILITY.md`
-- Final summary: `documentation/FINAL-SUMMARY.md`
-- Foundations (philosophy→code): `documentation/FOUNDATIONS.md`
-- Evidence matrix: `documentation/EVIDENCE-MATRIX.md`
-- Methods (reproducibility): `documentation/METHODS.md`
+- **[PMM Overview](Persistent%20Mind%20Model%20(PMM)%20-%20A%20Concise%20Overview%20of%20the%20Proposition.md)** - Complete system description and research findings
+- **[Architecture](ARCHITECTURE.md)** - System design and component relationships  
+- **[API Reference](API.md)** - Programmatic interfaces and endpoints
+- **[Event Schema](EVENTS.md)** - Event types and data structures
+- **[Ledger System](LEDGER.md)** - Event storage and projection mechanics
+- **[Components](COMPONENTS.md)** - Module descriptions and responsibilities
+- **[Concepts](CONCEPTS.md)** - Core terminology and principles
+- **[Invariants](INVARIANTS.md)** - System constraints and validation rules
+- **[Observability](OBSERVABILITY.md)** - Monitoring and debugging interfaces
+- **[Runtime](RUNTIME.md)** - Execution pipeline and lifecycle
+- **[Glossary](GLOSSARY.md)** - Terminology reference
 
-If you prefer to browse the code first, begin with the ledger (`pmm/storage/eventlog.py`) and the context builder (`pmm/runtime/context_builder.py`).
+## Getting Started
 
-Next additions planned:
-- API endpoint reference (responses and shapes)
-- Event kind catalog with examples
-- End-to-end sequence diagrams for user chat and autonomy tick
-- Testing contracts and invariants playbook
+1. Read the [PMM Overview](Persistent%20Mind%20Model%20(PMM)%20-%20A%20Concise%20Overview%20of%20the%20Proposition.md) for system understanding
+2. Review [Architecture](ARCHITECTURE.md) for technical design
+3. Check [API Reference](API.md) for integration details
+4. Explore [Event Schema](EVENTS.md) for data structures
+
+## Development History
+
+Historical development documents are archived in `../archive/` for reference.
