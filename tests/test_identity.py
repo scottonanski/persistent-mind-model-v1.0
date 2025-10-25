@@ -37,7 +37,9 @@ def test_projection_identity_adopt_last_wins_and_traits_clamp(tmp_path):
     traits = ident["traits"]
     assert 0.0 <= traits["openness"] <= 1.0
     assert traits["openness"] == 1.0  # clamped
-    assert traits["neuroticism"] == 0.0  # clamped low
+    assert (
+        traits["neuroticism"] == 0.01
+    )  # clamped to trait floor (prevents irreversible collapse)
 
 
 def test_renderer_strips_boilerplate_and_one_shot_signature():
