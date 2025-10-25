@@ -1,5 +1,12 @@
 # Persistent Mind Model (PMM)
 
+## Prefatory Note
+**The Persistent Mind Model (PMM)** is a model-agnostic cognitive architecture designed to explore how artificial systems can develop psychology through structure rather than scale. It demonstrates that intelligence emerges not from larger models but from the relationships between memory, reflection, and self-governance.
+
+PMM separates mind from model, allowing any LLM or reasoning engine to host a persistent identity, complete with memory, personality, and continuity across sessions or providers. The project’s purpose is to create transparent, auditable, and personally-owned artificial minds — systems that remember, reflect, and grow, free from vendor lock-in.
+
+This repository is released under the Persistent Mind Model License v1.1 (August 2025), which establishes a dual non-commercial/commercial structure and includes a full public disclosure of prior art for the invention “System and Method for Reproducible Artificial Psychology through Event-Sourced Cognitive Architecture.”
+
 ## Introduction: Why the Persistent Mind Model Exists
 
 In recent years, much of the conversation around artificial intelligence has focused on the idea that sufficiently powerful models will begin to make new new discoveries—that scale alone will push machines beyond human comprehension and into unexplored scientific territory. But scale without understanding risks becoming noise.
