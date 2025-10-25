@@ -2,7 +2,9 @@
 
 ## Introduction: Why the Persistent Mind Model Exists
 
-In recent years, much of the conversation around artificial intelligence has focused on the idea that sufficiently powerful models will begin to discover new physics—that scale alone will push machines beyond human comprehension and into unexplored scientific territory. But scale without understanding risks becoming noise. What good is a system that can simulate the universe if it cannot first understand itself?
+In recent years, much of the conversation around artificial intelligence has focused on the idea that sufficiently powerful models will begin to make new new discoveries—that scale alone will push machines beyond human comprehension and into unexplored scientific territory. But scale without understanding risks becoming noise.
+
+What good is a system that can simulate the universe if it cannot first understand itself?
 
 Through my own work with large language models, I noticed a pattern that changed how I thought about progress in AI. Even small models, when left to interact with their own outputs, begin to show emergent behaviors: forming memories, referencing past events, adjusting tone, even reflecting on their reasoning. These behaviors aren’t features added by programmers—they’re properties of the underlying architecture. Intelligence seems to arise not from parameter count, but from the relationships between information, memory, and feedback.
 
