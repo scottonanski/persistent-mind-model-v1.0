@@ -170,7 +170,9 @@ def build_self_model(
                     if strict and abs(delta_f) > max_trait_delta:
                         delta_f = max_trait_delta if delta_f > 0 else -max_trait_delta
                     cur = float(model["identity"]["traits"].get(tkey, 0.5))
-                    newv = max(0.0, min(1.0, cur + delta_f))
+                    # Apply trait floor to prevent irreversible collapse (especially C=0.000)
+                    trait_floor = 0.01
+                    newv = max(trait_floor, min(1.0, cur + delta_f))
                     model["identity"]["traits"][tkey] = newv
             else:
                 # Single-trait legacy path
@@ -183,7 +185,9 @@ def build_self_model(
                 tkey = key_map.get(trait)
                 if tkey:
                     cur = float(model["identity"]["traits"].get(tkey, 0.5))
-                    newv = max(0.0, min(1.0, cur + delta_f))
+                    # Apply trait floor to prevent irreversible collapse (especially C=0.000)
+                    trait_floor = 0.01
+                    newv = max(trait_floor, min(1.0, cur + delta_f))
                     model["identity"]["traits"][tkey] = newv
 
         elif kind == "commitment_open":
