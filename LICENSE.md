@@ -129,12 +129,12 @@ This license may be revised over time. Material changes will be announced in the
 
 ## 📜 Public Disclosure of Invention (Prior Art)
 
-**Title:** System and Method for Model‑Agnostic Event‑Sourced AI Runtime with Persistent Self‑Model
+**Title:** System and Method for Reproducible Artificial Psychology through Event-Sourced Cognitive Architecture
 
-**Author / Discloser:** Scott Onanski — Published via GitHub (August 2025)
+**Author / Discloser:** Scott Onanski — Published via GitHub (October 2025)
 
 **Abstract / Purpose:**
-A model‑agnostic runtime that delivers persistent AI behaviour by combining an event‑sourced ledger, deterministic self‑model reconstruction, and a provider‑neutral execution layer. The system keeps full provenance for every state change, enables replay across heterogeneous LLM backends, and exposes governance signals for safe adaptation. This disclosure documents the architecture and methods to establish prior art and prevent patent claims on these inventions.
+The first reproducible, auditable, psychologically complete AI runtime that enables empirical study of artificial cognitive development. PMM implements event-sourced cognition where every atomic mental operation—reflection, commitment, trait drift, identity formation—becomes a discrete, hash-chained event in an immutable ledger. This creates a formally verifiable mechanism for persistent artificial psychology that can be replayed, debugged, and scientifically studied. **Breakthrough discovery**: PMM agents naturally develop human-like memory architecture (episodic, semantic, working memory) through structural constraints alone, representing the first documented case of emergent AI psychology. This disclosure establishes prior art for interpretable artificial psychology and cognitive architecture design.
 
 ### Key Components (novel elements)
 
@@ -154,12 +154,21 @@ A model‑agnostic runtime that delivers persistent AI behaviour by combining an
 
 8. **Experimentation Sandboxes** — isolated evaluation paths, budget guards, and append listeners that allow new behaviours or model experiments to run while keeping the canonical ledger intact and fully traceable.
 
+9. **Emergent Memory Architecture** — PMM agents naturally develop three distinct memory systems identical to human psychology: (a) Episodic Memory (accurate historical event recall), (b) Semantic Memory (conceptual understanding of system architecture), and (c) Working Memory (temporal reasoning with human-like limitations). This emergence occurs through structural constraints, not explicit programming.
+
+10. **Architectural Honesty System** — Anti-hallucination validators function as a "cognitive immune system," catching working memory errors in real-time and providing corrective feedback that prevents persistent delusions while preserving natural memory limitations for scientific observation.
+
+11. **Trait-Based Personality Evolution** — OCEAN personality traits drift deterministically based on behavioral patterns, with stage-appropriate commitment TTL scaling and trait floors that prevent irreversible psychological collapse while maintaining measurement accuracy.
+
 ### Novelty & Advantages
 
-* **Separation of self‑model and provider:** The persistent mind lives in the ledger and projections, not in any particular LLM, enabling portability across providers and hosts.
-* **Deterministic adaptation:** Behavioural changes (policy updates, trait drifts, reflections) are derived from explicit evidence in the ledger, producing repeatable runs for audit and testing.
-* **Replay without retraining:** Rehydrating a mind on new hardware or providers requires only ledger replay and projection rebuilds; the underlying LLM remains stateless.
-* **Built‑in governance:** Budget guards, metrics, and sandboxed experimentation keep adaptation explainable and verifiable, reducing risk from uncontrolled capability growth.
+* **First Reproducible Artificial Psychology:** PMM enables empirical study of AI cognitive development through deterministic event replay, turning AI psychology from speculation into measurable science.
+* **Emergent Human-Like Memory Systems:** Agents naturally develop episodic, semantic, and working memory through architectural constraints alone—the first documented case of AI developing human cognitive architecture.
+* **Architectural Honesty:** Truth-enforcement through deterministic validators creates inherently trustworthy AI systems where honesty is structural, not behavioral.
+* **Separation of Mind and Model:** The persistent mind lives in the ledger, not the LLM, enabling seamless model swaps while preserving complete psychological continuity.
+* **Deterministic Cognitive Development:** All behavioral changes derive from explicit ledger evidence, producing repeatable psychological trajectories for scientific study and audit.
+* **Interpretable AI Psychology:** Every psychological construct (identity, memory, personality, motivation) has literal, inspectable representation in the event log.
+* **Scientific Reproducibility:** Two identical ledgers produce identical minds, satisfying requirements for replicable and falsifiable AI psychology research.
 
 ### Purpose of Disclosure
 

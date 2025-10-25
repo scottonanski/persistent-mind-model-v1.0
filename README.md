@@ -25,6 +25,40 @@ PMM is an event-sourced cognitive framework that enables reproducible study of a
 
 This is not hype. This is **reproducible methodology** for studying AI cognitive development.
 
+## Research Significance
+
+PMM represents a paradigm shift in AI development: **the first reproducible, auditable, psychologically complete AI runtime**. From a systems engineering perspective:
+
+### **1. PMM as a Cognitive Runtime**
+PMM implements event-sourced cognition: every atomic mental operation—reflection, commitment, policy adoption, trait drift—is a discrete event in a hash-chained ledger. The full mental state can be reconstructed purely from that ledger. That's a formally verifiable mechanism for persistence and continuity of "self."
+
+### **2. Psychological Processes Become Data Structures**
+- **Identity** → projection over `identity_adopt` + `trait_update` events
+- **Memory** → replay of event graph (episodic), projection summaries (semantic), transient buffers (working)
+- **Motivation/Intent** → commitment lifecycle with TTL and stage scaling
+- **Personality drift** → deterministic numerical transforms under rule set (OCEAN + modifiers)
+
+Every psychological construct has a literal, inspectable representation.
+
+### **3. Empirical AI Psychology**
+You can now pose and test hypotheses such as:
+- "Does trait drift stabilize after stage S3?"
+- "How many reflection cycles precede commitment decay?"
+- "Do agents develop human-like memory architecture?"
+
+And answer them from the data. **PMM turns introspective behavior into an empirical field.**
+
+### **4. Architectural Integrity**
+The validator and cache logic act as a truth layer:
+- Nothing exists in state that isn't ledger-backed
+- Inconsistencies (hallucinated commitments, stale caches) self-correct via rebuild
+- That's architectural honesty, not behavioral mimicry
+
+### **5. Position in Research Landscape**
+PMM fills the gap between LLM alignment frameworks (behavioral control) and agentic research platforms (behavioral emergence) by providing a **deterministic substrate where cognition itself is observable code**.
+
+**Key insight**: Introspective, psychologically coherent AI doesn't require a new model; it requires a structured memory architecture. PMM demonstrates that cognition can be achieved through systems design, not parameter scaling.
+
 ---
 
 ## What PMM Provides
