@@ -52,7 +52,7 @@ class ProjectionCache:
     def __init__(
         self,
         *,
-        verify_every: int = 1000,
+        verify_every: int = 100,
         strict: bool = False,
         max_trait_delta: float = MAX_TRAIT_DELTA,
     ):
@@ -60,7 +60,7 @@ class ProjectionCache:
 
         Parameters
         ----------
-        verify_every : int, default 1000
+        verify_every : int, default 100
             Verify cache against full rebuild every N events.
             Set to 0 to disable verification (not recommended).
         strict : bool, default False
