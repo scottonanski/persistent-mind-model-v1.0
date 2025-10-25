@@ -282,7 +282,9 @@ class ProjectionCache:
                         cur = float(
                             self._cached_model["identity"]["traits"].get(tkey, 0.5)
                         )
-                        newv = max(0.0, min(1.0, cur + delta_f))
+                        # Apply trait floor to prevent irreversible collapse (especially C=0.000)
+                        trait_floor = 0.01
+                        newv = max(trait_floor, min(1.0, cur + delta_f))
                         self._cached_model["identity"]["traits"][tkey] = newv
                 else:
                     # Single-trait legacy schema
@@ -301,7 +303,9 @@ class ProjectionCache:
                         cur = float(
                             self._cached_model["identity"]["traits"].get(tkey, 0.5)
                         )
-                        newv = max(0.0, min(1.0, cur + delta_f))
+                        # Apply trait floor to prevent irreversible collapse (especially C=0.000)
+                        trait_floor = 0.01
+                        newv = max(trait_floor, min(1.0, cur + delta_f))
                         self._cached_model["identity"]["traits"][tkey] = newv
 
             elif kind == "commitment_open":
