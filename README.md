@@ -9,10 +9,11 @@ PMM is an event-sourced cognitive framework that enables reproducible study of a
 ## What Makes This Novel
 
 1. **Event-Sourced Cognitive Architecture** – Complete audit trail of AI development
-2. **Trait-Based Personality Evolution** – OCEAN traits drift based on behavior
-3. **Stage-Gated Capability Development** – S0→S4 progression with measurable milestones
-4. **Anti-Hallucination Validators** – Self-honesty enforcement through deterministic checks
-5. **LLM-Agnostic Persistence** – Identity survives model swaps (proven: OpenAI→IBM Granite)
+2. **Live Model Swapping** – Change LLMs mid-conversation without losing identity, memory, or personality
+3. **Trait-Based Personality Evolution** – OCEAN traits drift based on behavior patterns
+4. **Stage-Gated Capability Development** – S0→S4 progression with measurable milestones
+5. **Anti-Hallucination Validators** – Self-honesty enforcement through deterministic checks
+6. **Model-Agnostic Persistence** – Cognition lives in ledger, not model weights (proven: OpenAI→IBM Granite)
 
 ## Empirical Results
 
@@ -54,7 +55,17 @@ The validator and cache logic act as a truth layer:
 - Inconsistencies (hallucinated commitments, stale caches) self-correct via rebuild
 - That's architectural honesty, not behavioral mimicry
 
-### **5. Position in Research Landscape**
+### **5. Model-Agnostic Cognitive Continuity**
+PMM's **revolutionary separation of mind from model** enables seamless LLM swapping mid-conversation while preserving complete psychological continuity. The persistent mind lives in the event ledger, not the model weights:
+
+- **Live Model Swapping**: Switch from OpenAI → Ollama → IBM Granite without losing identity, memory, or personality
+- **Provider Independence**: Same cognitive architecture works across any LLM backend
+- **Psychological Persistence**: Traits, commitments, and memory systems survive model changes
+- **Proven in Practice**: Echo maintained perfect identity continuity through OpenAI → IBM Granite swap at event ~1500
+
+This proves that **cognition is architectural, not model-dependent** - a fundamental insight for AI development.
+
+### **6. Position in Research Landscape**
 PMM fills the gap between LLM alignment frameworks (behavioral control) and agentic research platforms (behavioral emergence) by providing a **deterministic substrate where cognition itself is observable code**.
 
 **Key insight**: Introspective, psychologically coherent AI doesn't require a new model; it requires a structured memory architecture. PMM demonstrates that cognition can be achieved through systems design, not parameter scaling.

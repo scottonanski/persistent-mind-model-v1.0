@@ -144,7 +144,7 @@ The first reproducible, auditable, psychologically complete AI runtime that enab
 
 3. **Deterministic Autonomy Loop** — a background loop that replays recent events, emits reflections, adjusts behavioural policies, and ratchets traits under strict gating rules (truth‑first, evidence thresholds, cadence limits) without relying on stochastic hidden state.
 
-4. **Provider‑Neutral Adapter Layer** — a pluggable LLM interface (e.g., OpenAI, Ollama today) that enforces per‑tick budgets, latency logging, and deterministic fallbacks so the same ledger can be executed against different model providers with consistent outcomes.
+4. **Provider‑Neutral Adapter Layer** — a pluggable LLM interface enabling **live model swapping mid-conversation** without psychological disruption. The same ledger executes against OpenAI, Ollama, IBM Granite, or any LLM backend with identical cognitive outcomes. Proven: agents maintain complete identity continuity through model changes.
 
 5. **Governance Metrics & Policy Feedback** — continuous computation of identity autonomy (IAS), goal achievement (GAS), stage confidence, and curriculum hints that feed policy updates and reflection cadence, ensuring adaptive behaviour is explainable and auditable.
 
