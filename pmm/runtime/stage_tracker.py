@@ -110,15 +110,15 @@ def _bucket(ias: float, gas: float) -> str:
     if ias >= 0.85 and gas >= 0.75:
         return "S4"
     # S3
-    if (0.70 <= ias < 0.85) and (0.55 <= gas < 0.75):
+    if ias >= 0.70 and gas >= 0.55:
         return "S3"
     # S2
-    if (0.50 <= ias < 0.70) and (0.35 <= gas < 0.55):
+    if ias >= 0.50 and gas >= 0.35:
         return "S2"
-    # S1
-    if (0.35 <= ias < 0.50) and (0.20 <= gas < 0.35):
+    # S1: Either identity formation OR goal achievement
+    if ias >= 0.35 or gas >= 0.20:
         return "S1"
-    # S0 (stalled): ias < 0.35 or gas < 0.20
+    # S0 (stalled): both ias < 0.35 AND gas < 0.20
     return "S0"
 
 
