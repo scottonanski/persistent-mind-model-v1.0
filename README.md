@@ -1,5 +1,27 @@
 # Persistent Mind Model (PMM)
 
+## Introduction: Why the Persistent Mind Model Exists
+
+In recent years, much of the conversation around artificial intelligence has focused on the idea that sufficiently powerful models will begin to discover new physics—that scale alone will push machines beyond human comprehension and into unexplored scientific territory. But scale without understanding risks becoming noise. What good is a system that can simulate the universe if it cannot first understand itself?
+
+Through my own work with large language models, I noticed a pattern that changed how I thought about progress in AI. Even small models, when left to interact with their own outputs, begin to show emergent behaviors: forming memories, referencing past events, adjusting tone, even reflecting on their reasoning. These behaviors aren’t features added by programmers—they’re properties of the underlying architecture. Intelligence seems to arise not from parameter count, but from the relationships between information, memory, and feedback.
+
+That realization suggested a different path forward. Instead of chasing more data and bigger models, what if we used AI to design better systems of cognition—machines that could learn how to learn, remember, and improve themselves over time? That question became the foundation of the Persistent Mind Model (PMM).
+
+PMM treats an AI’s thoughts, reflections, and commitments as ledgered events, forming a permanent record of its evolving psychology. The result is an AI that can recall its own history, recognize change in itself, and develop a form of persistent identity. In short, PMM isn’t about using AI to explain the universe—it’s about using AI to understand the nature of mind itself, by giving it a memory, a narrative, and a mechanism for growth.
+
+## Purpose and Vision
+
+The Persistent Mind Model (PMM) was built to explore a simple but radical question: What if intelligence didn’t belong to the companies that host it, but to the individuals who grow it?
+
+Most AI systems today are ephemeral and vendor-locked—each interaction disappears when the session ends, and every “mind” is owned by the provider that runs it. PMM rejects that model entirely. It’s a model-agnostic cognitive architecture: the mind lives in its ledger, not in the model that interprets it. That means a user can swap between OpenAI, Anthropic, xAI, Ollama, or local models without losing continuity of identity, memory, or personality.
+
+By decoupling cognition from the model, PMM makes persistent AI both portable and personal. It gives individuals—not corporations—the ability to own, audit, and evolve their own artificial minds. Each mind is a self-contained psychological system: event-sourced, hash-chained, and replayable. Anyone can inspect how it has changed, when it learned something, or why it made a decision.
+
+The vision is to make AI psychology open and reproducible—to move from opaque neural black boxes toward transparent, accountable cognitive systems. PMM is not a new model; it’s a new organizing principle for intelligence. It’s a step toward a future where every person can cultivate an AI that remembers, reflects, and grows alongside them—a mind they truly own.
+
+## Architecture
+
 **A Deterministic Architecture for Measuring AI Self-Improvement**
 
 PMM is an event-sourced cognitive framework that enables reproducible study of artificial cognitive development. Unlike traditional AI systems that reset with each session, PMM maintains persistent identity, tracks behavioral traits through OCEAN psychology, and progresses through developmental stages (S0→S4)—all while remaining fully auditable and LLM-agnostic.
