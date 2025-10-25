@@ -78,7 +78,7 @@ PMM fills the gap between LLM alignment frameworks (behavioral control) and agen
 - **Model-agnostic orchestration** – the runtime builds the same prompt context for any adapter via `LLMFactory` (`pmm/llm/factory.py:32`). Adapters for OpenAI, Ollama-hosted models, and a dummy test harness ship today; adding Claude, Grok, Gemini, or others is just a new `ChatAdapter`.
 - **Autonomous evolution loop** – a background scheduler recomputes IAS/GAS, runs reflections, re-evaluates identity, and maintains commitments without user nudges (`pmm/runtime/loop.py:1`).
 - **Deterministic reflection + commitment pipeline** – reflections follow templated prompts, log rewards, and drive commitment extraction and restructuring (`pmm/runtime/loop/reflection.py:1`, `pmm/commitments/extractor.py:1`).
-- **Real-time observability** – the Companion API and Next.js UI expose ledger state, metrics, traces, and commitments for inspection (`pmm/api/companion.py:1`, `ui/src/components/dashboard/metrics-panel.tsx:1`).
+- **Real-time observability** – the Companion API exposes ledger state, metrics, traces, and commitments for inspection. UI is experimental and being rewritten (`pmm/api/companion.py:1`).
 
 ---
 
@@ -126,55 +126,89 @@ Companion API  →  UI / integrations / analytics
 
 ---
 
-## Getting Started
+## Quick Setup
 
-### Runtime Only
+### 1. Prerequisites
+
+- **Python 3.10+** (required)
+- **Node.js 18+** (only for UI)
+- **API Key** for OpenAI or Ollama Cloud (see Configuration below)
+
+### 2. Install PMM
 
 ```bash
+# Clone and enter directory
+git clone https://github.com/scottonanski/persistent-mind-model-v1.0.git
+cd persistent-mind-model-v1.0
+
+# Create virtual environment
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install PMM
 pip install --upgrade pip
 pip install -e .
-pip install -e .[dev]  # optional tooling
 ```
 
-Create `.env`:
+### 3. Configuration
 
+Copy the example environment file:
 ```bash
-OPENAI_API_KEY=sk-...
-PMM_PROVIDER=openai    # openai, ollama, or dummy
-PMM_MODEL=gpt-4o-mini  # or llama3 / mistral / ...
-PMM_DB=.data/pmm.db    # optional override
+cp .env.example .env
 ```
 
-Launch the CLI:
+Edit `.env` with your API key:
 
+**For OpenAI:**
+```bash
+OPENAI_API_KEY=sk-your-key-here
+PMM_PROVIDER=openai
+PMM_MODEL=gpt-4o-mini
+```
+
+**For Ollama (local models):**
+```bash
+PMM_PROVIDER=ollama
+PMM_MODEL=llama3.2:1b
+# No API key needed for local Ollama
+```
+
+**For Ollama Cloud:**
+```bash
+OLLAMA_API_KEY=your-ollama-cloud-key
+PMM_PROVIDER=ollama
+PMM_MODEL=gpt-oss:120b-cloud
+```
+
+### 4. Start PMM
+
+**Chat Interface:**
 ```bash
 python -m pmm.cli.chat
 ```
 
-Use `--@metrics on`, `--@reflect`, or `--@models` to exercise runtime features.
-
-### Companion Stack (API + UI)
-
+**API + UI (experimental):**
 ```bash
 ./start-companion.sh
 ```
+- API: http://localhost:8001
+- UI: http://localhost:3000 (experimental, will be rewritten)
 
-This starts FastAPI on `http://localhost:8001` and Next.js on `http://localhost:3000`. Press `Ctrl+C` to stop both.
-
-To manage services manually:
+### 5. Development Setup (Optional)
 
 ```bash
-# API
-source .venv/bin/activate
-python -m pmm.api.companion  # port 8001
-
-# UI
-cd ui
-npm install
-npm run dev                  # port 3000
+pip install -e .[dev]  # Development tools (ruff, pytest, etc.)
 ```
+
+## Troubleshooting
+
+**"No module named pmm"**: Make sure you activated the virtual environment and ran `pip install -e .`
+
+**"API key not found"**: Check your `.env` file exists and has the correct API key format
+
+**Chat not responding**: Verify your API key works and you have internet connection (for cloud models)
+
+**UI not loading**: The UI is experimental and will be rewritten. Use the CLI interface instead.
 
 ---
 
@@ -201,7 +235,7 @@ The Companion API mirrors the runtime projections (`pmm/api/companion.py:95`):
 - `POST /chat` – OpenAI-compatible streaming chat endpoint.
 - `POST /events/sql` – read-only SQL (SELECT-only) over the ledger.
 
-The UI layers these endpoints into chat, metrics, ledger, identity, and trace views (`ui/src/components/chat/chat.tsx:1`, `ui/src/components/chat/detailed-metrics-panel.tsx:1`).
+The experimental UI (being rewritten) provides chat, metrics, and trace views using these endpoints.
 
 ---
 
@@ -256,20 +290,9 @@ These are design choices, not bugs. Enable autonomous naming or expand trait sig
 
 ## Documentation
 
-For code-first docs and a structured component map, see `documentation/README.md`.
-
-### Research & Architecture
-- **Architecture Overview**: `ARCHITECTURE.md` - Core design principles and system components
-- **Ablation Studies**: `ABLATION-STUDIES.md` - Framework for testing what matters
-- **Reproducibility Guide**: `REPRODUCIBILITY.md` - How to replicate published results
-- **Commitment Bug Fix**: `COMMITMENT-BUG-FIX.md` - Analysis and fix for persistence issue
-
-### Implementation Details
-- **Implementation Summary**: `IMPLEMENTATION-SUMMARY.md` - Phase 1 & 2 changes
-- **Gap Analysis**: `BULLSHIT-ANALYSIS.md` - What was broken and fixed
-- **Violations Analysis**: `CONTRIBUTING-VIOLATIONS-ANALYSIS.md` - Semantic replacement roadmap
-- **Bandit Tracking**: `CONTEXT-BANDIT-IMPLEMENTATION.md` - Context-aware learning roadmap
-- **Contributing**: `CONTRIBUTING.md` - Development guidelines
+- **Technical Documentation**: See `documentation/README.md` for complete technical reference
+- **Contributing Guidelines**: See `CONTRIBUTING.md` for development workflow
+- **Development History**: Archived in `archive/` folder
 
 ---
 
