@@ -1,9 +1,15 @@
-"""Ollama chat adapter (minimal, no API calls)."""
+"""Ollama chat adapter (supports local and cloud).
+
+Enhancements:
+- Reads OLLAMA_BASE_URL (or PMM_DEFAULT_BASE_URL) to select host
+- Adds Authorization Bearer header when OLLAMA_API_KEY is set (for cloud)
+"""
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 from collections.abc import Iterator
 from typing import Any
 
@@ -21,50 +27,35 @@ class OllamaChat:
     Provides a synchronous interface compatible with the PMM Runtime.
     """
 
-    def __init__(
-        self, model: str, base_url: str = "http://localhost:11434", **kw
-    ) -> None:
+    def __init__(self, model: str, base_url: str | None = None, **kw) -> None:
         self.model = model
-        self.base_url = base_url
+        # Resolve host priority: explicit arg > OLLAMA_BASE_URL > PMM_DEFAULT_BASE_URL > localhost
+        resolved_base = (
+            base_url
+            or os.getenv("OLLAMA_BASE_URL")
+            or os.getenv("PMM_DEFAULT_BASE_URL")
+            or "http://localhost:11434"
+        )
+        self.base_url = resolved_base.rstrip("/")
         self.kw = kw
-        self._server_available = False
+        # Unknown until first call; do not block on startup
+        self._server_available = None  # type: bool | None
+        # Optional auth for Ollama Cloud
+        api_key = os.getenv("OLLAMA_API_KEY")
+        self._auth_headers = (
+            {"Authorization": f"Bearer {api_key}"}
+            if (api_key and api_key.strip())
+            else {}
+        )
+        # Avoid probing the server here; defer to first real call to reduce false negatives
+        # and avoid blocking initialization when the daemon is starting up or requires auth.
         try:
-            import requests
-
-            # Get current metrics
-            from pmm.runtime.metrics import get_or_compute_ias_gas
-            from pmm.storage.eventlog import get_default_eventlog
-
-            eventlog = get_default_eventlog()
-            ias, gas = get_or_compute_ias_gas(eventlog)
-
-            url = f"{self.base_url}/api/chat"
-            payload = {
-                "model": self.model,
-                "messages": [],
-                "options": {},
-                "stream": False,
-            }
-            headers = {
-                "Content-Type": "application/json",
-                "X-PMM-IAS": str(ias),
-                "X-PMM-GAS": str(gas),
-            }
-
-            response = requests.post(url, json=payload, headers=headers, timeout=20)
-            response.raise_for_status()
-
-            logger.info(f"Sent metrics in headers: IAS={ias}, GAS={gas}")
-            self._server_available = True
+            import requests  # noqa: F401
         except ImportError:
             logger.error(
                 "requests library not installed. Please install it with 'pip install requests'"
             )
             raise
-        except Exception as e:
-            logger.warning(f"Ollama server not available at {base_url}: {e}")
-            # Don't raise - allow the adapter to be created even if server is down
-            self._server_available = False
 
     def generate(
         self,
@@ -74,12 +65,6 @@ class OllamaChat:
         **kwargs,
     ) -> object:
         """Generate response using Ollama via direct HTTP request."""
-        if not self._server_available:
-            raise RuntimeError(
-                f"Ollama server not available at {self.base_url}. Please start "
-                f"the Ollama server or use a different provider."
-            )
-
         try:
             import requests
 
@@ -106,10 +91,13 @@ class OllamaChat:
                 "X-PMM-IAS": str(ias),
                 "X-PMM-GAS": str(gas),
             }
+            # Add optional auth header for Ollama Cloud
+            headers.update(self._auth_headers)
 
             response = requests.post(url, json=payload, headers=headers, timeout=120)
             response.raise_for_status()
             data = response.json()
+            self._server_available = True
 
             logger.info(f"Sent metrics in headers: IAS={ias}, GAS={gas}")
             content = data["message"]["content"]
@@ -134,7 +122,24 @@ class OllamaChat:
                 f"Max Tokens={max_tokens}]"
             )
         except Exception as e:
-            logger.error(f"Error generating response from Ollama: {e}")
+            self._server_available = False
+            # Try to emit status code/body if available
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            body = None
+            try:
+                body = getattr(getattr(e, "response", None), "text", None)
+                if body and len(body) > 500:
+                    body = body[:500]
+            except Exception:
+                body = None
+            if status is not None:
+                logger.error(
+                    f"Error generating response from Ollama at {self.base_url}: HTTP {status} body={body!r}"
+                )
+            else:
+                logger.error(
+                    f"Error generating response from Ollama at {self.base_url}: {e}"
+                )
             raise
 
     def generate_stream(
@@ -148,7 +153,7 @@ class OllamaChat:
 
         Yields tokens as they arrive from the model, providing real-time feedback.
         """
-        if not self._server_available:
+        if self._server_available is False:
             raise RuntimeError(
                 f"Ollama server not available at {self.base_url}. Please start "
                 f"the Ollama server or use a different provider."
@@ -180,6 +185,8 @@ class OllamaChat:
                 "X-PMM-IAS": str(ias),
                 "X-PMM-GAS": str(gas),
             }
+            # Add optional auth header for Ollama Cloud
+            headers.update(self._auth_headers)
 
             response = requests.post(
                 url,
@@ -189,6 +196,7 @@ class OllamaChat:
                 stream=True,  # Enable streaming response
             )
             response.raise_for_status()
+            self._server_available = True
 
             logger.info(f"Sent metrics in headers: IAS={ias}, GAS={gas}")
 
@@ -210,7 +218,23 @@ class OllamaChat:
                         continue
 
         except Exception as e:
-            logger.error(f"Error streaming response from Ollama: {e}")
+            self._server_available = False
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            body = None
+            try:
+                body = getattr(getattr(e, "response", None), "text", None)
+                if body and len(body) > 500:
+                    body = body[:500]
+            except Exception:
+                body = None
+            if status is not None:
+                logger.error(
+                    f"Error streaming response from Ollama at {self.base_url}: HTTP {status} body={body!r}"
+                )
+            else:
+                logger.error(
+                    f"Error streaming response from Ollama at {self.base_url}: {e}"
+                )
             raise
 
 

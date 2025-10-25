@@ -4715,15 +4715,17 @@ class AutonomyLoop:
                 self.tracker = tracker_ttl
             # Stage-appropriate TTL: Higher stages get more time to execute commitments
             stage_ttl_map = {
-                "S0": 10,   # Early stage: short commitments
-                "S1": 20,   # Growing: medium commitments
-                "S2": 40,   # Developing: longer commitments
-                "S3": 80,   # Mature: much longer commitments
+                "S0": 10,  # Early stage: short commitments
+                "S1": 20,  # Growing: medium commitments
+                "S2": 40,  # Developing: longer commitments
+                "S3": 80,  # Mature: much longer commitments
                 "S4": 100,  # Highest: very long-term commitments
             }
-            current_stage = getattr(self, '_current_stage', 'S0')
+            current_stage = getattr(self, "_current_stage", "S0")
             ttl_ticks = stage_ttl_map.get(current_stage, 10)
-            ttl_candidates = tracker_ttl.sweep_for_expired(events_now, ttl_ticks=ttl_ticks)
+            ttl_candidates = tracker_ttl.sweep_for_expired(
+                events_now, ttl_ticks=ttl_ticks
+            )
             for c in ttl_candidates:
                 cid = str(c.get("cid"))
                 if not cid:

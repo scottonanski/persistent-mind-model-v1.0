@@ -95,7 +95,14 @@ def _get_or_create_runtime(model: str, db: str | None = None) -> Runtime:
         evlog = _get_evlog(db)
 
         # Determine provider from model name
-        provider = "ollama" if not model.startswith("gpt-") else "openai"
+        # Treat any colon-delimited model (e.g., "llama3:8b", "gpt-oss:120b-cloud") as Ollama.
+        # Otherwise, default to OpenAI for official gpt-* models, else Ollama.
+        if ":" in model:
+            provider = "ollama"
+        elif model.startswith("gpt-"):
+            provider = "openai"
+        else:
+            provider = "ollama"
         cfg = LLMConfig(provider=provider, model=model)
 
         # Create new runtime and start autonomy loop

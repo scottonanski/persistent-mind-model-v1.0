@@ -114,6 +114,10 @@ def select_model(force_tty: bool = True) -> tuple[str, str] | None:
         if choice in available:
             cfg = get_model_config(choice)
             return (cfg.provider, cfg.name)
+        # Allow ad-hoc Ollama models not listed (e.g., cloud models like gpt-oss:120b-cloud)
+        # Heuristic: if it contains a colon, treat as an Ollama model name.
+        if ":" in choice:
+            return ("ollama", choice)
         return None
 
     if not sys.stdin.isatty() and force_tty:
