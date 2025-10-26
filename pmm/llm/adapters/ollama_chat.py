@@ -75,6 +75,7 @@ class OllamaChat:
             eventlog = get_default_eventlog()
             ias, gas = get_or_compute_ias_gas(eventlog)
 
+            return_usage = bool(kwargs.pop("return_usage", False))
             url = f"{self.base_url}/api/chat"
             payload = {
                 "model": self.model,
@@ -103,16 +104,36 @@ class OllamaChat:
             content = data["message"]["content"]
 
             # Structured response (controller/probe path): do not append metrics noise
-            if kwargs.get("return_usage"):
+            if return_usage:
+                stop_reason = data.get("done_reason")
+                if stop_reason is None:
+                    stop_reason = data.get("message", {}).get("stop_reason")
+                if stop_reason is None and data.get("done"):
+                    stop_reason = "stop"
+
+                usage: dict[str, int] | None = None
+                raw_usage = data.get("usage")
+                if isinstance(raw_usage, dict):
+                    prompt_tokens = int(raw_usage.get("prompt_tokens") or 0)
+                    completion_tokens = int(raw_usage.get("completion_tokens") or 0)
+                else:
+                    prompt_tokens = int(data.get("prompt_eval_count") or 0)
+                    completion_tokens = int(data.get("eval_count") or 0)
+                if prompt_tokens or completion_tokens:
+                    usage = {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": prompt_tokens + completion_tokens,
+                    }
 
                 class _Resp:
-                    def __init__(self, text):
+                    def __init__(self, text, stop_reason, usage_info):
                         self.text = text
-                        self.stop_reason = None
-                        self.usage = None
+                        self.stop_reason = stop_reason
+                        self.usage = usage_info
                         self.provider_caps = None
 
-                return _Resp(content)
+                return _Resp(content, stop_reason, usage)
 
             # Get fresh metrics after response generation (may have changed due to new events)
             fresh_ias, fresh_gas = get_or_compute_ias_gas(eventlog)
