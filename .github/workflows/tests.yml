@@ -15,18 +15,17 @@ jobs:
           pip install -e .
       - name: TTL shadow-compare (synthetic DB)
         run: |
-          python - << 'PY'
-import time
-from pathlib import Path
-from pmm.storage.eventlog import EventLog
-
-db = Path('/tmp/ttl_shadow.db')
-log = EventLog(str(db))
-# Seed a few non-expiring events
-log.append(kind='user', content='Hello', meta={'ts': time.time()})
-log.append(kind='commitment_open', content='Write tests', meta={'cid': 'c1', 'text': 'Write tests'})
-print('Seeded synthetic DB at', db)
-PY
+          python -c "
+          import time
+          from pathlib import Path
+          from pmm.storage.eventlog import EventLog
+          
+          db = Path('/tmp/ttl_shadow.db')
+          log = EventLog(str(db))
+          log.append(kind='user', content='Hello', meta={'ts': time.time()})
+          log.append(kind='commitment_open', content='Write tests', meta={'cid': 'c1', 'text': 'Write tests'})
+          print('Seeded synthetic DB at', db)
+          "
           python -m scripts.ttl_shadow_compare /tmp/ttl_shadow.db 24
       - name: Ruff (lint)
         run: ruff check .
