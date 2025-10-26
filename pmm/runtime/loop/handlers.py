@@ -369,15 +369,54 @@ def handle_user_input(
         if any(
             q in lowq for q in ["what are you doing", "working on", "your priorities"]
         ):
-            msgs.append(
-                {
-                    "role": "system",
-                    "content": (
-                        "When describing current work, briefly mention one or two "
-                        "open commitments from your ledger."
-                    ),
-                }
-            )
+            # Include current commitment information to prevent stale references
+            try:
+                from pmm.runtime.fact_bridge import FactBridge
+                from pmm.storage.projection import build_self_model
+
+                facts = FactBridge(runtime.eventlog)
+                open_count = facts.assert_open_commitments()
+
+                # Get current open commitments
+                events_all = runtime.eventlog.read_all()
+                model = build_self_model(events_all, eventlog=runtime.eventlog)
+                open_commitments = model.get("commitments", {}).get("open", {})
+
+                commitment_texts = []
+                for cid, entry in list(open_commitments.items())[
+                    :3
+                ]:  # Limit to 3 to avoid context bloat
+                    text = str((entry or {}).get("text", "")).strip()
+                    if text:
+                        commitment_texts.append(f'"{text[:100]}"')
+
+                commitment_info = ""
+                if open_count > 0 and commitment_texts:
+                    joined = ", ".join(commitment_texts)
+                    commitment_info = f" You currently have {open_count} open commitment(s): {joined}."
+                elif open_count > 0:
+                    commitment_info = (
+                        f" You currently have {open_count} open commitment(s)."
+                    )
+                else:
+                    commitment_info = " You currently have no open commitments."
+
+                msgs.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "When describing current work, briefly mention one or two "
+                            f"open commitments from your ledger.{commitment_info}"
+                        ),
+                    }
+                )
+            except Exception:
+                # Fallback to basic instruction if commitment query fails
+                fallback = (
+                    "When describing current work, briefly mention one or two open "
+                    "commitments from your ledger."
+                )
+                msgs.append({"role": "system", "content": fallback})
     except Exception:
         pass
 

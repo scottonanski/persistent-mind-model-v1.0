@@ -151,10 +151,15 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
 
                 time.sleep(0.8)  # Let user see the message
 
+                sample_ids = [
+                    c.get("eid")
+                    for c in actual_commitments[:5]
+                    if c.get("eid") is not None
+                ]
                 logger.warning(
                     f"⚠️  Commitment hallucination detected: "
                     f"LLM claimed event ID {claimed_eid} is a commitment, but it's not in the ledger. "
-                    f"Actual open commitment event IDs: {[c.get('eid') for c in actual_commitments[:5] if c.get('eid')]}"
+                    f"Actual open commitment event IDs: {sample_ids}"
                 )
                 return True
         else:

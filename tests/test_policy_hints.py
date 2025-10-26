@@ -78,9 +78,9 @@ def test_idempotent_policy_updates(tmp_path):
     log = EventLog(str(db))
 
     # Preload many ticks with stable metrics to ensure stage doesn't change
-    # Use S0-level metrics (low IAS/GAS) to stay in S0
+    # Use very low S0-level metrics (IAS/GAS) to stay in S0
     for _ in range(10):
-        _append_auto_tick(log, ias=0.15, gas=0.10)
+        _append_auto_tick(log, ias=0.01, gas=0.01)
 
     loop = AutonomyLoop(
         eventlog=log, cooldown=ReflectionCooldown(), interval_seconds=0.01
