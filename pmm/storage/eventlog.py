@@ -276,7 +276,7 @@ class EventLog:
     def append(self, kind: str, content: str, meta: dict | None = None) -> int:
         event_record: dict[str, Any] | None = None
         with self._lock:
-            ts = _dt.datetime.now(_dt.UTC).isoformat()
+            ts = _dt.datetime.now(_dt.timezone.utc).isoformat()
             meta_obj: dict = meta or {}
             meta_json = _json.dumps(meta_obj)
             prev = self._get_last_hash()

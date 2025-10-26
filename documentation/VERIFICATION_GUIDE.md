@@ -1,6 +1,6 @@
 # PMM Claims Verification Guide
 
-This document shows how to verify PMM's breakthrough claims using live ledger data and observable behavior.
+This document shows how to verify PMM's claims using live ledger data and observable behavior.
 
 ## Core Claims to Verify
 

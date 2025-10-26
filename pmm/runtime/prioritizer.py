@@ -171,7 +171,9 @@ def rank_commitments(events: list[dict[str, Any]]) -> list[tuple[str, float]]:
             cid = meta.get("cid")
             if cid:
                 open_map[cid] = meta
-                opened_ts[cid] = _parse_ts(event.get("ts")) or _dt.datetime.now(_dt.UTC)
+                opened_ts[cid] = _parse_ts(event.get("ts")) or _dt.datetime.now(
+                    _dt.timezone.utc
+                )
         elif kind in {"commitment_close", "commitment_expire"}:
             meta = event.get("meta") or {}
             cid = meta.get("cid")
@@ -186,7 +188,7 @@ def rank_commitments(events: list[dict[str, Any]]) -> list[tuple[str, float]]:
     ]
     tail_sets = [_token_set(text) for text in replies[-5:]]
 
-    now = _dt.datetime.now(_dt.UTC)
+    now = _dt.datetime.now(_dt.timezone.utc)
     scored: list[tuple[str, float]] = []
 
     for cid, meta in open_map.items():

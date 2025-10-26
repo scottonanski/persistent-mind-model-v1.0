@@ -1897,7 +1897,10 @@ class Runtime:
     def stop_autonomy(self) -> None:
         """Stop the background autonomy loop if running."""
         if self._autonomy is not None:
-            self._autonomy.stop()
+            try:
+                self._autonomy.stop()
+            except KeyboardInterrupt:
+                pass
             self._autonomy = None
 
     def reflect(self, context: str) -> str:
@@ -4763,16 +4766,8 @@ class AutonomyLoop:
         except Exception:
             pass
 
-        # 4) Log autonomy tick with telemetry
-        self.eventlog.append(
-            kind="autonomy_tick",
-            content="autonomy heartbeat",
-            meta={
-                "telemetry": {"IAS": ias, "GAS": gas},
-                "reflect": {"did": did, "reason": reason},
-                "source": "AutonomyLoop",
-            },
-        )
+        # 4) Autonomy tick telemetry - MOVED to Step 21 for comprehensive payload
+        # (Removed duplicate emission - see Step 21 for the complete heartbeat)
         # 4a) Bandit: attempt to emit reward if horizon satisfied
         try:
             from pmm.runtime.reflection_bandit import (
@@ -5007,4 +5002,62 @@ class AutonomyLoop:
                 self._run_introspection_cycle(tick_no)
         except Exception:
             # Never allow introspection to break the autonomy loop
+            pass
+
+        # Step 21: Emit autonomy_tick event with complete telemetry (CRITICAL - THE HEARTBEAT)
+        # This event is the system's awareness rhythm - without it, the ledger loses integrity
+        try:
+            # Refresh events one final time to capture all side-effects from this tick
+            try:
+                events_final = self.eventlog.read_tail(limit=1000)
+            except Exception:
+                events_final = events
+
+            # Compute final tick number including this emission
+            final_tick_no = 1 + sum(
+                1 for ev in events_final if ev.get("kind") == "autonomy_tick"
+            )
+
+            # Build comprehensive telemetry payload
+            telemetry_meta = {
+                "telemetry": {"IAS": float(ias), "GAS": float(gas)},
+                "stage": str(curr_stage),
+                "reflect": {"did": bool(did), "reason": str(reason)},
+                "tick": int(final_tick_no),
+                "source": "AutonomyLoop",
+                "timestamp": _time.time(),
+            }
+
+            # Add stage snapshot if available
+            if snapshot:
+                telemetry_meta["stage_snapshot"] = {
+                    "IAS_mean": float(snapshot.get("IAS_mean", 0.0)),
+                    "GAS_mean": float(snapshot.get("GAS_mean", 0.0)),
+                    "count": int(snapshot.get("count", 0)),
+                }
+
+            # Add identity info if available
+            if persona_name:
+                telemetry_meta["identity"] = {"name": str(persona_name)}
+
+            # Add commitment count
+            try:
+                from pmm.storage.projection import build_self_model
+
+                model_final = build_self_model(events_final)
+                open_commitments_final = (model_final.get("commitments") or {}).get(
+                    "open", {}
+                )
+                telemetry_meta["commitments"] = {
+                    "open_count": len(open_commitments_final)
+                }
+            except Exception:
+                pass
+
+            # EMIT THE HEARTBEAT - This is the system's pulse
+            self.eventlog.append(kind="autonomy_tick", content="", meta=telemetry_meta)
+
+        except Exception:
+            # NEVER allow heartbeat emission to break the loop
+            # But this is critical - if this fails, the system loses its rhythm
             pass

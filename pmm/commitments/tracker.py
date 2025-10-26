@@ -1142,7 +1142,7 @@ class CommitmentTracker:
 
         # Final flip: Use ttl.compute_expired() and emit expiration events
         if now_iso is None:
-            now_iso = _dt.datetime.now(_dt.UTC).isoformat()
+            now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
         expired_pairs = _ttl.compute_expired(
             events, ttl_hours=ttl_hours, now_iso=now_iso
         )

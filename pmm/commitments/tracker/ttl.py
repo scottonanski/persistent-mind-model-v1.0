@@ -99,7 +99,7 @@ def compute_expired(
 
     # Determine current time ISO
     if now_iso is None:
-        now_iso = _dt.datetime.now(_dt.UTC).isoformat()
+        now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
     now_dt = _dt.datetime.fromisoformat(str(now_iso).replace("Z", "+00:00"))
 
     expired: list[tuple[str, int]] = []
