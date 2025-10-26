@@ -80,7 +80,7 @@ Any published or distributed non‑commercial use must contain the following att
 ```
 © 2025 Scott Onanski – Persistent Mind Model
 Powered by Persistent Mind Model (PMM)
-https://github.com/scottonanski/persistent-mind-model
+https://github.com/scottonanski/persistent-mind-model-v1.0
 Licensed under the PMM Non-Commercial License. Commercial use requires license.
 ```
 
