@@ -69,7 +69,7 @@ def verify_event_existence_claims(
     return (len(missing) == 0, missing)
 
 
-def verify_commitment_claims(reply: str, events: list[dict[str, Any]]) -> bool:
+def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
     """Verify that commitment claims in LLM response match ledger reality.
 
     This is a post-response validator that catches commitment hallucinations.
@@ -77,7 +77,7 @@ def verify_commitment_claims(reply: str, events: list[dict[str, Any]]) -> bool:
 
     Args:
         reply: The LLM's response text
-        events: Recent events from the ledger
+        eventlog: Ledger interface for querying commitment state
 
     Returns:
         True if hallucination detected, False otherwise
@@ -95,17 +95,38 @@ def verify_commitment_claims(reply: str, events: list[dict[str, Any]]) -> bool:
     claimed_commitments = extract_commitment_claims(reply)
 
     if not claimed_commitments:
-        return  # No specific claims to verify
+        return False  # No specific claims to verify
 
-    # Get actual commitments from ledger (last 20 events)
-    actual_commitments = []
-    for ev in reversed(events[-20:]):
-        if ev.get("kind") == "commitment_open":
-            meta = ev.get("meta") or {}
-            text = meta.get("text", "").lower()
-            cid = meta.get("cid", "")[:8]
-            eid = ev.get("id")
-            actual_commitments.append({"text": text, "cid": cid, "eid": eid})
+    # Build current self-model to determine which commitments remain open
+    from pmm.storage.projection import build_self_model
+
+    try:
+        events = eventlog.read_all()
+    except Exception:
+        logger.warning("Failed to read ledger for commitment validation", exc_info=True)
+        return False
+
+    model = build_self_model(events, eventlog=eventlog)
+    open_commitments = (model.get("commitments") or {}).get("open") or {}
+
+    # Map commitment IDs to their originating event IDs for numeric claim checks
+    open_event_ids: dict[str, int] = {}
+    for ev in events:
+        if ev.get("kind") != "commitment_open":
+            continue
+        meta = ev.get("meta") or {}
+        cid = str(meta.get("cid") or "")
+        if cid and cid in open_commitments and cid not in open_event_ids:
+            try:
+                open_event_ids[cid] = int(ev.get("id") or 0)
+            except Exception:
+                open_event_ids[cid] = 0
+
+    actual_commitments: list[dict[str, Any]] = []
+    for cid, entry in open_commitments.items():
+        text = str((entry or {}).get("text") or "").lower()
+        eid = open_event_ids.get(cid)
+        actual_commitments.append({"text": text, "cid": cid[:8], "eid": eid})
 
     # Verify each claim
     for claim in claimed_commitments:
@@ -119,7 +140,7 @@ def verify_commitment_claims(reply: str, events: list[dict[str, Any]]) -> bool:
             # Claim is an event ID - verify it exists and is a commitment_open
             claimed_eid = int(claim)
             for actual in actual_commitments:
-                if actual["eid"] == claimed_eid:
+                if actual.get("eid") == claimed_eid:
                     found = True
                     break
 
@@ -133,7 +154,7 @@ def verify_commitment_claims(reply: str, events: list[dict[str, Any]]) -> bool:
                 logger.warning(
                     f"⚠️  Commitment hallucination detected: "
                     f"LLM claimed event ID {claimed_eid} is a commitment, but it's not in the ledger. "
-                    f"Actual recent commitment event IDs: {[c['eid'] for c in actual_commitments[:5]]}"
+                    f"Actual open commitment event IDs: {[c.get('eid') for c in actual_commitments[:5] if c.get('eid')]}"
                 )
                 return True
         else:
@@ -153,7 +174,7 @@ def verify_commitment_claims(reply: str, events: list[dict[str, Any]]) -> bool:
                 logger.warning(
                     f"⚠️  Commitment hallucination detected: "
                     f"LLM claimed commitment about '{claim}' but no matching commitment_open found in ledger. "
-                    f"Actual recent commitments: {[c['text'][:50] for c in actual_commitments[:3]]}"
+                    f"Actual open commitments: {[c['text'][:50] for c in actual_commitments[:3]]}"
                 )
                 return True
 

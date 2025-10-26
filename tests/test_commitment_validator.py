@@ -1,80 +1,106 @@
 """Tests for commitment hallucination validator."""
 
+from __future__ import annotations
+
+from uuid import uuid4
+
 from pmm.runtime.loop import _verify_commitment_claims
+from pmm.storage.eventlog import EventLog
 
 
-def test_validator_catches_fake_event_id():
+def _build_eventlog(tmp_path, events: list[dict]) -> EventLog:
+    """Create a real EventLog populated with the provided events."""
+    db_path = tmp_path / f"ledger_{uuid4().hex}.db"
+    log = EventLog(str(db_path))
+    for ev in events:
+        kind = ev["kind"]
+        content = ev.get("content", "")
+        meta = ev.get("meta", {})
+        log.append(kind=kind, content=content, meta=meta)
+    return log
+
+
+def test_validator_catches_fake_event_id(tmp_path):
     """Validator should catch claims about non-existent event IDs."""
-    # Simulate a hallucination: "I see a commitment... event ID 21"
-    reply = "I see a commitment that was just opened – event ID 21. It's focused on building identity."
+    reply = (
+        "I see a commitment that was just opened – event ID 21. "
+        "It's focused on building identity."
+    )
 
-    # Events with only event 38 as a commitment
-    events = [
-        {
-            "id": 38,
-            "kind": "commitment_open",
-            "meta": {"cid": "abc123", "text": "Test commitment"},
-        },
-    ]
+    eventlog = _build_eventlog(
+        tmp_path,
+        [
+            {
+                "kind": "commitment_open",
+                "content": "Commitment opened: Test commitment",
+                "meta": {"cid": "abc123", "text": "Test commitment"},
+            }
+        ],
+    )
 
-    # Should log warning (we can't easily test logging here, but verify no crash)
-    _verify_commitment_claims(reply, events)
+    assert _verify_commitment_claims(reply, eventlog) is True
 
 
-def test_validator_catches_fake_topic():
+def test_validator_catches_fake_topic(tmp_path):
     """Validator should catch claims about non-existent commitment topics."""
-    reply = "I committed to 'Compact Scenes' to improve performance."
+    reply = "I committed to compact scenes."
 
-    events = [
-        {
-            "id": 38,
-            "kind": "commitment_open",
-            "meta": {"cid": "abc123", "text": "Adaptive Increment"},
-        },
-    ]
+    eventlog = _build_eventlog(
+        tmp_path,
+        [
+            {
+                "kind": "commitment_open",
+                "content": "Commitment opened: Adaptive Increment",
+                "meta": {"cid": "abc123", "text": "Adaptive Increment"},
+            }
+        ],
+    )
 
-    _verify_commitment_claims(reply, events)
+    assert _verify_commitment_claims(reply, eventlog) is True
 
 
-def test_validator_ignores_conversational():
+def test_validator_ignores_conversational(tmp_path):
     """Validator should not trigger on conversational phrases."""
     reply = (
         "Would you like to make a commitment? Perhaps a commitment you'd like to make?"
     )
 
-    events = []
+    eventlog = _build_eventlog(tmp_path, [])
 
-    # Should not trigger (no claims extracted)
-    _verify_commitment_claims(reply, events)
+    assert _verify_commitment_claims(reply, eventlog) is False
 
 
-def test_validator_accepts_valid_claim():
+def test_validator_accepts_valid_claim(tmp_path):
     """Validator should not warn when claim matches ledger."""
     reply = "I committed to 'Adaptive Increment' to improve the system."
 
-    events = [
-        {
-            "id": 38,
-            "kind": "commitment_open",
-            "meta": {"cid": "abc123", "text": "Adaptive Increment"},
-        },
-    ]
+    eventlog = _build_eventlog(
+        tmp_path,
+        [
+            {
+                "kind": "commitment_open",
+                "content": "Commitment opened: Adaptive Increment",
+                "meta": {"cid": "abc123", "text": "Adaptive Increment"},
+            }
+        ],
+    )
 
-    # Should not warn (claim matches actual commitment)
-    _verify_commitment_claims(reply, events)
+    assert _verify_commitment_claims(reply, eventlog) is False
 
 
-def test_validator_accepts_valid_event_id():
+def test_validator_accepts_valid_event_id(tmp_path):
     """Validator should not warn when event ID is correct."""
-    reply = "I see a commitment at event ID 38."
+    eventlog = _build_eventlog(
+        tmp_path,
+        [
+            {
+                "kind": "commitment_open",
+                "content": "Commitment opened: Test commitment",
+                "meta": {"cid": "abc123", "text": "Test commitment"},
+            }
+        ],
+    )
+    actual_id = eventlog.read_all()[-1]["id"]
+    reply = f"I see a commitment at event ID {actual_id}."
 
-    events = [
-        {
-            "id": 38,
-            "kind": "commitment_open",
-            "meta": {"cid": "abc123", "text": "Test commitment"},
-        },
-    ]
-
-    # Should not warn (event ID 38 exists and is a commitment)
-    _verify_commitment_claims(reply, events)
+    assert _verify_commitment_claims(reply, eventlog) is False

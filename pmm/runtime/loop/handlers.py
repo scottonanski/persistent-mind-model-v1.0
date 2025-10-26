@@ -917,7 +917,7 @@ def handle_user_input(
     from pmm.runtime.loop import validators as _validators_module
 
     try:
-        _validators_module.verify_commitment_claims(reply, events_cached)
+        _validators_module.verify_commitment_claims(reply, runtime.eventlog)
     except Exception:
         logger.debug("Commitment verification failed", exc_info=True)
 

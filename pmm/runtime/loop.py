@@ -1650,7 +1650,7 @@ class Runtime:
         commitment_hallucinated = False
         try:
             commitment_hallucinated = bool(
-                _verify_commitment_claims(reply, events_cached)
+                _verify_commitment_claims(reply, self.eventlog)
             )
         except Exception:
             logger.debug("Commitment verification failed", exc_info=True)
