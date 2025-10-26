@@ -1690,6 +1690,7 @@ class Runtime:
                     self.eventlog,
                     fake_ids=fake_ids,
                     correction="Use 'pending' for uncommitted events",
+                    category="event_id",
                 )
                 logger.info(
                     "Hallucination logged to ledger. System will self-correct on next interaction."

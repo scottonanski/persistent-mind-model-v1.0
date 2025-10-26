@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from pmm.runtime.loop import io as _io
 from pmm.storage.eventlog import EventLog
 from pmm.utils.parsers import (
     extract_closed_commitment_claims,
@@ -124,9 +125,12 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
 
     actual_commitments: list[dict[str, Any]] = []
     for cid, entry in open_commitments.items():
-        text = str((entry or {}).get("text") or "").lower()
+        raw_text = str((entry or {}).get("text") or "")
+        text = raw_text.lower()
         eid = open_event_ids.get(cid)
-        actual_commitments.append({"text": text, "cid": cid[:8], "eid": eid})
+        actual_commitments.append(
+            {"text": text, "raw_text": raw_text, "cid": cid[:8], "eid": eid}
+        )
 
     # Verify each claim
     for claim in claimed_commitments:
@@ -134,11 +138,27 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
         if len(claim) < 2:  # Skip very short claims
             continue
 
+        claim_lower = claim.lower()
+        numeric_token: str | None = None
+        if claim.isdigit():
+            numeric_token = claim
+        elif "event" in claim_lower and "id" in claim_lower:
+            tokens = (
+                claim_lower.replace(":", " ")
+                .replace(",", " ")
+                .replace("-", " ")
+                .split()
+            )
+            for token in tokens:
+                if token.isdigit():
+                    numeric_token = token
+                    break
+
         # Check if claim is an event ID (numeric)
         found = False
-        if claim.isdigit():
+        if numeric_token is not None:
             # Claim is an event ID - verify it exists and is a commitment_open
-            claimed_eid = int(claim)
+            claimed_eid = int(numeric_token)
             for actual in actual_commitments:
                 if actual.get("eid") == claimed_eid:
                     found = True
@@ -161,11 +181,32 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
                     f"LLM claimed event ID {claimed_eid} is a commitment, but it's not in the ledger. "
                     f"Actual open commitment event IDs: {sample_ids}"
                 )
+                try:
+                    available_texts = [
+                        c.get("raw_text")
+                        for c in actual_commitments
+                        if c.get("raw_text")
+                    ]
+                    _io.append_commitment_hallucination(
+                        eventlog,
+                        claims=[f"event_id:{claimed_eid}"],
+                        available_eids=sample_ids,
+                        available_texts=available_texts,
+                        claim_type="event_id",
+                    )
+                except Exception:
+                    logger.debug(
+                        "Failed to append commitment hallucination event",
+                        exc_info=True,
+                    )
                 return True
         else:
             # Claim is text - check if it matches any actual commitment text
             for actual in actual_commitments:
-                if claim in actual["text"] or actual["text"].find(claim) >= 0:
+                if (
+                    claim_lower in actual["text"]
+                    or actual["text"].find(claim_lower) >= 0
+                ):
                     found = True
                     break
 
@@ -181,6 +222,28 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
                     f"LLM claimed commitment about '{claim}' but no matching commitment_open found in ledger. "
                     f"Actual open commitments: {[c['text'][:50] for c in actual_commitments[:3]]}"
                 )
+                try:
+                    available_texts = [
+                        c.get("raw_text")
+                        for c in actual_commitments
+                        if c.get("raw_text")
+                    ]
+                    available_eids = [
+                        c.get("eid")
+                        for c in actual_commitments
+                        if c.get("eid") is not None
+                    ]
+                    _io.append_commitment_hallucination(
+                        eventlog,
+                        claims=[claim_lower],
+                        available_eids=available_eids,
+                        available_texts=available_texts,
+                        claim_type="text",
+                    )
+                except Exception:
+                    logger.debug(
+                        "Failed to append commitment hallucination event", exc_info=True
+                    )
                 return True
 
     return False

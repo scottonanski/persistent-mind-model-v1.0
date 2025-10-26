@@ -62,6 +62,7 @@ __all__ = [
     "append_knowledge_assert",
     "append_audit_report",
     "append_hallucination_detected",
+    "append_commitment_hallucination",
     "append_recall_suggest",
     "append_embedding_skipped",
     "append_user_identity_set",
@@ -264,15 +265,69 @@ def append_audit_report(eventlog, *, content: str, meta: dict):
     )
 
 
-def append_hallucination_detected(eventlog, *, fake_ids: list[int], correction: str):
-    """Append a hallucination_detected event with standard meta fields."""
+def append_hallucination_detected(
+    eventlog,
+    *,
+    category: str | None = None,
+    message: str | None = None,
+    meta: dict | None = None,
+    fake_ids: list[int] | None = None,
+    correction: str | None = None,
+):
+    """Append a hallucination_detected event with standard meta fields.
+
+    Backwards-compatible: callers may pass the legacy fake_ids/correction
+    payload, or provide an explicit category/message/meta tuple.
+    """
+    payload: dict = {}
+    content: str
+    if fake_ids is not None:
+        payload.update(
+            {
+                "fake_ids": list(fake_ids),
+                "correction": str(correction) if correction is not None else "",
+            }
+        )
+        content = f"Fabricated event IDs: {list(fake_ids)}"
+        payload["category"] = category or "event_id"
+    else:
+        if not category or message is None:
+            raise ValueError(
+                "append_hallucination_detected requires category/message when fake_ids not provided"
+            )
+        payload.update(meta or {})
+        payload["category"] = category
+        content = str(message)
     return eventlog.append(
         kind="hallucination_detected",
-        content=f"Fabricated event IDs: {list(fake_ids)}",
-        meta={
-            "fake_ids": list(fake_ids),
-            "correction": str(correction),
-        },
+        content=str(content)[:500],
+        meta=payload,
+    )
+
+
+def append_commitment_hallucination(
+    eventlog,
+    *,
+    claims: list[str],
+    available_eids: list[int] | None,
+    available_texts: list[str] | None,
+    claim_type: str,
+):
+    """Record a commitment-related hallucination with structured metadata."""
+    meta = {
+        "category": "commitment_claim",
+        "claims": list(claims),
+        "claim_type": str(claim_type),
+    }
+    if available_eids:
+        meta["available_eids"] = list(available_eids)
+    if available_texts:
+        meta["available_texts"] = [str(t)[:200] for t in available_texts]
+    message = "Commitment claim mismatch: " + ", ".join(claims)
+    return eventlog.append(
+        kind="hallucination_detected",
+        content=message[:500],
+        meta=meta,
     )
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from pmm.runtime.fact_bridge import FactBridge
 from pmm.runtime.loop import _verify_commitment_claims
 from pmm.storage.eventlog import EventLog
 
@@ -39,6 +40,13 @@ def test_validator_catches_fake_event_id(tmp_path):
     )
 
     assert _verify_commitment_claims(reply, eventlog) is True
+    events = eventlog.read_all()
+    last = events[-1]
+    assert last["kind"] == "hallucination_detected"
+    meta = last.get("meta") or {}
+    assert meta.get("category") == "commitment_claim"
+    assert meta.get("claim_type") == "event_id"
+    assert meta.get("claims") == ["event_id:21"]
 
 
 def test_validator_catches_fake_topic(tmp_path):
@@ -57,6 +65,13 @@ def test_validator_catches_fake_topic(tmp_path):
     )
 
     assert _verify_commitment_claims(reply, eventlog) is True
+    events = eventlog.read_all()
+    last = events[-1]
+    assert last["kind"] == "hallucination_detected"
+    meta = last.get("meta") or {}
+    assert meta.get("category") == "commitment_claim"
+    assert meta.get("claim_type") == "text"
+    assert meta.get("claims") == ["compact scenes"]
 
 
 def test_validator_ignores_conversational(tmp_path):
@@ -68,6 +83,7 @@ def test_validator_ignores_conversational(tmp_path):
     eventlog = _build_eventlog(tmp_path, [])
 
     assert _verify_commitment_claims(reply, eventlog) is False
+    assert all(ev.get("kind") != "hallucination_detected" for ev in eventlog.read_all())
 
 
 def test_validator_accepts_valid_claim(tmp_path):
@@ -86,6 +102,7 @@ def test_validator_accepts_valid_claim(tmp_path):
     )
 
     assert _verify_commitment_claims(reply, eventlog) is False
+    assert all(ev.get("kind") != "hallucination_detected" for ev in eventlog.read_all())
 
 
 def test_validator_accepts_valid_event_id(tmp_path):
@@ -104,3 +121,23 @@ def test_validator_accepts_valid_event_id(tmp_path):
     reply = f"I see a commitment at event ID {actual_id}."
 
     assert _verify_commitment_claims(reply, eventlog) is False
+    assert all(ev.get("kind") != "hallucination_detected" for ev in eventlog.read_all())
+
+
+def test_factbridge_counts_commitment_hallucinations(tmp_path):
+    reply = "I committed to compact scenes."
+    eventlog = _build_eventlog(
+        tmp_path,
+        [
+            {
+                "kind": "commitment_open",
+                "content": "Commitment opened: Adaptive Increment",
+                "meta": {"cid": "abc123", "text": "Adaptive Increment"},
+            }
+        ],
+    )
+
+    _verify_commitment_claims(reply, eventlog)
+
+    bridge = FactBridge(eventlog)
+    assert bridge.assert_commitment_hallucinations(window=10) == 1

@@ -50,6 +50,31 @@ class FactBridge:
 
         return len(open_cids)
 
+    def assert_commitment_hallucinations(self, *, window: int = 1000) -> int:
+        """Return count of recent commitment hallucination detections.
+
+        Scans a tail window of the ledger for hallucination_detected events
+        categorized as commitment_claim. The window parameter bounds the
+        query for performance while remaining deterministic.
+        """
+
+        try:
+            events = self.eventlog.read_tail(limit=int(window))
+        except Exception:
+            try:
+                events = self.eventlog.read_all()
+            except Exception:
+                return 0
+
+        count = 0
+        for ev in events:
+            if ev.get("kind") != "hallucination_detected":
+                continue
+            meta = ev.get("meta") or {}
+            if meta.get("category") == "commitment_claim":
+                count += 1
+        return count
+
     def assert_stage(self) -> str | None:
         """Return current stage from ledger.
 

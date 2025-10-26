@@ -40,6 +40,9 @@ class MetricsCache:
         self._last_id: int = 0
         self._events_processed = 0
 
+        # Track which eventlog we last processed to detect database switches
+        self._last_path: str | None = None
+
         # Statistics
         self._cache_hits = 0
         self._cache_misses = 0
@@ -58,6 +61,11 @@ class MetricsCache:
         tuple
             (ias, gas) values in range [0.0, 1.0]
         """
+        current_path = getattr(eventlog, "path", None)
+        if current_path != self._last_path:
+            self.clear()
+            self._last_path = current_path
+
         # Check for new events
         new_events = eventlog.read_after_id(after_id=self._last_id, limit=10000)
 
@@ -88,6 +96,7 @@ class MetricsCache:
         self.gas = 0.0
         self._last_id = 0
         self._events_processed = 0
+        self._last_path = None
         logger.debug("MetricsCache cleared")
 
     def get_stats(self) -> dict:
