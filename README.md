@@ -9,7 +9,7 @@ This repository is released under the Persistent Mind Model License v1.1 (August
 
 ## Introduction: Why the Persistent Mind Model Exists
 
-In recent years, much of the conversation around artificial intelligence has focused on the idea that sufficiently powerful models will begin to make new new discoveries—that scale alone will push machines beyond human comprehension and into unexplored scientific territory. But scale without understanding risks becoming noise.
+In recent years, much of the conversation around artificial intelligence has focused on the idea that sufficiently powerful models will begin to make new discoveries—that scale alone will push machines beyond human comprehension and into unexplored scientific territory. But scale without understanding risks becoming noise.
 
 What good is a system that can simulate the universe if it cannot first understand itself?
 
