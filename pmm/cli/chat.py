@@ -454,7 +454,7 @@ def main() -> None:
     metrics_logs_enabled = False
     metrics_logger = logging.getLogger("pmm.runtime.metrics")
     debug_logs_enabled = False
-    debug_logger = logging.getLogger("pmm.runtime.loop.handlers")
+    debug_logger = logging.getLogger("pmm.runtime.loop")
 
     runtime.start_autonomy(
         max(0.01, float(env.autonomy_interval or 10)), bootstrap_identity=False

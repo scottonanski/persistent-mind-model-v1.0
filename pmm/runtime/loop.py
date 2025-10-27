@@ -1440,11 +1440,10 @@ class Runtime:
                     recent_events=recent_events,
                 )
             )
-            debug_msg = (
-                f"[DEBUG] Streaming: classified intent={intent}, candidate={candidate_name}, "
-                f"conf={confidence:.3f}"
+            logger.debug(
+                "Streaming: classified intent=%s, candidate=%s, conf=%.3f",
+                intent, candidate_name, confidence
             )
-            print(debug_msg, file=sys.stderr, flush=True)
         except Exception:
             intent, candidate_name, confidence = ("irrelevant", None, 0.0)
 
@@ -1475,11 +1474,10 @@ class Runtime:
         except Exception:
             turns_since_adopt = 0
 
-        gate_debug = (
-            f"[DEBUG] Streaming gate check: intent={intent}, candidate={candidate_name}, "
-            f"conf={confidence:.3f}, has_proposal={has_proposal}, turns_since_last_adopt={turns_since_adopt}"
+        logger.debug(
+            "Streaming gate check: intent=%s, candidate=%s, conf=%.3f, has_proposal=%s, turns_since_last_adopt=%s",
+            intent, candidate_name, confidence, has_proposal, turns_since_adopt
         )
-        print(gate_debug, file=sys.stderr, flush=True)
 
         from pmm.config import (
             ASSISTANT_NAMING_MIN_CONFIDENCE,
@@ -3386,10 +3384,18 @@ class AutonomyLoop:
         else:
             _io.append_reflection_skipped(self.eventlog, reason=DUE_TO_CADENCE)
             did, reason = (False, "cadence")
-            # Emit bandit breadcrumb even when skipping reflection for observability
+
+        # Refresh events to include any bandit emissions from reflection
+        try:
+            events_fresh = self.eventlog.read_tail(limit=10000)
+        except Exception:
+            events_fresh = self.eventlog.read_all()
+
+        # Emit bandit breadcrumb if reflection was NOT done (regardless of cadence reason)
+        if not did:
             try:
                 # Only emit if none exists since the last autonomy_tick
-                evs_now_bt = events
+                evs_now_bt = events_fresh
                 last_auto_id_bt = None
                 for be2 in reversed(evs_now_bt):
                     if be2.get("kind") == "autonomy_tick":

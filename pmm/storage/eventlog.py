@@ -418,6 +418,67 @@ class EventLog:
                 )
             return result
 
+    def read_by_ids(
+        self, event_ids: list[int], *, verify_hash: bool = False
+    ) -> list[dict]:
+        """Read specific events by their IDs.
+
+        Args:
+            event_ids: List of event IDs to fetch
+            verify_hash: If True, verify stored hash matches computed hash
+
+        Returns:
+            List of event dictionaries in same order as event_ids.
+            Missing events are omitted from results.
+        """
+        if not event_ids:
+            return []
+
+        with self._lock:
+            # Use parameterized query for efficiency
+            placeholders = ",".join("?" * len(event_ids))
+            cur = self._conn.execute(
+                f"SELECT id, ts, kind, content, meta, hash FROM events WHERE id IN ({placeholders}) ORDER BY id ASC",
+                event_ids,
+            )
+            rows = cur.fetchall()
+
+            result: list[dict] = []
+            for rid, ts, kind, content, meta_json, stored_hash in rows:
+                try:
+                    meta_obj = _json.loads(meta_json) if meta_json else {}
+                except Exception:
+                    meta_obj = {}
+
+                event = {
+                    "id": int(rid),
+                    "ts": str(ts),
+                    "kind": str(kind),
+                    "content": str(content),
+                    "meta": meta_obj,
+                }
+
+                # Optional hash verification
+                if verify_hash and stored_hash:
+                    payload = {
+                        "id": int(rid),
+                        "ts": str(ts),
+                        "kind": str(kind),
+                        "content": str(content),
+                        "meta": meta_obj,
+                        "prev_hash": None,  # Not needed for content verification
+                    }
+                    computed_hash = _hashlib.sha256(
+                        self._canonical_json(payload)
+                    ).hexdigest()
+                    if computed_hash != stored_hash:
+                        # Skip events with hash mismatches
+                        continue
+
+                result.append(event)
+
+            return result
+
     def verify_chain(self) -> bool:
         with self._lock:
             cur = self._conn.execute(

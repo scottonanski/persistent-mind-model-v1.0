@@ -43,7 +43,7 @@ def test_commitment_lifecycle():
 
     if not cid:
         print("  ❌ FAILED: add_commitment returned None/empty")
-        return False
+        assert False, "add_commitment returned None/empty"
 
     print("  ✓ Commitment opened successfully")
     print()
@@ -59,7 +59,7 @@ def test_commitment_lifecycle():
     if cid not in opens:
         print(f"  ❌ FAILED: CID {cid} not found in open commitments")
         print(f"  Available CIDs: {list(opens.keys())}")
-        return False
+        assert False, f"CID {cid} not found in open commitments"
 
     commitment_data = opens[cid]
     print("  ✓ Found commitment in open map")
@@ -78,7 +78,7 @@ def test_commitment_lifecycle():
 
     if not commitment_events:
         print("  ❌ FAILED: No commitment_open events in ledger")
-        return False
+        assert False, "No commitment_open events in ledger"
 
     for evt in commitment_events:
         meta = evt.get("meta", {})
@@ -114,7 +114,7 @@ def test_commitment_lifecycle():
 
     if cid in opens_after:
         print(f"  ❌ FAILED: CID {cid} still in open commitments after close")
-        return False
+        assert False, f"CID {cid} still in open commitments after close"
 
     print("  ✓ Commitment successfully closed")
     print()
@@ -131,7 +131,7 @@ def test_commitment_lifecycle():
 
     if not close_events:
         print("  ❌ FAILED: No commitment_close events in ledger")
-        return False
+        assert False, "No commitment_close events in ledger"
 
     for evt in close_events:
         meta = evt.get("meta", {})
@@ -145,7 +145,6 @@ def test_commitment_lifecycle():
     print("=" * 60)
     print("ALL TESTS PASSED ✓")
     print("=" * 60)
-    return True
 
 
 def test_extraction_integration():

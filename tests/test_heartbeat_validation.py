@@ -161,11 +161,11 @@ def test_heartbeat_emission():
             print("\n🎉 HEARTBEAT VALIDATION SUCCESSFUL!")
             print("   The autonomy_tick emission is working correctly.")
             print("   The system's awareness rhythm has been restored.")
-            return True
+            assert True  # Test passes
         else:
             print("\n💔 HEARTBEAT VALIDATION FAILED!")
             print("   The autonomy_tick emission needs further debugging.")
-            return False
+            assert False, "Heartbeat validation failed"
 
     finally:
         # Cleanup

@@ -52,13 +52,45 @@ def emit_reflection(
     _maybe_rotate_assessment_formula = _assessment.maybe_rotate_assessment_formula
 
     # Compute telemetry first so we can embed in the reflection meta
-    # Performance: Use passed events if available, otherwise read recent tail only
-    # Reflections only need recent context (last 1000 events) - not full history
+    # Performance: Use passed events if available, otherwise use routed context
+    # Reflections benefit from full history access via semantic routing
     if events is None:
         try:
-            events = eventlog.read_tail(limit=1000)  # 5-10x faster than read_all()
-        except (AttributeError, TypeError):
-            events = eventlog.read_all()  # Fallback for older eventlog implementations
+            from pmm.runtime.event_router import ContextQuery
+            from pmm.runtime.routed_integration import (
+                create_routed_infrastructure,
+                is_routed_context_enabled,
+            )
+
+            if is_routed_context_enabled():
+                # Use routed context for full history access
+                event_index, event_router, identity_resolver = (
+                    create_routed_infrastructure(eventlog)
+                )
+
+                # Route for reflection-relevant events
+                reflection_query = ContextQuery(
+                    required_kinds=[
+                        "reflection",
+                        "autonomy_tick",
+                        "metrics_update",
+                        "trait_update",
+                    ],
+                    semantic_terms=[],
+                    limit=100,  # Get sufficient context for metrics computation
+                    recency_boost=0.8,  # Strong recency bias for current state
+                )
+                event_ids = event_router.route(reflection_query)
+                events = eventlog.read_by_ids(event_ids, verify_hash=False)
+            else:
+                # Fallback to tail optimization
+                events = eventlog.read_tail(limit=1000)
+        except Exception:
+            # Final fallback
+            try:
+                events = eventlog.read_tail(limit=1000)
+            except (AttributeError, TypeError):
+                events = eventlog.read_all()
     # Performance: Use cached metrics computation
     ias, gas = get_or_compute_ias_gas(eventlog)
     synth = None
@@ -387,7 +419,11 @@ def emit_reflection(
     # Introspection audit after reflection: append audit_report events
     try:
         try:
-            evs_a = eventlog.read_tail(limit=1000)
+
+            # Use routed context for audit - need broader event context
+            evs_a = eventlog.read_tail(
+                limit=1000
+            )  # Keep tail for audit (performance critical)
         except (AttributeError, TypeError):
             evs_a = eventlog.read_all()
         with profiler.measure("run_audit"):
@@ -463,13 +499,40 @@ def maybe_reflect(
     # Be resilient to different cooldown stub signatures in tests
     now_value = float(now) if now is not None else float(_time.time())
 
-    # Performance: Use passed events if available, otherwise read recent tail only
-    # Reflection decisions only need recent context (last 1000 events)
+    # Performance: Use passed events if available, otherwise use routed context
+    # Reflection decisions benefit from full history access via semantic routing
     if events is None:
         try:
-            events = eventlog.read_tail(limit=1000)  # 5-10x faster than read_all()
-        except (AttributeError, TypeError):
-            events = eventlog.read_all()  # Fallback
+            from pmm.runtime.event_router import ContextQuery
+            from pmm.runtime.routed_integration import (
+                create_routed_infrastructure,
+                is_routed_context_enabled,
+            )
+
+            if is_routed_context_enabled():
+                # Use routed context for reflection decisions
+                event_index, event_router, identity_resolver = (
+                    create_routed_infrastructure(eventlog)
+                )
+
+                # Route for reflection decision context
+                decision_query = ContextQuery(
+                    required_kinds=["reflection", "autonomy_tick", "commitment_open"],
+                    semantic_terms=[],
+                    limit=50,  # Sufficient for decision making
+                    recency_boost=0.9,  # Strong recency bias for current state
+                )
+                event_ids = event_router.route(decision_query)
+                events = eventlog.read_by_ids(event_ids, verify_hash=False)
+            else:
+                # Fallback to tail optimization
+                events = eventlog.read_tail(limit=1000)
+        except Exception:
+            # Final fallback
+            try:
+                events = eventlog.read_tail(limit=1000)
+            except (AttributeError, TypeError):
+                events = eventlog.read_all()
 
     try:
         # Prefer explicit overrides; otherwise, apply policy override only if present.
@@ -659,6 +722,30 @@ def maybe_reflect(
                 already_bt2 = True
                 break
         if not already_bt2:
+            # Double-check with fresh events to prevent race conditions
+            try:
+                fresh_events = eventlog.read_tail(limit=1000)
+                fresh_already_bt = False
+                fresh_last_auto_id = None
+                for be in reversed(fresh_events):
+                    if be.get("kind") == "autonomy_tick":
+                        fresh_last_auto_id = int(be.get("id") or 0)
+                        break
+                for be in reversed(fresh_events):
+                    if (
+                        fresh_last_auto_id is not None
+                        and int(be.get("id") or 0) <= fresh_last_auto_id
+                    ):
+                        break
+                    if be.get("kind") == "bandit_arm_chosen":
+                        fresh_already_bt = True
+                        break
+                if fresh_already_bt:
+                    # Bandit already emitted this tick, skip
+                    return (True, "ok")
+            except Exception:
+                pass
+
             # Normalize arm label to bandit ARMS naming (question -> question_form)
             try:
                 # Use explicit style_override_arm if provided, otherwise use computed arm
