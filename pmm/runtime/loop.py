@@ -1442,7 +1442,9 @@ class Runtime:
             )
             logger.debug(
                 "Streaming: classified intent=%s, candidate=%s, conf=%.3f",
-                intent, candidate_name, confidence
+                intent,
+                candidate_name,
+                confidence,
             )
         except Exception:
             intent, candidate_name, confidence = ("irrelevant", None, 0.0)
@@ -1476,7 +1478,11 @@ class Runtime:
 
         logger.debug(
             "Streaming gate check: intent=%s, candidate=%s, conf=%.3f, has_proposal=%s, turns_since_last_adopt=%s",
-            intent, candidate_name, confidence, has_proposal, turns_since_adopt
+            intent,
+            candidate_name,
+            confidence,
+            has_proposal,
+            turns_since_adopt,
         )
 
         from pmm.config import (
