@@ -528,7 +528,14 @@ def build_self_model_optimized(
     )
 
     # Replay delta on top of snapshot
-    return _replay_delta(base_state, delta_events, eventlog=eventlog, **kwargs)
+    return _replay_delta(
+        base_state,
+        delta_events,
+        eventlog=eventlog,
+        _snapshot_anchor_id=anchor_id,
+        _snapshot_events=events,
+        **kwargs,
+    )
 
 
 def _replay_delta(
@@ -553,12 +560,52 @@ def _replay_delta(
     # Start from deep copy of the snapshot baseline
     model = copy.deepcopy(base_state)
 
+    anchor_id = kwargs.pop("_snapshot_anchor_id", None)
+    snapshot_events = kwargs.pop("_snapshot_events", None)
+
+    strict: bool = kwargs.get("strict", False)
+    max_trait_delta: float = kwargs.get(
+        "max_trait_delta", projection_module.MAX_TRAIT_DELTA
+    )
+    on_warn = kwargs.get("on_warn")
+    projection_invariant_error = projection_module.ProjectionInvariantError
+
     # Remove memegraph from model if present (it's already restored separately)
     model.pop("memegraph", None)
 
     # Incrementally apply each delta event on top of baseline
     # This reuses the same logic as projection.py but operates on existing state
     from pmm.utils.parsers import extract_name_from_change_event
+
+    _evidence_seen: set[tuple] = set()
+    _identity_adopted: bool = False
+    _last_eid: int = 0
+
+    if snapshot_events and anchor_id is not None:
+        for ev in snapshot_events:
+            try:
+                eid = int(ev.get("id") or 0)
+            except Exception:
+                eid = 0
+            if anchor_id is not None and eid > anchor_id:
+                break
+            kind = ev.get("kind")
+            meta = ev.get("meta") or {}
+            content = ev.get("content", "")
+            if kind == "identity_adopt":
+                new_name = meta.get("name") or content or None
+                if isinstance(new_name, str) and new_name.strip():
+                    _identity_adopted = True
+            elif kind == "identity_clear":
+                _identity_adopted = False
+            elif kind == "evidence_candidate":
+                cid = meta.get("cid")
+                et = (meta.get("evidence_type") or "done").strip().lower()
+                if cid:
+                    _evidence_seen.add((cid, et))
+
+    if not _identity_adopted and bool(model.get("identity", {}).get("name")):
+        _identity_adopted = True
 
     key_map = {
         "o": "openness",
@@ -577,6 +624,10 @@ def _replay_delta(
         kind = ev.get("kind")
         content = ev.get("content", "")
         meta = ev.get("meta") or {}
+        try:
+            _last_eid = int(ev.get("id") or 0)
+        except Exception:
+            _last_eid = 0
 
         if kind == "identity_change":
             new_name = meta.get("name")
@@ -591,9 +642,12 @@ def _replay_delta(
             if isinstance(new_name, str):
                 nm = new_name.strip()
                 model["identity"]["name"] = nm or None
+                if nm:
+                    _identity_adopted = True
 
         elif kind == "identity_clear":
             model["identity"]["name"] = None
+            _identity_adopted = False
 
         elif kind == "trait_update":
             delta_field = meta.get("delta")
@@ -609,8 +663,11 @@ def _replay_delta(
                         delta_f = float(v)
                     except Exception:
                         delta_f = 0.0
+                    if strict and abs(delta_f) > max_trait_delta:
+                        delta_f = max_trait_delta if delta_f > 0 else -max_trait_delta
                     cur = float(model["identity"]["traits"].get(tkey, 0.5))
-                    newv = max(0.0, min(1.0, cur + delta_f))
+                    trait_floor = 0.01
+                    newv = max(trait_floor, min(1.0, cur + delta_f))
                     model["identity"]["traits"][tkey] = newv
             else:
                 # Single-trait legacy schema
@@ -618,10 +675,13 @@ def _replay_delta(
                     delta_f = float(delta_field)
                 except Exception:
                     delta_f = 0.0
+                if strict and abs(delta_f) > max_trait_delta:
+                    delta_f = max_trait_delta if delta_f > 0 else -max_trait_delta
                 tkey = key_map.get(trait)
                 if tkey:
                     cur = float(model["identity"]["traits"].get(tkey, 0.5))
-                    newv = max(0.0, min(1.0, cur + delta_f))
+                    trait_floor = 0.01
+                    newv = max(trait_floor, min(1.0, cur + delta_f))
                     model["identity"]["traits"][tkey] = newv
 
         elif kind == "commitment_open":
@@ -630,6 +690,12 @@ def _replay_delta(
             if cid and text is not None:
                 entry = {k: v for k, v in meta.items()}
                 model["commitments"]["open"][cid] = entry
+
+        elif kind == "evidence_candidate":
+            cid = meta.get("cid")
+            et = (meta.get("evidence_type") or "done").strip().lower()
+            if cid:
+                _evidence_seen.add((cid, et))
 
         elif kind in ("commitment_close", "commitment_expire"):
             cid = meta.get("cid")
@@ -640,6 +706,27 @@ def _replay_delta(
                         "expired_at": int(ev.get("id") or 0),
                         "reason": (meta or {}).get("reason") or "timeout",
                     }
+                if kind == "commitment_close":
+                    if (cid, "done") not in _evidence_seen:
+                        if strict:
+                            raise projection_invariant_error(
+                                f"commitment_close without prior evidence_candidate (cid={cid}, eid={_last_eid})"
+                            )
+                        if callable(on_warn):
+                            try:
+                                on_warn(
+                                    {
+                                        "kind": "projection_warn",
+                                        "content": "commitment_close without evidence",
+                                        "meta": {
+                                            "cid": cid,
+                                            "eid": _last_eid,
+                                            "reason": "close_without_evidence",
+                                        },
+                                    }
+                                )
+                            except Exception:
+                                pass
                 model["commitments"]["open"].pop(cid, None)
 
         elif kind == "commitment_snooze":
@@ -650,6 +737,11 @@ def _replay_delta(
                 except Exception:
                     until_t = 0
                 model["commitments"]["open"][cid]["snoozed_until"] = until_t
+
+    if strict and _identity_adopted and (model["identity"].get("name") is None):
+        raise projection_invariant_error(
+            f"identity reverted to None without identity_clear (last_eid={_last_eid})"
+        )
 
     return model
 
