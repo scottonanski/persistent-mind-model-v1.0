@@ -18,6 +18,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
+from pmm.runtime.ledger.narrative import _decode_meta, _from_meta
 from pmm.storage.event_index import EventIndex
 from pmm.storage.eventlog import EventLog
 
@@ -119,8 +120,18 @@ class EventRouter:
             return
 
         event = events[0]
-        content = str(event.get("content", ""))
-        content_summary = content[:100]  # First 100 chars
+        content = str(event.get("content", "") or "").strip()
+
+        if not content:
+            meta = _decode_meta(event.get("meta"))
+            derived = _from_meta(kind, meta)
+            if derived:
+                content = self._sanitize_meta_text(kind, derived)
+
+        if content:
+            content_summary = content[:100]
+        else:
+            content_summary = "[no semantic content]"
 
         # Create pointer
         pointer = EventPointer(
@@ -135,7 +146,7 @@ class EventRouter:
         self._kind_index[kind].append(event_id)
 
         # Extract content terms for semantic matching
-        terms = self._extract_content_terms(content_summary)
+        terms = self._extract_content_terms(content if content else "")
         self._content_terms[event_id] = terms
 
         # Update structural indices
@@ -207,6 +218,14 @@ class EventRouter:
             "those",
         }
         return {term for term in terms if len(term) > 2 and term not in stopwords}
+
+    def _sanitize_meta_text(self, kind: str, text: str) -> str:
+        """Remove volatile fragments from derived meta summaries for stable indexing."""
+        if kind in {"llm_latency", "autonomy_tick"}:
+            cut = text.rfind("(tick ")
+            if cut != -1:
+                return text[:cut].strip()
+        return text
 
     def _update_structural_indices(
         self, event_id: int, kind: str, event: dict[str, Any]

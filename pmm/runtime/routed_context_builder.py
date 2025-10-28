@@ -16,6 +16,7 @@ from datetime import datetime as _dt
 from typing import Any
 
 from pmm.runtime.event_router import ContextQuery, EventRouter
+from pmm.runtime.ledger.narrative import eventrow_to_narrative
 from pmm.runtime.snapshot import LedgerSnapshot
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_identity
@@ -47,6 +48,18 @@ def _short_reflection(text: str) -> str:
     if not text:
         return ""
     return extract_first_sentence(normalize_whitespace(text))
+
+
+def _narrative_marker(event: dict[str, Any]) -> tuple[str, str]:
+    """Return epistemic marker and narrative text for an event."""
+    narrative = eventrow_to_narrative(event)
+    if narrative.confidence == "high":
+        marker = ""
+    elif narrative.confidence == "medium":
+        marker = " [from technical metadata]"
+    else:
+        marker = " [no narrative data available]"
+    return marker, narrative.text
 
 
 def build_context_with_router(
@@ -268,32 +281,35 @@ def build_context_with_router(
             for event in open_commitment_events[:max_commitments]:
                 eid = event.get("id", "?")
                 cid = (event.get("meta") or {}).get("cid", "")[:8]
-                txt = _short_commitment((event.get("meta") or {}).get("text", ""))
+                marker, narrative_text = _narrative_marker(event)
+                meta_text = (event.get("meta") or {}).get("text", "")
+                txt = _short_commitment(meta_text) or _short_commitment(narrative_text)
+                if not txt:
+                    txt = narrative_text
 
-                if txt:
-                    # Format: [event_id:cid] text [read]
-                    formatted = f"[{eid}:{cid}] {txt} [read]"
+                prefix = f"[{eid}:{cid}]{marker}"
+                formatted = f"{prefix} {txt} [read]"
 
-                    # Enforce character budget
-                    if total_chars + len(formatted) > max_commitment_chars:
-                        remaining = max_commitment_chars - total_chars
-                        if remaining > 30:
-                            txt_truncated = (
-                                txt[
-                                    : remaining
-                                    - len(f"[{eid}:{cid}] ")
-                                    - len(" [read]")
-                                    - 3
-                                ]
-                                + "..."
-                            )
+                # Enforce character budget
+                if total_chars + len(formatted) > max_commitment_chars:
+                    remaining = max_commitment_chars - total_chars
+                    if remaining > 30:
+                        allowable = (
+                            remaining
+                            - len(prefix)
+                            - len(" [read]")
+                            - 3
+                            - 1  # space before text
+                        )
+                        if allowable > 0:
+                            txt_truncated = txt[:allowable] + "..."
                             commitments_block.append(
-                                f"  - [{eid}:{cid}] {txt_truncated} [read]"
+                                f"  - {prefix} {txt_truncated} [read]"
                             )
-                        break
+                    break
 
-                    commitments_block.append(f"  - {formatted}")
-                    total_chars += len(formatted)
+                commitments_block.append(f"  - {formatted}")
+                total_chars += len(formatted)
 
     # --- Recent Reflections -------------------------------------------------
     reflections_block: list[str] = []
@@ -323,23 +339,47 @@ def build_context_with_router(
 
             ts = _iso_short(event.get("ts")) if not compact_mode else ""
             txt = _short_reflection(event.get("content", ""))
+            marker, narrative_text = _narrative_marker(event)
+            if not txt:
+                txt = _short_reflection(narrative_text)
+            if not txt:
+                txt = narrative_text
 
             # Enforce character budget
-            if total_chars + len(txt) > max_reflection_chars:
+            if total_chars + len(txt) + len(marker) > max_reflection_chars:
                 remaining = max_reflection_chars - total_chars
                 if remaining > 20:
-                    txt = txt[: remaining - len(" [read]") - 3] + "..."
-                    if compact_mode:
-                        reflections_block.append(f'  - "{txt}" [read]')
-                    else:
-                        reflections_block.append(f'  - {ts}: "{txt}" [read]')
+                    available = remaining - len(marker) - len(" [read]") - 3
+                    if not compact_mode and ts:
+                        available -= len(ts) + 2  # account for ": "
+                    if available > 0:
+                        truncated = txt[:available] + "..."
+                        if compact_mode:
+                            reflections_block.append(
+                                f'  - "{truncated}"{marker} [read]'
+                            )
+                        else:
+                            prefix = ts + marker
+                            if prefix:
+                                reflections_block.append(
+                                    f'  - {prefix}: "{truncated}" [read]'
+                                )
+                            else:
+                                reflections_block.append(f'  - "{truncated}" [read]')
+                break
+
+            if total_chars + len(txt) + len(marker) > max_reflection_chars:
                 break
 
             if compact_mode:
-                reflections_block.append(f'  - "{txt}" [read]')
+                reflections_block.append(f'  - "{txt}"{marker} [read]')
             else:
-                reflections_block.append(f'  - {ts}: "{txt}" [read]')
-            total_chars += len(txt)
+                prefix = ts + marker
+                if prefix:
+                    reflections_block.append(f'  - {prefix}: "{txt}" [read]')
+                else:
+                    reflections_block.append(f'  - "{txt}" [read]')
+            total_chars += len(txt) + len(marker)
             count += 1
 
         # Reverse to show chronological order (older → newer)

@@ -90,6 +90,7 @@ from pmm.runtime.planning import (
 )
 from pmm.runtime.pmm_prompts import build_system_msg
 from pmm.runtime.prioritizer import rank_commitments
+from pmm.runtime.qa.deterministic import try_answer_event_question
 from pmm.runtime.reflection_bandit import (
     ARMS as _BANDIT_ARMS,
 )
@@ -1456,6 +1457,11 @@ class Runtime:
         Yields:
             Individual tokens or token chunks as strings
         """
+        deterministic = try_answer_event_question(self.eventlog, user_text or "")
+        if deterministic is not None:
+            yield deterministic
+            return
+
         # Phase 1 Optimization: Always-on performance profiler (lightweight)
         from pmm.runtime.profiler import get_global_profiler
 

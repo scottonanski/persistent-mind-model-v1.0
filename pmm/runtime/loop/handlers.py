@@ -16,6 +16,7 @@ from pmm.config import (
 )
 from pmm.runtime.llm_trait_adjuster import apply_llm_trait_adjustments
 from pmm.runtime.pmm_prompts import ORIENTATION_V, build_system_msg, orientation_hash
+from pmm.runtime.qa.deterministic import try_answer_event_question
 from pmm.runtime.scene_compactor import maybe_compact
 from pmm.storage.projection import build_identity
 
@@ -56,6 +57,10 @@ def handle_user_input(
         file=sys.stderr,
         flush=True,
     )
+
+    deterministic = try_answer_event_question(runtime.eventlog, user_text or "")
+    if deterministic is not None:
+        return deterministic
     # Import here to avoid circular dependencies
     from pmm.runtime.loop import identity as _identity_module
     from pmm.runtime.loop import io as _io
