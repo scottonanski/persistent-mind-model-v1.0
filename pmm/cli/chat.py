@@ -156,7 +156,6 @@ def _metrics_panel(snap: dict) -> Panel:
     name = identity.get("name") or "—"
     top_traits = identity.get("top_traits", [])
     priority = snap.get("priority_top5", [])
-    self_lines = snap.get("self_model_lines") or []
 
     grid = Table.grid(expand=False, padding=(0, 1))
     summary = Text()
@@ -287,51 +286,7 @@ def _metrics_panel(snap: dict) -> Panel:
         mg_line.append(" | ".join(parts), style="bold white")
         grid.add_row(mg_line)
 
-    if self_lines:
-        grid.add_row(Text("", style="dim"))
-        for ln in self_lines:
-            grid.add_row(Text(str(ln), style="dim"))
-
-    # Signals (last commitment/identity decisions) if provided by MetricsView
-    signals = snap.get("signals") or {}
-    try:
-        c_sig = signals.get("commitment") or {}
-        i_sig = signals.get("identity") or {}
-        pieces: list[str] = []
-        if isinstance(c_sig, dict) and c_sig:
-            try:
-                pieces.append(
-                    "commit:{status} score={score} src={source}".format(
-                        status=c_sig.get("status", "none"),
-                        score=c_sig.get("best_score", "0.00"),
-                        source=c_sig.get("speaker", "?"),
-                    )
-                )
-            except Exception:
-                pass
-        if isinstance(i_sig, dict) and i_sig:
-            try:
-                acc = "yes" if i_sig.get("accepted") else "no"
-                conf = i_sig.get("confidence")
-                confs = f"{float(conf):.2f}" if isinstance(conf, (int, float)) else "?"
-                pieces.append(
-                    "identity:{candidate} conf={conf} accepted={accepted} src={source}".format(
-                        candidate=i_sig.get("candidate", "?"),
-                        conf=confs,
-                        accepted=acc,
-                        source=i_sig.get("source", "?"),
-                    )
-                )
-            except Exception:
-                pass
-        if pieces:
-            sig_line = Text("Signals ", style="bright_blue")
-            sig_line.append(" | ".join(pieces), style="bold white")
-            grid.add_row(sig_line)
-    except Exception:
-        pass
-
-    # Render deltas (per-turn changes)
+    # Render deltas (per-turn changes) and signals
     deltas = snap.get("deltas") or {}
     d_ias = deltas.get("IAS_delta")
     d_gas = deltas.get("GAS_delta")
