@@ -143,7 +143,7 @@ Companion API  →  UI / integrations / analytics
 - **Deterministic evolution** – IAS (identity stability) and GAS (commitment-driven growth) are recomputed from the ledger, making behaviour reproducible and auditable.
 - **Cohesive narrative** – the runtime’s reflections, commitments, and stage transitions are simply ledger interpretations; the LLM supplies language, the ledger supplies identity.
 
-> “The ledger **is** the mind. The LLM is just the current expression of it.” — excerpt from an early Claude walkthrough
+> “The ledger **is** the mind. The LLM is just the current expression of it.”
 
 ---
 
