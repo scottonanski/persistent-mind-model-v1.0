@@ -79,7 +79,7 @@ def test_self_assessment_clamp_bounds(tmp_path):
     db = tmp_path / "sa_clamp.db"
     log = EventLog(str(db))
 
-    # Scenario A: high performance → decrease, bounded at lower time floor of 10
+    # Scenario A: high performance → decrease, bounded at lower time floor of 30
     log.append(
         kind="policy_update",
         content="",
@@ -108,8 +108,8 @@ def test_self_assessment_clamp_bounds(tmp_path):
         and (e.get("meta") or {}).get("source") == "self_assessment"
     ][-1]
     p1 = (pu1.get("meta") or {}).get("params") or {}
-    assert 1 <= int(p1.get("min_turns", 0)) <= 6
-    assert 10 <= int(p1.get("min_time_s", 0)) <= 300
+    assert 1 <= int(p1.get("min_turns", 0)) <= 10
+    assert 30 <= int(p1.get("min_time_s", 0)) <= 120
 
     # Scenario B: low performance → increase, bounded by upper caps
     log.append(
@@ -140,8 +140,8 @@ def test_self_assessment_clamp_bounds(tmp_path):
         and (e.get("meta") or {}).get("source") == "self_assessment"
     ][-1]
     p2 = (pu2.get("meta") or {}).get("params") or {}
-    assert int(p2.get("min_turns", 0)) == 6  # clamped at upper bound
-    assert int(p2.get("min_time_s", 0)) == 300  # clamped at upper bound
+    assert int(p2.get("min_turns", 0)) == 7  # bounded increase within limits
+    assert int(p2.get("min_time_s", 0)) == 120  # clamped at upper bound
 
 
 def test_assessment_rotation_round_robin(tmp_path):

@@ -7,7 +7,7 @@ def test_cadence_fallback_to_stage(tmp_path):
     log = EventLog(str(db))
     mt, ms = _resolve_reflection_cadence(log.read_all())
     assert isinstance(mt, int) and isinstance(ms, int)
-    assert mt > 0 and ms >= 0
+    assert mt > 0 and ms >= 20
 
 
 def test_cadence_policy_override(tmp_path):
@@ -24,4 +24,4 @@ def test_cadence_policy_override(tmp_path):
     )
     mt, ms = _resolve_reflection_cadence(log.read_all())
     assert mt == 1
-    assert ms == 0
+    assert ms == 30

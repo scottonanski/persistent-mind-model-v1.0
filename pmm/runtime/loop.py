@@ -22,6 +22,7 @@ import logging
 import sys
 import threading as _threading
 import time as _time
+from collections.abc import Iterable
 from typing import Any
 
 import pmm.runtime.embeddings as _emb
@@ -31,7 +32,6 @@ from pmm.commitments.restructuring import CommitmentRestructurer
 from pmm.commitments.tracker import CommitmentTracker
 from pmm.commitments.tracker import due as _due
 from pmm.config import (
-    DUE_TO_CADENCE,
     MAX_COMMITMENT_CHARS,
     MAX_REFLECTION_CHARS,
     REASONING_TRACE_BUFFER_SIZE,
@@ -118,6 +118,7 @@ from pmm.runtime.stage_tracker import (
 )
 from pmm.runtime.trace_buffer import TraceBuffer
 from pmm.storage.projection import build_identity, build_self_model
+from pmm.utils.parsers import extract_event_ids
 
 logger = logging.getLogger(__name__)
 
@@ -319,7 +320,11 @@ def _append_reflection_check(eventlog: EventLog, ref_id: int, text: str) -> None
 def _resolve_reflection_policy_overrides(
     events: list[dict],
 ) -> tuple[int | None, int | None]:
-    """Return (min_turns, min_seconds) only if a reflection policy_update exists."""
+    """Return (min_turns, min_seconds) only if a reflection policy_update exists.
+
+    Applies hard-coded clamping to prevent extreme values that break determinism.
+    Sane range: min_seconds ∈ [30, 120], min_turns ∈ [1, 10]
+    """
     try:
         for ev in reversed(events):
             if ev.get("kind") != "policy_update":
@@ -332,7 +337,31 @@ def _resolve_reflection_policy_overrides(
             ms = p.get("min_time_s")
             if mt is None or ms is None:
                 continue
-            return (int(mt), int(ms))
+
+            # CLAMP POLICY VALUES - Hard-coded sane defaults per CONTRIBUTING.md
+            # Prevents extreme values that break ledger determinism and reflection cadence
+            try:
+                mt_int = int(mt)
+                ms_int = int(ms)
+                # Clamp min_seconds to [30, 120] range - prevents excessive delays
+                ms_clamped = max(30, min(120, ms_int))
+                # Clamp min_turns to [1, 10] range - prevents spam or starvation
+                mt_clamped = max(1, min(10, mt_int))
+
+                # Log clamping if values were modified
+                if ms_clamped != ms_int or mt_clamped != mt_int:
+                    logger.warning(
+                        f"Clamped reflection policy: min_turns {mt_int}→{mt_clamped}, "
+                        f"min_time_s {ms_int}→{ms_clamped} (event #{ev.get('id')})"
+                    )
+
+                return (mt_clamped, ms_clamped)
+            except (ValueError, TypeError):
+                # Invalid numeric values - skip this policy update
+                logger.warning(
+                    f"Invalid reflection policy values: mt={mt}, ms={ms} (event #{ev.get('id')})"
+                )
+                continue
     except Exception:
         pass
     return (None, None)
@@ -419,6 +448,7 @@ class Runtime:
         self._graph_recent_edges: collections.deque[str] = collections.deque(maxlen=6)
         self._graph_recent_nodes: collections.deque[str] = collections.deque(maxlen=12)
         self._graph_trigger = GraphInsightTrigger()
+        self._pending_claimed_reflection_ids: list[int] | None = None
 
         # Initialize reasoning trace buffer
         if REASONING_TRACE_ENABLED:
@@ -498,6 +528,79 @@ class Runtime:
                 self.tracker,
                 self.cooldown,
             )
+
+    def record_claimed_reflection_ids(self, claimed_ids: Iterable[int]) -> None:
+        """Persist LLM-claimed reflection IDs until the next response append."""
+        normalized: list[int] = []
+        for item in claimed_ids or []:
+            try:
+                value = int(item)
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                normalized.append(value)
+        if not normalized:
+            return
+
+        existing = self._pending_claimed_reflection_ids or []
+        merged = list(existing) + normalized
+        # Preserve deterministic ordering and uniqueness
+        self._pending_claimed_reflection_ids = sorted(dict.fromkeys(merged))
+
+    def consume_pending_claimed_reflection_ids(self) -> list[int] | None:
+        """Return and clear any pending claimed reflection IDs."""
+        pending = self._pending_claimed_reflection_ids
+        self._pending_claimed_reflection_ids = None
+        return pending
+
+    def _extract_reflection_claim_ids(self, reply: str) -> list[int]:
+        if not reply:
+            return []
+
+        sentences: list[str] = []
+        current: list[str] = []
+        for char in reply:
+            if char in ".!?\n":
+                if current:
+                    sentences.append("".join(current).strip())
+                    current = []
+            else:
+                current.append(char)
+        if current:
+            sentences.append("".join(current).strip())
+
+        seen: set[int] = set()
+        results: list[int] = []
+
+        for sentence in sentences:
+            lowered = sentence.lower()
+            if "reflect" not in lowered:
+                continue
+
+            for eid in extract_event_ids(sentence):
+                if eid > 0 and eid not in seen:
+                    seen.add(eid)
+                    results.append(eid)
+
+            for token in sentence.split():
+                if token.startswith("#") and token[1:].isdigit():
+                    value = int(token[1:])
+                    if value > 0 and value not in seen:
+                        seen.add(value)
+                        results.append(value)
+
+        return results
+
+    def _note_reflection_claims(self, reply: str) -> None:
+        try:
+            claimed = self._extract_reflection_claim_ids(reply)
+        except Exception:
+            return
+        if claimed:
+            try:
+                self.record_claimed_reflection_ids(claimed)
+            except Exception:
+                pass
 
     def force_graph_context(self) -> None:
         """Force graph evidence injection on the next user turn."""
@@ -1620,6 +1723,8 @@ class Runtime:
                 # Keep legacy resilience
                 pass
 
+            self._note_reflection_claims(reply)
+
             # Append response event
             response_event_id = None
             try:
@@ -2373,6 +2478,9 @@ class AutonomyLoop:
         except Exception:
             self._repeat_overdue_reflection_commitments = True
 
+        # ---- MemeGraph baseline for evidence delta checks ----
+        self._memegraph_baseline: dict | None = None
+
         # ---- Policy update caches for idempotency ----
         self._last_reflection_policy: dict[str, dict] = {}
         self._last_drift_policy: dict[str, dict] = {}
@@ -2970,6 +3078,90 @@ class AutonomyLoop:
                 next_at = now + self.interval
             self._stop.wait(0.05)
 
+    def _latest_reflection_ids_from_tail(self, events_tail: list[dict]) -> list[int]:
+        """Return the most recent reflection ID as a singleton list."""
+        for ev in reversed(events_tail):
+            if ev.get("kind") != "reflection":
+                continue
+            try:
+                rid = int(ev.get("id") or 0)
+            except Exception:
+                continue
+            if rid > 0:
+                return [rid]
+        return []
+
+    def _claimed_reflection_ids_from_tail(
+        self, events_tail: list[dict]
+    ) -> tuple[list[int], int | None]:
+        """Extract claimed reflection IDs and the response event that asserted them."""
+        for ev in reversed(events_tail):
+            if ev.get("kind") != "response":
+                continue
+            meta = ev.get("meta") or {}
+            claimed_raw = meta.get("claimed_reflection_ids")
+            if not claimed_raw:
+                continue
+            normalized: list[int] = []
+            for item in claimed_raw:
+                try:
+                    value = int(item)
+                except (TypeError, ValueError):
+                    continue
+                if value > 0:
+                    normalized.append(value)
+            if not normalized:
+                continue
+            unique_sorted = sorted(dict.fromkeys(normalized))
+            try:
+                response_id = int(ev.get("id") or 0)
+            except Exception:
+                response_id = None
+            return unique_sorted, (
+                response_id if response_id and response_id > 0 else None
+            )
+        return ([], None)
+
+    def _emit_reflection_audit(self, *, tick_no: int) -> None:
+        """Emit reflection_audit event comparing claimed vs actual reflection IDs."""
+        try:
+            tail = self.eventlog.read_tail(limit=200)
+        except Exception:
+            return
+
+        actual_ids = self._latest_reflection_ids_from_tail(tail)
+        claimed_ids, claimed_response_id = self._claimed_reflection_ids_from_tail(tail)
+
+        if not actual_ids and not claimed_ids:
+            # Nothing to audit
+            return
+
+        actual_set = set(actual_ids)
+        discrepancy = [cid for cid in claimed_ids if cid not in actual_set]
+        missing_claims = [rid for rid in actual_ids if rid not in set(claimed_ids)]
+
+        meta_payload: dict[str, Any] = {
+            "audit_type": "successful_reflection",
+            "tick": tick_no,
+            "status": "match" if not discrepancy else "mismatch",
+            "actual_reflection_ids": actual_ids,
+            "claimed_reflection_ids": claimed_ids,
+            "discrepancy": discrepancy,
+        }
+        if missing_claims:
+            meta_payload["unclaimed_reflection_ids"] = missing_claims
+        if claimed_response_id:
+            meta_payload["claimed_source_response_id"] = claimed_response_id
+
+        try:
+            self.eventlog.append(
+                kind="reflection_audit",
+                content="",
+                meta=meta_payload,
+            )
+        except Exception:
+            pass
+
     def tick(self) -> None:
         # Performance: Use snapshot events throughout to avoid redundant database reads
         # The snapshot already contains all events we need - no need to read_all() again!
@@ -2983,6 +3175,13 @@ class AutonomyLoop:
                     break
             except Exception:
                 break
+
+        # Capture memegraph baseline at start of tick for evidence delta checks
+        try:
+            if hasattr(self.runtime, "memegraph") and self.runtime.memegraph:
+                self._memegraph_baseline = self.runtime.memegraph.export_state()
+        except Exception:
+            self._memegraph_baseline = None
         ias = snapshot_tick.ias
         gas = snapshot_tick.gas
         curr_stage = snapshot_tick.stage
@@ -3380,16 +3579,15 @@ class AutonomyLoop:
                     llm_generate=lambda context: (
                         self.runtime.reflect(context) if self.runtime else None
                     ),
-                    memegraph=(
-                        getattr(self.runtime, "memegraph", None)
-                        if self.runtime is not None
-                        else getattr(self, "memegraph", None)
-                    ),
+                    memegraph=getattr(self.runtime, "memegraph", None),
                     style_override_arm=_style_arm or None,
                 )
-        else:
-            _io.append_reflection_skipped(self.eventlog, reason=DUE_TO_CADENCE)
-            did, reason = (False, "cadence")
+
+        if did:
+            try:
+                self._emit_reflection_audit(tick_no=tick_no)
+            except Exception:
+                pass
 
         # Refresh events to include any bandit emissions from reflection
         try:
@@ -3454,6 +3652,22 @@ class AutonomyLoop:
                         arm=str(arm or "succinct"),
                         tick=int(tick_c),
                     )
+            except Exception:
+                pass
+
+        # If reflection was skipped, align reason with the latest skip event for downstream rules
+        if not did:
+            try:
+                skip_reason = None
+                for ev in reversed(events_fresh):
+                    if ev.get("kind") != "reflection_skipped":
+                        continue
+                    meta_skip = ev.get("meta") or {}
+                    skip_reason = str(meta_skip.get("reason") or "")
+                    if skip_reason:
+                        break
+                if skip_reason:
+                    reason = skip_reason
             except Exception:
                 pass
 
@@ -3820,6 +4034,18 @@ class AutonomyLoop:
             if self._stuck_stage != curr_stage or did:
                 self._stuck_count = 0
                 self._stuck_stage = curr_stage
+            if not did and reason not in _STUCK_REASONS:
+                try:
+                    for ev in reversed(events_fresh):
+                        if ev.get("kind") != "reflection_skipped":
+                            continue
+                        meta_skip = ev.get("meta") or {}
+                        recovered = str(meta_skip.get("reason") or "")
+                        if recovered:
+                            reason = recovered
+                            break
+                except Exception:
+                    pass
             # Update counter based on skip reason
             if not did and reason in _STUCK_REASONS:
                 self._stuck_count += 1
@@ -3846,7 +4072,8 @@ class AutonomyLoop:
                     pass
                 did, reason = (True, "forced_stuck")
                 # Tag voicable insight if applicable
-                _maybe_mark_insight_ready(rid_forced)
+                if rid_forced:
+                    _maybe_mark_insight_ready(int(rid_forced))
 
         # If reflection happened in normal path, consider tagging insight by fetching latest reflection id
         if did:
@@ -4075,6 +4302,101 @@ class AutonomyLoop:
                         ok_emit_evo = False
             except Exception:
                 ok_emit_evo = True
+            if ok_emit_evo:
+                # REALITY-CHECK FOR INSIGHT PROMOTION
+                # Before evolution/policy_update events, assert recent reflection and evidence delta
+                # Prevents confabulation from triggering self-modification
+                try:
+                    # Check for recent reflection (within last 3 ticks) using fresh events
+                    recent_reflection = False
+                    try:
+                        fresh_events = self.eventlog.read_tail(
+                            limit=200
+                        )  # Get more events for better recency check
+                        autonomy_ticks = [
+                            ev
+                            for ev in fresh_events
+                            if ev.get("kind") == "autonomy_tick"
+                        ]
+                        reflections = [
+                            ev for ev in fresh_events if ev.get("kind") == "reflection"
+                        ]
+
+                        if len(autonomy_ticks) >= 3 and reflections:
+                            # Check if most recent reflection is within last 3 autonomy ticks
+                            most_recent_reflection = max(
+                                reflections, key=lambda x: int(x.get("id") or 0)
+                            )
+
+                            reflection_id = int(most_recent_reflection.get("id") or 0)
+                            # Find the autonomy tick that contains this reflection
+                            reflection_tick = None
+                            for i, tick_ev in enumerate(autonomy_ticks):
+                                tick_start = int(tick_ev.get("id") or 0)
+                                tick_end = (
+                                    int(autonomy_ticks[i + 1].get("id") or 0)
+                                    if i + 1 < len(autonomy_ticks)
+                                    else float("inf")
+                                )
+                                if tick_start <= reflection_id < tick_end:
+                                    reflection_tick = i
+                                    break
+
+                            if reflection_tick is not None:
+                                # Check if reflection is within last 3 ticks (0-indexed, so check if >= len-3)
+                                recent_reflection = reflection_tick >= (
+                                    len(autonomy_ticks) - 3
+                                )
+                        elif len(autonomy_ticks) < 3 and reflections:
+                            # If we have fewer than 3 total ticks, any recent reflection is recent enough
+                            recent_reflection = True
+                    except Exception:
+                        pass
+
+                    # Check for evidence delta (memegraph growth or reflection events) in recent events
+                    evidence_delta_present = False
+                    try:
+                        # Check for memegraph deltas using the stored baseline from tick start
+                        if (
+                            hasattr(self.runtime, "memegraph")
+                            and self.runtime.memegraph
+                            and self._memegraph_baseline
+                        ):
+                            # Use the baseline captured at the start of this tick
+                            try:
+                                # Compute deltas from baseline to current state
+                                self.runtime.memegraph.export_state()
+                                deltas = self.runtime.memegraph.compute_deltas_since(
+                                    self._memegraph_baseline
+                                )
+                                if deltas:
+                                    evidence_delta_present = True
+                            except Exception:
+                                # If delta computation fails, don't block evolution
+                                evidence_delta_present = (
+                                    True  # Assume evidence exists if we can't check
+                                )
+                    except Exception:
+                        # If any part of evidence checking fails, default to allowing evolution
+                        evidence_delta_present = True
+
+                    if not (recent_reflection and evidence_delta_present):
+                        # Emit insight_rejected event instead of proceeding
+                        self.eventlog.append(
+                            kind="insight_rejected",
+                            content="",
+                            meta={
+                                "reason": "no_evidence",
+                                "recent_reflection": recent_reflection,
+                                "evidence_delta_present": evidence_delta_present,
+                                "tick": tick_no,
+                            },
+                        )
+                        ok_emit_evo = False
+                except Exception:
+                    # If reality check fails, don't emit evolution
+                    ok_emit_evo = False
+
             if ok_emit_evo:
                 self.eventlog.append(
                     kind="evolution",
@@ -4552,6 +4874,11 @@ class AutonomyLoop:
                     if ev.get("kind") == REFLECTION_SKIPPED:
                         rs = (ev.get("meta") or {}).get("reason")
                         # Treat cadence gating as effectively a novelty-related skip for Rule 2 purposes
+                        if str(rs) in {"due_to_low_novelty", "due_to_cadence"}:
+                            return True
+                    if ev.get("kind") == "autonomy_tick":
+                        meta_ref = (ev.get("meta") or {}).get("reflect") or {}
+                        rs = meta_ref.get("reason")
                         if str(rs) in {"due_to_low_novelty", "due_to_cadence"}:
                             return True
                 return False

@@ -263,6 +263,43 @@ def reply_post_llm(
             pass
 
     # 2) Persist reply + embedding
+    meta = dict(meta or {})
+
+    def _sanitize_claims(raw_claims) -> list[int]:
+        normalized: list[int] = []
+        for item in raw_claims or []:
+            try:
+                value = int(item)
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                normalized.append(value)
+        if not normalized:
+            return []
+        return sorted(dict.fromkeys(normalized))
+
+    try:
+        pending_claims = (
+            runtime.consume_pending_claimed_reflection_ids()
+            if hasattr(runtime, "consume_pending_claimed_reflection_ids")
+            else None
+        )
+    except Exception:
+        pending_claims = None
+
+    sanitized_meta_claims = _sanitize_claims(meta.get("claimed_reflection_ids"))
+    sanitized_pending_claims = _sanitize_claims(pending_claims)
+
+    if sanitized_meta_claims and sanitized_pending_claims:
+        merged = sorted(dict.fromkeys(sanitized_meta_claims + sanitized_pending_claims))
+        meta["claimed_reflection_ids"] = merged
+    elif sanitized_pending_claims:
+        meta["claimed_reflection_ids"] = sanitized_pending_claims
+    elif sanitized_meta_claims:
+        meta["claimed_reflection_ids"] = sanitized_meta_claims
+    else:
+        meta.pop("claimed_reflection_ids", None)
+
     rid = persist_reply_with_embedding(
         runtime,
         reply,

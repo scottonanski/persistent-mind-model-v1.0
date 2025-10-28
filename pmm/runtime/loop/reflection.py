@@ -254,6 +254,12 @@ def emit_reflection(
     if not final_text.strip():
         final_text = "(empty reflection)"
 
+    # EVIDENCE-GATED REFLECTION EMISSION
+    # Only emit reflection events when there's actual reflection content
+    # Never emit empty or fabricated reflections (violates ledger integrity)
+    if not final_text.strip() or final_text == "(empty reflection)":
+        return None
+
     # Build deterministic refs for reflection
     try:
         k_refs = 6

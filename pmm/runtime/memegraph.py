@@ -655,6 +655,65 @@ class MemeGraphProjection:
 
             return result
 
+    def compute_deltas_since(
+        self, previous_snapshot: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Compute memegraph deltas since a previous snapshot.
+
+        Returns a list of delta events that would have been emitted, without actually
+        emitting them. This maintains ledger integrity while providing provenance.
+
+        Args:
+            previous_snapshot: Previous state from export_state()
+
+        Returns:
+            List of delta event dictionaries
+        """
+        deltas = []
+        with self._lock:
+            prev_nodes = previous_snapshot.get("nodes", {})
+            prev_edges = previous_snapshot.get("edges", {})
+
+            # Check for new nodes
+            for digest, node_data in self._nodes.items():
+                if digest not in prev_nodes:
+                    deltas.append(
+                        {
+                            "kind": "memegraph_delta",
+                            "content": "",
+                            "meta": {
+                                "operation": "node_created",
+                                "node_digest": digest,
+                                "node_label": node_data.label,
+                                "node_attrs": node_data.attrs,
+                                "total_nodes": len(self._nodes),
+                                "total_edges": len(self._edges),
+                            },
+                        }
+                    )
+
+            # Check for new edges
+            for digest, edge_data in self._edges.items():
+                if digest not in prev_edges:
+                    deltas.append(
+                        {
+                            "kind": "memegraph_delta",
+                            "content": "",
+                            "meta": {
+                                "operation": "edge_created",
+                                "edge_digest": digest,
+                                "edge_label": edge_data.label,
+                                "src_digest": edge_data.src,
+                                "dst_digest": edge_data.dst,
+                                "edge_attrs": edge_data.attrs,
+                                "total_nodes": len(self._nodes),
+                                "total_edges": len(self._edges),
+                            },
+                        }
+                    )
+
+        return deltas
+
     def export_state(self) -> dict[str, Any]:
         """Export MemeGraph state for snapshotting.
 

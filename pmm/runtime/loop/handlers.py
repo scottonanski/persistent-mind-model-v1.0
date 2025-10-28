@@ -890,6 +890,7 @@ def handle_user_input(
         "test_runtime_uses_same_chat_for_both_paths" in (f.function or "")
         for f in stack
     )
+    runtime._note_reflection_claims(reply)
     # Append the response ONCE
     reply, rid = _pipeline.reply_post_llm(
         runtime,

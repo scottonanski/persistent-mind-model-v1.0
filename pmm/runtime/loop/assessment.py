@@ -297,8 +297,8 @@ def apply_self_assessment_policies(eventlog: EventLog) -> int | None:
 
         prev_turns = int(min_turns)
         prev_time = int(min_time_s)
-        new_turns = _clamp(new_turns, 1, 6)
-        new_time = _clamp(new_time, 10, 300)
+        new_turns = _clamp(new_turns, 1, 10)
+        new_time = _clamp(new_time, 30, 120)
 
         def _pct_delta(a: int, b: int) -> float:
             try:
