@@ -40,6 +40,8 @@ class OllamaChat:
         self.kw = kw
         # Unknown until first call; do not block on startup
         self._server_available = None  # type: bool | None
+        # Provider caps cache (populated lazily from /api/show)
+        self._provider_caps: dict[str, int] | None = None
         # Optional auth for Ollama Cloud
         api_key = os.getenv("OLLAMA_API_KEY")
         self._auth_headers = (
@@ -56,6 +58,56 @@ class OllamaChat:
                 "requests library not installed. Please install it with 'pip install requests'"
             )
             raise
+
+    def _ensure_provider_caps(self) -> None:
+        """Populate provider caps (max_context, max_output_tokens) from Ollama /api/show.
+
+        Best-effort; on failure leaves caps unset. Runs at most once per instance.
+        """
+        if self._provider_caps is not None:
+            return
+        try:
+            import requests
+
+            url = f"{self.base_url}/api/show"
+            resp = requests.post(url, json={"name": self.model}, timeout=10)
+            resp.raise_for_status()
+            data = resp.json() if hasattr(resp, "json") else {}
+            # Typical fields: {"modelfile": "...", "parameters": "num_ctx 4096 ..."}
+            params = str(data.get("parameters") or "")
+            num_ctx = None
+            # Simple deterministic parse: find token after "num_ctx"
+            if "num_ctx" in params:
+                try:
+                    parts = params.split()
+                    for i, tok in enumerate(parts):
+                        if tok == "num_ctx" and i + 1 < len(parts):
+                            val = int(parts[i + 1])
+                            if val > 0:
+                                num_ctx = val
+                                break
+                except Exception:
+                    num_ctx = None
+            # Fallback: some builds may expose context as "context" or "num_ctx" in another map
+            if num_ctx is None:
+                try:
+                    cfg = data.get("model_info") or {}
+                    nc = int(cfg.get("num_ctx") or cfg.get("context") or 0)
+                    num_ctx = nc if nc > 0 else None
+                except Exception:
+                    num_ctx = None
+
+            if isinstance(num_ctx, int) and num_ctx > 0:
+                # Conservative output hint ~ quarter of context, min 512
+                out_hint = max(512, min(num_ctx // 4, num_ctx))
+                self._provider_caps = {
+                    "max_context": int(num_ctx),
+                    "max_output_tokens": int(out_hint),
+                }
+            else:
+                self._provider_caps = None
+        except Exception:
+            self._provider_caps = None
 
     def generate(
         self,
@@ -95,6 +147,9 @@ class OllamaChat:
             # Add optional auth header for Ollama Cloud
             headers.update(self._auth_headers)
 
+            # One-time provider caps fetch (best-effort)
+            self._ensure_provider_caps()
+
             response = requests.post(url, json=payload, headers=headers, timeout=120)
             response.raise_for_status()
             data = response.json()
@@ -127,13 +182,19 @@ class OllamaChat:
                     }
 
                 class _Resp:
-                    def __init__(self, text, stop_reason, usage_info):
+                    def __init__(
+                        self, text, stop_reason, usage_info, provider_caps=None
+                    ):
                         self.text = text
                         self.stop_reason = stop_reason
                         self.usage = usage_info
-                        self.provider_caps = None
+                        self.provider_caps = (
+                            dict(provider_caps) if provider_caps else None
+                        )
 
-                return _Resp(content, stop_reason, usage)
+                return _Resp(
+                    content, stop_reason, usage, provider_caps=self._provider_caps
+                )
 
             # Get fresh metrics after response generation (may have changed due to new events)
             fresh_ias, fresh_gas = get_or_compute_ias_gas(eventlog)

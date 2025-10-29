@@ -164,29 +164,42 @@ def persist_reply_with_embedding(
     meta: dict,
     raw_reply_for_telemetry: str | None = None,
     skip_embedding: bool = False,
+    override_reply: str | None = None,
 ) -> int | None:
     """Append response event and ensure an embedding_indexed is present.
 
     - Appends response with provided meta
+    - Allows callers to supply override text (for deterministic replies)
     - Emits n-gram repeat telemetry using the raw (pre-scrub) reply if provided
     - Appends embedding_indexed for the response id; on failure, records skip
     - Idempotency check: if no embedding_indexed exists for the response in the
       recent tail, append a fallback digest entry
     """
     eventlog = runtime.eventlog
-    rid = _io.append_response(eventlog, reply, meta=meta)
+    text = override_reply if override_reply is not None else reply
+    rid = _io.append_response(eventlog, text, meta=meta)
 
     # Telemetry on raw reply (pre-filter) if available
     try:
         runtime._maybe_emit_ngram_repeat_report(
-            raw_reply_for_telemetry or reply, int(rid) if rid else 0
+            raw_reply_for_telemetry or text, int(rid) if rid else 0
         )
     except Exception:
         pass
 
-    if not skip_embedding and rid is not None:
+    if rid is None:
+        return rid
+
+    if skip_embedding:
         try:
-            vec = _emb.compute_embedding(reply)
+            runtime._record_embedding_skip(int(rid))
+        except Exception:
+            pass
+        return rid
+
+    if rid is not None:
+        try:
+            vec = _emb.compute_embedding(text)
             if isinstance(vec, list) and vec:
                 _io.append_embedding_indexed(
                     eventlog, eid=int(rid), digest=_emb.digest_vector(vec)
@@ -211,7 +224,7 @@ def persist_reply_with_embedding(
             for ev in recent_emb
         ):
             try:
-                vec = _emb.compute_embedding(reply)
+                vec = _emb.compute_embedding(text)
                 digest = (
                     _emb.digest_vector(vec)
                     if isinstance(vec, list) and vec
@@ -243,6 +256,7 @@ def reply_post_llm(
     run_commitment_hooks: bool = False,
     emit_directives: bool = False,
     directive_source: str | None = None,
+    override_reply: str | None = None,
 ) -> tuple[str, int | None]:
     """End-of-turn sequence orchestrator (behavior preserving).
 
@@ -256,7 +270,7 @@ def reply_post_llm(
     Returns: (possibly modified reply, response_event_id)
     """
     # 1) Validators
-    if apply_validators and user_text is not None:
+    if apply_validators and user_text is not None and override_reply is None:
         try:
             reply = apply_operator_validators(runtime.eventlog, reply, user_text)
         except Exception:
@@ -306,23 +320,33 @@ def reply_post_llm(
         meta=meta,
         raw_reply_for_telemetry=raw_reply_for_telemetry,
         skip_embedding=skip_embedding,
+        override_reply=override_reply,
     )
 
-    # 3) Insight scoring emission (after response append)
-    try:
-        _ = score_insights_and_emit(runtime.eventlog, reply, int(rid) if rid else None)
-    except Exception:
-        pass
+    # 3) Insight scoring emission (after response append) — skip for overrides to keep
+    # deterministic ledger lookups from impacting insight metrics.
+    if override_reply is None:
+        try:
+            _ = score_insights_and_emit(
+                runtime.eventlog, reply, int(rid) if rid else None
+            )
+        except Exception:
+            pass
 
-    # 4) Optional commitment/evidence hooks
-    if run_commitment_hooks and rid is not None:
+    # 4) Optional commitment/evidence hooks (only when using LLM output)
+    if override_reply is None and run_commitment_hooks and rid is not None:
         try:
             run_commitment_evidence_hooks(runtime, reply, response_eid=int(rid))
         except Exception:
             pass
 
-    # 5) Optional directive emission
-    if emit_directives and directive_source and rid is not None:
+    # 5) Optional directive emission (only when using LLM output)
+    if (
+        override_reply is None
+        and emit_directives
+        and directive_source
+        and rid is not None
+    ):
         try:
             emit_autonomy_directives(
                 runtime.eventlog, reply, source=directive_source, origin_eid=int(rid)

@@ -454,3 +454,11 @@ These are design choices, not bugs. Enable autonomous naming or expand trait sig
 ## License
 
 See `LICENSE.md` for commercial and non-commercial licensing terms.
+
+---
+
+## Contact
+
+- **Author**: Scott Onanski
+- **Email**: scott@onanski.com
+

@@ -16,6 +16,7 @@ from pmm.api import probe
 from pmm.config import load_dotenv
 from pmm.llm.factory import LLMConfig
 from pmm.runtime.loop import Runtime
+from pmm.runtime.loop import io as _io
 from pmm.runtime.metrics import compute_ias_gas
 from pmm.runtime.metrics_view import MetricsView
 from pmm.storage.eventlog import EventLog
@@ -195,6 +196,13 @@ async def chat(request: ChatRequest):
 
         if not user_message:
             raise HTTPException(status_code=400, detail="No user message found")
+
+        # One-time deterministic seeding on fresh ledgers to preserve continuity
+        try:
+            _seed_history_if_fresh(runtime, request.messages)
+        except Exception:
+            # Do not block chat on seeding issues
+            pass
 
         def generate():
             import json
@@ -758,3 +766,53 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8001)
+
+
+def _seed_history_if_fresh(runtime: Runtime, messages: list[dict]) -> bool:
+    """Seed prior client-provided history into the ledger if conversation is fresh.
+
+    Deterministic rules:
+    - Only seed when no prior user/response exists in the ledger tail.
+    - Map roles: user -> user event, assistant -> response event.
+    - Seed up to the message just before the last user message (that last user
+      is handled by the runtime pipeline).
+    - Ignore other roles and empty contents.
+    Returns True if any events were appended.
+    """
+    try:
+        # Quick freshness check from tail
+        tail = runtime.eventlog.read_tail(limit=20)
+        is_fresh = not any((e.get("kind") in {"user", "response"}) for e in tail)
+    except Exception:
+        # Fail closed: do not seed if we cannot determine freshness
+        return False
+
+    if not is_fresh:
+        return False
+
+    # Locate last user message to preserve PMM's normal runtime handling of it
+    last_user_idx = -1
+    for i, m in enumerate(messages or []):
+        if (m or {}).get("role") == "user" and isinstance(m.get("content"), str):
+            last_user_idx = i
+    if last_user_idx <= 0:
+        # Nothing to seed deterministically
+        return False
+
+    seeded = 0
+    for m in messages[:last_user_idx]:
+        role = (m or {}).get("role")
+        text = str((m or {}).get("content") or "").strip()
+        if not text:
+            continue
+        try:
+            if role == "user":
+                _io.append_user(runtime.eventlog, text, meta={"source": "api_seed"})
+                seeded += 1
+            elif role == "assistant":
+                _io.append_response(runtime.eventlog, text, meta={"source": "api_seed"})
+                seeded += 1
+        except Exception:
+            # Seeding is best-effort; partial success is acceptable
+            continue
+    return seeded > 0

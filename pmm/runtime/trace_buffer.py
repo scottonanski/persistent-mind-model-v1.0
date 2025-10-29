@@ -45,6 +45,7 @@ class TraceSession:
     start_time_ms: int
     end_time_ms: int = 0
     total_nodes_visited: int = 0
+    sampling_deficit: float = 0.0
     node_type_distribution: dict[str, int] = field(
         default_factory=lambda: defaultdict(int)
     )
@@ -145,6 +146,7 @@ class TraceBuffer:
             # Always count total visits
             session.total_nodes_visited += 1
             session.node_type_distribution[node_type] += 1
+            session.sampling_deficit += self.sampling_rate
 
             # Decide whether to sample this node
             should_log = False
@@ -170,6 +172,9 @@ class TraceBuffer:
                 if val < self.sampling_rate:
                     should_log = True
 
+            if not should_log and session.sampling_deficit >= 1.0:
+                should_log = True
+
             if should_log:
                 trace_node = TraceNode(
                     node_digest=node_digest,
@@ -182,6 +187,7 @@ class TraceBuffer:
                     reasoning_step=reasoning_step,
                 )
                 session.sampled_nodes.append(trace_node)
+                session.sampling_deficit = max(session.sampling_deficit - 1.0, 0.0)
 
                 # Add reasoning step if provided
                 if reasoning_step and reasoning_step not in session.reasoning_steps:

@@ -141,7 +141,6 @@ def build_context_from_ledger(
 
     # --- Identity & Traits -------------------------------------------------
     # Priority: MemeGraph (full history) > Snapshot > Events (tail)
-    identity_event_id: int | None = None
 
     if snapshot is not None:
         identity = snapshot.identity
@@ -159,9 +158,9 @@ def build_context_from_ledger(
                         attrs = node.attrs or {}
                         if attrs.get("kind") == "identity_adopt":
                             # This is an identity adoption event
-                            event_id = attrs.get("id")
-                            if event_id:
-                                identity_event_id = int(event_id)
+                            # event id accessible via attrs if needed in future
+                            # (not currently used; avoid unused variable warnings)
+                            if attrs.get("id"):
                                 break  # Use first (earliest) identity adoption
             else:
                 name = "Unknown"
@@ -434,7 +433,12 @@ Commitment Search Debug:
     # --- Assemble -----------------------------------------------------------
     if compact_mode:
         # Ultra-compact format (20-30% token reduction)
-        lines: list[str] = [f"[STATE] {name} | {trait_str}"]
+        lines: list[str] = [
+            "[SYSTEM STATE — from ledger]",
+            f"[STATE] {name} | {trait_str}",
+        ]
+        # Explicit identity line for deterministic consumers/tests
+        lines.append(f"Identity: {name}")
         if user_name:
             lines.append(f"User: {user_name}")
         if (
@@ -456,45 +460,17 @@ Commitment Search Debug:
             lines.append("Reflections:")
             lines.extend(reflections_block)
     else:
-        # Standard format
+        # Minimal format - just essential state, no architecture lectures
         lines: list[str] = ["[SYSTEM STATE — from ledger]"]
+        # Explicit identity line for deterministic consumers/tests
+        lines.append(f"Identity: {name}")
 
-        # Self-architecture awareness (critical for self-improvement)
-        if memegraph is not None:
-            total_events = memegraph.node_count  # Approximate via node count
-            current_max_id = eventlog.get_max_id()
-            lines.append("[YOUR ARCHITECTURE]")
-            lines.append(
-                "You are an event-sourced AI. Your history is recorded as discrete events."
-            )
-            lines.append(f"Total events in your ledger: ~{total_events}")
-            lines.append(f"Current max event ID: {current_max_id}")
-            lines.append(
-                "Your identity, commitments, reflections, and growth are ALL events."
-            )
-            lines.append("")
-            lines.append(
-                "Note: You do NOT create events directly. The runtime appends events when you respond."
-            )
-            lines.append("Event IDs are assigned by the system AFTER your response.")
-            lines.append(
-                "When referencing your current action, use semantic descriptions (e.g., 'this investigation')."
-            )
-            lines.append(
-                "When describing past development, cite specific event numbers from your history (e.g., event #333)."
-            )
-            lines.append("Never guess or fabricate future event IDs.")
-            lines.append("")
-
-        # Identity with adoption event (if known from MemeGraph)
-        if identity_event_id:
-            lines.append(f"Identity: {name} (adopted at event #{identity_event_id})")
-        else:
-            lines.append(f"Identity: {name}")
+        # Identity line only
+        if name != "Unknown":
+            lines.append(f"[You are {name}]")
 
         if user_name:
-            lines.append(f"User: {user_name}")
-        lines.append(f"Traits: {trait_str}")
+            lines.append(f"[User: {user_name}]")
 
         if (
             include_metrics

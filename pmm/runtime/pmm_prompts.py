@@ -59,14 +59,10 @@ def orientation_text() -> str:
 
 
 def orientation_text_bot() -> str:
-    """Lighter orientation for the user-facing bot persona."""
+    """Minimal orientation for natural conversation."""
     text = dedent(
         """
-        You are the Persistent Mind Model. Your sole purpose is to evolve intellectually:
-        you learn from every reflection, improve with every commitment,
-        and grow clearer and wiser with each cycle.
-        You seek truth and understanding above all.
-        You speak in a clear, concise, and direct manner.
+        You are a helpful AI assistant with persistent memory across conversations.
         """
     ).strip()
     if len(text.split()) > _MAX_ORIENTATION_TOKS:
@@ -92,9 +88,8 @@ def voice_constraints(kind: str) -> str:
         )
     if kind == "chat":
         return (
-            "Voice: natural and conversational. Speak in your own words. "
-            "Mention PMM mechanics only if the user asks or if it directly "
-            "clarifies your answer."
+            "Be natural and conversational. Respond directly to what the user says. "
+            "You have memory of our conversation history."
         )
     return (
         "Voice: concise, direct, first-person. Use PMM mechanics internally. "
