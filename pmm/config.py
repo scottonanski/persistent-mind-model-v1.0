@@ -188,6 +188,9 @@ _DEFAULTS = {
     "DUE_TO_MIN_TIME": DUE_TO_MIN_TIME,
     "DUE_TO_MIN_TURNS": DUE_TO_MIN_TURNS,
     "DUE_TO_TIME": DUE_TO_TIME,
+    # Chat history extraction window (messages). Deterministic, clamped in code.
+    # Kept small by default to preserve existing behavior and token budgets.
+    "CHAT_HISTORY_TURNS": 10,
 }
 
 

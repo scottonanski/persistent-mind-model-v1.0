@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import sys
+from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
@@ -61,6 +63,26 @@ def _print_menu() -> None:
     except Exception:
         ollama_available_names = set()
 
+    # Helper: read detected caps cache once (best-effort)
+    caps_path = Path(Path.cwd() / ".data" / "model_caps.json")
+    try:
+        caps_json = (
+            json.loads(caps_path.read_text(encoding="utf-8"))
+            if caps_path.exists()
+            else {}
+        )
+    except Exception:
+        caps_json = {}
+
+    def _detected_max_ctx(provider: str, model: str) -> int | None:
+        key = f"{provider}/{model}"
+        try:
+            entry = caps_json.get(key) or {}
+            mc = entry.get("max_ctx")
+            return int(mc) if isinstance(mc, int) and mc > 0 else None
+        except Exception:
+            return None
+
     for i, name in enumerate(available, 1):
         cfg = AVAILABLE_MODELS[name]
         cstr = (
@@ -74,10 +96,10 @@ def _print_menu() -> None:
             if cfg.provider == "ollama" and name in ollama_available_names
             else "🔴" if cfg.provider == "ollama" else ""
         )
-
-        table.add_row(
-            str(i), f"{marker}{name}", cfg.provider, f"{cfg.max_tokens:,}", cstr, status
-        )
+        # Prefer detected max_ctx for Ollama if available, else cfg.max_tokens
+        detected_ctx = _detected_max_ctx(cfg.provider, name)
+        tokens_str = f"{detected_ctx:,}" if detected_ctx else f"{cfg.max_tokens:,}"
+        table.add_row(str(i), f"{marker}{name}", cfg.provider, tokens_str, cstr, status)
 
     console.print(table)
     console.print()

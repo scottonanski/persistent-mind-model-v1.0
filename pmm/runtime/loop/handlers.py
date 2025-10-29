@@ -14,11 +14,72 @@ from pmm.config import (
     MAX_COMMITMENT_CHARS,
     MAX_REFLECTION_CHARS,
 )
+from pmm.config import load as _load_cfg
 from pmm.runtime.llm_trait_adjuster import apply_llm_trait_adjustments
 from pmm.runtime.pmm_prompts import ORIENTATION_V, build_system_msg, orientation_hash
 from pmm.runtime.qa.deterministic import try_answer_event_question
 from pmm.runtime.scene_compactor import maybe_compact
 from pmm.storage.projection import build_identity
+
+
+def extract_conversation_history(
+    events: list[dict], max_turns: int | None = None
+) -> list[dict]:
+    """Extract conversation history from ledger events.
+
+    Builds OpenAI-style message array from user/response events.
+    Skips the most recent user event (assumed to be current turn).
+
+    Args:
+        events: List of ledger events
+        max_turns: Maximum number of conversation turns to include
+
+    Returns:
+        List of message dicts with 'role' and 'content' keys
+    """
+    # Resolve window size deterministically from project config when not provided.
+    if max_turns is None:
+        try:
+            cfg = _load_cfg()
+            val = int(cfg.get("CHAT_HISTORY_TURNS", 10))
+        except Exception:
+            val = 10
+        # Clamp to a deterministic, sane range
+        if val < 4:
+            val = 4
+        if val > 100:
+            val = 100
+        max_turns = val
+
+    conversation_history: list[dict[str, str]] = []
+    skip_first_user = True
+
+    for ev in reversed(events):
+        k = ev.get("kind")
+        if k not in {"user", "response"}:
+            continue
+
+        # Skip the most recent user event (it's the current turn)
+        if k == "user" and skip_first_user:
+            skip_first_user = False
+            continue
+
+        txt = str(ev.get("content") or "").strip()
+        if not txt:
+            continue
+
+        # Map to OpenAI message roles
+        role = "user" if k == "user" else "assistant"
+        conversation_history.append({"role": role, "content": txt})
+
+        # Keep last N messages (windowed)
+        if len(conversation_history) >= max_turns:
+            break
+
+    # Reverse to chronological order
+    conversation_history.reverse()
+    return conversation_history
+
 
 if TYPE_CHECKING:
     from pmm.runtime.loop import Runtime
@@ -58,9 +119,7 @@ def handle_user_input(
         flush=True,
     )
 
-    deterministic = try_answer_event_question(runtime.eventlog, user_text or "")
-    if deterministic is not None:
-        return deterministic
+    forced_reply = try_answer_event_question(runtime.eventlog, user_text or "")
     # Import here to avoid circular dependencies
     from pmm.runtime.loop import identity as _identity_module
     from pmm.runtime.loop import io as _io
@@ -106,16 +165,12 @@ def handle_user_input(
             max_commitment_chars=MAX_COMMITMENT_CHARS,
             max_reflection_chars=MAX_REFLECTION_CHARS,
         )
-    msgs = _pipeline.assemble_messages(
-        context_block=context_block,
-        ontology_msg=build_system_msg("chat"),
-        user_text=user_text,
-        ontology_first=False,
-    )
+    # Conversation messages start with a minimal system orientation for chat
+    # to satisfy provider-agnostic prompt shape and tests.
+    msgs = [{"role": "system", "content": build_system_msg("chat")}]
+
     intents = runtime._detect_state_intents(user_text)
-    msgs = _pipeline.augment_messages_with_state_and_gates(
-        runtime, msgs, user_text, intents
-    )
+    # Don't augment yet - we'll add state context AFTER conversation history
     recent_events = runtime._log_recent_events(limit=5, snapshot=snapshot)
 
     try:
@@ -313,60 +368,31 @@ def handle_user_input(
     except Exception:
         # Never disrupt chat flow on capture issues
         _captured_assertions = []
-    # Inject a compact transcript of the last few user/assistant turns to preserve coherence
+    # Build proper conversation history from ledger (OpenAI-style message format)
     try:
-        # Snapshot events BEFORE adding any knowledge_assert to keep recall fallback deterministic
         evs_hist = _events(refresh=True)
         _events_before_chat = list(evs_hist)
-        lines: list[str] = []
-        for ev in reversed(evs_hist):
-            k = ev.get("kind")
-            if k not in {"user", "response"}:
-                continue
-            txt = str(ev.get("content") or "").strip()
-            if not txt:
-                continue
-            # Trim to keep prompt bounded
-            if len(txt) > 180:
-                txt = txt[:180].rstrip()
-            role = "User" if k == "user" else "Assistant"
-            lines.append(f"{role}: {txt}")
-            if len(lines) >= 6:
-                break
-        lines = list(reversed(lines))
-        if lines:
-            transcript = "Transcript:\n" + "\n".join(f"- {s}" for s in lines)
-            msgs.append({"role": "system", "content": transcript})
-    except Exception:
-        pass
-    # Inject a compact pinned context of recent knowledge_asserts into the model prompt
-    graph_context_candidates: list[str] = []
-    try:
-        recent = snapshot.events[-50:]
-        pinned: list[str] = []
-        for ev in reversed(recent):
-            if ev.get("kind") == "knowledge_assert":
-                s = str(ev.get("content") or "").strip()
-                if s:
-                    pinned.append(s)
-                    if len(pinned) >= 3:
-                        break
-        # Prepend freshly captured lines to ensure same-turn application
+
+        # Extract conversation history with a window sized to model caps when available
         try:
-            fresh = (
-                list(reversed(_captured_assertions))
-                if locals().get("_captured_assertions")
-                else []
-            )
+            max_turns = int(getattr(runtime, "_suggest_history_turns")())
         except Exception:
-            fresh = []
-        context_lines = (fresh + list(reversed(pinned)))[:3]
-        if context_lines:
-            context_block = "Context:\n" + "\n".join(f"- {s}" for s in context_lines)
-            msgs.append({"role": "system", "content": context_block})
-            graph_context_candidates = list(context_lines)
-    except Exception:
-        pass
+            max_turns = None
+        conversation_history = extract_conversation_history(
+            evs_hist, max_turns=max_turns
+        )
+        hist_start_idx = len(msgs)
+        msgs.extend(conversation_history)
+    except Exception as e:
+        logger.error(f"CONVERSATION HISTORY FAILED: {e}", exc_info=True)
+        _events_before_chat = []
+
+    # Skip ledger context - pure conversation works universally
+    # Commitments/reflections tracked in background via autonomy loop
+
+    # Skip knowledge_assert injection for pure conversation
+    # This was causing commitment information to bleed into chat context
+    graph_context_candidates: list[str] = []
     # Contextual header removed: do not inject identity/commitments/trait drift into prompts.
     # Deterministic phrasing preference: if user asks about current work, mention commitments
     try:
@@ -530,22 +556,68 @@ def handle_user_input(
         else:
             runtime._graph_force_next = False
 
-    styled = runtime.bridge.format_messages(msgs, intent="chat")
-    # Phase 1 Optimization: Profile LLM inference time (always enabled)
-    with profiler.measure("llm_inference"):
-        # Generate with higher cap and allow a single safe continuation
-        reply = runtime._generate_reply(
-            styled, temperature=0.3, max_tokens=2048, allow_continuation=True
-        )
-    # NEW: Apply LLM-driven trait adjustments (side layer)
-    # This integrates the LLM trait adjuster without touching foundation code
+    # Add current user message at the very end
+    msgs.append({"role": "user", "content": user_text})
+
+    # Token-aware fitting: trim oldest conversation history to fit model context
     try:
-        applied_events = apply_llm_trait_adjustments(runtime.eventlog, reply)
-        if applied_events:
-            logger.info(f"Applied {len(applied_events)} LLM trait adjustments")
-    except Exception as e:
-        logger.warning(f"LLM trait adjustment failed: {e}")
-        # Fail-open: errors in this side layer never block main response flow
+        from pmm.runtime import chat_ops as _chat_ops
+
+        def _estimate_tokens(message_list: list[dict]) -> int:
+            total = 0
+            for m in message_list:
+                c = len(str(m.get("content") or ""))
+                total += (c // 4) + 6
+            return int(total)
+
+        ctl = _chat_ops._ensure_controller(runtime.chat)
+        caps = ctl.resolver.ensure_caps(
+            model_key=f"{runtime.cfg.provider}/{runtime.cfg.model}"
+        )
+        max_ctx = int(getattr(caps, "max_ctx", 0) or 8192)
+        out_hint = int(getattr(caps, "max_out_hint", 0) or (max_ctx // 3))
+        prompt_budget = max(512, max_ctx - out_hint - 256)
+
+        # Only operate on the history slice we appended
+        hist_end_idx = hist_start_idx + len(conversation_history)
+        prefix = msgs[:hist_start_idx]
+        history = msgs[hist_start_idx:hist_end_idx]
+        suffix = msgs[hist_end_idx:]
+
+        while history and _estimate_tokens(prefix + history + suffix) > prompt_budget:
+            history.pop(0)
+
+        msgs = prefix + history + suffix
+    except Exception:
+        pass
+
+    # DEBUG: Log what we're sending to the model
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.info(f"Sending {len(msgs)} messages to model:")
+    for i, msg in enumerate(msgs):
+        logger.info(f"  [{i}] {msg['role']}: {msg['content'][:100]}...")
+
+    if forced_reply is None:
+        styled = runtime.bridge.format_messages(msgs, intent="chat")
+        # Phase 1 Optimization: Profile LLM inference time (always enabled)
+        with profiler.measure("llm_inference"):
+            # Generate with higher cap and allow a single safe continuation
+            reply = runtime._generate_reply(
+                styled, temperature=0.3, max_tokens=2048, allow_continuation=True
+            )
+        # NEW: Apply LLM-driven trait adjustments (side layer)
+        # This integrates the LLM trait adjuster without touching foundation code
+        try:
+            applied_events = apply_llm_trait_adjustments(runtime.eventlog, reply)
+            if applied_events:
+                logger.info(f"Applied {len(applied_events)} LLM trait adjustments")
+        except Exception as e:
+            logger.warning(f"LLM trait adjustment failed: {e}")
+            # Fail-open: errors in this side layer never block main response flow
+    else:
+        reply = forced_reply
     # Sanitize raw model output deterministically before any event emission
     try:
         reply = runtime.bridge.sanitize(
@@ -556,93 +628,98 @@ def handle_user_input(
     except Exception:
         pass
 
-    # Guard capability claims (truth-first)
-    try:
-        from pmm.runtime.nlg_guards import ClaimContext, guard_capability_claims
+    intent_reply = "irrelevant"
+    candidate_reply = None
+    confidence_reply = 0.0
 
-        claim_ctx = ClaimContext(
-            can_direct_append=False,  # Echo never calls append directly
-            pending_event_id=None,  # Event created after response
-            next_event_id=None,  # Not exposed to Echo
-        )
-        reply = guard_capability_claims(reply, claim_ctx)
-    except Exception:
-        pass  # Fail-open: don't block response on guard failure
-
-    try:
-        intent_reply, candidate_reply, confidence_reply = (
-            runtime.classifier.classify_identity_intent(
-                reply,
-                speaker="assistant",
-                recent_events=recent_events,
-            )
-        )
-    except Exception:
-        intent_reply, candidate_reply, confidence_reply = (
-            "irrelevant",
-            None,
-            0.0,
-        )
-
-    # Debug breadcrumb: audit naming gate (assistant path)
-    try:
-        _io.append_name_attempt_system(
-            runtime.eventlog,
-            candidate=candidate_reply,
-            reason=None,
-            content="",
-        )
-    except Exception:
-        pass
-
-    # Defensive fallback: derive candidate from unique proper noun when intent is clear (assistant path)
-    if intent_reply == "assign_assistant_name" and not candidate_reply:
+    if forced_reply is None:
+        # Guard capability claims (truth-first)
         try:
-            raw_r = (reply or "").strip()
-            tokens_r = [t for t in raw_r.split() if t]
-            common = {
-                "i",
-                "i'm",
-                "i'm",
-                "you",
-                "your",
-                "the",
-                "a",
-                "an",
-                "assistant",
-                "model",
-                "name",
-            }
-            cands_r: list[str] = []
-            for tok in tokens_r[1:]:
-                t = tok.strip('.,!?;:"""' "()[]{}<>")
-                if len(t) > 1 and t[0].isupper() and t.lower() not in common:
-                    cands_r.append(t)
-            # STRICTER: Only accept if exactly 1 candidate AND it appears in a naming context
-            # This prevents extracting random capitalized words from philosophical discussions
-            naming_phrases = [
-                "call me",
-                "i am",
-                "i'm",
-                "my name is",
-                "i'll be",
-                "i will be",
-            ]
-            if len(cands_r) == 1 and any(
-                phrase in reply.lower() for phrase in naming_phrases
-            ):
-                candidate_reply = cands_r[0]
-                try:
-                    _io.append_name_attempt_user(
-                        runtime.eventlog,
-                        name=candidate_reply,
-                        path="assistant",
-                        content="naming_fallback_candidate",
-                    )
-                except Exception:
-                    pass
+            from pmm.runtime.nlg_guards import ClaimContext, guard_capability_claims
+
+            claim_ctx = ClaimContext(
+                can_direct_append=False,  # Echo never calls append directly
+                pending_event_id=None,  # Event created after response
+                next_event_id=None,  # Not exposed to Echo
+            )
+            reply = guard_capability_claims(reply, claim_ctx)
+        except Exception:
+            pass  # Fail-open: don't block response on guard failure
+
+        try:
+            intent_reply, candidate_reply, confidence_reply = (
+                runtime.classifier.classify_identity_intent(
+                    reply,
+                    speaker="assistant",
+                    recent_events=recent_events,
+                )
+            )
+        except Exception:
+            intent_reply, candidate_reply, confidence_reply = (
+                "irrelevant",
+                None,
+                0.0,
+            )
+
+        # Debug breadcrumb: audit naming gate (assistant path)
+        try:
+            _io.append_name_attempt_system(
+                runtime.eventlog,
+                candidate=candidate_reply,
+                reason=None,
+                content="",
+            )
         except Exception:
             pass
+
+        # Defensive fallback: derive candidate from unique proper noun when intent is clear (assistant path)
+        if intent_reply == "assign_assistant_name" and not candidate_reply:
+            try:
+                raw_r = (reply or "").strip()
+                tokens_r = [t for t in raw_r.split() if t]
+                common = {
+                    "i",
+                    "i'm",
+                    "i'm",
+                    "you",
+                    "your",
+                    "the",
+                    "a",
+                    "an",
+                    "assistant",
+                    "model",
+                    "name",
+                }
+                cands_r: list[str] = []
+                for tok in tokens_r[1:]:
+                    t = tok.strip('.,!?;:"""' "()[]{}<>")
+                    if len(t) > 1 and t[0].isupper() and t.lower() not in common:
+                        cands_r.append(t)
+                # STRICTER: Only accept if exactly 1 candidate AND it appears in a naming context
+                # This prevents extracting random capitalized words from philosophical discussions
+                naming_phrases = [
+                    "call me",
+                    "i am",
+                    "i'm",
+                    "my name is",
+                    "i'll be",
+                    "i will be",
+                ]
+                if len(cands_r) == 1 and any(
+                    phrase in reply.lower() for phrase in naming_phrases
+                ):
+                    candidate_reply = cands_r[0]
+                    try:
+                        _io.append_name_attempt_user(
+                            runtime.eventlog,
+                            name=candidate_reply,
+                            path="assistant",
+                            content="naming_fallback_candidate",
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
     # Apply same tightened criteria for assistant self-naming
     if (
@@ -891,28 +968,33 @@ def handle_user_input(
     )
     # Embeddings path: always ON. Append response ONCE, then embedding_indexed for that response.
     stack = inspect.stack()
-    skip_embedding = any(
+    skip_embedding = forced_reply is not None or any(
         "test_runtime_uses_same_chat_for_both_paths" in (f.function or "")
         for f in stack
     )
     runtime._note_reflection_claims(reply)
     # Append the response ONCE
+    response_meta = {
+        "source": "handle_user",
+        "orientation_version": ORIENTATION_V,
+        "orientation_hash": orientation_hash(),
+        "prompt_kind": "chat",
+    }
+    if forced_reply is not None:
+        response_meta["epistemic_source"] = "ledger_lookup"
+
     reply, rid = _pipeline.reply_post_llm(
         runtime,
         reply,
         user_text=user_text,
-        meta={
-            "source": "handle_user",
-            "orientation_version": ORIENTATION_V,
-            "orientation_hash": orientation_hash(),
-            "prompt_kind": "chat",
-        },
+        meta=response_meta,
         raw_reply_for_telemetry=raw_reply_for_telemetry,
         skip_embedding=skip_embedding,
-        apply_validators=True,
-        run_commitment_hooks=True,
-        emit_directives=True,
+        apply_validators=forced_reply is None,
+        run_commitment_hooks=forced_reply is None,
+        emit_directives=forced_reply is None,
         directive_source="reply",
+        override_reply=reply if forced_reply is not None else None,
     )
     # Emission handled by pipeline; keep sequence order unchanged
     # Post-response embedding handling moved into pipeline.persist_reply_with_embedding

@@ -227,6 +227,9 @@ _FORCED_SKIP_THRESHOLD = 2
 _COMMITMENT_PROTECT_TICKS = 3
 _IDENTITY_REEVAL_WINDOW = 6
 
+# Suppress duplicate clamp warnings per policy_update event id to avoid noisy logs
+_CLAMPED_POLICY_LOGGED_IDS: set[int] = set()
+
 
 def _has_reflection_since_last_tick(
     eventlog: EventLog, events: list[dict] | None = None
@@ -351,10 +354,18 @@ def _resolve_reflection_policy_overrides(
 
                 # Log clamping if values were modified
                 if ms_clamped != ms_int or mt_clamped != mt_int:
-                    logger.warning(
-                        f"Clamped reflection policy: min_turns {mt_int}→{mt_clamped}, "
-                        f"min_time_s {ms_int}→{ms_clamped} (event #{ev.get('id')})"
-                    )
+                    try:
+                        _eid = int(ev.get("id")) if ev.get("id") is not None else None
+                    except Exception:
+                        _eid = None
+                    # Log once per policy_update event id to reduce startup noise
+                    if _eid is None or _eid not in _CLAMPED_POLICY_LOGGED_IDS:
+                        logger.warning(
+                            f"Clamped reflection policy: min_turns {mt_int}→{mt_clamped}, "
+                            f"min_time_s {ms_int}→{ms_clamped} (event #{ev.get('id')})"
+                        )
+                        if _eid is not None:
+                            _CLAMPED_POLICY_LOGGED_IDS.add(_eid)
 
                 return (mt_clamped, ms_clamped)
             except (ValueError, TypeError):
@@ -928,6 +939,34 @@ class Runtime:
                 return (reply1 + "\n" + reply2).strip()
         return reply1
 
+    # --- Prompt window suggestion -------------------------------------------
+    def _suggest_history_turns(self) -> int:
+        """Return a deterministic conversation-history window based on model caps.
+
+        Uses CapabilityResolver (via chat controller) to read max_ctx and maps it to
+        an approximate number of message entries. Conservative mapping reserves ~25%
+        of context for prompt history with a nominal 120 tokens per message.
+        Clamped to [10, 60] for predictability.
+        """
+        try:
+            # Avoid tight coupling: get controller lazily
+            from pmm.runtime import chat_ops
+
+            ctl = chat_ops._ensure_controller(self.chat)
+            caps = ctl.resolver.ensure_caps(
+                model_key=f"{self.cfg.provider}/{self.cfg.model}"
+            )
+            max_ctx = int(getattr(caps, "max_ctx", 0) or 0)
+            if max_ctx <= 0:
+                raise ValueError("no_caps")
+            reserved = max_ctx // 4  # ~25% of context for history
+            per_msg = 120  # nominal tokens per message (role+content)
+            turns = max(10, min(60, reserved // per_msg))
+            return int(turns)
+        except Exception:
+            # Fallback to default used by extract_conversation_history
+            return 10
+
     def _generate_reply_streaming(
         self,
         messages: list[dict],
@@ -1457,10 +1496,7 @@ class Runtime:
         Yields:
             Individual tokens or token chunks as strings
         """
-        deterministic = try_answer_event_question(self.eventlog, user_text or "")
-        if deterministic is not None:
-            yield deterministic
-            return
+        forced_reply = try_answer_event_question(self.eventlog, user_text or "")
 
         # Phase 1 Optimization: Always-on performance profiler (lightweight)
         from pmm.runtime.profiler import get_global_profiler
@@ -1529,7 +1565,7 @@ class Runtime:
                 f"Injected hallucination correction into prompt for IDs: {self._last_hallucination_ids}"
             )
 
-        msgs.append({"role": "user", "content": user_text})
+        # Defer appending user content until after identity handling and user event persistence
 
         intents = self._detect_state_intents(user_text)
         try:
@@ -1641,6 +1677,16 @@ class Runtime:
                         flush=True,
                     )
                     _refresh_snapshot()
+                    # Reinforce adopted identity in the prompt for this turn
+                    try:
+                        msgs.append(
+                            {
+                                "role": "system",
+                                "content": f"You are the assistant named '{sanitized}' for this conversation.",
+                            }
+                        )
+                    except Exception:
+                        pass
             except Exception as e:
                 import traceback
 
@@ -1680,8 +1726,59 @@ class Runtime:
         except Exception:
             logger.exception("Failed to append user event")
 
-        # Append user message to assembled msgs after ontology/context
+        # Build proper conversation history from ledger (OpenAI-style message format)
+        try:
+            evs_hist = self.eventlog.read_tail(limit=50)
+        except Exception:
+            try:
+                evs_hist = self.eventlog.read_all()
+            except Exception:
+                evs_hist = []
+
+        # Extract conversation history using shared helper
+        from pmm.runtime.loop.handlers import extract_conversation_history
+
+        try:
+            conversation_history = extract_conversation_history(evs_hist)
+            hist_start_idx = len(msgs)
+            msgs.extend(conversation_history)
+        except Exception:
+            conversation_history = []
+            pass
+
+        # NOW append the current user message
         msgs.append({"role": "user", "content": user_text})
+
+        # Token-aware fitting: trim oldest conversation history to fit model context
+        try:
+            from pmm.runtime import chat_ops as _chat_ops
+
+            def _estimate_tokens(message_list: list[dict]) -> int:
+                total = 0
+                for m in message_list:
+                    c = len(str(m.get("content") or ""))
+                    total += (c // 4) + 6
+                return int(total)
+
+            ctl = _chat_ops._ensure_controller(self.chat)
+            caps = ctl.resolver.ensure_caps(
+                model_key=f"{self.cfg.provider}/{self.cfg.model}"
+            )
+            max_ctx = int(getattr(caps, "max_ctx", 0) or 8192)
+            out_hint = int(getattr(caps, "max_out_hint", 0) or (max_ctx // 3))
+            prompt_budget = max(512, max_ctx - out_hint - 256)
+
+            hist_end_idx = hist_start_idx + len(conversation_history)
+            prefix = msgs[:hist_start_idx]
+            history = msgs[hist_start_idx:hist_end_idx]
+            suffix = msgs[hist_end_idx:]
+            while (
+                history and _estimate_tokens(prefix + history + suffix) > prompt_budget
+            ):
+                history.pop(0)
+            msgs = prefix + history + suffix
+        except Exception:
+            pass
 
         # Index user embedding
         if user_event_id is not None:
@@ -1703,47 +1800,54 @@ class Runtime:
 
         # Stream LLM response
         styled = self.bridge.format_messages(msgs, intent="chat")
-        full_response = []
-
-        with profiler.measure("llm_inference_streaming"):
-            for token in self._generate_reply_streaming(
-                styled,
-                temperature=0.3,
-                max_tokens=2048,
-            ):
-                full_response.append(token)
-                yield token  # Stream to user immediately
-
-        # Reconstruct complete response
-        reply = "".join(full_response)
+        full_response: list[str] = []
+        if forced_reply is None:
+            with profiler.measure("llm_inference_streaming"):
+                for token in self._generate_reply_streaming(
+                    styled,
+                    temperature=0.3,
+                    max_tokens=2048,
+                ):
+                    full_response.append(token)
+                    yield token  # Stream to user immediately
+            # Reconstruct complete response
+            reply = "".join(full_response)
+        else:
+            reply = forced_reply
+            yield forced_reply
 
         # Post-processing (synchronous - must complete before next query)
         with profiler.measure("post_processing"):
-            try:
-                reply, applied_count = _pipeline.post_process_reply(
-                    self.eventlog, self.bridge, reply
-                )
-                if applied_count:
-                    logger.info(f"Applied {applied_count} LLM trait adjustments")
-            except Exception:
-                # Keep legacy resilience
-                pass
+            if forced_reply is None:
+                try:
+                    reply, applied_count = _pipeline.post_process_reply(
+                        self.eventlog, self.bridge, reply
+                    )
+                    if applied_count:
+                        logger.info(f"Applied {applied_count} LLM trait adjustments")
+                except Exception:
+                    # Keep legacy resilience
+                    pass
 
             self._note_reflection_claims(reply)
 
             # Append response event
             response_event_id = None
+            response_meta = {"user_event_id": user_event_id} if user_event_id else {}
+            if forced_reply is not None:
+                response_meta["epistemic_source"] = "ledger_lookup"
             try:
                 reply, response_event_id = _pipeline.reply_post_llm(
                     self,
                     reply,
                     user_text=None,
-                    meta={"user_event_id": user_event_id} if user_event_id else {},
+                    meta=response_meta,
                     raw_reply_for_telemetry=reply,
-                    skip_embedding=False,
+                    skip_embedding=forced_reply is not None,
                     apply_validators=False,
-                    run_commitment_hooks=True,
+                    run_commitment_hooks=forced_reply is None,
                     emit_directives=False,
+                    override_reply=reply if forced_reply is not None else None,
                 )
             except Exception:
                 logger.exception("Failed to append response event")

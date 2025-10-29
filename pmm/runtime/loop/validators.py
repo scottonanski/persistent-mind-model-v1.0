@@ -9,13 +9,19 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from pmm.commitments.intent_detector import (
+    extract_commitment_claims as _extract_commitment_claims_semantic,
+)
+from pmm.runtime.embeddings import compute_embedding, cosine_similarity
 from pmm.runtime.loop import io as _io
 from pmm.storage.eventlog import EventLog
 from pmm.utils.parsers import (
     extract_closed_commitment_claims,
-    extract_commitment_claims,
     extract_event_ids,
     parse_commitment_refs,
+)
+from pmm.utils.parsers import (
+    extract_commitment_claims as _extract_commitment_claims_keywords,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,8 +98,19 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
     if "commit" not in reply_lower:
         return
 
-    # Extract commitment claims from response using deterministic parser
-    claimed_commitments = extract_commitment_claims(reply)
+    # Extract numeric claims via keyword parser (e.g., "event id 21")
+    numeric_claims: list[str] = []
+    for c in _extract_commitment_claims_keywords(reply):
+        if isinstance(c, str) and c.isdigit():
+            numeric_claims.append(c)
+
+    # Extract semantic "open" commitment sentences (first-person pledges)
+    semantic_claims: list[str] = []
+    for sent, intent, conf in _extract_commitment_claims_semantic(reply):
+        semantic_claims.append(sent)
+
+    # Unified claims list: numeric event ids + semantic text sentences
+    claimed_commitments = list(numeric_claims) + list(semantic_claims)
 
     if not claimed_commitments:
         return False  # No specific claims to verify
@@ -131,6 +148,36 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
         actual_commitments.append(
             {"text": text, "raw_text": raw_text, "cid": cid[:8], "eid": eid}
         )
+
+    def _core_claim_phrase(s: str) -> str:
+        """Extract core phrase after 'committed to' deterministically.
+
+        Falls back to full string if pattern not present.
+        """
+        low = s.lower().strip()
+        key = "committed to"
+        if key in low:
+            rest = low[low.find(key) + len(key) :].strip()
+            # If starts with a quote, extract inside the quote deterministically
+            if rest.startswith('"') or rest.startswith("'"):
+                q = rest[0]
+                content = []
+                for ch in rest[1:]:
+                    if ch == q:
+                        break
+                    content.append(ch)
+                inner = "".join(content).strip()
+                if inner:
+                    return inner
+            # Cut at punctuation or quote/markdown markers
+            out = []
+            for ch in rest:
+                if ch in ".,;!?\"'*_`:|→":
+                    break
+                out.append(ch)
+            core = "".join(out).strip()
+            return core or low
+        return low
 
     # Verify each claim
     for claim in claimed_commitments:
@@ -201,12 +248,14 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
                     )
                 return True
         else:
-            # Claim is text - check if it matches any actual commitment text
+            # Claim is text — semantic match against actual open commitment raw_text
+            core = _core_claim_phrase(claim)
+            emb_claim = compute_embedding(core)
             for actual in actual_commitments:
-                if (
-                    claim_lower in actual["text"]
-                    or actual["text"].find(claim_lower) >= 0
-                ):
+                raw = actual.get("raw_text") or ""
+                emb_raw = compute_embedding(raw)
+                sim = cosine_similarity(emb_claim, emb_raw)
+                if sim >= 0.70:
                     found = True
                     break
 
@@ -235,7 +284,7 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
                     ]
                     _io.append_commitment_hallucination(
                         eventlog,
-                        claims=[claim_lower],
+                        claims=[_core_claim_phrase(claim_lower)],
                         available_eids=available_eids,
                         available_texts=available_texts,
                         claim_type="text",
