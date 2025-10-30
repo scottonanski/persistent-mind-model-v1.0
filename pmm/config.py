@@ -55,7 +55,8 @@ def load_runtime_env(dotenv_path: str = ".env") -> RuntimeEnv:
     # Truth-first evidence policy: artifact required (no env override)
     require_artifact_evidence = False
     # Commitment TTL and dedup knobs (constants)
-    commitment_ttl_hours = 24
+    # Extended from 24h to 72h to match Echo's execution cadence (emergent cognition improvements)
+    commitment_ttl_hours = 72
     commitment_dedup_window = 5
 
     ngram_ban_file = os.getenv("PMM_NGRAM_BAN_FILE") or None

@@ -1123,8 +1123,9 @@ class CommitmentTracker:
 
         Returns list of expired cids.
         """
-        # Constant TTL hours (no env override)
-        ttl_hours = 24
+        # Constant TTL hours from config (extended to 72h for emergent cognition improvements)
+        from pmm.config import load_runtime_env
+        ttl_hours = load_runtime_env().commitment_ttl_hours
         if ttl_hours < 0:
             return []
 
