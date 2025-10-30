@@ -87,7 +87,7 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
         eventlog: Ledger interface for querying commitment state
 
     Returns:
-        (hallucination_detected, correction_message): 
+        (hallucination_detected, correction_message):
             - True if hallucination detected, False otherwise
             - Correction message to inject into next prompt, or None
 
@@ -98,7 +98,15 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
     # Lazy validation: check if response might contain commitment-related content
     # Include broader triggers to catch semantic commitments
     reply_lower = reply.lower()
-    commitment_indicators = ["commit", "i will", "i'll", "i plan", "my goal", "i need to", "i must"]
+    commitment_indicators = [
+        "commit",
+        "i will",
+        "i'll",
+        "i plan",
+        "my goal",
+        "i need to",
+        "i must",
+    ]
     if not any(indicator in reply_lower for indicator in commitment_indicators):
         return (False, None)
 
@@ -111,7 +119,9 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
     # Extract semantic "open" commitment sentences (first-person pledges)
     # Use moderately high threshold (0.80) with contextual filters to balance precision/recall
     semantic_claims: list[str] = []
-    for sent, intent, conf in _extract_commitment_claims_semantic(reply, threshold=0.80):
+    for sent, intent, conf in _extract_commitment_claims_semantic(
+        reply, threshold=0.80
+    ):
         # Additional filters to reduce false positives:
         # 1. Skip very short sentences (acknowledgments)
         # 2. Must have sufficient length to be a real commitment
@@ -120,9 +130,20 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
             # Skip common conversational openings that aren't commitments
             sent_lower = sent.lower().strip()
             conversational_starts = [
-                "i apologize", "that's a", "it's a", "i'm ready", 
-                "okay", "great", "thanks", "sure", "yes", "just let me know", 
-                "how can i", "i'll do my best", "let me know", "i can help"
+                "i apologize",
+                "that's a",
+                "it's a",
+                "i'm ready",
+                "okay",
+                "great",
+                "thanks",
+                "sure",
+                "yes",
+                "just let me know",
+                "how can i",
+                "i'll do my best",
+                "let me know",
+                "i can help",
             ]
             if not any(sent_lower.startswith(start) for start in conversational_starts):
                 semantic_claims.append(sent)
@@ -246,7 +267,7 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
                     f"LLM claimed event ID {claimed_eid} is a commitment, but it's not in the ledger. "
                     f"Actual open commitment event IDs: {sample_ids}"
                 )
-                
+
                 # Build correction message for next turn
                 correction = (
                     f"[VALIDATOR_CORRECTION] You referenced commitment event ID {claimed_eid}, "
@@ -254,7 +275,7 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
                     f"Actual open commitment event IDs: {sample_ids[:5]}. "
                     f"Please verify against the ledger before citing commitments."
                 )
-                
+
                 try:
                     available_texts = [
                         c.get("raw_text")
@@ -301,25 +322,22 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
 
                 # Graduated severity based on best similarity score
                 if best_sim >= 0.60:
-                    severity = "paraphrase"
                     logger.info(
                         f"ℹ️  Commitment reference is paraphrased (sim={best_sim:.2f}): "
                         f"claimed '{claim[:50]}' vs actual '{best_match.get('raw_text', '')[:50]}'"
                     )
                 elif best_sim >= 0.40:
-                    severity = "semantic_drift"
                     logger.warning(
                         f"⚠️  Commitment reference has semantic drift (sim={best_sim:.2f}): "
                         f"claimed '{claim[:50]}' vs closest '{best_match.get('raw_text', '')[:50]}'"
                     )
                 else:
-                    severity = "hallucination"
                     logger.warning(
                         f"⚠️  Commitment hallucination detected (sim={best_sim:.2f}): "
                         f"LLM claimed commitment about '{claim}' but no matching commitment_open found in ledger. "
                         f"Actual open commitments: {[c['text'][:50] for c in actual_commitments[:3]]}"
                     )
-                
+
                 # Build correction message with graduated feedback
                 if best_sim >= 0.60:
                     correction = (
@@ -335,7 +353,7 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
                         f"Actual open commitments: {[c['text'][:60] for c in actual_commitments[:3]]}. "
                         f"Please verify against the ledger before citing commitments."
                     )
-                
+
                 try:
                     available_texts = [
                         c.get("raw_text")
@@ -358,7 +376,7 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
                     logger.debug(
                         "Failed to append commitment hallucination event", exc_info=True
                     )
-                
+
                 # Only block response for true hallucinations (sim < 0.60)
                 if best_sim < 0.60:
                     return (True, correction)

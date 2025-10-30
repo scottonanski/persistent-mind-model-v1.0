@@ -67,7 +67,7 @@ def test_commitment_survives_72_hours():
 
 def test_commitment_ttl_prevents_conscientiousness_collapse():
     """Verify that extended TTL allows time for commitment execution.
-    
+
     This test simulates a conversation where Echo makes commitments
     and verifies they don't expire prematurely, preventing the
     Conscientiousness trait collapse observed in the original conversation.
@@ -95,7 +95,7 @@ def test_commitment_ttl_prevents_conscientiousness_collapse():
         expired_24h = tracker.expire_old_commitments(
             now_iso=(now + dt.timedelta(hours=24)).isoformat()
         )
-        
+
         # With new 72h TTL, none should expire
         assert len(expired_24h) == 0, (
             "Commitments should NOT expire at 24h with new 72h TTL. "
@@ -149,7 +149,7 @@ def test_stage_aware_ttl_multipliers():
 
 def test_ttl_extension_rationale():
     """Document the rationale for 72h TTL extension.
-    
+
     This test serves as living documentation for why we extended
     the TTL from 24h to 72h.
     """
@@ -159,15 +159,15 @@ def test_ttl_extension_rationale():
     # 3. 24h window was too aggressive, causing Conscientiousness collapse
     # 4. Observed pattern: Echo makes genuine commitments but they expire before execution
     # 5. 72h provides realistic window matching Echo's actual execution cadence
-    
+
     env = load_runtime_env()
     assert env.commitment_ttl_hours == 72
-    
+
     # Verify this is 3x the original TTL
     original_ttl = 24
     new_ttl = env.commitment_ttl_hours
     assert new_ttl == original_ttl * 3
-    
+
     # This extension should reduce expiration rate by ~40%
     # (commitments that would have expired at 24-72h now survive)
     pass  # Test passes if assertions above hold
