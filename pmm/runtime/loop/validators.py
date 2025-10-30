@@ -252,7 +252,7 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
 
             if not found:
                 # Show user-friendly message
-                print("😕 Hmm, that doesn't match the ledger...")
+                print("\n😕 Hmm, that doesn't match the ledger...")
                 import time
 
                 time.sleep(0.8)  # Let user see the message
@@ -263,9 +263,9 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
                     if c.get("eid") is not None
                 ]
                 logger.warning(
-                    f"⚠️  Commitment hallucination detected: "
-                    f"LLM claimed event ID {claimed_eid} is a commitment, but it's not in the ledger. "
-                    f"Actual open commitment event IDs: {sample_ids}"
+                    f"⚠️  Commitment hallucination detected!\n"
+                    f"    LLM claimed event ID {claimed_eid} is a commitment, but it's not in the ledger.\n"
+                    f"    Actual open commitment event IDs: {sample_ids}"
                 )
 
                 # Build correction message for next turn
@@ -315,7 +315,7 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
 
             if not found:
                 # Show user-friendly message
-                print("😕 Hmm, that doesn't match the ledger...")
+                print("\n😕 Hmm, that doesn't match the ledger...")
                 import time
 
                 time.sleep(0.8)  # Let user see the message
@@ -333,9 +333,10 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
                     )
                 else:
                     logger.warning(
-                        f"⚠️  Commitment hallucination detected (sim={best_sim:.2f}): "
-                        f"LLM claimed commitment about '{claim}' but no matching commitment_open found in ledger. "
-                        f"Actual open commitments: {[c['text'][:50] for c in actual_commitments[:3]]}"
+                        f"⚠️  Commitment hallucination detected!\n"
+                        f"    (sim={best_sim:.2f}): LLM claimed commitment about '{claim}' "
+                        f"but no matching commitment_open found in ledger.\n"
+                        f"    Actual open commitments: {[c['text'][:50] for c in actual_commitments[:3]]}"
                     )
 
                 # Build correction message with graduated feedback
@@ -531,10 +532,10 @@ def verify_commitment_count_claims(reply: str, actual_open_count: int) -> bool:
     for phrase in bad_phrases:
         if phrase in claim:
             logger.warning(
-                f"⚠️  Commitment count hallucination: "
-                f"LLM claimed zero commitments, but ledger shows {actual_open_count} open"
+                f"⚠️  Commitment count hallucination!\n"
+                f"    LLM claimed zero commitments, but ledger shows {actual_open_count} open"
             )
-            print("😕 Hmm, that doesn't match the ledger...")
+            print("\n😕 Hmm, that doesn't match the ledger...")
             import time
 
             time.sleep(0.8)
