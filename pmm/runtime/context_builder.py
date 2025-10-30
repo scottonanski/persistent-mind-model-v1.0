@@ -503,6 +503,31 @@ Commitment Search Debug:
             lines.extend(reflections_block)
         if include_reflections:
             lines.append("---")
+        
+        # Add ledger summary with key event IDs for better recall
+        try:
+            if events:
+                identity_event = None
+                for ev in events:
+                    if ev.get("kind") == "identity_adopt" and ev.get("content") == name:
+                        identity_event = ev.get("id")
+                        break
+                
+                latest_event = events[-1].get("id") if events else None
+                event_count = len(events)
+                
+                summary_parts = []
+                if identity_event:
+                    summary_parts.append(f"identity adopted at event #{identity_event}")
+                if latest_event:
+                    summary_parts.append(f"latest event #{latest_event}")
+                if event_count:
+                    summary_parts.append(f"{event_count} total events")
+                
+                if summary_parts:
+                    lines.append(f"Ledger: {', '.join(summary_parts)}")
+        except Exception:
+            pass
 
     if diagnostics is not None:
         diagnostics.clear()
