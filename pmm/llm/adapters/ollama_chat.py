@@ -129,14 +129,22 @@ class OllamaChat:
 
             return_usage = bool(kwargs.pop("return_usage", False))
             url = f"{self.base_url}/api/chat"
+            # Set conservative num_ctx for cloud models to prevent 502 errors
+            options = {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+                **kwargs,
+            }
+            # Add num_ctx if not already specified and we have provider caps
+            if "num_ctx" not in options and self._provider_caps:
+                max_ctx = self._provider_caps.get("max_context")
+                if max_ctx:
+                    # Use discovered context size, capped at 8192 for stability
+                    options["num_ctx"] = min(max_ctx, 8192)
             payload = {
                 "model": self.model,
                 "messages": messages,
-                "options": {
-                    "temperature": temperature,
-                    "num_predict": max_tokens,
-                    **kwargs,
-                },
+                "options": options,
                 "stream": False,
             }
             headers = {
@@ -252,14 +260,22 @@ class OllamaChat:
             ias, gas = get_or_compute_ias_gas(eventlog)
 
             url = f"{self.base_url}/api/chat"
+            # Set conservative num_ctx for cloud models to prevent 502 errors
+            options = {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+                **kwargs,
+            }
+            # Add num_ctx if not already specified and we have provider caps
+            if "num_ctx" not in options and self._provider_caps:
+                max_ctx = self._provider_caps.get("max_context")
+                if max_ctx:
+                    # Use discovered context size, capped at 8192 for stability
+                    options["num_ctx"] = min(max_ctx, 8192)
             payload = {
                 "model": self.model,
                 "messages": messages,
-                "options": {
-                    "temperature": temperature,
-                    "num_predict": max_tokens,
-                    **kwargs,
-                },
+                "options": options,
                 "stream": True,  # Enable streaming
             }
             headers = {
