@@ -67,11 +67,24 @@ class _CapsCache:
 DEFAULT_FALLBACK_CTX = 8192  # conservative for unknowns
 DEFAULT_FALLBACK_OUT = 1024
 
-# Conservative candidate output sizes we'll test during probing
-_CANDIDATE_OUTS = [4096, 8192, 16384, 32768]  # we will clamp as needed
+# Provider-specific probe strategies
+# Ollama: Conservative due to local resource constraints and gateway limits
+# OpenAI/Anthropic: More aggressive since they handle large contexts natively
+_PROVIDER_PROBE_SIZES = {
+    "ollama": [512, 1024, 2048, 4096],
+    "openai": [2048, 4096, 8192, 16384],
+    "anthropic": [2048, 4096, 8192, 16384],
+    "default": [512, 1024, 2048, 4096],
+}
 
 # Tiny neutral probe message (no semantic effect)
 _PROBE_MESSAGES = [{"role": "user", "content": "Say OK."}]
+
+
+def _get_probe_sizes(model_key: str) -> list[int]:
+    """Select probe sizes based on provider type."""
+    provider = model_key.split("/")[0].lower() if "/" in model_key else "default"
+    return _PROVIDER_PROBE_SIZES.get(provider, _PROVIDER_PROBE_SIZES["default"])
 
 
 def _hash_model_key(model_key: str) -> str:
@@ -147,7 +160,7 @@ class CapabilityResolver:
     def _active_probe(self, model_key: str) -> ModelCaps | None:
         """
         Strategy:
-          - Try progressively larger completion sizes.
+          - Try progressively larger completion sizes (provider-aware).
           - If provider clamps (ok=True but shorter than requested) → record clamp as max_out_hint.
           - If provider errors with "context" or "too many tokens", back off.
           - Infer a conservative max_ctx from usage when available.
@@ -156,7 +169,8 @@ class CapabilityResolver:
         inferred_max_ctx = 0
         clamped = False
         last_note = ""
-        for candidate in _CANDIDATE_OUTS:
+        probe_sizes = _get_probe_sizes(model_key)
+        for candidate in probe_sizes:
             resp = self.probe_fn(model_key, _PROBE_MESSAGES, max_tokens=candidate)
             if not resp:
                 last_note = "no-response"
