@@ -99,7 +99,9 @@ class OllamaChat:
                     else:
                         # Try architecture-specific patterns (e.g., "deepseek2.context_length")
                         for key, val in cfg.items():
-                            if "context" in key.lower() and isinstance(val, (int, float)):
+                            if "context" in key.lower() and isinstance(
+                                val, (int, float)
+                            ):
                                 nc = int(val)
                                 if nc > 0:
                                     num_ctx = nc
@@ -307,6 +309,7 @@ class OllamaChat:
 
             # Log payload size for debugging large requests
             import json as _json
+
             payload_size = len(_json.dumps(payload))
             ctx_val = options.get("num_ctx", "not set")
             logger.debug(
