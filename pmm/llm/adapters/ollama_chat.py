@@ -294,8 +294,8 @@ class OllamaChat:
                 if max_ctx:
                     # Use discovered context size, capped at 8192 for stability
                     options["num_ctx"] = min(max_ctx, 8192)
-                    logger.error(
-                        f"DEBUG: Set num_ctx={options['num_ctx']} for streaming (discovered: {max_ctx})"
+                    logger.info(
+                        f"Set num_ctx={options['num_ctx']} for streaming (discovered: {max_ctx})"
                     )
 
             payload = {
@@ -305,12 +305,12 @@ class OllamaChat:
                 "stream": True,  # Enable streaming
             }
 
-            # Debug: log payload size and options
+            # Log payload size for debugging large requests
             import json as _json
             payload_size = len(_json.dumps(payload))
-            num_ctx_val = options.get("num_ctx", "NOT SET")
-            logger.error(
-                f"DEBUG STREAMING: {len(messages)} msgs, {payload_size}B, num_ctx={num_ctx_val}"
+            ctx_val = options.get("num_ctx", "not set")
+            logger.debug(
+                f"Streaming: {len(messages)} msgs, {payload_size}B, num_ctx={ctx_val}"
             )
 
             headers = {
