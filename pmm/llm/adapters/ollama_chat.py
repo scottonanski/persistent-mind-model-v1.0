@@ -88,12 +88,22 @@ class OllamaChat:
                                 break
                 except Exception:
                     num_ctx = None
-            # Fallback: some builds may expose context as "context" or "num_ctx" in another map
+            # Fallback: check model_info for various context field patterns
             if num_ctx is None:
                 try:
                     cfg = data.get("model_info") or {}
+                    # Try standard fields first
                     nc = int(cfg.get("num_ctx") or cfg.get("context") or 0)
-                    num_ctx = nc if nc > 0 else None
+                    if nc > 0:
+                        num_ctx = nc
+                    else:
+                        # Try architecture-specific patterns (e.g., "deepseek2.context_length")
+                        for key, val in cfg.items():
+                            if "context" in key.lower() and isinstance(val, (int, float)):
+                                nc = int(val)
+                                if nc > 0:
+                                    num_ctx = nc
+                                    break
                 except Exception:
                     num_ctx = None
 
@@ -145,7 +155,9 @@ class OllamaChat:
                 if max_ctx:
                     # Use discovered context size, capped at 8192 for stability
                     options["num_ctx"] = min(max_ctx, 8192)
-                    logger.info(f"Set num_ctx={options['num_ctx']} for generate (discovered: {max_ctx})")
+                    logger.info(
+                        f"Set num_ctx={options['num_ctx']} for generate (discovered: {max_ctx})"
+                    )
 
             payload = {
                 "model": self.model,
@@ -282,7 +294,9 @@ class OllamaChat:
                 if max_ctx:
                     # Use discovered context size, capped at 8192 for stability
                     options["num_ctx"] = min(max_ctx, 8192)
-                    logger.info(f"Set num_ctx={options['num_ctx']} for streaming (discovered: {max_ctx})")
+                    logger.info(
+                        f"Set num_ctx={options['num_ctx']} for streaming (discovered: {max_ctx})"
+                    )
 
             payload = {
                 "model": self.model,
