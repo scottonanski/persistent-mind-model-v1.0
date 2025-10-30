@@ -42,7 +42,8 @@ def extract_conversation_history(
         try:
             cfg = _load_cfg()
             val = int(cfg.get("CHAT_HISTORY_TURNS", 10))
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to load config: {e}")
             val = 10
         # Clamp to a deterministic, sane range
         if val < 4:
@@ -184,9 +185,12 @@ def handle_user_input(
         logger.debug(
             f"User identity classification: intent={intent}, candidate={candidate_name}, confidence={confidence:.3f}"
         )
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Identity classification failed: {e}")
         intent, candidate_name, confidence = ("irrelevant", None, 0.0)
-        logger.debug("Identity classification failed", exc_info=True)
+        logger.debug(
+            f"User identity classification: intent={intent}, candidate={candidate_name}, confidence={confidence:.3f}"
+        )
 
     # Debug breadcrumb: audit naming gate (user path)
     try:
@@ -197,8 +201,8 @@ def handle_user_input(
             confidence=float(confidence),
         )
         _refresh_snapshot()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to append name attempt: {e}")
 
     # Handle user self-identification
     if intent == "user_self_identification" and candidate_name:
@@ -210,8 +214,8 @@ def handle_user_input(
                 source="user_input",
             )
             _refresh_snapshot()
-        except Exception:
-            logger.debug("Failed to log user identity", exc_info=True)
+        except Exception as e:
+            logger.debug(f"Failed to log user identity: {e}")
 
     try:
         user_event_id = _pipeline.persist_user_with_embedding(
@@ -225,7 +229,8 @@ def handle_user_input(
                 user_text, source_event_id=int(user_event_id), speaker="user"
             )
             _refresh_snapshot()
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to persist user with embedding: {e}")
         user_event_id = None
     recent_events = snapshot.events[-5:] if snapshot.events else []
 
@@ -261,15 +266,16 @@ def handle_user_input(
                         path="user",
                         content="naming_fallback_candidate",
                     )
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as e:
+                    logger.debug(f"Failed to append name attempt: {e}")
+        except Exception as e:
+            logger.debug(f"Failed to derive candidate name from user input: {e}")
 
     # Require explicit proposal or very high confidence to prevent "I am going to..." false positives
     try:
         recent_events = _events(refresh=True)[-5:]
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to refresh events: {e}")
         recent_events = []
     has_proposal = any(e.get("kind") == "identity_propose" for e in recent_events)
 
@@ -354,8 +360,8 @@ def handle_user_input(
                         "error": adoption_error if not adoption_succeeded else None,
                     },
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to log adoption error: {e}")
     # User-driven one-shot commitment execution is disabled; commitments open autonomously.
     exec_commit = False
     exec_text = ""
@@ -365,7 +371,8 @@ def handle_user_input(
         _captured_assertions = _pipeline.capture_knowledge_asserts(
             runtime.eventlog, user_text
         )
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to capture knowledge assertions: {e}")
         # Never disrupt chat flow on capture issues
         _captured_assertions = []
     # Build proper conversation history from ledger (OpenAI-style message format)
@@ -376,7 +383,8 @@ def handle_user_input(
         # Extract conversation history with a window sized to model caps when available
         try:
             max_turns = int(getattr(runtime, "_suggest_history_turns")())
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to suggest history turns: {e}")
             max_turns = None
         conversation_history = extract_conversation_history(
             evs_hist, max_turns=max_turns
@@ -441,15 +449,16 @@ def handle_user_input(
                         ),
                     }
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to query commitments: {e}")
                 # Fallback to basic instruction if commitment query fails
                 fallback = (
                     "When describing current work, briefly mention one or two open "
                     "commitments from your ledger."
                 )
                 msgs.append({"role": "system", "content": fallback})
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to query commitments: {e}")
 
     # Optional graph evidence injection for insight-heavy prompts
     if runtime._graph_cooldown > 0:
@@ -485,7 +494,8 @@ def handle_user_input(
                     recent_digest_blocklist=blocklist,
                     trace_buffer=runtime.trace_buffer if runtime.trace_buffer else None,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to query memegraph: {e}")
                 relations = []
             if relations:
                 lines: list[str] = []
@@ -545,8 +555,8 @@ def handle_user_input(
                             relations=event_relations,
                             context=graph_context_candidates,
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Failed to append graph context: {e}")
                     runtime._graph_cooldown = 2
                 else:
                     runtime._graph_cooldown = max(runtime._graph_cooldown, 1)
@@ -588,8 +598,8 @@ def handle_user_input(
             history.pop(0)
 
         msgs = prefix + history + suffix
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to estimate tokens for message trimming: {e}")
 
     # DEBUG: Log what we're sending to the model
     import logging
@@ -625,8 +635,8 @@ def handle_user_input(
             family=runtime.bridge.model_family,
             adopted_name=build_identity(runtime.eventlog.read_all()).get("name"),
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to sanitize reply: {e}")
 
     intent_reply = "irrelevant"
     candidate_reply = None
@@ -643,8 +653,9 @@ def handle_user_input(
                 next_event_id=None,  # Not exposed to Echo
             )
             reply = guard_capability_claims(reply, claim_ctx)
-        except Exception:
-            pass  # Fail-open: don't block response on guard failure
+        except Exception as e:
+            logger.debug(f"Failed to guard capability claims: {e}")
+            # Fail-open: don't block response on guard failure
 
         try:
             intent_reply, candidate_reply, confidence_reply = (
@@ -654,7 +665,8 @@ def handle_user_input(
                     recent_events=recent_events,
                 )
             )
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to classify assistant identity intent: {e}")
             intent_reply, candidate_reply, confidence_reply = (
                 "irrelevant",
                 None,
@@ -669,8 +681,8 @@ def handle_user_input(
                 reason=None,
                 content="",
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to append name attempt for assistant: {e}")
 
         # Defensive fallback: derive candidate from unique proper noun when intent is clear (assistant path)
         if intent_reply == "assign_assistant_name" and not candidate_reply:
@@ -716,10 +728,14 @@ def handle_user_input(
                             path="assistant",
                             content="naming_fallback_candidate",
                         )
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                    except Exception as e:
+                        logger.debug(
+                            f"Failed to append name attempt for assistant: {e}"
+                        )
+            except Exception as e:
+                logger.debug(
+                    f"Failed to derive candidate name from assistant reply: {e}"
+                )
 
     # Apply same tightened criteria for assistant self-naming
     if (
@@ -756,8 +772,8 @@ def handle_user_input(
                         name=sanitized,
                         meta={"name": sanitized, **meta, "confidence": 0.9},
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to append identity adopt: {e}")
             # Instrumentation: record decision
             try:
                 runtime.eventlog.append(
@@ -772,8 +788,8 @@ def handle_user_input(
                         "source": "assistant",
                     },
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to log adoption decision: {e}")
     elif intent == "assign_assistant_name" and candidate_name:
         # Log failed adoption attempts for debugging
         logger.debug(
@@ -795,8 +811,8 @@ def handle_user_input(
                     "source": "user",
                 },
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to log adoption decision: {e}")
     elif (
         intent_reply == "affirm_assistant_name"
         and candidate_reply
@@ -839,8 +855,8 @@ def handle_user_input(
                     "source": "assistant",
                 },
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to log adoption decision: {e}")
     # Post-process with n-gram filter (telemetry inspects pre-scrub text)
     raw_reply_for_telemetry = reply
     reply = runtime._ngram_filter.filter(reply)
@@ -900,8 +916,9 @@ def handle_user_input(
             user_text,
             ident.get("name") if isinstance(ident, dict) else None,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to enforce constraints: {e}")
+
     # Strip auto-preambles/signatures handled upstream by BridgeManager.sanitize.
     # Recall suggestion (semantic if available else token overlap). Must precede response append.
     # Use the snapshot captured before we appended any knowledge_asserts for baseline stability.
@@ -941,7 +958,8 @@ def handle_user_input(
                     )
                     if not seeds:
                         seeds = None
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to search semantic embeddings: {e}")
         seeds = None
 
     # If no semantic seeds resolved, bias recall to recent ledger events (user + notes)
@@ -961,7 +979,8 @@ def handle_user_input(
                     break
             if recent_eids:
                 seeds = list(reversed(recent_eids))
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to get recent event IDs: {e}")
             seeds = None
     _ = _pipeline.suggest_and_emit_recall(
         runtime.eventlog, evs_before, reply, seeds=seeds
@@ -1025,8 +1044,8 @@ def handle_user_input(
                     window={"start": start, "end": end},
                     content=content,
                 )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to compact scene: {e}")
 
     # Flush reasoning trace to eventlog
     if runtime.trace_buffer:

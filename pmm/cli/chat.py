@@ -108,7 +108,8 @@ def _disable_input() -> tuple:
         new_settings[3] = new_settings[3] & ~(termios.ICANON | termios.ECHO)
         termios.tcsetattr(fd, termios.TCSADRAIN, new_settings)
         return (fd, old_settings)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to disable input: {e}")
         return (None, None)
 
 
@@ -118,8 +119,8 @@ def _enable_input(settings: tuple) -> None:
     if fd is not None and old_settings is not None:
         try:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to restore input settings: {e}")
 
 
 def _render_assistant(console: Console, reply: str) -> None:
@@ -128,7 +129,8 @@ def _render_assistant(console: Console, reply: str) -> None:
         return
     try:
         body = Markdown(content, code_theme="monokai", justify="left")
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to render markdown: {e}")
         body = Text(content)
     panel = Panel.fit(
         body,
@@ -501,7 +503,8 @@ def main() -> None:
                         runtime.eventlog, getattr(runtime, "memegraph", None)
                     )
                     assistant_console.print(_metrics_panel(snapshot))
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Unable to load metrics snapshot: {e}")
                     assistant_console.print(
                         _system_panel(
                             "Unable to load metrics snapshot.",
@@ -653,8 +656,8 @@ def main() -> None:
                 )
                 try:
                     runtime.stop_autonomy()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to stop autonomy: {e}")
                 return
 
             # Phase 2.1: Stream response tokens as they're generated
@@ -668,8 +671,7 @@ def main() -> None:
                 assistant_console.print()  # Newline after complete response
                 reply = "".join(reply_tokens)
             except Exception as e:
-                # Fallback to non-streaming if streaming fails
-                logger.warning(f"Streaming failed, falling back to non-streaming: {e}")
+                logger.debug(f"Streaming failed, falling back to non-streaming: {e}")
                 reply = runtime.handle_user(user_input)
                 _render_assistant(assistant_console, reply)
 
@@ -687,8 +689,8 @@ def main() -> None:
                         assistant_console,
                         f"⚠️  Hallucination detected: {hallucination_ids}",
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to check for hallucination detection: {e}")
 
             # Check for commitment status mismatches
             try:
@@ -701,8 +703,8 @@ def main() -> None:
                         "[bold yellow][status-mismatch][/bold yellow] "
                         f"LLM claimed wrong commitment status: {status_mismatches}"
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to check for commitment status mismatches: {e}")
 
             try:
                 events = runtime.eventlog.read_tail(limit=1000)
@@ -743,7 +745,8 @@ def main() -> None:
                     if "novelty_threshold" in params:
                         try:
                             cooldown_thr = float(params.get("novelty_threshold"))
-                        except Exception:
+                        except Exception as e:
+                            logger.debug(f"Failed to parse cooldown threshold: {e}")
                             cooldown_thr = None
                         break
                 prev_thr = getattr(main, "_last_cooldown_thr")
@@ -753,8 +756,8 @@ def main() -> None:
                         cooldown_thr,
                     )
                     setattr(main, "_last_cooldown_thr", cooldown_thr)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to update stage and cooldown threshold: {e}")
 
             try:
                 events = runtime.eventlog.read_tail(limit=1000)
@@ -773,8 +776,8 @@ def main() -> None:
                                 "[bold blue][commitment][/bold blue] opened from reflection"
                             )
                             setattr(main, "_last_commitment_id", last_event.get("id"))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to check for commitment opening: {e}")
 
             try:
                 events = runtime.eventlog.read_tail(limit=1000)
@@ -797,8 +800,8 @@ def main() -> None:
                         )
                         setattr(main, "_last_bridge_policy_id", eid)
                     break
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to check for bridge policy update: {e}")
 
             try:
                 events = runtime.eventlog.read_tail(limit=1000)
@@ -818,8 +821,8 @@ def main() -> None:
                             cid,
                         )
                         printed.add(eid)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to check for commitment reminders: {e}")
 
             try:
                 events = runtime.eventlog.read_tail(limit=1000)
@@ -831,8 +834,8 @@ def main() -> None:
                             "[bold blue][identity][/bold blue] adopted name: %s",
                             name,
                         )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to check for identity notice: {e}")
 
             if metrics_view_enabled:
                 try:
@@ -840,8 +843,8 @@ def main() -> None:
                         runtime.eventlog, getattr(runtime, "memegraph", None)
                     )
                     assistant_console.print(_metrics_panel(snapshot))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to load metrics snapshot: {e}")
 
             # Reflection check - show status during check
             try:
@@ -870,8 +873,8 @@ def main() -> None:
         )
         try:
             runtime.stop_autonomy()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to stop autonomy: {e}")
         sys.exit(0)
 
 
