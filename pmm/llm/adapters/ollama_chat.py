@@ -135,12 +135,18 @@ class OllamaChat:
                 "num_predict": max_tokens,
                 **kwargs,
             }
+            
+            # Ensure provider caps are loaded
+            self._ensure_provider_caps()
+            
             # Add num_ctx if not already specified and we have provider caps
             if "num_ctx" not in options and self._provider_caps:
                 max_ctx = self._provider_caps.get("max_context")
                 if max_ctx:
                     # Use discovered context size, capped at 8192 for stability
                     options["num_ctx"] = min(max_ctx, 8192)
+                    logger.info(f"Set num_ctx={options['num_ctx']} for generate (discovered: {max_ctx})")
+            
             payload = {
                 "model": self.model,
                 "messages": messages,
@@ -266,12 +272,18 @@ class OllamaChat:
                 "num_predict": max_tokens,
                 **kwargs,
             }
+            
+            # Ensure provider caps are loaded before streaming
+            self._ensure_provider_caps()
+            
             # Add num_ctx if not already specified and we have provider caps
             if "num_ctx" not in options and self._provider_caps:
                 max_ctx = self._provider_caps.get("max_context")
                 if max_ctx:
                     # Use discovered context size, capped at 8192 for stability
                     options["num_ctx"] = min(max_ctx, 8192)
+                    logger.info(f"Set num_ctx={options['num_ctx']} for streaming (discovered: {max_ctx})")
+            
             payload = {
                 "model": self.model,
                 "messages": messages,
