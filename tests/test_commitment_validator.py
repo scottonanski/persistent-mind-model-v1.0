@@ -39,7 +39,8 @@ def test_validator_catches_fake_event_id(tmp_path):
         ],
     )
 
-    assert _verify_commitment_claims(reply, eventlog) is True
+    hallucination_detected, _ = _verify_commitment_claims(reply, eventlog)
+    assert hallucination_detected is True
     events = eventlog.read_all()
     last = events[-1]
     assert last["kind"] == "hallucination_detected"
@@ -64,7 +65,8 @@ def test_validator_catches_fake_topic(tmp_path):
         ],
     )
 
-    assert _verify_commitment_claims(reply, eventlog) is True
+    hallucination_detected, _ = _verify_commitment_claims(reply, eventlog)
+    assert hallucination_detected is True
     events = eventlog.read_all()
     last = events[-1]
     assert last["kind"] == "hallucination_detected"
@@ -82,7 +84,8 @@ def test_validator_ignores_conversational(tmp_path):
 
     eventlog = _build_eventlog(tmp_path, [])
 
-    assert _verify_commitment_claims(reply, eventlog) is False
+    hallucination_detected, _ = _verify_commitment_claims(reply, eventlog)
+    assert hallucination_detected is False
     assert all(ev.get("kind") != "hallucination_detected" for ev in eventlog.read_all())
 
 
@@ -101,7 +104,8 @@ def test_validator_accepts_valid_claim(tmp_path):
         ],
     )
 
-    assert _verify_commitment_claims(reply, eventlog) is False
+    hallucination_detected, _ = _verify_commitment_claims(reply, eventlog)
+    assert hallucination_detected is False
     assert all(ev.get("kind") != "hallucination_detected" for ev in eventlog.read_all())
 
 
@@ -120,7 +124,8 @@ def test_validator_accepts_valid_event_id(tmp_path):
     actual_id = eventlog.read_all()[-1]["id"]
     reply = f"I see a commitment at event ID {actual_id}."
 
-    assert _verify_commitment_claims(reply, eventlog) is False
+    hallucination_detected, _ = _verify_commitment_claims(reply, eventlog)
+    assert hallucination_detected is False
     assert all(ev.get("kind") != "hallucination_detected" for ev in eventlog.read_all())
 
 

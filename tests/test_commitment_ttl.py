@@ -14,11 +14,11 @@ def test_ttl_expiration_generates_event_and_closes(tmp_path, monkeypatch):
     cid = tracker.add_commitment(text, source="test1")
     assert cid
 
-    # Compute a future 'now' beyond the default TTL (24h) relative to the open event timestamp
+    # Compute a future 'now' beyond the default TTL (72h) relative to the open event timestamp
     evs = log.read_all()
     open_ts = next(e["ts"] for e in evs if e["kind"] == "commitment_open")
     now_dt = _dt.datetime.fromisoformat(open_ts.replace("Z", "+00:00")) + _dt.timedelta(
-        hours=25
+        hours=73
     )
     now_iso = now_dt.isoformat()
 
