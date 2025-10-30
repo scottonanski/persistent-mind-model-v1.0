@@ -11,7 +11,7 @@ _POLICY_ID = "alloc.v1.0"
 # Task bands (min, max) for single completion;
 # allocator will clamp against provider hint and remaining budget.
 _BANDS: dict[str, tuple[int, int]] = {
-    "chat": (256, 2048),
+    "chat": (512, 4096),  # Increased from (256, 2048) for more conversational responses
     "reflect_single": (512, 2048),
     "reflect_recursive": (512, 2048),
     "report": (1024, 4096),

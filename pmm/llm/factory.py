@@ -39,7 +39,9 @@ class LLMFactory:
         prov = (cfg.provider or "").lower()
         if prov == "openai":
             chat: ChatAdapter = OpenAIChat(model=cfg.model)
-            if cfg.embed_provider is None or cfg.embed_provider == "openai":
+            # Only use OpenAI embeddings if explicitly requested
+            # PMM has a free local embedding system (local-bow) that works well
+            if cfg.embed_provider == "openai":
                 if "PYTEST_CURRENT_TEST" in os.environ:
 
                     class MockEmbed(EmbeddingAdapter):
@@ -50,6 +52,9 @@ class LLMFactory:
                 else:
                     embed_model_name = cfg.embed_model or "text-embedding-3-small"
                     embed: EmbeddingAdapter | None = OpenAIEmbed(model=embed_model_name)
+            elif cfg.embed_provider is None:
+                # Default to no external embeddings (use local-bow)
+                embed = None
             else:
                 raise ValueError(f"Unknown embed provider: {cfg.embed_provider}")
         elif prov == "ollama":
