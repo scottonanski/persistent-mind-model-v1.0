@@ -360,9 +360,10 @@ def _resolve_reflection_policy_overrides(
                         _eid = None
                     # Log once per policy_update event id to reduce startup noise
                     if _eid is None or _eid not in _CLAMPED_POLICY_LOGGED_IDS:
-                        logger.warning(
-                            f"Clamped reflection policy: min_turns {mt_int}→{mt_clamped}, "
-                            f"min_time_s {ms_int}→{ms_clamped} (event #{ev.get('id')})"
+                        logger.info(
+                            f"[Reflection Cadence Adjustment] Clamped policy to safe bounds: "
+                            f"min_turns {mt_int}→{mt_clamped}, min_time_s {ms_int}→{ms_clamped} "
+                            f"(event #{ev.get('id')})"
                         )
                         if _eid is not None:
                             _CLAMPED_POLICY_LOGGED_IDS.add(_eid)
