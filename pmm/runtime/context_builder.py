@@ -388,7 +388,6 @@ Commitment Search Debug:
         max_reflections = 2 if compact_mode else n_reflections
         for ev in reversed(events):
             if ev.get("kind") == "reflection":
-                eid = ev.get("id", "?")
                 ts = _iso_short(ev.get("ts")) if not compact_mode else ""
                 txt = _short_reflection(ev.get("content", ""))
 
@@ -398,15 +397,15 @@ Commitment Search Debug:
                     if remaining > 20:
                         txt = txt[: remaining - 3] + "..."
                         if compact_mode:
-                            reflections_block.append(f'  - [{eid}] "{txt}"')
+                            reflections_block.append(f'  - "{txt}"')
                         else:
-                            reflections_block.append(f'  - [{eid}] {ts}: "{txt}"')
+                            reflections_block.append(f'  - {ts}: "{txt}"')
                     break
 
                 if compact_mode:
-                    reflections_block.append(f'  - [{eid}] "{txt}"')
+                    reflections_block.append(f'  - "{txt}"')
                 else:
-                    reflections_block.append(f'  - [{eid}] {ts}: "{txt}"')
+                    reflections_block.append(f'  - {ts}: "{txt}"')
                 total_chars += len(txt)
                 count += 1
                 if count >= max_reflections:
@@ -503,31 +502,6 @@ Commitment Search Debug:
             lines.extend(reflections_block)
         if include_reflections:
             lines.append("---")
-        
-        # Add ledger summary with key event IDs for better recall
-        try:
-            if events:
-                identity_event = None
-                for ev in events:
-                    if ev.get("kind") == "identity_adopt" and ev.get("content") == name:
-                        identity_event = ev.get("id")
-                        break
-                
-                latest_event = events[-1].get("id") if events else None
-                event_count = len(events)
-                
-                summary_parts = []
-                if identity_event:
-                    summary_parts.append(f"identity adopted at event #{identity_event}")
-                if latest_event:
-                    summary_parts.append(f"latest event #{latest_event}")
-                if event_count:
-                    summary_parts.append(f"{event_count} total events")
-                
-                if summary_parts:
-                    lines.append(f"Ledger: {', '.join(summary_parts)}")
-        except Exception:
-            pass
 
     if diagnostics is not None:
         diagnostics.clear()

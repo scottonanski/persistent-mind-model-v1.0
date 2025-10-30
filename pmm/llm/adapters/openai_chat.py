@@ -46,7 +46,7 @@ class OpenAIChat:
             )
 
             with urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+                json.loads(resp.read().decode("utf-8"))
 
             # OpenAI doesn't expose context_window in the API response directly
             # We need to use known values based on model name
