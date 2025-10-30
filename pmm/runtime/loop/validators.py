@@ -76,7 +76,7 @@ def verify_event_existence_claims(
     return (len(missing) == 0, missing)
 
 
-def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
+def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str | None]:
     """Verify that commitment claims in LLM response match ledger reality.
 
     This is a post-response validator that catches commitment hallucinations.
@@ -87,16 +87,28 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
         eventlog: Ledger interface for querying commitment state
 
     Returns:
-        True if hallucination detected, False otherwise
+        (hallucination_detected, correction_message):
+            - True if hallucination detected, False otherwise
+            - Correction message to inject into next prompt, or None
 
     Side effects:
         Logs warnings if mismatches are detected
         Prints user-friendly emoji message when hallucination found
     """
-    # Lazy validation: only check if response mentions commitments
+    # Lazy validation: check if response might contain commitment-related content
+    # Include broader triggers to catch semantic commitments
     reply_lower = reply.lower()
-    if "commit" not in reply_lower:
-        return
+    commitment_indicators = [
+        "commit",
+        "i will",
+        "i'll",
+        "i plan",
+        "my goal",
+        "i need to",
+        "i must",
+    ]
+    if not any(indicator in reply_lower for indicator in commitment_indicators):
+        return (False, None)
 
     # Extract numeric claims via keyword parser (e.g., "event id 21")
     numeric_claims: list[str] = []
@@ -105,15 +117,42 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
             numeric_claims.append(c)
 
     # Extract semantic "open" commitment sentences (first-person pledges)
+    # Use moderately high threshold (0.80) with contextual filters to balance precision/recall
     semantic_claims: list[str] = []
-    for sent, intent, conf in _extract_commitment_claims_semantic(reply):
-        semantic_claims.append(sent)
+    for sent, intent, conf in _extract_commitment_claims_semantic(
+        reply, threshold=0.80
+    ):
+        # Additional filters to reduce false positives:
+        # 1. Skip very short sentences (acknowledgments)
+        # 2. Must have sufficient length to be a real commitment
+        words = sent.split()
+        if len(words) > 5:  # More than 5 words for substantive commitments
+            # Skip common conversational openings that aren't commitments
+            sent_lower = sent.lower().strip()
+            conversational_starts = [
+                "i apologize",
+                "that's a",
+                "it's a",
+                "i'm ready",
+                "okay",
+                "great",
+                "thanks",
+                "sure",
+                "yes",
+                "just let me know",
+                "how can i",
+                "i'll do my best",
+                "let me know",
+                "i can help",
+            ]
+            if not any(sent_lower.startswith(start) for start in conversational_starts):
+                semantic_claims.append(sent)
 
     # Unified claims list: numeric event ids + semantic text sentences
     claimed_commitments = list(numeric_claims) + list(semantic_claims)
 
     if not claimed_commitments:
-        return False  # No specific claims to verify
+        return (False, None)  # No specific claims to verify
 
     # Build current self-model to determine which commitments remain open
     from pmm.storage.projection import build_self_model
@@ -122,7 +161,7 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
         events = eventlog.read_all()
     except Exception:
         logger.warning("Failed to read ledger for commitment validation", exc_info=True)
-        return False
+        return (False, None)
 
     model = build_self_model(events, eventlog=eventlog)
     open_commitments = (model.get("commitments") or {}).get("open") or {}
@@ -228,6 +267,15 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
                     f"LLM claimed event ID {claimed_eid} is a commitment, but it's not in the ledger. "
                     f"Actual open commitment event IDs: {sample_ids}"
                 )
+
+                # Build correction message for next turn
+                correction = (
+                    f"[VALIDATOR_CORRECTION] You referenced commitment event ID {claimed_eid}, "
+                    f"but the ledger shows no such open commitment. "
+                    f"Actual open commitment event IDs: {sample_ids[:5]}. "
+                    f"Please verify against the ledger before citing commitments."
+                )
+
                 try:
                     available_texts = [
                         c.get("raw_text")
@@ -246,15 +294,21 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
                         "Failed to append commitment hallucination event",
                         exc_info=True,
                     )
-                return True
+                return (True, correction)
         else:
             # Claim is text — semantic match against actual open commitment raw_text
+            # Use graduated severity thresholds
             core = _core_claim_phrase(claim)
             emb_claim = compute_embedding(core)
+            best_sim = 0.0
+            best_match = None
             for actual in actual_commitments:
                 raw = actual.get("raw_text") or ""
                 emb_raw = compute_embedding(raw)
                 sim = cosine_similarity(emb_claim, emb_raw)
+                if sim > best_sim:
+                    best_sim = sim
+                    best_match = actual
                 if sim >= 0.70:
                     found = True
                     break
@@ -266,11 +320,40 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
 
                 time.sleep(0.8)  # Let user see the message
 
-                logger.warning(
-                    f"⚠️  Commitment hallucination detected: "
-                    f"LLM claimed commitment about '{claim}' but no matching commitment_open found in ledger. "
-                    f"Actual open commitments: {[c['text'][:50] for c in actual_commitments[:3]]}"
-                )
+                # Graduated severity based on best similarity score
+                if best_sim >= 0.60:
+                    logger.info(
+                        f"ℹ️  Commitment reference is paraphrased (sim={best_sim:.2f}): "
+                        f"claimed '{claim[:50]}' vs actual '{best_match.get('raw_text', '')[:50]}'"
+                    )
+                elif best_sim >= 0.40:
+                    logger.warning(
+                        f"⚠️  Commitment reference has semantic drift (sim={best_sim:.2f}): "
+                        f"claimed '{claim[:50]}' vs closest '{best_match.get('raw_text', '')[:50]}'"
+                    )
+                else:
+                    logger.warning(
+                        f"⚠️  Commitment hallucination detected (sim={best_sim:.2f}): "
+                        f"LLM claimed commitment about '{claim}' but no matching commitment_open found in ledger. "
+                        f"Actual open commitments: {[c['text'][:50] for c in actual_commitments[:3]]}"
+                    )
+
+                # Build correction message with graduated feedback
+                if best_sim >= 0.60:
+                    correction = (
+                        f"[VALIDATOR_NOTE] Your commitment reference appears to be a paraphrase. "
+                        f"You said: '{claim[:80]}'. "
+                        f"The ledger shows: '{best_match.get('raw_text', '')[:80]}'. "
+                        f"Consider using more precise language or event IDs."
+                    )
+                else:
+                    correction = (
+                        f"[VALIDATOR_CORRECTION] You referenced a commitment about '{claim[:80]}', "
+                        f"but no matching open commitment was found (best similarity: {best_sim:.2f}). "
+                        f"Actual open commitments: {[c['text'][:60] for c in actual_commitments[:3]]}. "
+                        f"Please verify against the ledger before citing commitments."
+                    )
+
                 try:
                     available_texts = [
                         c.get("raw_text")
@@ -293,9 +376,15 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> bool:
                     logger.debug(
                         "Failed to append commitment hallucination event", exc_info=True
                     )
-                return True
 
-    return False
+                # Only block response for true hallucinations (sim < 0.60)
+                if best_sim < 0.60:
+                    return (True, correction)
+                else:
+                    # Paraphrase - allow but provide feedback
+                    return (False, correction)
+
+    return (False, None)
 
 
 def verify_commitment_status(reply: str, eventlog: EventLog) -> tuple[bool, list[str]]:

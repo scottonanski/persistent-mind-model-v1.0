@@ -27,12 +27,14 @@ class StageBehaviorManager:
     }
 
     # Fixed policy table - commitment TTL multipliers per stage
+    # Base TTL is 72h (config.py), multipliers adjust per stage:
+    # S0: 79.2h (exploration), S1: 72h (development), S2: 64.8h (maturity)
     COMMITMENT_TTL_MULTIPLIERS = {
-        "S0": 1.10,
-        "S1": 1.00,
-        "S2": 0.90,
-        "S3": 0.80,
-        "S4": 0.70,
+        "S0": 1.10,  # 79.2h - longer TTL for exploration phase
+        "S1": 1.00,  # 72h - base TTL for development phase
+        "S2": 0.90,  # 64.8h - shorter TTL for maturity phase
+        "S3": 0.80,  # 57.6h - stricter accountability
+        "S4": 0.70,  # 50.4h - highest accountability
     }
 
     def adapt_reflection_frequency(

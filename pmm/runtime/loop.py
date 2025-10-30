@@ -1867,9 +1867,10 @@ class Runtime:
 
         # Anti-hallucination: Verify commitment claims against ledger
         commitment_hallucinated = False
+        validator_correction = None
         try:
-            commitment_hallucinated = bool(
-                _verify_commitment_claims(reply, self.eventlog)
+            commitment_hallucinated, validator_correction = _verify_commitment_claims(
+                reply, self.eventlog
             )
         except Exception:
             logger.debug("Commitment verification failed", exc_info=True)
