@@ -10,6 +10,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
+OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
 
 
 class OpenAIChat:
@@ -17,6 +18,68 @@ class OpenAIChat:
 
     def __init__(self, model: str):
         self.model = model
+        # Provider caps cache (populated lazily from /v1/models endpoint)
+        self._provider_caps: dict[str, int] | None = None
+
+    def _ensure_provider_caps(self) -> None:
+        """Populate provider caps (max_context, max_output_tokens) from OpenAI /v1/models.
+
+        Best-effort; on failure leaves caps unset. Runs at most once per instance.
+        """
+        if self._provider_caps is not None:
+            return
+
+        try:
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                self._provider_caps = None
+                return
+
+            # Query the models endpoint to get model details
+            req = Request(
+                f"{OPENAI_MODELS_URL}/{self.model}",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                method="GET",
+            )
+
+            with urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+
+            # OpenAI doesn't expose context_window in the API response directly
+            # We need to use known values based on model name
+            # This is a fallback approach - ideally we'd get this from the API
+            context_map = {
+                "gpt-4o": 128000,
+                "gpt-4o-mini": 128000,
+                "gpt-4-turbo": 128000,
+                "gpt-4-turbo-preview": 128000,
+                "gpt-4": 8192,
+                "gpt-3.5-turbo": 16385,
+                "gpt-3.5-turbo-16k": 16385,
+            }
+
+            max_context = None
+            for model_prefix, ctx_size in context_map.items():
+                if self.model.startswith(model_prefix):
+                    max_context = ctx_size
+                    break
+
+            if max_context:
+                # Conservative output hint ~ quarter of context, min 4096
+                out_hint = max(4096, min(max_context // 4, max_context))
+                self._provider_caps = {
+                    "max_context": int(max_context),
+                    "max_output_tokens": int(out_hint),
+                }
+            else:
+                self._provider_caps = None
+
+        except Exception:
+            # Silently fail - we'll use the configured defaults
+            self._provider_caps = None
 
     def generate(
         self,
@@ -28,6 +91,9 @@ class OpenAIChat:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY not set (put it in .env)")
+
+        # Ensure provider caps are loaded (best-effort)
+        self._ensure_provider_caps()
 
         payload = {
             "model": self.model,
@@ -56,13 +122,13 @@ class OpenAIChat:
             if kw.get("return_usage"):
 
                 class _Resp:
-                    def __init__(self, text, stop_reason, usage):
+                    def __init__(self, text, stop_reason, usage, provider_caps):
                         self.text = text
                         self.stop_reason = stop_reason
                         self.usage = usage
-                        self.provider_caps = None
+                        self.provider_caps = provider_caps
 
-                return _Resp(content, finish, usage)
+                return _Resp(content, finish, usage, self._provider_caps)
 
             return content
         except HTTPError as e:
@@ -92,6 +158,9 @@ class OpenAIChat:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY not set (put it in .env)")
+
+        # Ensure provider caps are loaded before streaming
+        self._ensure_provider_caps()
 
         payload = {
             "model": self.model,
