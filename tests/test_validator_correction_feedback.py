@@ -203,7 +203,8 @@ def test_validator_correction_message_format():
 
             # Should include actual commitments for reference
             assert (
-                "complete the task" in correction.lower() or "actual" in correction.lower()
+                "complete the task" in correction.lower()
+                or "actual" in correction.lower()
             )
         # If not detected, semantic extractor didn't trigger (expected)
 
@@ -255,7 +256,8 @@ def test_validator_correction_helps_learning():
 
         # Hallucination should return correction if detected
         _, correction = verify_commitment_claims(
-            "I will complete the fake task that was never actually committed to.", eventlog
+            "I will complete the fake task that was never actually committed to.",
+            eventlog,
         )
 
         # If detected, correction should be actionable
