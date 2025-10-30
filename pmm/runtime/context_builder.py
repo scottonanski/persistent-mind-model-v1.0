@@ -388,6 +388,7 @@ Commitment Search Debug:
         max_reflections = 2 if compact_mode else n_reflections
         for ev in reversed(events):
             if ev.get("kind") == "reflection":
+                eid = ev.get("id", "?")
                 ts = _iso_short(ev.get("ts")) if not compact_mode else ""
                 txt = _short_reflection(ev.get("content", ""))
 
@@ -397,15 +398,15 @@ Commitment Search Debug:
                     if remaining > 20:
                         txt = txt[: remaining - 3] + "..."
                         if compact_mode:
-                            reflections_block.append(f'  - "{txt}"')
+                            reflections_block.append(f'  - [{eid}] "{txt}"')
                         else:
-                            reflections_block.append(f'  - {ts}: "{txt}"')
+                            reflections_block.append(f'  - [{eid}] {ts}: "{txt}"')
                     break
 
                 if compact_mode:
-                    reflections_block.append(f'  - "{txt}"')
+                    reflections_block.append(f'  - [{eid}] "{txt}"')
                 else:
-                    reflections_block.append(f'  - {ts}: "{txt}"')
+                    reflections_block.append(f'  - [{eid}] {ts}: "{txt}"')
                 total_chars += len(txt)
                 count += 1
                 if count >= max_reflections:
