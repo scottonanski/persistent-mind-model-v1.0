@@ -304,6 +304,12 @@ class OllamaChat:
                 "options": options,
                 "stream": True,  # Enable streaming
             }
+
+            # Debug: log payload size and options
+            import json as _json
+            payload_size = len(_json.dumps(payload))
+            logger.info(f"Streaming request: {len(messages)} messages, {payload_size} bytes, options={options}")
+
             headers = {
                 "Content-Type": "application/json",
                 "X-PMM-IAS": str(ias),
