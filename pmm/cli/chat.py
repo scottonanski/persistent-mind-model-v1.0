@@ -134,7 +134,7 @@ def _render_assistant(console: Console, reply: str) -> None:
         body = Text(content)
     panel = Panel.fit(
         body,
-        title="[green]ASSISTANT[/]",
+        title="[green][ASSISTANT][/]",
         border_style="green",
         padding=(1, 2),
     )
@@ -452,7 +452,7 @@ def main() -> None:
 
     try:
         while True:
-            user_input = assistant_console.input("[bold blue]> [/] ").strip()
+            user_input = assistant_console.input("\n[bold blue][USER]:[/] ").strip()
             if not user_input:
                 continue
 
@@ -662,7 +662,7 @@ def main() -> None:
 
             # Phase 2.1: Stream response tokens as they're generated
             # Provides 15x faster perceived latency (3000ms → 200ms)
-            assistant_console.print("[green]ASSISTANT[/green]", end=" ")
+            assistant_console.print("\n[green][ASSISTANT]:[/green] ", end="")
             reply_tokens = []
             try:
                 for token in runtime.handle_user_stream(user_input):
