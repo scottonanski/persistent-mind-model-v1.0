@@ -87,7 +87,7 @@ def build_dynamic_models() -> dict[str, ModelConfig]:
         "gpt-4o": ModelConfig(
             name="gpt-4o",
             provider="openai",
-            max_tokens=4096,
+            max_tokens=128000,
             temperature=0.7,
             cost_per_1k_tokens=0.005,
             description="High-quality model for complex reasoning",
