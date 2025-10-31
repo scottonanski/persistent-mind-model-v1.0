@@ -23,6 +23,7 @@ import sys
 import threading as _threading
 import time as _time
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 import pmm.runtime.embeddings as _emb
@@ -72,6 +73,7 @@ from pmm.runtime.evolution_reporter import EvolutionReporter
 from pmm.runtime.graph_trigger import GraphInsightTrigger
 from pmm.runtime.introspection import run_audit
 from pmm.runtime.invariants_rt import run_invariants_tick as _run_invariants_tick
+from pmm.runtime.ledger_mirror import LedgerMirror
 from pmm.runtime.loop import assessment as _assessment_module
 from pmm.runtime.loop import constraints as _constraints_module
 from pmm.runtime.loop import handlers as _handlers_module
@@ -462,6 +464,7 @@ class Runtime:
         self._graph_recent_nodes: collections.deque[str] = collections.deque(maxlen=12)
         self._graph_trigger = GraphInsightTrigger()
         self._pending_claimed_reflection_ids: list[int] | None = None
+        self._debug_logging_enabled = False
 
         # Initialize reasoning trace buffer
         if REASONING_TRACE_ENABLED:
@@ -541,6 +544,12 @@ class Runtime:
                 self.tracker,
                 self.cooldown,
             )
+
+    def enable_debug_logging(self) -> None:
+        self._debug_logging_enabled = True
+
+    def disable_debug_logging(self) -> None:
+        self._debug_logging_enabled = False
 
     def record_claimed_reflection_ids(self, claimed_ids: Iterable[int]) -> None:
         """Persist LLM-claimed reflection IDs until the next response append."""
@@ -1531,17 +1540,36 @@ class Runtime:
             _io.add_trace_step(self.trace_buffer, "Building context from ledger")
 
         # Phase 1 Optimization: Build context with character budgets (always enabled)
+        LedgerMirror.invalidate()  # drop old in-memory mirror
+        LedgerMirror.sync(force=True)  # reload fresh events + snapshots from disk
+        mirror = (
+            LedgerMirror(self.eventlog, self.memegraph)
+            if getattr(self, "memegraph", None)
+            else None
+        )
+
         context_diagnostics: dict[str, object] = {}
         with profiler.measure("context_build"):
             context_block = _pipeline.build_context_block(
                 self.eventlog,
                 snapshot,
                 self.memegraph,
+                mirror=mirror,
                 max_commitment_chars=MAX_COMMITMENT_CHARS,
                 max_reflection_chars=MAX_REFLECTION_CHARS,
                 diagnostics=context_diagnostics,
             )
         self._last_context_diagnostics = context_diagnostics
+
+        if getattr(self, "_debug_logging_enabled", False):
+            debug_path = Path(".data/debug_context_block.txt")
+            debug_path.parent.mkdir(exist_ok=True)
+            debug_path.write_text(str(context_block or ""), encoding="utf-8")
+            print(
+                f"[DEBUG] wrote {debug_path.resolve()}",
+                file=sys.stderr,
+                flush=True,
+            )
 
         # CRITICAL: Ontology must come FIRST, before context data
         # This ensures the identity anchor isn't buried under ledger details
@@ -2813,10 +2841,23 @@ class AutonomyLoop:
                 )
             else:
                 # Determine style override from current stage for this immediate reflection
+                graph = getattr(self, "memegraph", None)
+                mirror = (
+                    LedgerMirror(self.eventlog, graph) if graph is not None else None
+                )
+
                 try:
-                    _evs_adopt = self.eventlog.read_tail(limit=1000)
+                    _evs_adopt = (
+                        mirror.read_tail(limit=1000)
+                        if mirror is not None
+                        else self.eventlog.read_tail(limit=1000)
+                    )
                 except Exception:
-                    _evs_adopt = self.eventlog.read_all()
+                    _evs_adopt = (
+                        mirror.read_all()
+                        if mirror is not None
+                        else self.eventlog.read_all()
+                    )
                 try:
                     _stage_now, _ = StageTracker.infer_stage(_evs_adopt)
                 except Exception:
@@ -2827,7 +2868,12 @@ class AutonomyLoop:
                 did_reflect, _reason = maybe_reflect(
                     self.eventlog,
                     self.cooldown,
-                    events=self.eventlog.read_tail(limit=1000),
+                    mirror=mirror,
+                    events=(
+                        mirror.read_tail(limit=1000)
+                        if mirror is not None
+                        else self.eventlog.read_tail(limit=1000)
+                    ),
                     override_min_turns=0,
                     override_min_seconds=0,
                     open_autonomy_tick=adopt_eid,
@@ -3588,6 +3634,12 @@ class AutonomyLoop:
         did = False
         reason = "init"
         if _cadence_should_reflect(state, now_ts=now_ts):
+            graph_for_mirror = getattr(self.runtime, "memegraph", None)
+            mirror = (
+                LedgerMirror(self.eventlog, graph_for_mirror)
+                if graph_for_mirror is not None
+                else None
+            )
             # Build deterministic guidance from active directives and log it for audit
             try:
                 evs_for_guidance = (
@@ -3640,8 +3692,19 @@ class AutonomyLoop:
                 meta={"delta": _clean_delta, "items": g.get("items", [])},
             )
             if force_reason:
+                try:
+                    graph_for_mirror = getattr(self.runtime, "memegraph", None)
+                except Exception:
+                    graph_for_mirror = None
+                local_mirror = (
+                    LedgerMirror(self.eventlog, graph_for_mirror)
+                    if graph_for_mirror is not None
+                    else None
+                )
+
                 rid_forced = emit_reflection(
                     self.eventlog,
+                    mirror=local_mirror,
                     events=events,
                     forced=True,
                     forced_reason=force_reason,
@@ -3681,6 +3744,7 @@ class AutonomyLoop:
                 did, reason = maybe_reflect(
                     self.eventlog,
                     self.cooldown,
+                    mirror=mirror,
                     events=events,
                     override_min_turns=int(cadence["min_turns"]),
                     override_min_seconds=int(cadence["min_time_s"]),
@@ -3932,9 +3996,18 @@ class AutonomyLoop:
                                 )
 
                                 _style_arm2 = policy_arm_for_stage(curr_stage)
+                                graph_for_mirror2 = getattr(
+                                    self.runtime, "memegraph", None
+                                )
+                                mirror = (
+                                    LedgerMirror(self.eventlog, graph_for_mirror2)
+                                    if graph_for_mirror2 is not None
+                                    else None
+                                )
                                 did_reflect, _reason = maybe_reflect(
                                     self.eventlog,
                                     self.cooldown,
+                                    mirror=mirror,
                                     override_min_turns=0,
                                     open_autonomy_tick=tick_no,
                                     llm_generate=lambda context: (
@@ -4167,8 +4240,18 @@ class AutonomyLoop:
                 self._stuck_stage = curr_stage
             # Force after 4 consecutive stuck skips within this stage
             if self._stuck_count >= 4:
+                try:
+                    graph_for_mirror = getattr(self.runtime, "memegraph", None)
+                except Exception:
+                    graph_for_mirror = None
+                mirror_forced = (
+                    LedgerMirror(self.eventlog, graph_for_mirror)
+                    if graph_for_mirror is not None
+                    else None
+                )
                 rid_forced = emit_reflection(
                     self.eventlog,
+                    mirror=mirror_forced,
                     events=events,
                     forced=True,
                     stage_override=curr_stage,

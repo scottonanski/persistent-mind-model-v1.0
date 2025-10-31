@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import os
 from typing import TYPE_CHECKING
 
 from pmm.config import (
@@ -15,6 +16,7 @@ from pmm.config import (
     MAX_REFLECTION_CHARS,
 )
 from pmm.config import load as _load_cfg
+from pmm.runtime.ledger_mirror import LedgerMirror
 from pmm.runtime.llm_trait_adjuster import apply_llm_trait_adjustments
 from pmm.runtime.pmm_prompts import ORIENTATION_V, build_system_msg, orientation_hash
 from pmm.runtime.qa.deterministic import try_answer_event_question
@@ -158,17 +160,65 @@ def handle_user_input(
         _io.add_trace_step(runtime.trace_buffer, "Building context from ledger")
 
     # Phase 1 Optimization: Build context with character budgets (always enabled)
+    mirror = (
+        LedgerMirror(runtime.eventlog, runtime.memegraph)
+        if getattr(runtime, "memegraph", None)
+        else None
+    )
+    if mirror:
+        try:
+            test_commits = mirror.get_open_commitment_events(max_events=5)
+            msg = [f"[MIRROR] {len(test_commits)} open commitments"]
+            for c in test_commits[:2]:
+                cid = (c.get("meta") or {}).get("cid", "MISSING")
+                msg.append(f"  → Event {c.get('id')}: CID {cid}")
+            print("\n".join(msg), file=sys.stderr, flush=True)
+        except Exception as e:
+            print(f"[MIRROR] FAILED: {e}", file=sys.stderr, flush=True)
+
     with profiler.measure("context_build"):
         context_block = _pipeline.build_context_block(
             runtime.eventlog,
             snapshot,
             runtime.memegraph,
+            mirror=mirror,
             max_commitment_chars=MAX_COMMITMENT_CHARS,
             max_reflection_chars=MAX_REFLECTION_CHARS,
         )
+    if getattr(runtime, "memegraph", None):
+        try:
+            latest_stage = runtime.memegraph.latest_stage_entry()
+            if latest_stage:
+                print(
+                    "[MEMEGRAPH] Stage {stage} | Token {token} | Event {event}".format(
+                        stage=latest_stage.get("stage_name", "unknown"),
+                        token=latest_stage.get("stage_digest", "none"),
+                        event=latest_stage.get("event_id", "unknown"),
+                    ),
+                    file=sys.stderr,
+                    flush=True,
+                )
+            else:
+                print("[MEMEGRAPH] No stage entry", file=sys.stderr, flush=True)
+        except Exception as e:
+            print(f"[MEMEGRAPH] FAILED: {e}", file=sys.stderr, flush=True)
+
+    block_len = len(context_block) if context_block else 0
+    print(f"[CONTEXT] length: {block_len}", file=sys.stderr, flush=True)
+    if context_block:
+        preview = context_block[:500]
+        print(f"[CONTEXT] preview:\n{preview}", file=sys.stderr, flush=True)
+    try:
+        os.makedirs(".data", exist_ok=True)
+        with open(".data/debug_context_block.txt", "w", encoding="utf-8") as f:
+            f.write(context_block or "")
+    except Exception as e:
+        print(f"[CONTEXT] FAILED TO SAVE: {e}", file=sys.stderr, flush=True)
     # Conversation messages start with a minimal system orientation for chat
     # to satisfy provider-agnostic prompt shape and tests.
     msgs = [{"role": "system", "content": build_system_msg("chat")}]
+    if context_block and context_block.strip():
+        msgs.append({"role": "system", "content": context_block})
 
     intents = runtime._detect_state_intents(user_text)
     # Don't augment yet - we'll add state context AFTER conversation history
@@ -666,23 +716,7 @@ def handle_user_input(
                 )
             )
         except Exception as e:
-            logger.debug(f"Failed to classify assistant identity intent: {e}")
-            intent_reply, candidate_reply, confidence_reply = (
-                "irrelevant",
-                None,
-                0.0,
-            )
-
-        # Debug breadcrumb: audit naming gate (assistant path)
-        try:
-            _io.append_name_attempt_system(
-                runtime.eventlog,
-                candidate=candidate_reply,
-                reason=None,
-                content="",
-            )
-        except Exception as e:
-            logger.debug(f"Failed to append name attempt for assistant: {e}")
+            logger.warning(f"Failed to classify identity intent: {e}")
 
         # Defensive fallback: derive candidate from unique proper noun when intent is clear (assistant path)
         if intent_reply == "assign_assistant_name" and not candidate_reply:
@@ -1015,6 +1049,253 @@ def handle_user_input(
         directive_source="reply",
         override_reply=reply if forced_reply is not None else None,
     )
+
+    def _strip_token(value: str) -> str:
+        return value.strip(".,:;()[]{}\"'\n")
+
+    def _is_hex(value: str, *, expect_len: int | None = None) -> bool:
+        if not value:
+            return False
+        for ch in value:
+            if ch not in "0123456789abcdefABCDEF":
+                return False
+        if expect_len is not None and len(value) != expect_len:
+            return False
+        return True
+
+    if forced_reply is None:
+        try:
+            tail_events = (
+                mirror.read_tail(limit=100)
+                if mirror is not None
+                else runtime.eventlog.read_tail(limit=100)
+            )
+        except Exception:
+            tail_events = runtime.eventlog.read_tail(limit=100)
+
+        event_ids: set[int] = set()
+        event_kind_map: dict[int, str] = {}
+        known_tokens: list[str] = []
+        known_cids: set[str] = set()
+
+        for ev in tail_events:
+            try:
+                eid_val = int(ev.get("id") or 0)
+            except Exception:
+                eid_val = 0
+            if eid_val > 0:
+                event_ids.add(eid_val)
+                event_kind_map[eid_val] = str(ev.get("kind") or "")
+            kind = str(ev.get("kind") or "")
+            if kind in {"commitment_open", "commitment_close", "commitment_expire"}:
+                cid = str((ev.get("meta") or {}).get("cid") or "").lower()
+                if cid:
+                    known_cids.add(cid)
+
+        try:
+            commit_events = (
+                mirror.get_open_commitment_events(max_events=20)
+                if mirror is not None
+                else []
+            )
+        except Exception:
+            commit_events = []
+        for ev in commit_events or []:
+            cid = str((ev.get("meta") or {}).get("cid") or "").lower()
+            if cid:
+                known_cids.add(cid)
+
+        memegraph = getattr(runtime, "memegraph", None)
+        if memegraph is not None:
+            for eid in list(event_ids):
+                try:
+                    digest = memegraph.event_digest(eid)
+                except Exception:
+                    digest = None
+                if digest:
+                    known_tokens.append(str(digest).lower())
+            try:
+                entry = memegraph.latest_stage_entry()
+            except Exception:
+                entry = None
+            if entry and entry.get("stage_digest"):
+                known_tokens.append(str(entry["stage_digest"]).lower())
+            if entry and isinstance(entry.get("event_id"), int):
+                event_ids.add(int(entry["event_id"]))
+            try:
+                for hist in memegraph.stage_history_with_tokens(limit=10):
+                    digest = hist.get("stage_digest")
+                    if digest:
+                        known_tokens.append(str(digest).lower())
+                    eid_hist = hist.get("event_id")
+                    if isinstance(eid_hist, int):
+                        event_ids.add(eid_hist)
+                        if eid_hist not in event_kind_map:
+                            event_kind_map[eid_hist] = "stage_update"
+            except Exception:
+                pass
+            try:
+                for cid in memegraph.open_commitment_cids():
+                    known_cids.add(str(cid).lower())
+            except Exception:
+                pass
+
+        event_cache: dict[int, bool] = {}
+
+        def _event_exists(eid: int) -> bool:
+            if eid in event_kind_map:
+                return True
+            if eid in event_cache:
+                return event_cache[eid]
+            try:
+                records = runtime.eventlog.read_by_ids([eid])
+            except Exception:
+                event_cache[eid] = False
+                return False
+            if records:
+                ev = records[0]
+                event_kind_map[eid] = str(ev.get("kind") or "")
+                event_cache[eid] = True
+                return True
+            event_cache[eid] = False
+            return False
+
+        def _reflection_exists(eid: int) -> bool:
+            if not _event_exists(eid):
+                return False
+            return event_kind_map.get(eid) == "reflection"
+
+        def _token_known(candidate: str) -> bool:
+            cand = candidate.lower()
+            if cand in known_cids:
+                return True
+            for cid in known_cids:
+                if cid.startswith(cand) or cand.startswith(cid):
+                    return True
+            for tok in known_tokens:
+                if tok == cand or tok.startswith(cand) or cand.startswith(tok):
+                    return True
+            return False
+
+        lines = reply.splitlines()
+        citations: list[dict[str, object]] = []
+
+        for line_idx, line in enumerate(lines):
+            tokens = line.split()
+            for token_idx in range(len(tokens)):
+                word = _strip_token(tokens[token_idx])
+                if not word:
+                    continue
+                lower = word.lower()
+                next_token = (
+                    _strip_token(tokens[token_idx + 1])
+                    if token_idx + 1 < len(tokens)
+                    else ""
+                )
+
+                # Only accept explicit "event <int>" or "id <int>" claims
+                if lower in {"event", "id"} and next_token.isdigit():
+                    eid = int(next_token)
+                    valid = _event_exists(eid)
+                    citations.append(
+                        {
+                            "line": line_idx,
+                            "value": f"event {next_token}",
+                            "valid": valid,
+                        }
+                    )
+                # Tokens/CIDs must be full 32-hex digests; reject short hex like "1735"
+                elif (
+                    lower == "token"
+                    and next_token
+                    and _is_hex(next_token, expect_len=32)
+                ):
+                    valid = _token_known(next_token)
+                    citations.append(
+                        {
+                            "line": line_idx,
+                            "value": f"token {next_token}",
+                            "valid": valid,
+                        }
+                    )
+                elif (
+                    lower == "cid" and next_token and _is_hex(next_token, expect_len=32)
+                ):
+                    valid = _token_known(next_token)
+                    citations.append(
+                        {"line": line_idx, "value": f"cid {next_token}", "valid": valid}
+                    )
+                elif lower == "reflection" and next_token.isdigit():
+                    eid = int(next_token)
+                    valid = _reflection_exists(eid)
+                    citations.append(
+                        {
+                            "line": line_idx,
+                            "value": f"reflection {next_token}",
+                            "valid": valid,
+                        }
+                    )
+
+        if citations:
+            mismatches = [c for c in citations if not c["valid"]]
+            mismatch_count = len(mismatches)
+            citations_count = len(citations)
+            if mismatch_count:
+                mismatch_lines = {int(c["line"]) for c in mismatches}
+                mismatch_labels = [str(c["value"]) for c in mismatches]
+                ratio = mismatch_count / citations_count if citations_count else 0.0
+                refuse_threshold = float(
+                    os.getenv("PMM_VALIDATOR_REFUSE_THRESHOLD", "0.30")
+                )
+
+                refused = ratio > refuse_threshold
+                if refused:
+                    reply = "No grounded data available for this query."
+                else:
+                    filtered_lines = [
+                        line
+                        for idx, line in enumerate(lines)
+                        if idx not in mismatch_lines
+                    ]
+                    reply = "\n".join(filtered_lines).strip()
+                    correction = "[Correction: No ledger evidence for cited ID/token — claim omitted.]"
+                    if reply:
+                        if not reply.endswith("\n"):
+                            reply = reply + "\n"
+                        reply = reply + correction
+                    else:
+                        reply = correction
+
+                try:
+                    runtime.eventlog.append(
+                        kind="failure_diagnostic",
+                        content="ledger_citation_mismatch",
+                        meta={
+                            "mismatches": mismatch_labels,
+                            "reply_event_id": int(rid) if rid else None,
+                            "citations": int(citations_count),
+                            "bad": int(mismatch_count),
+                            "bad_ratio": float(ratio),
+                            "refused": bool(refused),
+                            "threshold": float(refuse_threshold),
+                        },
+                    )
+                except Exception:
+                    pass
+        else:
+            try:
+                runtime.eventlog.append(
+                    kind="validator_stats",
+                    content="ledger_citation_ok",
+                    meta={
+                        "citations": int(citations_count or 0),
+                        "bad": 0,
+                        "bad_ratio": 0.0,
+                        "refused": False,
+                    },
+                )
+            except Exception:
+                pass
     # Emission handled by pipeline; keep sequence order unchanged
     # Post-response embedding handling moved into pipeline.persist_reply_with_embedding
     runtime._last_skip_embedding_flag = skip_embedding

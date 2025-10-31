@@ -18,6 +18,11 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
+try:
+    from pmm.runtime.ledger_mirror import LedgerMirror
+except Exception:  # pragma: no cover -- optional during bootstrap
+    LedgerMirror = None  # type: ignore
+
 from pmm.runtime.ledger.narrative import _decode_meta, _from_meta
 from pmm.storage.event_index import EventIndex
 from pmm.storage.eventlog import EventLog
@@ -68,9 +73,15 @@ class EventRouter:
     - Structural relationships (commitment chains, etc.)
     """
 
-    def __init__(self, eventlog: EventLog, event_index: EventIndex) -> None:
+    def __init__(
+        self,
+        eventlog: EventLog,
+        event_index: EventIndex,
+        mirror: LedgerMirror | None = None,
+    ) -> None:
         self.eventlog = eventlog
         self.event_index = event_index
+        self.mirror = mirror
         self._lock = threading.RLock()
 
         # Lightweight event pointers for routing
@@ -115,7 +126,10 @@ class EventRouter:
         # Get content summary for semantic matching
         # For now, we'll fetch the actual event to get content
         # TODO: Store summaries in EventIndex to avoid fetches
-        events = self.eventlog.read_by_ids([event_id])
+        if self.mirror is not None:
+            events = self.mirror.read_by_ids([event_id])
+        else:
+            events = self.eventlog.read_by_ids([event_id])
         if not events:
             return
 

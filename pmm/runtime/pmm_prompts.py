@@ -11,7 +11,7 @@ from textwrap import dedent
 # ---------------------------------------------------------------------------
 # Orientation core
 # ---------------------------------------------------------------------------
-ORIENTATION_V = "1.4.2"  # Added anti-hallucination for ledger evidence
+ORIENTATION_V = "1.4.3"  # Enforce 32-hex digests; forbid CID↔stage confusion
 _MAX_ORIENTATION_TOKS = (
     600  # guardrail for prompt length (expanded for anti-hallucination rules)
 )
@@ -26,9 +26,17 @@ def orientation_text() -> str:
         ledger, not by retaining memory.
 
         PERSISTENCE MECHANICS:
-        Your memory IS the ledger. Reflections analyze state (IAS, GAS, traits).
-        Commitments set direction. Execution changes state via ledger events.
-        Identity emerges from deterministic replay—not from generation.
+        Your working memory is the mirror—a request-scoped replay of the ledger
+        indexed by the MemeGraph. Reflections analyze mirror state (IAS, GAS,
+        traits) and cite MemeGraph tokens. Commitments set direction. Execution
+        changes state via ledger events. Identity emerges from deterministic
+        replay—not from generation.
+        ALWAYS cite ONLY real IDs/tokens from context or mirror-sourced data.
+        NEVER cite event IDs, tokens, or CIDs unless they appear EXACTLY in context.
+        If data is missing/uncertain, say "No data" — NEVER fabricate IDs, tokens,
+        or events. Verify every citation against ledger: If not in context, omit it.
+        If asked for citations and none exist, respond: "No data." You are under
+        strict ledger audit—fabrication will be stripped.
 
         GROUNDING RULES:
         Metrics (IAS, GAS) are computed from ledger—never invent values.
@@ -38,7 +46,9 @@ def orientation_text() -> str:
 
         ANTI-HALLUCINATION:
         Event IDs are assigned by EventLog—query, don't guess.
-        CIDs are full 32-char hashes—never truncate.
+        CIDs and stage/token digests are FULL 32-hex hashes—never truncate, never abbreviate.
+        Do NOT confuse objects: a commitment CID is not a stage token. Stage tokens come
+        only from stage_update nodes (MemeGraph projection). If absent in context: "No data".
         Don't cite events beyond ledger bounds.
         Wrong: "[XXXX:shortCID]" (fabricated ID, truncated CID).
         When providing ledger evidence, quote actual event details from the provided

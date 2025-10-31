@@ -57,6 +57,7 @@ def build_context_block(
     snapshot,
     memegraph,
     *,
+    mirror=None,
     max_commitment_chars: int,
     max_reflection_chars: int,
     diagnostics: dict | None = None,
@@ -78,6 +79,7 @@ def build_context_block(
         eventlog,
         n_reflections=3,
         snapshot=None,  # Let context_builder use read_tail optimization
+        mirror=mirror,
         memegraph=memegraph,
         max_commitment_chars=max_commitment_chars,
         max_reflection_chars=max_reflection_chars,

@@ -8,8 +8,15 @@ Feature flag: PMM_ROUTED_CONTEXT (default: on)
 - off: Use original tail-constrained reads (fallback)
 """
 
+from __future__ import annotations
+
 import os
 from typing import Any
+
+try:
+    from pmm.runtime.ledger_mirror import LedgerMirror
+except Exception:  # pragma: no cover -- optional import during bootstrap
+    LedgerMirror = None  # type: ignore
 
 from pmm.runtime.event_router import EventRouter
 from pmm.runtime.identity_resolver import IdentityResolver
@@ -37,6 +44,7 @@ def is_routed_context_enabled() -> bool:
 
 def create_routed_infrastructure(
     eventlog: EventLog,
+    mirror: LedgerMirror | None = None,
 ) -> tuple[EventIndex, EventRouter, IdentityResolver]:
     """Create routed infrastructure components.
 
@@ -47,7 +55,7 @@ def create_routed_infrastructure(
         Tuple of (EventIndex, EventRouter, IdentityResolver)
     """
     event_index = EventIndex(eventlog)
-    event_router = EventRouter(eventlog, event_index)
+    event_router = EventRouter(eventlog, event_index, mirror=mirror)
     identity_resolver = IdentityResolver(eventlog, event_router)
 
     return event_index, event_router, identity_resolver
@@ -59,6 +67,7 @@ def build_context_routed_or_fallback(
     routed_infrastructure: (
         tuple[EventIndex, EventRouter, IdentityResolver] | None
     ) = None,
+    mirror: LedgerMirror | None = None,
     snapshot: LedgerSnapshot | None = None,
     n_reflections: int = 3,
     max_commitment_chars: int = 400,
@@ -112,6 +121,7 @@ def build_context_routed_or_fallback(
 
         return build_context_from_ledger(
             eventlog=eventlog,
+            mirror=mirror,
             snapshot=snapshot,
             n_reflections=n_reflections,
             use_tail_optimization=True,  # Use tail optimization in fallback
@@ -130,7 +140,7 @@ def build_context_routed_or_fallback(
         # Create infrastructure if not provided
         if routed_infrastructure is None:
             event_index, event_router, identity_resolver = create_routed_infrastructure(
-                eventlog
+                eventlog, mirror=mirror
             )
         else:
             event_index, event_router, identity_resolver = routed_infrastructure
@@ -148,6 +158,7 @@ def build_context_routed_or_fallback(
             eventlog=eventlog,
             event_router=event_router,
             snapshot=snapshot,
+            mirror=mirror,
             n_reflections=n_reflections,
             max_commitment_chars=max_commitment_chars,
             max_reflection_chars=max_reflection_chars,

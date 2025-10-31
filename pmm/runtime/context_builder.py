@@ -24,6 +24,11 @@ from __future__ import annotations
 from datetime import datetime as _dt
 from typing import Any
 
+try:
+    from pmm.runtime.ledger_mirror import LedgerMirror
+except Exception:  # pragma: no cover -- optional dependency during bootstrap
+    LedgerMirror = None  # type: ignore
+
 from pmm.runtime.snapshot import LedgerSnapshot
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_identity, build_self_model
@@ -47,6 +52,7 @@ def _iso_short(ts: str | None) -> str:
 def build_context_from_ledger(
     eventlog: EventLog,
     *,
+    mirror: LedgerMirror | None = None,
     n_reflections: int = 3,
     snapshot: LedgerSnapshot | None = None,
     use_tail_optimization: bool = True,
@@ -65,6 +71,8 @@ def build_context_from_ledger(
     ----------
     eventlog : EventLog
         The ledger instance.
+    mirror : LedgerMirror | None
+        Optional request-scoped mirror. When provided, ledger reads route through it.
     n_reflections : int, default 3
         Maximum number of recent reflection events to include.
     snapshot : LedgerSnapshot | None
@@ -116,6 +124,14 @@ def build_context_from_ledger(
         }
     )
 
+    def _short_digest(value: str | None) -> str:
+        if not value:
+            return "none"
+        try:
+            return str(value)[:12]
+        except Exception:
+            return "none"
+
     events: list[dict[str, Any]]
     if snapshot is not None:
         events = snapshot.events
@@ -123,7 +139,10 @@ def build_context_from_ledger(
         try:
             if use_tail_optimization:
                 # Read recent events only (5-10x faster for large DBs)
-                events = eventlog.read_tail(limit=tail_limit)
+                if mirror is not None:
+                    events = mirror.read_tail(limit=tail_limit)
+                else:
+                    events = eventlog.read_tail(limit=tail_limit)
                 diag["tail_limit"] = tail_limit
                 if events:
                     try:
@@ -134,7 +153,9 @@ def build_context_from_ledger(
                     diag["tail_truncated"] = tail_truncated
             else:
                 # Fallback to full scan if needed
-                events = eventlog.read_all()
+                events = (
+                    mirror.read_all() if mirror is not None else eventlog.read_all()
+                )
                 diag["tail_limit"] = None
         except Exception:  # pragma: no cover — safety net
             events = []
@@ -172,7 +193,9 @@ def build_context_from_ledger(
             # Fallback to event-based identity
             identity = build_identity(events)
     else:
-        identity = build_identity(events)
+        identity = (
+            mirror.get_identity() if mirror is not None else build_identity(events)
+        )
 
     name = identity.get("name") or "Unknown"
     traits: dict[str, float] = identity.get("traits", {})
@@ -210,7 +233,9 @@ def build_context_from_ledger(
         and len(events) >= 1000
     ):
         try:
-            all_events = eventlog.read_all()
+            all_events = (
+                mirror.read_all() if mirror is not None else eventlog.read_all()
+            )
         except Exception:
             all_events = events
         if len(all_events) > len(events):
@@ -244,6 +269,9 @@ def build_context_from_ledger(
     ias = gas = stage = None
     stage_progression: list[str] = []
 
+    stage_entry: dict[str, Any] | None = None
+    stage_history_tokens: list[dict[str, Any]] = []
+
     if snapshot is not None:
         ias = snapshot.ias
         gas = snapshot.gas
@@ -253,6 +281,14 @@ def build_context_from_ledger(
         try:
             stage = memegraph.latest_stage()
             stage_history = memegraph.stage_history()
+            try:
+                stage_entry = memegraph.latest_stage_entry()
+            except Exception:
+                stage_entry = None
+            try:
+                stage_history_tokens = memegraph.stage_history_with_tokens(limit=5)
+            except Exception:
+                stage_history_tokens = []
             if stage_history:
                 # Get last 5 stages for progression display
                 stage_progression = [h[2] for h in stage_history[-5:]]
@@ -277,6 +313,17 @@ def build_context_from_ledger(
                     stage = meta.get("stage")
                     break
 
+    if stage_entry is None and memegraph is not None:
+        try:
+            stage_entry = memegraph.latest_stage_entry()
+        except Exception:
+            stage_entry = None
+    if not stage_history_tokens and memegraph is not None:
+        try:
+            stage_history_tokens = memegraph.stage_history_with_tokens(limit=5)
+        except Exception:
+            stage_history_tokens = []
+
     # Update diagnostics for metrics
     metrics_missing = include_metrics and (ias is None or gas is None or stage is None)
     diag["metrics_missing"] = metrics_missing
@@ -284,66 +331,66 @@ def build_context_from_ledger(
 
     # --- Open Commitments ---------------------------------------------------
     # Anti-hallucination: Inject actual commitment IDs and text from ledger
-    # This anchors the LLM with ground truth and prevents fabrication
     commitments_block: list[str] = []
-    commitment_events: list[dict[str, Any]] = []
+    commitment_events: list[dict] = []
     try:
-        # First, get actual commitment_open events from ledger (last 10)
-        closed_cids = set()
-        for ev in reversed(events):
-            if ev.get("kind") in ("commitment_close", "commitment_expire"):
-                cid = (ev.get("meta") or {}).get("cid")
-                if cid:
-                    closed_cids.add(cid)
+        if mirror is not None:
+            commitment_events = mirror.get_open_commitment_events(max_events=10)
+        if not commitment_events and eventlog is not None:
+            commitment_events = eventlog.get_open_commitments(limit=10)
+        if not commitment_events:
+            closed_cids = set()
+            for ev in reversed(events):
+                if ev.get("kind") in ("commitment_close", "commitment_expire"):
+                    cid = (ev.get("meta") or {}).get("cid")
+                    if cid:
+                        closed_cids.add(cid)
+            for ev in reversed(events):
+                if ev.get("kind") == "commitment_open":
+                    cid = (ev.get("meta") or {}).get("cid")
+                    if cid and cid not in closed_cids:
+                        commitment_events.append(ev)
+                        if len(commitment_events) >= 10:
+                            break
+            commitment_events.reverse()
 
-        # Collect open commitments with their event IDs
-        for ev in reversed(events):
-            if ev.get("kind") == "commitment_open":
-                cid = (ev.get("meta") or {}).get("cid")
-                if cid and cid not in closed_cids:
-                    commitment_events.append(ev)
-                    if len(commitment_events) >= 10:
-                        break
+        if commitment_events:
+            # Normalize dicts from SQL helpers to full events
+            normalized: list[dict] = []
+            for ev in commitment_events:
+                if "kind" in ev:
+                    normalized.append(ev)
+                    continue
+                eid = int(ev.get("id") or 0)
+                try:
+                    event = eventlog.read_by_ids([eid])[0]
+                except Exception:
+                    event = {
+                        "id": eid,
+                        "kind": "commitment_open",
+                        "content": ev.get("content", ""),
+                        "meta": ev.get("meta", {}),
+                    }
+                normalized.append(event)
+            commitment_events = normalized
 
-        commitment_events.reverse()  # Chronological order
-
-        # DEBUG: Log commitment search results
-        try:
-            from pathlib import Path
-
-            log_dir = Path(".logs")
-            log_dir.mkdir(exist_ok=True)
-            debug_log = log_dir / "commitment_debug.txt"
-            debug_info = f"""
-Commitment Search Debug:
-- Events scanned: {len(events)}
-- Closed CIDs found: {len(closed_cids)}
-- Closed CIDs: {list(closed_cids)[:5]}
-- Open commitments found: {len(commitment_events)}
-- Open commitment IDs: {[ev.get('id') for ev in commitment_events]}
-- Tail limit used: {tail_limit}
-"""
-            debug_log.write_text(debug_info, encoding="utf-8")
-        except Exception:
-            pass
-
-        # Build commitment block with event IDs for verification
         if commitment_events:
             total_chars = 0
             max_commitments = 3 if compact_mode else 5
             for ev in commitment_events[:max_commitments]:
                 eid = ev.get("id", "?")
                 cid = (ev.get("meta") or {}).get("cid", "")[:8]
-                txt = _short_commitment((ev.get("meta") or {}).get("text", ""))
+                meta_text = (ev.get("meta") or {}).get("text")
+                content_text = ev.get("content", "")
+                base_text = meta_text if meta_text else content_text
+                txt = _short_commitment(base_text)
 
                 if txt:
-                    # Format: [event_id:cid] text
                     formatted = f"[{eid}:{cid}] {txt}"
 
-                    # Enforce character budget
                     if total_chars + len(formatted) > max_commitment_chars:
                         remaining = max_commitment_chars - total_chars
-                        if remaining > 30:  # Need space for ID + some text
+                        if remaining > 30:
                             txt_truncated = (
                                 txt[: remaining - len(f"[{eid}:{cid}] ") - 3] + "..."
                             )
@@ -355,10 +402,11 @@ Commitment Search Debug:
                     commitments_block.append(f"  - {formatted}")
                     total_chars += len(formatted)
 
-        # Fallback to projection if no events found (shouldn't happen)
         if not commitments_block:
             if snapshot is not None:
                 self_model = snapshot.self_model
+            elif mirror is not None:
+                self_model = mirror.get_self_model()
             else:
                 self_model = build_self_model(events)
             open_commitments: dict[str, Any] = self_model.get("commitments", {}).get(
@@ -386,31 +434,53 @@ Commitment Search Debug:
         count = 0
         total_chars = 0
         max_reflections = 2 if compact_mode else n_reflections
-        for ev in reversed(events):
-            if ev.get("kind") == "reflection":
-                ts = _iso_short(ev.get("ts")) if not compact_mode else ""
-                txt = _short_reflection(ev.get("content", ""))
+        reflection_events = []
+        if mirror is not None:
+            try:
+                reflection_events = mirror.read_tail(limit=5000)
+            except Exception:
+                reflection_events = []
+        if not reflection_events:
+            reflection_events = events
 
-                # Enforce character budget to reduce token count
-                if total_chars + len(txt) > max_reflection_chars:
-                    remaining = max_reflection_chars - total_chars
-                    if remaining > 20:
-                        txt = txt[: remaining - 3] + "..."
-                        if compact_mode:
-                            reflections_block.append(f'  - "{txt}"')
-                        else:
-                            reflections_block.append(f'  - {ts}: "{txt}"')
-                    break
+        for ev in reversed(reflection_events):
+            if ev.get("kind") != "reflection":
+                continue
+            ts = _iso_short(ev.get("ts")) if not compact_mode else ""
+            txt = _short_reflection(ev.get("content", ""))
+            token: str | None = None
+            if memegraph is not None:
+                try:
+                    token = memegraph.event_digest(int(ev.get("id") or 0))
+                except Exception:
+                    token = None
 
-                if compact_mode:
-                    reflections_block.append(f'  - "{txt}"')
-                else:
-                    reflections_block.append(f'  - {ts}: "{txt}"')
-                total_chars += len(txt)
-                count += 1
-                if count >= max_reflections:
-                    break
-        reflections_block.reverse()  # chronological order older→newer
+            # Enforce character budget to reduce token count
+            if total_chars + len(txt) > max_reflection_chars:
+                remaining = max_reflection_chars - total_chars
+                if remaining > 20:
+                    txt = txt[: remaining - 3] + "..."
+                    if compact_mode:
+                        line = f'  - "{txt}"'
+                    else:
+                        line = f'  - {ts}: "{txt}"'
+                    if token:
+                        line += f" (token={_short_digest(token)})"
+                    reflections_block.append(line)
+                break
+
+            if compact_mode:
+                line = f'  - "{txt}"'
+            else:
+                line = f'  - {ts}: "{txt}"'
+            if token:
+                line += f" (token={_short_digest(token)})"
+            reflections_block.append(line)
+            total_chars += len(txt)
+            count += 1
+            if count >= max_reflections:
+                break
+        reflections_block.reverse()
 
     # Update diagnostics for commitments and reflections
     commitments_missing = include_commitments and not commitments_block
@@ -448,6 +518,13 @@ Commitment Search Debug:
             and stage is not None
         ):
             lines.append(f"IAS={ias:.2f} GAS={gas:.2f} {stage}")
+        if stage_entry:
+            stage_token = _short_digest(stage_entry.get("stage_digest"))
+            stage_event_token = _short_digest(stage_entry.get("event_digest"))
+            stage_event_id = stage_entry.get("event_id")
+            lines.append(
+                f"Stage token: {stage_token} (event {stage_event_id}, token={stage_event_token})"
+            )
         if memegraph_summary:
             lines.append(memegraph_summary)
         if include_commitments:
@@ -485,6 +562,22 @@ Commitment Search Debug:
                 lines.append(f"Stage progression: {progression_str}")
             else:
                 lines.append(f"IAS={ias:.2f}, GAS={gas:.2f}, Stage={stage}")
+        if stage_entry:
+            stage_token = _short_digest(stage_entry.get("stage_digest"))
+            stage_event_token = _short_digest(stage_entry.get("event_digest"))
+            stage_event_id = stage_entry.get("event_id")
+            lines.append(
+                f"Stage evidence: token={stage_token} via event {stage_event_id} (event_token={stage_event_token})"
+            )
+        elif stage_history_tokens:
+            latest = stage_history_tokens[-1]
+            lines.append(
+                "Stage evidence: token={stage_digest} via event {event_id} (event_token={event_digest})".format(
+                    stage_digest=_short_digest(latest.get("stage_digest")),
+                    event_id=latest.get("event_id"),
+                    event_digest=_short_digest(latest.get("event_digest")),
+                )
+            )
         else:
             lines.append(
                 "Ledger metrics (IAS/GAS, commitments, reflections) available on request."
