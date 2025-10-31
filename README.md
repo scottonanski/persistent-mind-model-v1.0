@@ -1,3 +1,9 @@
+
+# I was tinkering around and built this. Somehow it works??? 🤔
+
+**Im just a solo guy working on his computer at home... Don't be too harsh on me** 🤣
+
+
 # Persistent Mind Model (PMM)
 
 ## Prefatory Note
