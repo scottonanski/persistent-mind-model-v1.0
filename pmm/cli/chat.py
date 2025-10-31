@@ -26,6 +26,7 @@ from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_identity
 
 logger = logging.getLogger(__name__)
+failures_logger = logging.getLogger("pmm.cli.failures")
 
 profiler = get_global_profiler()
 
@@ -73,6 +74,7 @@ def _configure_logging(log_console: Console) -> None:
     logging.getLogger("pmm.runtime.profiler").setLevel(
         logging.ERROR
     )  # Hide slow operation warnings
+    logging.getLogger("pmm.cli.failures").setLevel(logging.ERROR)
 
 
 def _system_panel(
@@ -109,7 +111,7 @@ def _disable_input() -> tuple:
         termios.tcsetattr(fd, termios.TCSADRAIN, new_settings)
         return (fd, old_settings)
     except Exception as e:
-        logger.debug(f"Failed to disable input: {e}")
+        failures_logger.warning(f"[FAILURE] Failed to disable input: {e}")
         return (None, None)
 
 
@@ -120,7 +122,7 @@ def _enable_input(settings: tuple) -> None:
         try:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         except Exception as e:
-            logger.debug(f"Failed to restore input settings: {e}")
+            failures_logger.warning(f"[FAILURE] Failed to restore input settings: {e}")
 
 
 def _render_assistant(console: Console, reply: str) -> None:
@@ -130,7 +132,7 @@ def _render_assistant(console: Console, reply: str) -> None:
     try:
         body = Markdown(content, code_theme="monokai", justify="left")
     except Exception as e:
-        logger.debug(f"Failed to render markdown: {e}")
+        failures_logger.warning(f"[FAILURE] Failed to render markdown: {e}")
         body = Text(content)
     panel = Panel.fit(
         body,
@@ -410,6 +412,7 @@ def main() -> None:
     metrics_view_enabled = False
     metrics_logs_enabled = False
     metrics_logger = logging.getLogger("pmm.runtime.metrics")
+    failures_logs_enabled = False
     debug_logs_enabled = False
     debug_logger = logging.getLogger("pmm.runtime.loop")
 
@@ -426,14 +429,13 @@ def main() -> None:
     )
     assistant_console.print(
         _system_panel(
-            "During chat you can type:\n"
-            "  --@metrics on   → show the metrics panel after every turn\n"
-            "  --@metrics off  → stop the live metrics panel\n"
-            "  --@metrics      → print a one-time metrics snapshot\n"
+            "Command reference:\n"
+            "  --@metrics on/off      → toggle the live metrics panel\n"
+            "  --@metrics             → print a one-time metrics snapshot\n"
             "  --@metrics logs on/off → toggle runtime metrics logging\n"
-            "  --@debug on/off → toggle debug logging (identity, commitments)\n"
-            "  --@graph on    → inject graph evidence on the next turn\n"
-            "  --@graph off   → suppress graph evidence on the next turn",
+            "  --@failures on/off     → toggle failure diagnostics\n"
+            "  --@debug on/off        → toggle identity/commitment debug logs\n"
+            "  --@graph on/off        → inject or suppress graph evidence next turn",
             title="commands",
             border_style="magenta",
         )
@@ -556,6 +558,48 @@ def main() -> None:
                     )
                 continue
 
+            if normalized == "--@failures on":
+                if not failures_logs_enabled:
+                    failures_logger.setLevel(logging.WARNING)
+                    failures_logs_enabled = True
+                    assistant_console.print(
+                        _system_panel(
+                            "Failure diagnostics enabled.",
+                            title="failures",
+                            border_style="green",
+                        )
+                    )
+                else:
+                    assistant_console.print(
+                        _system_panel(
+                            "Failure diagnostics already enabled.",
+                            title="failures",
+                            border_style="cyan",
+                        )
+                    )
+                continue
+
+            if normalized == "--@failures off":
+                if failures_logs_enabled:
+                    failures_logger.setLevel(logging.ERROR)
+                    failures_logs_enabled = False
+                    assistant_console.print(
+                        _system_panel(
+                            "Failure diagnostics disabled.",
+                            title="failures",
+                            border_style="yellow",
+                        )
+                    )
+                else:
+                    assistant_console.print(
+                        _system_panel(
+                            "Failure diagnostics already disabled.",
+                            title="failures",
+                            border_style="dim",
+                        )
+                    )
+                continue
+
             if normalized == "--@debug on":
                 if not debug_logs_enabled:
                     debug_logger.setLevel(logging.DEBUG)
@@ -662,6 +706,9 @@ def main() -> None:
 
             # Phase 2.1: Stream response tokens as they're generated
             # Provides 15x faster perceived latency (3000ms → 200ms)
+            # Temporarily silence debug logs to prevent interleaving with streaming output
+            debug_logger.setLevel(logging.WARNING)
+            failures_logger.setLevel(logging.ERROR)
             assistant_console.print("\n[green][ASSISTANT]:[/green] ", end="")
             reply_tokens = []
             try:
@@ -671,9 +718,19 @@ def main() -> None:
                 assistant_console.print()  # Newline after complete response
                 reply = "".join(reply_tokens)
             except Exception as e:
-                logger.debug(f"Streaming failed, falling back to non-streaming: {e}")
+                failures_logger.warning(
+                    f"[FAILURE] Streaming failed, falling back to non-streaming: {e}"
+                )
                 reply = runtime.handle_user(user_input)
                 _render_assistant(assistant_console, reply)
+            finally:
+                # Restore log levels after streaming completes
+                debug_logger.setLevel(
+                    logging.DEBUG if debug_logs_enabled else logging.WARNING
+                )
+                failures_logger.setLevel(
+                    logging.WARNING if failures_logs_enabled else logging.ERROR
+                )
 
             # Disable input during processing
             input_settings = _disable_input()

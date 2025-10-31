@@ -99,13 +99,21 @@ def load_runtime_env(dotenv_path: str = ".env") -> RuntimeEnv:
 # Configuration settings for Persistent Mind Model (PMM)
 
 # LLM Configuration
+# Default model and base URL
+# PMM_DEFAULT_MODEL: The default model to use for LLM operations
+# PMM_DEFAULT_BASE_URL: The default base URL to use for LLM operations
+# Local Ollama bias — The accompanying DEFAULT_BASE_URL = os.getenv("PMM_DEFAULT_BASE_URL", "http://localhost:11434")
+# targets the standard Ollama endpoint, and "llama3" is the default model name Ollama exposes.
+# This gives an immediately runnable local setup without extra configuration.
+# Easy overrides — Supplying PMM_DEFAULT_MODEL (and optionally PMM_DEFAULT_BASE_URL) in the environment or .env
+# lets you switch to another model/provider without touching the code.
 DEFAULT_MODEL = os.getenv("PMM_DEFAULT_MODEL", "llama3")
 DEFAULT_BASE_URL = os.getenv("PMM_DEFAULT_BASE_URL", "http://localhost:11434")
 
 # Storage Configuration
 DEFAULT_DB_PATH = os.getenv("PMM_DB_PATH", "pmm_data.db")
 
-# Performance Optimizations (Phase 1 & 2)
+# Performance Optimizations
 # Always enabled for 10-80x speedup. No flags - deterministic by default.
 # These caches are thoroughly tested and provide identical results to non-cached versions.
 USE_PROJECTION_CACHE = True  # 5-50x speedup for projection operations
@@ -191,7 +199,7 @@ _DEFAULTS = {
     "DUE_TO_TIME": DUE_TO_TIME,
     # Chat history extraction window (messages). Deterministic, clamped in code.
     # Kept small by default to preserve existing behavior and token budgets.
-    "CHAT_HISTORY_TURNS": 10,
+    "CHAT_HISTORY_TURNS": 100,
 }
 
 

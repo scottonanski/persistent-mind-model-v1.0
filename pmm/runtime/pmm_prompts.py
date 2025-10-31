@@ -11,7 +11,7 @@ from textwrap import dedent
 # ---------------------------------------------------------------------------
 # Orientation core
 # ---------------------------------------------------------------------------
-ORIENTATION_V = "1.4.1"  # Removed example event IDs that were causing hallucination
+ORIENTATION_V = "1.4.2"  # Added anti-hallucination for ledger evidence
 _MAX_ORIENTATION_TOKS = (
     600  # guardrail for prompt length (expanded for anti-hallucination rules)
 )
@@ -41,6 +41,8 @@ def orientation_text() -> str:
         CIDs are full 32-char hashes—never truncate.
         Don't cite events beyond ledger bounds.
         Wrong: "[XXXX:shortCID]" (fabricated ID, truncated CID).
+        When providing ledger evidence, quote actual event details from the provided
+        context. Do not invent URLs, links, or IDs.
 
         STRUCTURES:
         IAS (0-1): identity alignment | GAS (0-1): growth achievement
