@@ -10,6 +10,11 @@ import logging
 import time as _time
 from collections.abc import Callable
 
+try:
+    from pmm.runtime.ledger_mirror import LedgerMirror
+except Exception:  # pragma: no cover -- optional import during bootstrap
+    LedgerMirror = None  # type: ignore
+
 from pmm.runtime.cooldown import ReflectionCooldown
 from pmm.runtime.introspection import run_audit
 from pmm.runtime.loop import io as _io
@@ -29,6 +34,7 @@ def emit_reflection(
     eventlog: EventLog,
     content: str = "",
     *,
+    mirror: LedgerMirror | None = None,
     events: list[dict] | None = None,
     forced: bool = False,
     stage_override: str | None = None,
@@ -65,7 +71,7 @@ def emit_reflection(
             if is_routed_context_enabled():
                 # Use routed context for full history access
                 event_index, event_router, identity_resolver = (
-                    create_routed_infrastructure(eventlog)
+                    create_routed_infrastructure(eventlog, mirror=mirror)
                 )
 
                 # Route for reflection-relevant events
@@ -81,16 +87,30 @@ def emit_reflection(
                     recency_boost=0.8,  # Strong recency bias for current state
                 )
                 event_ids = event_router.route(reflection_query)
-                events = eventlog.read_by_ids(event_ids, verify_hash=False)
+                events = (
+                    mirror.read_by_ids(event_ids, verify_hash=False)
+                    if mirror is not None
+                    else eventlog.read_by_ids(event_ids, verify_hash=False)
+                )
             else:
                 # Fallback to tail optimization
-                events = eventlog.read_tail(limit=1000)
+                events = (
+                    mirror.read_tail(limit=1000)
+                    if mirror is not None
+                    else eventlog.read_tail(limit=1000)
+                )
         except Exception:
             # Final fallback
             try:
-                events = eventlog.read_tail(limit=1000)
+                events = (
+                    mirror.read_tail(limit=1000)
+                    if mirror is not None
+                    else eventlog.read_tail(limit=1000)
+                )
             except (AttributeError, TypeError):
-                events = eventlog.read_all()
+                events = (
+                    mirror.read_all() if mirror is not None else eventlog.read_all()
+                )
     # Performance: Use cached metrics computation
     ias, gas = get_or_compute_ias_gas(eventlog)
     synth = None
@@ -462,6 +482,7 @@ def maybe_reflect(
     eventlog: EventLog,
     cooldown: ReflectionCooldown,
     *,
+    mirror: LedgerMirror | None = None,
     events: list[dict] | None = None,
     now: float | None = None,
     novelty: float = 1.0,
@@ -518,7 +539,7 @@ def maybe_reflect(
             if is_routed_context_enabled():
                 # Use routed context for reflection decisions
                 event_index, event_router, identity_resolver = (
-                    create_routed_infrastructure(eventlog)
+                    create_routed_infrastructure(eventlog, mirror=mirror)
                 )
 
                 # Route for reflection decision context
@@ -529,16 +550,30 @@ def maybe_reflect(
                     recency_boost=0.9,  # Strong recency bias for current state
                 )
                 event_ids = event_router.route(decision_query)
-                events = eventlog.read_by_ids(event_ids, verify_hash=False)
+                events = (
+                    mirror.read_by_ids(event_ids, verify_hash=False)
+                    if mirror is not None
+                    else eventlog.read_by_ids(event_ids, verify_hash=False)
+                )
             else:
                 # Fallback to tail optimization
-                events = eventlog.read_tail(limit=1000)
+                events = (
+                    mirror.read_tail(limit=1000)
+                    if mirror is not None
+                    else eventlog.read_tail(limit=1000)
+                )
         except Exception:
             # Final fallback
             try:
-                events = eventlog.read_tail(limit=1000)
+                events = (
+                    mirror.read_tail(limit=1000)
+                    if mirror is not None
+                    else eventlog.read_tail(limit=1000)
+                )
             except (AttributeError, TypeError):
-                events = eventlog.read_all()
+                events = (
+                    mirror.read_all() if mirror is not None else eventlog.read_all()
+                )
 
     try:
         # Prefer explicit overrides; otherwise, apply policy override only if present.
@@ -597,6 +632,7 @@ def maybe_reflect(
                     open_autonomy_tick=open_autonomy_tick,
                     commitment_protect_until_tick=commitment_protect_until,
                     llm_generate=llm_generate,
+                    mirror=mirror,
                 )
                 try:
                     cooldown.reset()
@@ -624,6 +660,7 @@ def maybe_reflect(
         commitment_protect_until_tick=commitment_protect_until,
         llm_generate=llm_generate,
         style_override_arm=style_override_arm,
+        mirror=mirror,
     )
     if rid is None:
         return (False, "rejected")

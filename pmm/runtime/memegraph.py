@@ -68,6 +68,8 @@ class MemeGraphProjection:
         self._digest_to_event_id: dict[str, int] = {}
         self._identity_index: dict[str, str] = {}
         self._commitment_index: dict[str, str] = {}
+        self._stage_index: dict[str, str] = {}
+        self._reflection_index: dict[int, str] = {}
         self._latest_stage: tuple[int, str] | None = None
         self._stage_history: list[tuple[int, str | None, str]] = []
         self._commitment_state: dict[str, dict[str, Any]] = {}
@@ -98,6 +100,34 @@ class MemeGraphProjection:
     def edge_count(self) -> int:
         with self._lock:
             return len(self._edges)
+
+    def event_ids(self) -> list[int]:
+        """Return all indexed event IDs in ascending order."""
+
+        with self._lock:
+            return sorted(self._event_index.keys())
+
+    def open_commitment_cids(self) -> list[str]:
+        """Return CIDs for commitments the graph currently tracks as open."""
+
+        with self._lock:
+            return [
+                cid
+                for cid, state in self._commitment_state.items()
+                if state.get("open")
+            ]
+
+    def event_digest(self, event_id: int) -> str | None:
+        """Return the event-node digest for a given ledger event id."""
+
+        with self._lock:
+            return self._event_index.get(int(event_id))
+
+    def reflection_digest(self, reflection_id: int) -> str | None:
+        """Return the reflection-node digest for a given reflection event id."""
+
+        with self._lock:
+            return self._reflection_index.get(int(reflection_id))
 
     def get_summary(self) -> str:
         """Return a compact human-readable summary of the graph structure."""
@@ -319,6 +349,9 @@ class MemeGraphProjection:
             "prompt": meta.get("prompt_template"),
         }
         refl_digest = self._ensure_node("reflection", attrs)
+        with self._lock:
+            if rid:
+                self._reflection_index[rid] = refl_digest
         self._ensure_edge(
             "captures", event_digest, refl_digest, {"confidence": 0.7}
         )  # Medium confidence for reasoning captures
@@ -342,7 +375,12 @@ class MemeGraphProjection:
             eid = int(event.get("id") or 0)
         except Exception:
             eid = 0
-        dst_digest = self._ensure_node("stage", {"name": stage_to})
+        dst_digest = self._ensure_node(
+            "stage",
+            {"name": stage_to},
+            index=self._stage_index,
+            index_key=stage_to,
+        )
         self._ensure_edge(
             "advances_to", event_digest, dst_digest, {"confidence": 0.85}
         )  # High confidence for core state changes
@@ -458,9 +496,45 @@ class MemeGraphProjection:
                 return None
             return self._latest_stage[1]
 
+    def latest_stage_entry(self) -> dict[str, int | str | None] | None:
+        """Return the most recent stage update with associated digests."""
+
+        with self._lock:
+            if self._latest_stage is None:
+                return None
+            eid, stage_to = self._latest_stage
+            return {
+                "event_id": eid,
+                "stage": stage_to,
+                "event_digest": self._event_index.get(eid),
+                "stage_digest": self._stage_index.get(stage_to),
+            }
+
     def stage_history(self) -> list[tuple[int, str | None, str]]:
         with self._lock:
             return list(self._stage_history)
+
+    def stage_history_with_tokens(
+        self, *, limit: int | None = None
+    ) -> list[dict[str, int | str | None]]:
+        """Return stage history entries annotated with memegraph digests."""
+
+        with self._lock:
+            history = (
+                self._stage_history if limit is None else self._stage_history[-limit:]
+            )
+            result: list[dict[str, int | str | None]] = []
+            for eid, stage_from, stage_to in history:
+                result.append(
+                    {
+                        "event_id": eid,
+                        "stage_from": stage_from,
+                        "stage_to": stage_to,
+                        "event_digest": self._event_index.get(eid),
+                        "stage_digest": self._stage_index.get(stage_to),
+                    }
+                )
+            return result
 
     def open_commitments_snapshot(self) -> dict[str, dict[str, Any]]:
         with self._lock:

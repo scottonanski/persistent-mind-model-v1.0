@@ -321,6 +321,141 @@ class EventLog:
                 return self._events_cache[:]
             return []
 
+    def get_latest_stage_event(self) -> dict[str, Any] | None:
+        """Return the most recent stage_update or stage_progress event."""
+
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                SELECT id, kind, content, meta
+                  FROM events
+                 WHERE kind IN ('stage_update', 'stage_progress')
+                 ORDER BY id DESC
+                 LIMIT 1
+                """
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        eid, kind, content, meta_json = row
+        try:
+            meta = _json.loads(meta_json) if meta_json else {}
+        except Exception:
+            meta = {}
+        return {
+            "id": int(eid),
+            "kind": str(kind),
+            "content": str(content),
+            "meta": meta,
+        }
+
+    def get_recent_reflections(self, limit: int = 2) -> list[dict[str, Any]]:
+        """Return the most recent reflection events (default two)."""
+
+        limit = max(int(limit), 1)
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                SELECT id, ts, content, meta
+                  FROM events
+                 WHERE kind = 'reflection'
+                 ORDER BY id DESC
+                 LIMIT ?
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+        result: list[dict[str, Any]] = []
+        for eid, ts, content, meta_json in rows:
+            try:
+                meta = _json.loads(meta_json) if meta_json else {}
+            except Exception:
+                meta = {}
+            result.append(
+                {
+                    "id": int(eid),
+                    "ts": str(ts) if ts is not None else "",
+                    "content": str(content),
+                    "meta": meta,
+                }
+            )
+        return result
+
+    def get_open_commitments(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """Return open commitments as [id, hash] pairs sorted descending."""
+
+        sql = """
+            WITH opens AS (
+                SELECT id, hash, content, meta
+                  FROM events
+                 WHERE kind = 'commitment_open'
+            ),
+            closes AS (
+                SELECT json_extract(meta, '$.open_id') AS open_id
+                  FROM events
+                 WHERE kind = 'commitment_close'
+            )
+            SELECT o.id, o.hash, o.content, o.meta
+              FROM opens o
+              LEFT JOIN closes c ON c.open_id = o.id
+             WHERE c.open_id IS NULL
+             ORDER BY o.id DESC
+        """
+        params: tuple = ()
+        if limit is not None:
+            sql += " LIMIT ?"
+            params = (max(int(limit), 1),)
+        with self._lock:
+            cur = self._conn.execute(sql, params)
+            rows = cur.fetchall()
+        result: list[dict[str, Any]] = []
+        for eid, hval, content, meta_json in rows:
+            try:
+                meta = _json.loads(meta_json) if meta_json else {}
+            except Exception:
+                meta = {}
+            result.append(
+                {
+                    "id": int(eid),
+                    "hash": str(hval) if hval is not None else "",
+                    "content": str(content),
+                    "meta": meta,
+                }
+            )
+        return result
+
+    def get_ledger_head(self) -> dict[str, Any] | None:
+        """Return the latest event id/hash/prev_hash."""
+
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                SELECT id, hash, prev_hash
+                  FROM events
+                 ORDER BY id DESC
+                 LIMIT 1
+                """
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        eid, hval, prev = row
+        return {
+            "id": int(eid),
+            "hash": str(hval) if hval is not None else "",
+            "prev_hash": str(prev) if prev is not None else "",
+        }
+
+    def get_event_count(self) -> int:
+        """Return the total number of events persisted."""
+
+        with self._lock:
+            cur = self._conn.execute("SELECT COUNT(*) FROM events")
+            row = cur.fetchone()
+        if not row or row[0] is None:
+            return 0
+        return int(row[0])
+
     def read_after_id(self, *, after_id: int, limit: int) -> list[dict]:
         with self._lock:
             self._refresh_cache_locked()

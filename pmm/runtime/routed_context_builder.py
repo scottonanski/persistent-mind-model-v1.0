@@ -15,6 +15,11 @@ from __future__ import annotations
 from datetime import datetime as _dt
 from typing import Any
 
+try:
+    from pmm.runtime.ledger_mirror import LedgerMirror
+except Exception:  # pragma: no cover -- optional dependency
+    LedgerMirror = None  # type: ignore
+
 from pmm.runtime.event_router import ContextQuery, EventRouter
 from pmm.runtime.ledger.narrative import eventrow_to_narrative
 from pmm.runtime.snapshot import LedgerSnapshot
@@ -66,6 +71,7 @@ def build_context_with_router(
     eventlog: EventLog,
     event_router: EventRouter,
     *,
+    mirror: LedgerMirror | None = None,
     n_reflections: int = 3,
     snapshot: LedgerSnapshot | None = None,
     max_commitment_chars: int = 400,
@@ -131,6 +137,13 @@ def build_context_with_router(
         }
     )
 
+    def _read_by_ids(ids: list[int], *, verify: bool = False) -> list[dict]:
+        if not ids:
+            return []
+        if mirror is not None:
+            return mirror.read_by_ids(ids, verify_hash=verify)
+        return eventlog.read_by_ids(ids, verify_hash=verify)
+
     # --- Identity & Traits -------------------------------------------------
     # Use router to get verified identity from full history
     identity_event_id: int | None = None
@@ -143,9 +156,7 @@ def build_context_with_router(
         if latest_identity_id:
             identity_event_id = latest_identity_id
             # Fetch the actual identity event for name
-            identity_events = eventlog.read_by_ids(
-                [latest_identity_id], verify_hash=False
-            )
+            identity_events = _read_by_ids([latest_identity_id], verify=False)
             if identity_events:
                 identity_event = identity_events[0]
                 name = str(identity_event.get("content", "Unknown"))
@@ -163,7 +174,7 @@ def build_context_with_router(
             recency_boost=0.7,  # Strong recency bias for current traits
         )
         trait_event_ids = event_router.route(trait_query)
-        trait_events = eventlog.read_by_ids(trait_event_ids, verify_hash=False)
+        trait_events = _read_by_ids(trait_event_ids, verify=False)
 
         # Build identity from routed events
         identity = build_identity(trait_events)
@@ -197,9 +208,7 @@ def build_context_with_router(
     user_name: str | None = None
 
     if user_event_ids:
-        user_events = eventlog.read_by_ids(
-            user_event_ids, verify_hash=False
-        )  # Skip hash verification for now
+        user_events = _read_by_ids(user_event_ids, verify=False)
         if user_events:
             user_event = user_events[0]
             meta = user_event.get("meta", {})
@@ -215,7 +224,7 @@ def build_context_with_router(
             recency_boost=0.9,  # Very recent for current state
         )
         metrics_event_ids = event_router.route(metrics_query)
-        metrics_events = eventlog.read_by_ids(metrics_event_ids, verify_hash=False)
+        metrics_events = _read_by_ids(metrics_event_ids, verify=False)
 
         # Compute metrics from routed events
         from pmm.runtime.metrics import compute_ias_gas
@@ -249,9 +258,7 @@ def build_context_with_router(
             recency_boost=0.5,  # Moderate recency bias
         )
         commitment_event_ids = event_router.route(commitment_query)
-        commitment_events = eventlog.read_by_ids(
-            commitment_event_ids, verify_hash=False
-        )
+        commitment_events = _read_by_ids(commitment_event_ids, verify=False)
 
         # Track open commitments
         closed_cids = set()
@@ -322,9 +329,7 @@ def build_context_with_router(
             recency_boost=0.6,  # Moderate recency bias
         )
         reflection_event_ids = event_router.route(reflection_query)
-        reflection_events = eventlog.read_by_ids(
-            reflection_event_ids, verify_hash=False
-        )
+        reflection_events = _read_by_ids(reflection_event_ids, verify=False)
 
         # Sort by event ID (most recent first for display)
         reflection_events.sort(key=lambda e: int(e.get("id", 0)), reverse=True)

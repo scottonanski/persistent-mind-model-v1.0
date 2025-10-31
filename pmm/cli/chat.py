@@ -18,6 +18,7 @@ from rich.text import Text
 from pmm.cli.model_select import select_model
 from pmm.config import load_runtime_env
 from pmm.llm.factory import LLMConfig
+from pmm.runtime.ledger_mirror import LedgerMirror
 from pmm.runtime.loop import Runtime
 from pmm.runtime.loop import maybe_reflect as runtime_maybe_reflect
 from pmm.runtime.metrics_view import MetricsView, humanize_reflect_reason
@@ -604,6 +605,10 @@ def main() -> None:
                 if not debug_logs_enabled:
                     debug_logger.setLevel(logging.DEBUG)
                     debug_logs_enabled = True
+                    try:
+                        runtime.enable_debug_logging()
+                    except AttributeError:
+                        pass
                     assistant_console.print(
                         _system_panel(
                             "Debug logging enabled (identity, commitments).",
@@ -625,6 +630,10 @@ def main() -> None:
                 if debug_logs_enabled:
                     debug_logger.setLevel(logging.WARNING)
                     debug_logs_enabled = False
+                    try:
+                        runtime.disable_debug_logging()
+                    except AttributeError:
+                        pass
                     assistant_console.print(
                         _system_panel(
                             "Debug logging disabled.",
@@ -907,9 +916,16 @@ def main() -> None:
             try:
                 _show_status(assistant_console, "🤔 Reflecting...")
                 with profiler.measure("maybe_reflect"):
+                    graph = getattr(runtime, "memegraph", None)
+                    mirror = (
+                        LedgerMirror(runtime.eventlog, graph)
+                        if graph is not None
+                        else None
+                    )
                     runtime_maybe_reflect(
                         runtime.eventlog,
                         runtime.cooldown,
+                        mirror=mirror,
                         llm_generate=lambda context: runtime.reflect(context),
                         memegraph=getattr(runtime, "memegraph", None),
                     )
