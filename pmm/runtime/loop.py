@@ -131,6 +131,10 @@ logger = logging.getLogger(__name__)
 _verify_commitment_claims = _validators_module.verify_commitment_claims
 _verify_commitment_status = _validators_module.verify_commitment_status
 _verify_event_ids = _validators_module.verify_event_ids
+_verify_memegraph_tokens = _validators_module.verify_memegraph_tokens
+_verify_ledger_claims_have_evidence = (
+    _validators_module.verify_ledger_claims_have_evidence
+)
 
 
 # ---- Turn-based cadence constants (no env flags) ----
@@ -1122,6 +1126,79 @@ class Runtime:
         except Exception:
             pass
 
+        # AI-CENTRIC COMMITMENT ENHANCEMENT
+        # Also route commitments to the AI-centric commitment manager for advanced tracking
+        try:
+            from pmm.commitments.enhanced_commitments import (
+                CommitmentPriority,
+                EnhancedCommitmentManager,
+            )
+
+            # Initialize AI-centric commitment manager if not present
+            if not hasattr(self, "_ai_commitment_manager"):
+                self._ai_commitment_manager = EnhancedCommitmentManager(self.eventlog)
+                self._ai_commitment_manager.initialize()
+
+            # Create AI-centric commitments for high-confidence matches
+            for commit_text, intent, score in matches:
+                if intent == "open" and score > 0.8:  # Only high-confidence commitments
+                    # Determine priority based on content analysis
+                    priority = CommitmentPriority.MEDIUM
+                    if (
+                        "urgent" in commit_text.lower()
+                        or "critical" in commit_text.lower()
+                    ):
+                        priority = CommitmentPriority.HIGH
+                    elif (
+                        "background" in commit_text.lower()
+                        or "ongoing" in commit_text.lower()
+                    ):
+                        priority = CommitmentPriority.LOW
+
+                    # Extract strategic value based on content
+                    strategic_value = 0.5  # Default
+                    if (
+                        "strategic" in commit_text.lower()
+                        or "important" in commit_text.lower()
+                    ):
+                        strategic_value = 0.8
+                    elif (
+                        "learn" in commit_text.lower()
+                        or "improve" in commit_text.lower()
+                    ):
+                        strategic_value = 0.7
+
+                    # Create the AI-centric commitment
+                    ai_commitment_id = self._ai_commitment_manager.create_commitment(
+                        title=(
+                            commit_text[:100] + "..."
+                            if len(commit_text) > 100
+                            else commit_text
+                        ),
+                        description=commit_text,
+                        priority=priority,
+                        tags=["extracted", "ai_centric", speaker],
+                        strategic_value=strategic_value,
+                    )
+
+                    # Log the AI-centric commitment creation
+                    self.eventlog.append(
+                        kind="ai_centric_commitment_created",
+                        content=f"AI-centric commitment #{ai_commitment_id} created from {speaker} input",
+                        meta={
+                            "ai_commitment_id": ai_commitment_id,
+                            "source_commitment_text": commit_text[:200],
+                            "priority": priority.value,
+                            "strategic_value": strategic_value,
+                            "extraction_confidence": score,
+                        },
+                    )
+
+        except Exception:
+            # Silently fail if AI-centric commitments are not available
+            # This ensures backward compatibility
+            pass
+
     def _apply_policy_from_reflection(
         self, action_text: str, *, reflection_id: int, stage: str | None
     ) -> None:
@@ -1761,7 +1838,7 @@ class Runtime:
             if not is_valid:
                 # Store for chat UI to display in status sequence
                 self._last_hallucination_ids = fake_ids
-                logger.warning(
+                logger.debug(
                     f"⚠️  Event ID hallucination detected: "
                     f"LLM referenced non-existent event IDs: {fake_ids}"
                 )
@@ -1780,6 +1857,38 @@ class Runtime:
         except Exception:
             logger.debug("Event ID verification failed", exc_info=True)
 
+        # Anti-hallucination: Verify MemeGraph tokens
+        fake_tokens: list[str] | None = None
+        try:
+            tokens_valid, fake_tokens = _verify_memegraph_tokens(reply, self.eventlog)
+            if not tokens_valid:
+                logger.warning(
+                    f"⚠️  MemeGraph token hallucination detected: "
+                    f"LLM referenced non-existent tokens: {fake_tokens}"
+                )
+                # Append a correction event to the ledger
+                _io.append_hallucination_detected(
+                    self.eventlog,
+                    fake_ids=None,  # No event IDs, but tokens are fake
+                    correction=f"Referenced fake MemeGraph tokens: {fake_tokens}",
+                    category="memegraph_token",
+                )
+        except Exception:
+            logger.debug("MemeGraph token verification failed", exc_info=True)
+
+        # Anti-hallucination: Verify ledger claims have evidence
+        missing_evidence = False
+        evidence_correction = None
+        try:
+            has_evidence, evidence_correction = _verify_ledger_claims_have_evidence(
+                reply, self.eventlog
+            )
+            if not has_evidence:
+                missing_evidence = True
+                logger.warning("⚠️  Ledger claim without evidence detected")
+        except Exception:
+            logger.debug("Ledger evidence verification failed", exc_info=True)
+
         # Check diagnostics flags instead of literal phrase
         context_diag = getattr(self, "_last_context_diagnostics", {}) or {}
         needs_metrics_followup = context_diag.get("needs_metrics", False)
@@ -1788,12 +1897,18 @@ class Runtime:
             commitment_hallucinated
             or status_hallucinated
             or (fake_ids and len(fake_ids) > 0)
+            or (fake_tokens and len(fake_tokens) > 0)
+            or missing_evidence
         ):
             corrections: list[str] = []
             if commitment_hallucinated:
-                corrections.append(
-                    "I previously cited a commitment that doesn't match the ledger."
-                )
+                # Use the detailed correction from the validator if available
+                if validator_correction:
+                    corrections.append(validator_correction)
+                else:
+                    corrections.append(
+                        "I previously cited a commitment that doesn't match the ledger."
+                    )
             if status_hallucinated:
                 corrections.append(
                     "I misreported a commitment's status; the ledger takes precedence."
@@ -1802,6 +1917,12 @@ class Runtime:
                 corrections.append(
                     "One or more event IDs I referenced were not found in the ledger."
                 )
+            if fake_tokens:
+                corrections.append(
+                    "I referenced MemeGraph tokens that don't exist in the system."
+                )
+            if missing_evidence and evidence_correction:
+                corrections.append(evidence_correction)
             correction_text = " ".join(corrections)
             if correction_text:
                 try:
@@ -2229,6 +2350,48 @@ class Runtime:
                 novelty=novelty,
                 has_action=bool(action),
             )
+            # Planning thought: append planning after reflection for stages S1+
+            try:
+                from pmm.runtime.planning import maybe_append_planning_thought
+
+                if stage_str and stage_str in {"S1", "S2", "S3", "S4"}:
+                    planning_id = maybe_append_planning_thought(
+                        self.eventlog,
+                        self.chat,
+                        from_reflection_id=int(rid_reflection),
+                        stage=stage_str,
+                        tick=len(
+                            [
+                                e
+                                for e in snap_for_reflect.events
+                                if e.get("kind") == "autonomy_tick"
+                            ]
+                        ),
+                        max_tokens=64,
+                    )
+                    if planning_id:
+                        _vprint(f"[Planning] Generated planning thought #{planning_id}")
+            except Exception:
+                pass
+
+            # Apply semantic trait nudges from conversation context
+            try:
+                recent_events = list(snap_for_reflect.events[-20:])  # Last 20 events
+                trait_changes = self._apply_trait_nudges(recent_events, "Echo")
+                if trait_changes:
+                    # Emit trait_update event with meaningful changes
+                    self.eventlog.append(
+                        kind="trait_update",
+                        content="",
+                        meta={
+                            "delta": trait_changes,
+                            "reason": "semantic_nudge",
+                            "source": "conversation_context",
+                        },
+                    )
+                    _vprint(f"[Traits] Applied semantic nudges: {trait_changes}")
+            except Exception:
+                pass
             # Meta-reflection cadence check
             try:
                 _maybe_emit_meta_reflection(self.eventlog, window=5)

@@ -313,6 +313,8 @@ class ProjectionCache:
                 text = meta.get("text")
                 if cid and text is not None:
                     entry = {k: v for k, v in meta.items()}
+                    # Add event_id for citation tracking (matches build_self_model)
+                    entry["event_id"] = ev.get("id")
                     self._cached_model["commitments"]["open"][cid] = entry
 
             elif kind == "evidence_candidate":

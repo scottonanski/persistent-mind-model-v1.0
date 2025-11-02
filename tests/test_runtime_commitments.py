@@ -17,7 +17,7 @@ def test_runtime_opens_commitment_from_reply(tmp_path, monkeypatch):
     rt, log = _mk_rt(tmp_path)
 
     def fake_generate(msgs, **kw):
-        return "Okay, I will write the probe docs."
+        return '{"answer": "Okay, I will write the probe docs.", "claims": []}'
 
     monkeypatch.setattr(rt.chat, "generate", fake_generate)
     out = rt.handle_user("hi")
@@ -32,14 +32,14 @@ def test_runtime_closes_with_text_only_evidence(tmp_path, monkeypatch):
 
     # 1) open a commitment
     def gen_open(msgs, **kw):
-        return "I will summarize the meeting."
+        return '{"answer": "I will summarize the meeting.", "claims": []}'
 
     monkeypatch.setattr(rt.chat, "generate", gen_open)
     rt.handle_user("hi")
 
     # 2) emit Done: reply (text-only); should close when text evidence allowed
     def gen_done(msgs, **kw):
-        return "Done: summarized the meeting"
+        return '{"answer": "Done: summarized the meeting", "claims": []}'
 
     monkeypatch.setattr(rt.chat, "generate", gen_done)
     rt.handle_user("follow-up")

@@ -341,38 +341,107 @@ def build_context_from_ledger(
         # Use MemeGraph for stage (has full progression history)
         try:
             stage = memegraph.latest_stage()
-            stage_history = memegraph.stage_history()
-            try:
-                stage_entry = memegraph.latest_stage_entry()
-            except Exception:
-                stage_entry = None
-            try:
-                stage_history_tokens = memegraph.stage_history_with_tokens(limit=5)
-            except Exception:
-                stage_history_tokens = []
-            if stage_history:
-                # Get last 5 stages for progression display
-                stage_progression = [h[2] for h in stage_history[-5:]]
-            # Still compute IAS/GAS from events (not in MemeGraph)
-            ias, gas = compute_ias_gas(events)
+
+            # Use MemeGraph's tokenized system for current metrics
+            latest_tick_id = memegraph.get_latest_autonomy_tick_id()
+            if latest_tick_id is not None:
+                telemetry = memegraph.get_autonomy_tick_telemetry(latest_tick_id)
+                if telemetry:
+                    ias = telemetry.get("IAS")
+                    gas = telemetry.get("GAS")
+                    # Get stage from the autonomy_tick meta if available
+                    tick_meta = memegraph.get_autonomy_tick_meta(latest_tick_id)
+                    if tick_meta and tick_meta.get("stage"):
+                        stage = tick_meta["stage"]
+                    logger.debug(
+                        "Using MemeGraph autonomy_tick telemetry: IAS=%s, GAS=%s, stage=%s",
+                        ias,
+                        gas,
+                        stage,
+                    )
+                else:
+                    # Fallback to computation if telemetry not available
+                    ias, gas = compute_ias_gas(events)
+                    logger.debug(
+                        "MemeGraph telemetry unavailable, using computation: IAS=%s, GAS=%s",
+                        ias,
+                        gas,
+                    )
+            else:
+                # Fallback to computation if no autonomy_tick found
+                ias, gas = compute_ias_gas(events)
+                logger.debug(
+                    "No MemeGraph autonomy_tick found, using computation: IAS=%s, GAS=%s",
+                    ias,
+                    gas,
+                )
         except Exception:
             # Fallback to event-based computation
             ias, gas = compute_ias_gas(events)
             stage, _ = StageTracker.infer_stage(events)
+            logger.debug(
+                "MemeGraph failed, using event-based computation: IAS=%s, GAS=%s, stage=%s",
+                ias,
+                gas,
+                stage,
+            )
     else:
+        # Always try to get the latest autonomy_tick first for current metrics
         try:
-            ias, gas = compute_ias_gas(events)
-            stage, _ = StageTracker.infer_stage(events)
+            all_events = list(eventlog.read_tail(limit=50))
+            autonomy_ticks = [
+                ev for ev in all_events if ev.get("kind") == "autonomy_tick"
+            ]
+            if autonomy_ticks:
+                latest_tick = autonomy_ticks[0]  # Most recent autonomy_tick
+                meta = latest_tick.get("meta", {})
+                telemetry = meta.get("telemetry", {})
+                ias = telemetry.get("IAS")
+                gas = telemetry.get("GAS")
+                stage = meta.get("stage")
+                logger.debug(
+                    "Using latest autonomy_tick for current metrics: IAS=%s, GAS=%s, stage=%s",
+                    ias,
+                    gas,
+                    stage,
+                )
+            else:
+                # Fallback to computation if no autonomy_ticks found
+                ias, gas = compute_ias_gas(events)
+                stage, _ = StageTracker.infer_stage(events)
+                logger.debug(
+                    "No autonomy_ticks found, using computation: IAS=%s, GAS=%s, stage=%s",
+                    ias,
+                    gas,
+                    stage,
+                )
         except Exception:
-            # Fallback to last autonomy_tick if computation fails
-            for ev in reversed(events):
-                if ev.get("kind") == "autonomy_tick":
-                    meta = ev.get("meta", {})
-                    telemetry = meta.get("telemetry", {})
-                    ias = telemetry.get("IAS")
-                    gas = telemetry.get("GAS")
-                    stage = meta.get("stage")
-                    break
+            # Final fallback to computation
+            try:
+                ias, gas = compute_ias_gas(events)
+                stage, _ = StageTracker.infer_stage(events)
+                logger.debug(
+                    "Exception fallback, using computation: IAS=%s, GAS=%s, stage=%s",
+                    ias,
+                    gas,
+                    stage,
+                )
+            except Exception:
+                # Last resort: look for last autonomy_tick in the events list
+                for ev in reversed(events):
+                    if ev.get("kind") == "autonomy_tick":
+                        meta = ev.get("meta", {})
+                        telemetry = meta.get("telemetry", {})
+                        ias = telemetry.get("IAS")
+                        gas = telemetry.get("GAS")
+                        stage = meta.get("stage")
+                        logger.debug(
+                            "Last resort autonomy_tick fallback: IAS=%s, GAS=%s, stage=%s",
+                            ias,
+                            gas,
+                            stage,
+                        )
+                        break
 
     if stage_entry is None and memegraph is not None:
         try:
@@ -464,12 +533,14 @@ def build_context_from_ledger(
                     total_chars += len(formatted)
 
         if not commitments_block:
-            if snapshot is not None:
-                self_model = snapshot.self_model
-            elif mirror is not None:
+            # Always use full ledger for commitments to avoid hallucinations
+            # This prevents Echo from referencing stale or non-existent commitments
+            if mirror is not None:
                 self_model = mirror.get_self_model()
             else:
-                self_model = build_self_model(events)
+                # Use full ledger for commitment projection, not just recent events
+                all_events = eventlog.read_all()
+                self_model = build_self_model(all_events)
             open_commitments: dict[str, Any] = self_model.get("commitments", {}).get(
                 "open", {}
             )
@@ -553,7 +624,7 @@ def build_context_from_ledger(
 
     # --- MemeGraph Summary (if available) -----------------------------------
     # Keep structural info for now - Echo was using it accurately
-    # TODO: Refactor to semantic-only after understanding what Echo needs
+    # TODO: Simplify context building after understanding what Echo needs
     memegraph_summary: str | None = None
     if memegraph is not None:
         try:
@@ -656,6 +727,59 @@ def build_context_from_ledger(
             lines.extend(reflections_block)
         if include_reflections:
             lines.append("---")
+
+    # AI-CENTRIC MEMORY ENHANCEMENT
+    # Add intelligent memory retrieval based on current context
+    try:
+        from pmm.memory.cognitive_memory import CognitiveMemory
+
+        # Initialize AI-centric memory system
+        ai_memory = CognitiveMemory(eventlog)
+        if not ai_memory._is_built:
+            ai_memory.build_memory_index()
+
+        # Create intelligent memory query based on current context
+        context_query = " ".join(lines[-5:])  # Use recent context as query
+
+        # AI-CENTRIC TEMPORAL FILTERING
+        # Prioritize recent events while still allowing perfect recall
+        import datetime as _dt
+
+        now = _dt.datetime.now(_dt.timezone.utc)
+        recent_cutoff = now - _dt.timedelta(minutes=5)  # Prioritize last 5 minutes
+
+        # Get recent memories first
+        recent_memories = []
+        all_memories = ai_memory.query(context_query, max_results=10, min_relevance=0.3)
+
+        for memory in all_memories:
+            memory_time = _dt.datetime.fromisoformat(
+                memory.timestamp.replace("Z", "+00:00")
+            )
+            if memory_time > recent_cutoff:
+                recent_memories.append(memory)
+
+        # If we have recent memories, use them; otherwise fall back to most relevant
+        if recent_memories:
+            relevant_memories = recent_memories[:3]
+        else:
+            relevant_memories = all_memories[:3]
+
+        if relevant_memories:
+            lines.append("🧠 AI-Centric Memory (relevant context):")
+            for memory in relevant_memories:
+                memory_preview = (
+                    memory.content[:150] + "..."
+                    if len(memory.content) > 150
+                    else memory.content
+                )
+                lines.append(f"  • {memory_preview}")
+            lines.append("---")
+
+    except Exception:
+        # Silently fail if AI-centric memory is not available
+        # This ensures backward compatibility
+        pass
 
     if diagnostics is not None:
         diagnostics.clear()

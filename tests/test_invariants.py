@@ -16,14 +16,16 @@ def test_runtime_uses_same_chat_for_both_paths(monkeypatch, tmp_path):
 
     def fake_generate(msgs, **kw):
         counters["calls"] += 1
-        return f"ok{counters['calls']}"
+        import json
+
+        return json.dumps({"answer": f"ok{counters['calls']}", "claims": []})
 
     monkeypatch.setattr(rt.chat, "generate", fake_generate)
 
     r1 = rt.handle_user("hi")
     r2 = rt.reflect("ctx")
 
-    assert r1 == "ok1" and r2 == "ok2"
+    assert r1 == "ok1" and r2 == '{"answer": "ok2", "claims": []}'
     events = log.read_all()
     kinds = [e["kind"] for e in events]
     # The reflection call may result in various events (response, debug, reflection)

@@ -797,3 +797,182 @@ def _remove_code_blocks(text: str) -> str:
         i += 1
 
     return "".join(result)
+
+
+def extract_memegraph_tokens(text: str) -> list[str]:
+    """
+    Extract MemeGraph tokens from text using deterministic parsing.
+
+    MemeGraph tokens have format: "<event_id>:<hex_digest>"
+    where event_id is an integer and hex_digest is 8 hex characters.
+    May be wrapped in square brackets.
+
+    Examples:
+    - "1828:c7f68f47"
+    - "[1828:c7f68f47]"
+
+    Args:
+        text: Input text to scan
+
+    Returns:
+        List of MemeGraph tokens found (including brackets if present)
+    """
+    if not text:
+        return []
+
+    tokens = []
+    words = text.split()
+
+    for word in words:
+        # Remove common punctuation from start/end
+        clean_word = word.strip('.,!?;:"\'()')
+
+        # Check for bracketed or unbracketed format
+        if clean_word.startswith('[') and clean_word.endswith(']'):
+            inner = clean_word[1:-1]
+        else:
+            inner = clean_word
+
+        # Check if it contains a colon
+        if ':' not in inner:
+            continue
+
+        parts = inner.split(':', 1)
+        if len(parts) != 2:
+            continue
+
+        # Check if first part is an integer
+        try:
+            int(parts[0])
+        except ValueError:
+            continue
+
+        # Check if second part is 8 hex characters
+        digest = parts[1]
+        if len(digest) == 8 and all(c in '0123456789abcdefABCDEF' for c in digest):
+            tokens.append(clean_word)
+
+    return tokens
+
+
+def has_ledger_claims(text: str) -> bool:
+    """
+    Check if text contains claims about the ledger without using regex.
+
+    This looks for statements about:
+    - Stage progression (e.g., "stage S1", "I'm in stage S2")
+    - IAS/GAS metrics (e.g., "IAS 0.68", "GAS 1.0")
+    - Commitment counts/status (e.g., "3 open commitments")
+    - Trait updates (e.g., "Conscientiousness 0.5")
+
+    Args:
+        text: Input text to check
+
+    Returns:
+        True if ledger claims are found, False otherwise
+    """
+    if not text:
+        return False
+
+    text_lower = text.lower()
+    words = text_lower.split()
+
+    # Check for stage claims
+    for i, word in enumerate(words):
+        if word == "stage" and i + 1 < len(words):
+            next_word = words[i + 1]
+            if next_word.startswith('s') and len(next_word) > 1:
+                # Check if it's S0, S1, S2, S3, S4
+                stage_num = next_word[1:]
+                if stage_num.isdigit() and 0 <= int(stage_num) <= 4:
+                    return True
+        elif word in ["i'm", "im", "i"] and i + 2 < len(words):
+            if words[i + 1] == "in" and words[i + 2] == "stage":
+                if i + 3 < len(words) and words[i + 3].startswith('s'):
+                    stage_num = words[i + 3][1:]
+                    if stage_num.isdigit() and 0 <= int(stage_num) <= 4:
+                        return True
+
+    # Check for IAS/GAS claims
+    for i, word in enumerate(words):
+        if word in ["ias", "gas"] and i + 1 < len(words):
+            next_word = words[i + 1]
+            # Check for decimal number
+            if '.' in next_word:
+                parts = next_word.split('.')
+                if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                    return True
+
+    # Check for commitment claims
+    for i, word in enumerate(words):
+        if word.isdigit() and i + 2 < len(words):
+            if words[i + 1] == "open" and words[i + 2] == "commitments":
+                return True
+        elif word == "open" and i + 2 < len(words):
+            if words[i + 1] == "commitments" and words[i + 2].isdigit():
+                return True
+
+    # Check for trait claims
+    traits = ["neuroticism", "conscientiousness", "openness", "agreeableness", "extraversion"]
+    for i, word in enumerate(words):
+        if word in traits and i + 1 < len(words):
+            next_word = words[i + 1]
+            # Check for decimal number (possibly with minus sign)
+            if next_word.replace('-', '').replace('.', '').isdigit():
+                if '.' in next_word:
+                    parts = next_word.split('.')
+                    if len(parts) == 2 and parts[0].replace('-', '').isdigit() and parts[1].isdigit():
+                        return True
+        elif word == "trait" and i + 2 < len(words):
+            if words[i + 1] == "updated" and words[i + 2].replace('-', '').replace('.', '').isdigit():
+                if '.' in words[i + 2]:
+                    parts = words[i + 2].split('.')
+                    if len(parts) == 2 and parts[0].replace('-', '').isdigit() and parts[1].isdigit():
+                        return True
+
+    return False
+
+
+def has_evidence_indicators(text: str) -> bool:
+    """
+    Check if text provides evidence for ledger claims.
+
+    Looks for phrases like:
+    - "evidence:"
+    - "the ledger shows"
+    - "based on event"
+    - "according to"
+
+    Args:
+        text: Input text to check
+
+    Returns:
+        True if evidence indicators are found, False otherwise
+    """
+    if not text:
+        return False
+
+    text_lower = text.lower()
+    words = text_lower.split()
+
+    # Check for evidence indicators
+    for i, word in enumerate(words):
+        if word == "evidence" and i + 1 < len(words):
+            if words[i + 1] == ":" or words[i + 1] == "shows":
+                return True
+        elif word == "ledger" and i + 1 < len(words):
+            if words[i + 1] == "shows" or words[i + 1] == "indicates":
+                return True
+        elif word == "based" and i + 2 < len(words):
+            if words[i + 1] == "on" and words[i + 2] == "event":
+                return True
+        elif word == "according" and i + 1 < len(words):
+            if words[i + 1] == "to" and i + 2 < len(words):
+                if words[i + 2] in ["ledger", "event", "events"]:
+                    return True
+        elif word == "event" and i + 1 < len(words):
+            next_word = words[i + 1]
+            if next_word.isdigit():
+                return True
+
+    return False

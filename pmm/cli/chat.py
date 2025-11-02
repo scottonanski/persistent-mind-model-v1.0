@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import termios
+from datetime import datetime
 from pathlib import Path
 
 from rich import box
@@ -163,6 +164,12 @@ def _metrics_panel(snap: dict) -> Panel:
     priority = snap.get("priority_top5", [])
 
     grid = Table.grid(expand=False, padding=(0, 1))
+
+    # Add timestamp line
+    timestamp_line = Text()
+    timestamp_line.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"), style="dim")
+    grid.add_row(timestamp_line)
+
     summary = Text()
     summary.append("IAS ", style="bright_cyan")
     summary.append(f"{ias:.3f}", style="bold white")

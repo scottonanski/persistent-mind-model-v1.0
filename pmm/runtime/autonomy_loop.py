@@ -6,6 +6,7 @@ to enable clean modularization and better separation of concerns.
 
 from __future__ import annotations
 
+import logging
 import time as _time
 
 # Import other dependencies
@@ -40,6 +41,8 @@ from pmm.runtime.snapshot import LedgerSnapshot
 from pmm.runtime.stage_tracker import StageTracker
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_identity, build_self_model
+
+logger = logging.getLogger(__name__)
 
 # Re-export functions for backward compatibility
 emit_reflection = _reflection_module.emit_reflection
@@ -1026,7 +1029,48 @@ class AutonomyLoop:
         except Exception:
             pass
 
-        # Step 24: Commitment due and reminder system
+        # Step 24.5: AI-CENTRIC CORE PROCESSING
+        # This is where the AI-centric systems operate according to AI cognitive needs
+        try:
+            from pmm.core.ai_centric_core import AICentricCore
+
+            # Initialize or get the AI-centric core (singleton pattern)
+            if not hasattr(self, "_ai_centric_core"):
+                self._ai_centric_core = AICentricCore(self.eventlog)
+                self._ai_centric_core.initialize()
+                logger.info("🤖 AI-Centric Core initialized in autonomy loop")
+
+            # Process AI-centric tick
+            ai_results = self._ai_centric_core.process_tick()
+
+            # Add AI-centric results to telemetry
+            telemetry_meta["ai_centric"] = {
+                "actions_taken": len(ai_results["actions_taken"]),
+                "decisions_made": len(ai_results["decisions_made"]),
+                "reflections_completed": len(ai_results["reflections_completed"]),
+                "commitments_updated": len(ai_results["commitments_updated"]),
+                "core_performance": self._ai_centric_core.core_state.overall_performance,
+                "cognitive_load": self._ai_centric_core.core_state.cognitive_load,
+            }
+
+            # Log significant AI-centric activity
+            if (
+                ai_results["decisions_made"]
+                or ai_results["reflections_completed"]
+                or len(ai_results["actions_taken"]) > 0
+            ):
+                logger.info(
+                    f"🧠 AI-Centric activity: "
+                    f"{len(ai_results['decisions_made'])} decisions, "
+                    f"{len(ai_results['reflections_completed'])} reflections, "
+                    f"{len(ai_results['actions_taken'])} actions"
+                )
+
+        except Exception as e:
+            logger.warning(f"AI-Centric core processing failed: {e}")
+            telemetry_meta["ai_centric"] = {"status": "error", "error": str(e)}
+
+        # Step 25: Commitment due and reminder system
         try:
             import datetime as dt
             import time
@@ -1462,6 +1506,14 @@ class AutonomyLoop:
 
         # EMIT THE HEARTBEAT
         self.eventlog.append(kind="autonomy_tick", content="", meta=telemetry_meta)
+
+        # Emit reflection audit periodically (every 5 ticks)
+        try:
+            current_tick = len([e for e in events if e.get("kind") == "autonomy_tick"])
+            if current_tick % 5 == 0:
+                self._emit_reflection_audit(current_tick)
+        except Exception:
+            pass
 
     def _emit_reflection_audit(self, tick_no: int) -> None:
         """Emit a reflection_audit event checking claimed vs actual reflection IDs."""

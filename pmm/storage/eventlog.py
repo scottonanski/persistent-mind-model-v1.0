@@ -710,7 +710,7 @@ class EventLog:
         """
         with self._lock:
             cur = self._conn.execute(
-                "SELECT id, ts, kind, content, meta FROM events WHERE id = ?",
+                "SELECT id, ts, kind, content, meta, hash FROM events WHERE id = ?",
                 (event_id,),
             )
             row = cur.fetchone()
@@ -725,6 +725,7 @@ class EventLog:
                     "kind": str(row[2]),
                     "content": str(row[3]),
                     "meta": meta_obj,
+                    "hash": str(row[5]) if row[5] else None,
                 }
             return None
 

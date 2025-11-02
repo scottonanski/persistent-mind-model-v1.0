@@ -24,6 +24,110 @@ from pmm.runtime.scene_compactor import maybe_compact
 from pmm.storage.projection import build_identity
 
 
+def verify_claim_against_ledger(claim: dict, runtime) -> bool:
+    """Verify a structured claim against the ledger data.
+
+    Args:
+        claim: Claim dictionary with kind, value, and other fields
+        runtime: Runtime instance for ledger access
+
+    Returns:
+        True if claim is verifiable against ledger, False otherwise
+    """
+    try:
+        kind = claim.get("kind")
+        if kind == "stage":
+            # Verify current stage from MemeGraph or latest autonomy_tick
+            if hasattr(runtime, "memegraph") and runtime.memegraph:
+                current_stage = runtime.memegraph.latest_stage()
+                return current_stage == claim.get("value")
+            else:
+                # Fallback to autonomy_tick
+                latest_events = list(runtime.eventlog.read_tail(limit=10))
+                for ev in reversed(latest_events):
+                    if ev.get("kind") == "autonomy_tick":
+                        meta = ev.get("meta", {})
+                        if meta.get("stage") == claim.get("value"):
+                            return True
+                return False
+
+        elif kind == "metric":
+            # Verify IAS/GAS from latest autonomy_tick
+            metric_name = claim.get("name")
+            claimed_value = claim.get("value")
+            latest_events = list(runtime.eventlog.read_tail(limit=10))
+            for ev in reversed(latest_events):
+                if ev.get("kind") == "autonomy_tick":
+                    meta = ev.get("meta", {})
+                    telemetry = meta.get("telemetry", {})
+                    actual_value = telemetry.get(metric_name)
+                    if actual_value is not None:
+                        # Allow small tolerance for floating point comparison
+                        return abs(float(actual_value) - float(claimed_value)) < 0.01
+            return False
+
+        elif kind == "identity_adopt":
+            # Verify identity adoption event
+            event_id = claim.get("id")
+            content = claim.get("content")
+            event = runtime.eventlog.read(event_id)
+            if event and event.get("kind") == "identity_adopt":
+                return event.get("content") == content
+            return False
+
+        elif kind == "commitment_open":
+            # Verify open commitment
+            event_id = claim.get("id")
+            event = runtime.eventlog.read(event_id)
+            return event and event.get("kind") == "commitment_open"
+
+        # Add more claim types as needed
+        return False
+
+    except Exception as e:
+        logging.getLogger(__name__).debug(f"Claim verification failed: {e}")
+        return False
+
+
+def build_evidence_block(verified_claims: list[dict], runtime) -> str:
+    """Build a formatted evidence block from verified claims.
+
+    Args:
+        verified_claims: List of verified claim dictionaries
+        runtime: Runtime instance for additional context
+
+    Returns:
+        Formatted evidence block string
+    """
+    evidence_lines = []
+
+    for claim in verified_claims:
+        kind = claim.get("kind")
+
+        if kind == "stage":
+            evidence_lines.append(f"📍 **Stage**: {claim.get('value')} (current)")
+
+        elif kind == "metric":
+            name = claim.get("name")
+            value = claim.get("value")
+            evidence_lines.append(f"📊 **{name.upper()}**: {value:.3f} (current)")
+
+        elif kind == "identity_adopt":
+            event_id = claim.get("id")
+            content = claim.get("content")
+            evidence_lines.append(f"👤 **Identity**: Event #{event_id} | {content}")
+
+        elif kind == "commitment_open":
+            event_id = claim.get("id")
+            evidence_lines.append(f"🤝 **Commitment**: Event #{event_id} (open)")
+
+        # Add more evidence formatting as needed
+
+    return (
+        "\n".join(evidence_lines) if evidence_lines else "No verifiable claims found."
+    )
+
+
 def extract_conversation_history(
     events: list[dict], max_turns: int | None = None
 ) -> list[dict]:
@@ -687,6 +791,59 @@ def handle_user_input(
         )
     except Exception as e:
         logger.debug(f"Failed to sanitize reply: {e}")
+
+    # STRUCTURED CLAIMS PROTOCOL: Parse and verify claims before rendering
+    # Skip for forced replies (deterministic lookups)
+    if forced_reply is None:
+        try:
+            import json
+
+            parsed_response = json.loads(reply)
+
+            # Validate required structure
+            if not isinstance(parsed_response, dict) or "answer" not in parsed_response:
+                raise ValueError("Invalid response structure")
+
+            answer = parsed_response.get("answer", "")
+            claims = parsed_response.get("claims", [])
+
+            # Verify no raw IDs in answer
+            forbidden_patterns = ["event", "token", "CID", "id:", "ID:", "#"]
+            answer_lower = answer.lower()
+            has_forbidden = any(
+                pattern in answer_lower for pattern in forbidden_patterns
+            )
+
+            if has_forbidden:
+                logger.warning(
+                    "Raw IDs detected in answer - stripping to safe response"
+                )
+                answer = "I need to verify this information in the ledger first."
+                claims = []
+
+            # Verify each claim against ledger
+            verified_claims = []
+            for claim in claims:
+                if verify_claim_against_ledger(claim, runtime):
+                    verified_claims.append(claim)
+                else:
+                    logger.warning(f"Claim failed verification: {claim}")
+
+            # Build final response with evidence
+            final_response = answer
+            if verified_claims:
+                evidence_block = build_evidence_block(verified_claims, runtime)
+                final_response += f"\n\n📋 **Evidence**\n{evidence_block}"
+
+            reply = final_response
+
+        except json.JSONDecodeError:
+            logger.warning("Response not valid JSON - using safe fallback")
+            reply = "I need to format my response properly. Please try again."
+        except Exception as e:
+            logger.warning(f"Structured claims processing failed: {e}")
+            # Fall back to original reply but warn about potential fabrications
+            reply = answer if "answer" in locals() else reply
 
     intent_reply = "irrelevant"
     candidate_reply = None
@@ -1355,6 +1512,103 @@ def handle_user_input(
         _validators_module.verify_commitment_count_claims(reply, actual_open)
     except Exception:
         logger.debug("Commitment count verification failed", exc_info=True)
+
+    # Stage progression check: emit stage_update events when thresholds are met
+    try:
+        from pmm.runtime.stage_tracker import StageTracker
+
+        events = _events(refresh=True)
+
+        # Get current recorded stage and inferred stage
+        current_stage = None
+        for ev in reversed(events):
+            if ev.get("kind") == "stage_update":
+                current_stage = (ev.get("meta") or {}).get("to")
+                break
+
+        new_stage, snapshot = StageTracker.infer_stage(events)
+        if new_stage and new_stage != current_stage:
+            should_transition = StageTracker.with_hysteresis(
+                current_stage, new_stage, snapshot, events
+            )
+
+            if should_transition or (current_stage is None and new_stage != "S0"):
+                runtime.eventlog.append(
+                    kind="stage_update",
+                    content=f"Stage transition: {current_stage or 'None'} → {new_stage}",
+                    meta={
+                        "from": current_stage or "None",
+                        "to": new_stage,
+                        "snapshot": snapshot,
+                    },
+                )
+    except Exception:
+        logger.debug("Stage progression check failed", exc_info=True)
+
+    # Emergence report: emit behavioral analysis reports
+    try:
+        from pmm.runtime.emergence import EmergenceManager
+
+        events = _events(refresh=True)
+
+        # Only emit emergence reports periodically (every 10 interactions)
+        total_events = len(events)
+        if total_events % 10 == 0:
+            manager = EmergenceManager(runtime.eventlog)
+            manager.emit_emergence_report(events)
+    except Exception:
+        logger.debug("Emergence report failed", exc_info=True)
+
+    # Pattern continuity: analyze behavioral patterns periodically
+    try:
+        from pmm.runtime.pattern_continuity import PatternContinuity
+
+        events = _events(refresh=True)
+
+        # Only analyze pattern continuity every 20 interactions
+        total_events = len(events)
+        if total_events % 20 == 0 and events:
+            continuity = PatternContinuity()
+            patterns = continuity.analyze_patterns(events)
+            # Emit report with the latest event as source
+            latest_event = events[-1]
+            continuity.maybe_emit_report(
+                runtime.eventlog, str(latest_event.get("id", "unknown")), patterns
+            )
+    except Exception:
+        logger.debug("Pattern continuity analysis failed", exc_info=True)
+
+    # Allocation inspection: periodic performance monitoring
+    try:
+        from pmm.runtime.alloc_inspect import summarize
+
+        # Only inspect allocation every 50 interactions to avoid overhead
+        total_events = len(events)
+        if total_events % 50 == 0:
+            alloc_summary = summarize(n=100)
+            if alloc_summary and alloc_summary.get("summary"):
+                # Emit a concise allocation summary
+                summary_text = []
+                for key, stats in alloc_summary["summary"].items():
+                    if stats["calls"] > 0:
+                        summary_text.append(
+                            f"{key}: {stats['calls']} calls, "
+                            f"avg_target={stats['avg_target']}, "
+                            f"cutoff_rate={stats['cutoff_rate']:.3f}"
+                        )
+                if summary_text:
+                    runtime.eventlog.append(
+                        kind="allocation_summary",
+                        content=" | ".join(summary_text),
+                        meta={
+                            "total_calls": sum(
+                                s["calls"] for s in alloc_summary["summary"].values()
+                            ),
+                            "models_count": len(alloc_summary["summary"]),
+                        },
+                    )
+    except Exception:
+        logger.debug("Allocation inspection failed", exc_info=True)
 
     # Debug: Check what we're returning
     if reply is None:

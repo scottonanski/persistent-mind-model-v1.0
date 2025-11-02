@@ -39,7 +39,11 @@ def test_recall_semantic_prefers_closest_and_ordering(monkeypatch, tmp_path):
     monkeypatch.setattr("pmm.runtime.embeddings.compute_embedding", lambda s: v1)
 
     # Monkeypatch chat.generate to return a deterministic reply
-    monkeypatch.setattr(rt.chat, "generate", lambda msgs, **kw: "Discuss alpha vector.")
+    monkeypatch.setattr(
+        rt.chat,
+        "generate",
+        lambda msgs, **kw: '{"answer": "Discuss alpha vector.", "claims": []}',
+    )
 
     # Call handle_user which triggers recall_suggest before response
     rt.handle_user("Hi")
@@ -74,7 +78,11 @@ def test_recall_semantic_absent_falls_back(monkeypatch, tmp_path):
 
     # Deterministic reply
     reply_text = "Apollo mission planning update"
-    monkeypatch.setattr(rt.chat, "generate", lambda msgs, **kw: reply_text)
+    monkeypatch.setattr(
+        rt.chat,
+        "generate",
+        lambda msgs, **kw: f'{{"answer": "{reply_text}", "claims": []}}',
+    )
 
     # Compute baseline suggestions directly using recall on events prior to reply
     evs_pre = log.read_all()

@@ -71,8 +71,8 @@ TRAIT_SAMPLES: dict[str, list[list[float]]] = {
     for code, texts in TRAIT_EXEMPLARS.items()
 }
 
-TRAIT_NUDGE_THRESHOLD: float = 0.70
-TRAIT_NUDGE_DELTA: float = 0.01
+TRAIT_NUDGE_THRESHOLD: float = 0.60  # Lowered from 0.70 to allow more matches
+TRAIT_NUDGE_DELTA: float = 0.02  # Increased from 0.01 for more visible changes
 
 
 def compute_trait_nudges_from_text(text: str) -> dict[str, float]:

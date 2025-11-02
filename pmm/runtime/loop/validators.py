@@ -167,24 +167,12 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
     model = build_self_model(events, eventlog=eventlog)
     open_commitments = (model.get("commitments") or {}).get("open") or {}
 
-    # Map commitment IDs to their originating event IDs for numeric claim checks
-    open_event_ids: dict[str, int] = {}
-    for ev in events:
-        if ev.get("kind") != "commitment_open":
-            continue
-        meta = ev.get("meta") or {}
-        cid = str(meta.get("cid") or "")
-        if cid and cid in open_commitments and cid not in open_event_ids:
-            try:
-                open_event_ids[cid] = int(ev.get("id") or 0)
-            except Exception:
-                open_event_ids[cid] = 0
-
     actual_commitments: list[dict[str, Any]] = []
     for cid, entry in open_commitments.items():
         raw_text = str((entry or {}).get("text") or "")
         text = raw_text.lower()
-        eid = open_event_ids.get(cid)
+        # Use event_id from projection if available
+        eid = entry.get("event_id") if entry else None
         actual_commitments.append(
             {"text": text, "raw_text": raw_text, "cid": cid[:8], "eid": eid}
         )
@@ -545,10 +533,99 @@ def verify_commitment_count_claims(reply: str, actual_open_count: int) -> bool:
     return False
 
 
+def verify_memegraph_tokens(
+    reply: str, eventlog: EventLog
+) -> tuple[bool, list[str] | None]:
+    """Verify that any MemeGraph tokens cited actually exist.
+
+    Returns:
+        (is_valid, fake_tokens): True if all tokens are valid, False otherwise.
+        fake_tokens is a list of invalid tokens found.
+    """
+    from pmm.utils.parsers import extract_memegraph_tokens
+
+    found_tokens = extract_memegraph_tokens(reply.lower())
+
+    if not found_tokens:
+        return (True, None)
+
+    fake_tokens = []
+    # Verify tokens against the ledger
+    try:
+        for token in found_tokens:
+            # Remove brackets if present
+            clean_token = token.strip("[]")
+            if ":" not in clean_token:
+                continue
+
+            try:
+                event_id, digest = clean_token.split(":", 1)
+                event_id = int(event_id)
+
+                # Check if the event exists
+                event = eventlog.get_event(event_id)
+                if not event:
+                    fake_tokens.append(token.strip("[]"))
+                    continue
+
+                # Verify the digest matches the actual event hash
+                actual_hash = event.get("hash", "")
+                if not actual_hash.startswith(digest):
+                    fake_tokens.append(token.strip("[]"))
+                    continue
+
+            except (ValueError, IndexError):
+                fake_tokens.append(token.strip("[]"))
+
+    except Exception:
+        # If we can't verify, be conservative and flag them
+        fake_tokens = [t.strip("[]") for t in found_tokens]
+
+    return (len(fake_tokens) == 0, fake_tokens if fake_tokens else None)
+
+
+def verify_ledger_claims_have_evidence(
+    reply: str, eventlog: EventLog
+) -> tuple[bool, str | None]:
+    """Check if the AI makes claims about the ledger without providing evidence.
+
+    This validator looks for statements about:
+    - Stage progression
+    - IAS/GAS metrics
+    - Commitment counts/status
+    - Trait updates
+
+    Returns:
+        (has_evidence, correction): True if evidence provided, False otherwise.
+        correction is a message asking for evidence.
+    """
+    from pmm.utils.parsers import has_evidence_indicators, has_ledger_claims
+
+    # Check if any ledger claims are made
+    has_claim = has_ledger_claims(reply)
+
+    if not has_claim:
+        return (True, None)
+
+    # Check if evidence is provided
+    has_evidence = has_evidence_indicators(reply)
+
+    if has_claim and not has_evidence:
+        correction = (
+            "I made claims about the ledger without providing evidence. "
+            "Please provide evidence by referencing specific event IDs or evidence from the ledger."
+        )
+        return (False, correction)
+
+    return (True, None)
+
+
 __all__ = [
     "verify_commitment_claims",
     "verify_commitment_status",
     "verify_commitment_count_claims",
     "verify_event_ids",
     "verify_event_existence_claims",
+    "verify_memegraph_tokens",
+    "verify_ledger_claims_have_evidence",
 ]

@@ -210,7 +210,7 @@ class SelfEvolution:
 
 RATCHET_MIN_REFLECTIONS = 3
 RATCHET_MIN_TICK_GAP = 5
-RATCHET_STEP = 0.01
+RATCHET_STEP = 0.02  # Increased from 0.01 for more visible evolution
 
 RATCHET_BOUNDS = {
     "S0": {

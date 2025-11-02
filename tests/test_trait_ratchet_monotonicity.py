@@ -46,7 +46,7 @@ def test_monotonic_single_emit_and_gap():
     delta = (ratchets[0]["meta"] or {}).get("delta") or {}
     # Each delta should be in increments of 0.01 by design (or zero)
     for v in delta.values():
-        assert abs(float(v)) in {0.0, 0.01}
+        assert abs(float(v)) in {0.0, 0.01, 0.02}
 
     # Second tick should NOT emit a new ratchet due to RATCHET_MIN_TICK_GAP
     loop.tick()

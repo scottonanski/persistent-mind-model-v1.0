@@ -196,6 +196,8 @@ def build_self_model(
             if cid and text is not None:
                 # Store text and any useful extra fields
                 entry = {k: v for k, v in meta.items()}
+                # Add event_id for citation tracking
+                entry["event_id"] = ev.get("id")
                 model["commitments"]["open"][cid] = entry
 
         elif kind == "evidence_candidate":

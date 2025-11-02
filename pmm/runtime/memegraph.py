@@ -574,6 +574,48 @@ class MemeGraphProjection:
             ids = ids[-int(limit) :]
         return ids
 
+    def get_latest_autonomy_tick_id(self) -> int | None:
+        """Return the ID of the most recent autonomy_tick event, or None if not found."""
+        with self._lock:
+            # Get all event IDs and find the latest one that is an autonomy_tick
+            latest_id = None
+            for eid in sorted(self._event_index.keys(), reverse=True):
+                if eid in self._nodes:
+                    node = self._nodes[eid]
+                    if node.label == "event":
+                        attrs = node.attrs or {}
+                        if str(attrs.get("kind") or "") == "autonomy_tick":
+                            latest_id = eid
+                            break
+            return latest_id
+
+    def get_autonomy_tick_telemetry(self, event_id: int) -> dict[str, Any] | None:
+        """Return the telemetry data for a specific autonomy_tick event."""
+        with self._lock:
+            if event_id not in self._nodes:
+                return None
+            node = self._nodes[event_id]
+            if node.label != "event":
+                return None
+            attrs = node.attrs or {}
+            if str(attrs.get("kind") or "") != "autonomy_tick":
+                return None
+            meta = attrs.get("meta", {})
+            return meta.get("telemetry", {})
+
+    def get_autonomy_tick_meta(self, event_id: int) -> dict[str, Any] | None:
+        """Return the full meta data for a specific autonomy_tick event."""
+        with self._lock:
+            if event_id not in self._nodes:
+                return None
+            node = self._nodes[event_id]
+            if node.label != "event":
+                return None
+            attrs = node.attrs or {}
+            if str(attrs.get("kind") or "") != "autonomy_tick":
+                return None
+            return attrs.get("meta", {})
+
     def get_identity_milestone_ids(self, limit: int = 3) -> list[int]:
         """Return IDs of identity milestones (adoptions and recent stage transitions).
 

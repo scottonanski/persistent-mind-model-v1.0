@@ -327,7 +327,7 @@ def test_commitment_close_exact_match_only(tmp_path, monkeypatch):
 
     # Open two identity commitments: Ada and Adam
     def gen_commit(msgs, **kw):
-        return "I will use the name Ada. Also, I will use the name Adam."
+        return '{"answer": "I will use the name Ada. Also, I will use the name Adam.", "claims": []}'
 
     monkeypatch.setattr(rt.chat, "generate", gen_commit)
     rt.handle_user("hi")

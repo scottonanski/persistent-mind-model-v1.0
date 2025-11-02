@@ -858,6 +858,54 @@ def maybe_reflect(
             )
     except Exception:
         pass
+
+    # AI-CENTRIC METACOGNITIVE ENHANCEMENT
+    # Trigger AI-centric metacognitive processing after reflections
+    try:
+        # Initialize AI-centric metacognition if not present
+        # Use a module-level singleton to avoid reinitialization
+        import sys
+
+        from pmm.metacognition.meta_reflector import MetaReflector
+
+        if "_ai_metacognition_reflector" not in sys.modules:
+            sys.modules["_ai_metacognition_reflector"] = MetaReflector(eventlog)
+            sys.modules["_ai_metacognition_reflector"].initialize()
+
+        ai_metacognition = sys.modules["_ai_metacognition_reflector"]
+
+        # Check if AI-centric reflection should be triggered
+        should_reflect_ai, trigger = ai_metacognition.should_reflect()
+        if should_reflect_ai and trigger:
+            # Engage AI-centric metacognitive reflection
+            insights = ai_metacognition.engage_reflection(trigger)
+
+            # Log AI-centric metacognitive insights
+            if insights:
+                eventlog.append(
+                    kind="ai_centric_metacognitive_reflection",
+                    content=f"AI-centric metacognitive reflection triggered: {trigger.description}",
+                    meta={
+                        "trigger_type": trigger.trigger_type,
+                        "trigger_urgency": trigger.urgency,
+                        "insights_count": len(insights),
+                        "insights": [
+                            {
+                                "type": insight.insight_type.value,
+                                "content": insight.content[:200],
+                                "confidence": insight.confidence,
+                                "actionable": insight.actionable,
+                            }
+                            for insight in insights
+                        ],
+                    },
+                )
+
+    except Exception:
+        # Silently fail if AI-centric metacognition is not available
+        # This ensures backward compatibility
+        pass
+
     return (True, "ok")
 
 

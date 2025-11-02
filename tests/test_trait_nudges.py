@@ -34,6 +34,6 @@ def test_no_nudge_for_neutral_text():
     changes = _compute_trait_nudges_from_text(text)
 
     # Neutral text may still produce small nudges due to semantic similarity
-    # Just verify no strong signals (all deltas < 0.02)
+    # Just verify no strong signals (all deltas <= 0.02)
     for trait, delta in changes.items():
-        assert abs(delta) < 0.02
+        assert abs(delta) <= 0.02
