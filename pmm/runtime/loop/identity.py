@@ -37,6 +37,13 @@ NAME_BANLIST = {
     "xxx",
     "god",
     "jesus",
+    # Interrogatives / weak tokens that confound identity adoption
+    "what",
+    "or",
+    "not",
+    "how",
+    "why",
+    "when",
 }
 
 
@@ -67,6 +74,9 @@ def sanitize_name(raw: str) -> str | None:
     if not token:
         return None
     if not token[0].isalpha():
+        return None
+    # Reject very short names to avoid nonsense tokens
+    if len(token) < 3:
         return None
 
     for char in token:

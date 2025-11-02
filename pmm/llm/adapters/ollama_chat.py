@@ -118,7 +118,11 @@ class OllamaChat:
                 }
             else:
                 self._provider_caps = None
-        except Exception:
+        except Exception as e:
+            logger.debug(
+                f"Ollama provider caps discovery failed at {self.base_url}: {e}",
+                exc_info=True,
+            )
             self._provider_caps = None
 
     def generate(

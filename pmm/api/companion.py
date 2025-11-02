@@ -17,7 +17,7 @@ from pmm.config import load_dotenv
 from pmm.llm.factory import LLMConfig
 from pmm.runtime.loop import Runtime
 from pmm.runtime.loop import io as _io
-from pmm.runtime.metrics import compute_ias_gas
+from pmm.runtime.metrics import get_or_compute_ias_gas
 from pmm.runtime.metrics_view import MetricsView
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_self_model
@@ -257,6 +257,51 @@ async def get_models():
     return {"version": API_VERSION, "models": models}
 
 
+@app.get("/debug/context-health")
+async def get_context_health(db: str | None = Query(None)):
+    """Return bounded diagnostics about recent context assembly.
+
+    Provides quick visibility without heavy reads. Never uses full scans.
+    """
+    try:
+        evlog = _get_evlog(db)
+        total_events = 0
+        try:
+            total_events = (
+                evlog.get_event_count()
+                if hasattr(evlog, "get_event_count")
+                else evlog.get_max_id()
+            )
+        except Exception:
+            total_events = 0
+
+        rt = _global_runtime
+        diag = getattr(rt, "_last_context_diagnostics", {}) if rt else {}
+        last_time_ms = getattr(rt, "_last_context_time_ms", None) if rt else None
+
+        # Basic memegraph stats if available
+        mg = getattr(rt, "memegraph", None) if rt else None
+        mg_stats = None
+        if mg is not None:
+            try:
+                mg_stats = {"nodes": mg.node_count, "edges": mg.edge_count}
+            except Exception:
+                mg_stats = None
+
+        return {
+            "version": API_VERSION,
+            "total_events": total_events,
+            "context_event_count": int(diag.get("context_event_count") or 0),
+            "strategic_count": int(diag.get("strategic_count") or 0),
+            "tail_limit": diag.get("tail_limit"),
+            "tail_truncated": bool(diag.get("tail_truncated") or False),
+            "last_context_time_ms": last_time_ms,
+            "memegraph": mg_stats,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/metrics")
 async def get_metrics(db: str | None = Query(None), detailed: bool = Query(False)):
     """Get current metrics (IAS, GAS, OCEAN traits, stage).
@@ -282,25 +327,26 @@ async def get_metrics(db: str | None = Query(None), detailed: bool = Query(False
                 "last_updated": datetime.now().isoformat(),
             }
         else:
-            # Return basic metrics (backward compatible)
-            events = evlog.read_all()
-            model = build_self_model(events)
+            # Return basic metrics (bounded, projection-backed)
+            model = build_self_model([], eventlog=evlog)
             identity = model.get("identity", {})
             traits = identity.get("traits", {})
 
             try:
-                ias, gas = compute_ias_gas(events)
+                ias, gas = get_or_compute_ias_gas(evlog)
             except Exception:
                 ias, gas = 0.0, 0.0
 
             # Determine current stage from events
             current_stage = "S0"
-            for event in reversed(events):
-                if event.get("kind") == "stage_progress":
-                    stage_from_event = event.get("meta", {}).get("stage")
+            try:
+                last_stage = evlog.get_latest_stage_event()
+                if last_stage:
+                    stage_from_event = (last_stage.get("meta") or {}).get("stage")
                     if stage_from_event:
                         current_stage = str(stage_from_event)
-                        break
+            except Exception:
+                pass
 
             return {
                 "version": API_VERSION,
@@ -321,31 +367,44 @@ async def get_consciousness(db: str | None = Query(None)):
     """Get PMM's current consciousness state for the living mind dashboard."""
     try:
         evlog = _get_evlog(db)
-        events = evlog.read_all()
 
         # Get current identity and metrics
-        model = build_self_model(events)
+        model = build_self_model([], eventlog=evlog)
         identity = model.get("identity", {})
         traits = identity.get("traits", {})
 
         try:
-            ias, gas = compute_ias_gas(events)
+            ias, gas = get_or_compute_ias_gas(evlog)
         except Exception:
             ias, gas = 0.0, 0.0
 
         # Determine current stage
         current_stage = "S0"
-        for event in reversed(events):
-            if event.get("kind") == "stage_progress":
-                stage_from_event = event.get("meta", {}).get("stage")
+        try:
+            last_stage = evlog.get_latest_stage_event()
+            if last_stage:
+                stage_from_event = (last_stage.get("meta") or {}).get("stage")
                 if stage_from_event:
                     current_stage = str(stage_from_event)
-                    break
+        except Exception:
+            pass
 
         # Get evolution metrics
-        total_events = len(events)
-        first_event = events[0] if events else None
-        birth_timestamp = first_event.get("ts") if first_event else None
+        total_events = (
+            evlog.get_event_count()
+            if hasattr(evlog, "get_event_count")
+            else evlog.get_max_id()
+        )
+        # Query first event timestamp directly
+        birth_timestamp = None
+        try:
+            row = evlog._conn.execute(
+                "SELECT ts FROM events ORDER BY id ASC LIMIT 1"
+            ).fetchone()
+            if row:
+                birth_timestamp = row[0]
+        except Exception:
+            birth_timestamp = None
 
         # Calculate days alive
         days_alive = 0
@@ -361,9 +420,18 @@ async def get_consciousness(db: str | None = Query(None)):
                 days_alive = 0
 
         # Count reflections and net open commitments
-        reflection_count = sum(
-            1 for e in events if e.get("kind") in ["reflection", "meta_reflection"]
-        )
+        # Count reflections via SQL
+        reflection_count = 0
+        try:
+            row = evlog._conn.execute(
+                "SELECT COUNT(*) FROM events WHERE kind IN ('reflection','meta_reflection')"
+            ).fetchone()
+            reflection_count = int(row[0]) if row and row[0] is not None else 0
+        except Exception:
+            reflection_count = 0
+
+        # Read events for projection and analysis
+        events = list(evlog.read_all())
 
         # Get net open commitments from projection (not naive count)
         model = build_self_model(events)
@@ -458,11 +526,13 @@ async def get_reflections(
     """Get reflection events."""
     try:
         evlog = _get_evlog(db)
-        events = evlog.read_all()
+        # Read a bounded tail and filter reflections from newest backwards
+        tail_lim = max(200, int(limit) * 20)
+        events = evlog.read_tail(limit=tail_lim)
 
         reflections = []
         for event in reversed(events):
-            if event.get("kind") in ["reflection", "meta_reflection"]:
+            if event.get("kind") in ("reflection", "meta_reflection"):
                 reflections.append(event)
                 if len(reflections) >= limit:
                     break
@@ -489,11 +559,12 @@ async def get_commitments(
         if status == "open":
             commitments = probe.snapshot_commitments_open(evlog, limit=limit)
         else:
-            # Get all commitment events
-            events = evlog.read_all()
+            # Get recent commitment events from a bounded tail
+            tail_lim = max(500, int(limit) * 40)
+            events = evlog.read_tail(limit=tail_lim)
             commitments = []
             for event in reversed(events):
-                if event.get("kind") in ["commitment_open", "commitment_close"]:
+                if event.get("kind") in ("commitment_open", "commitment_close"):
                     commitments.append(event)
                     if len(commitments) >= limit:
                         break
@@ -516,23 +587,28 @@ async def get_traces(
     """Get reasoning trace summaries."""
     try:
         evlog = _get_evlog(db)
-        events = evlog.read_all()
+        import json as _json
 
         traces = []
-        for event in reversed(events):
-            if event.get("kind") == "reasoning_trace_summary":
-                meta = event.get("meta", {})
-
-                # Apply query filter if provided
+        # Query only summaries and apply bounded limit
+        try:
+            cur = evlog._conn.execute(
+                "SELECT id, ts, meta FROM events WHERE kind='reasoning_trace_summary' ORDER BY id DESC LIMIT ?",
+                (int(limit),),
+            )
+            for rid, ts, meta_json in cur.fetchall():
+                try:
+                    meta = _json.loads(meta_json or "{}")
+                except Exception:
+                    meta = {}
                 if query_filter:
-                    query_text = meta.get("query", "").lower()
-                    if query_filter.lower() not in query_text:
+                    qtxt = str(meta.get("query") or "").lower()
+                    if str(query_filter).lower() not in qtxt:
                         continue
-
                 traces.append(
                     {
-                        "id": event.get("id"),
-                        "timestamp": event.get("ts"),
+                        "id": int(rid),
+                        "timestamp": ts,
                         "session_id": meta.get("session_id"),
                         "query": meta.get("query"),
                         "total_nodes_visited": meta.get("total_nodes_visited", 0),
@@ -546,9 +622,8 @@ async def get_traces(
                         "duration_ms": meta.get("duration_ms", 0),
                     }
                 )
-
-                if len(traces) >= limit:
-                    break
+        except Exception:
+            traces = []
 
         return {
             "version": API_VERSION,
@@ -567,52 +642,70 @@ async def get_trace_details(
     """Get detailed trace information for a specific session."""
     try:
         evlog = _get_evlog(db)
-        events = evlog.read_all()
+        import json as _json
 
         # Find summary
         summary = None
         samples = []
-
-        for event in events:
-            kind = event.get("kind")
-            meta = event.get("meta", {})
-
-            if (
-                kind == "reasoning_trace_summary"
-                and meta.get("session_id") == session_id
-            ):
-                summary = {
-                    "id": event.get("id"),
-                    "timestamp": event.get("ts"),
-                    "session_id": meta.get("session_id"),
-                    "query": meta.get("query"),
-                    "total_nodes_visited": meta.get("total_nodes_visited", 0),
-                    "node_type_distribution": meta.get("node_type_distribution", {}),
-                    "high_confidence_count": meta.get("high_confidence_count", 0),
-                    "high_confidence_paths": meta.get("high_confidence_paths", []),
-                    "sampled_count": meta.get("sampled_count", 0),
-                    "reasoning_steps": meta.get("reasoning_steps", []),
-                    "duration_ms": meta.get("duration_ms", 0),
-                    "start_time_ms": meta.get("start_time_ms"),
-                    "end_time_ms": meta.get("end_time_ms"),
-                }
-            elif (
-                kind == "reasoning_trace_sample"
-                and meta.get("session_id") == session_id
-            ):
-                samples.append(
-                    {
-                        "id": event.get("id"),
-                        "timestamp": event.get("ts"),
-                        "node_digest": meta.get("node_digest"),
-                        "node_type": meta.get("node_type"),
-                        "context_query": meta.get("context_query"),
-                        "traversal_depth": meta.get("traversal_depth", 0),
-                        "confidence": meta.get("confidence", 0.0),
-                        "edge_label": meta.get("edge_label"),
-                        "reasoning_step": meta.get("reasoning_step"),
+        # Fetch summary (bounded scan over summaries)
+        try:
+            cur = evlog._conn.execute(
+                "SELECT id, ts, meta FROM events WHERE kind='reasoning_trace_summary' ORDER BY id DESC LIMIT 2000"
+            )
+            for rid, ts, meta_json in cur.fetchall():
+                meta = {}
+                try:
+                    meta = _json.loads(meta_json or "{}")
+                except Exception:
+                    pass
+                if str(meta.get("session_id") or "") == str(session_id):
+                    summary = {
+                        "id": int(rid),
+                        "timestamp": ts,
+                        "session_id": meta.get("session_id"),
+                        "query": meta.get("query"),
+                        "total_nodes_visited": meta.get("total_nodes_visited", 0),
+                        "node_type_distribution": meta.get(
+                            "node_type_distribution", {}
+                        ),
+                        "high_confidence_count": meta.get("high_confidence_count", 0),
+                        "high_confidence_paths": meta.get("high_confidence_paths", []),
+                        "sampled_count": meta.get("sampled_count", 0),
+                        "reasoning_steps": meta.get("reasoning_steps", []),
+                        "duration_ms": meta.get("duration_ms", 0),
+                        "start_time_ms": meta.get("start_time_ms"),
+                        "end_time_ms": meta.get("end_time_ms"),
                     }
-                )
+                    break
+        except Exception:
+            summary = None
+
+        # Fetch samples for the session (bounded)
+        try:
+            cur = evlog._conn.execute(
+                "SELECT id, ts, meta FROM events WHERE kind='reasoning_trace_sample' ORDER BY id ASC LIMIT 10000"
+            )
+            for rid, ts, meta_json in cur.fetchall():
+                try:
+                    meta = _json.loads(meta_json or "{}")
+                except Exception:
+                    meta = {}
+                if str(meta.get("session_id") or "") == str(session_id):
+                    samples.append(
+                        {
+                            "id": int(rid),
+                            "timestamp": ts,
+                            "node_digest": meta.get("node_digest"),
+                            "node_type": meta.get("node_type"),
+                            "context_query": meta.get("context_query"),
+                            "traversal_depth": meta.get("traversal_depth", 0),
+                            "confidence": meta.get("confidence", 0.0),
+                            "edge_label": meta.get("edge_label"),
+                            "reasoning_step": meta.get("reasoning_step"),
+                        }
+                    )
+        except Exception:
+            samples = []
 
         if not summary:
             raise HTTPException(
@@ -638,30 +731,37 @@ async def get_trace_stats(
     """Get aggregate statistics about reasoning traces."""
     try:
         evlog = _get_evlog(db)
-        events = evlog.read_all()
+        import json as _json
 
         total_traces = 0
         total_nodes_visited = 0
         avg_duration_ms = 0
         node_type_totals = {}
 
-        trace_summaries = []
-
-        for event in events:
-            if event.get("kind") == "reasoning_trace_summary":
-                meta = event.get("meta", {})
+        # Bounded aggregation over summaries
+        try:
+            cur = evlog._conn.execute(
+                "SELECT meta FROM events WHERE kind='reasoning_trace_summary' ORDER BY id DESC LIMIT 5000"
+            )
+            for (meta_json,) in cur.fetchall():
+                try:
+                    meta = _json.loads(meta_json or "{}")
+                except Exception:
+                    meta = {}
                 total_traces += 1
-                total_nodes_visited += meta.get("total_nodes_visited", 0)
-                avg_duration_ms += meta.get("duration_ms", 0)
+                total_nodes_visited += int(meta.get("total_nodes_visited", 0) or 0)
+                avg_duration_ms += float(meta.get("duration_ms", 0) or 0.0)
 
-                # Aggregate node types
-                dist = meta.get("node_type_distribution", {})
+                dist = meta.get("node_type_distribution", {}) or {}
                 for node_type, count in dist.items():
-                    node_type_totals[node_type] = (
-                        node_type_totals.get(node_type, 0) + count
-                    )
-
-                trace_summaries.append(meta)
+                    node_type_totals[node_type] = node_type_totals.get(
+                        node_type, 0
+                    ) + int(count or 0)
+        except Exception:
+            total_traces = 0
+            total_nodes_visited = 0
+            avg_duration_ms = 0
+            node_type_totals = {}
 
         if total_traces > 0:
             avg_duration_ms = avg_duration_ms / total_traces

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Iterator
 from typing import Any
@@ -11,6 +12,8 @@ from urllib.request import Request, urlopen
 
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAIChat:
@@ -77,8 +80,9 @@ class OpenAIChat:
             else:
                 self._provider_caps = None
 
-        except Exception:
-            # Silently fail - we'll use the configured defaults
+        except Exception as e:
+            # Log for auditability; fall back to defaults
+            logger.debug(f"OpenAI provider caps discovery failed: {e}", exc_info=True)
             self._provider_caps = None
 
     def generate(

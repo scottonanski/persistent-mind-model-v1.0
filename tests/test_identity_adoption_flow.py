@@ -86,9 +86,10 @@ def test_identity_adoption_flow():
         projections = [e for e in events if e["kind"] == "identity_projection"]
         assert len(projections) >= 1
         proj = projections[-1]
-        assert proj["meta"]["previous_identity"] == "Alpha"
-        assert proj["meta"]["current_identity"] == "Echo"
-        assert "test_cid_1" in proj["meta"].get("rebound_commitments", [])
+        assert proj["meta"]["old_name"] == "Alpha"
+        assert proj["meta"]["new_name"] == "Echo"
+        rebound_cids = [r["cid"] for r in proj["meta"].get("rebinds", [])]
+        assert "test_cid_1" in rebound_cids
 
         # ✅ Reflection after second adoption should exist (content may vary),
         # or at minimum a forced-reflection debug marker should be present after the adopt

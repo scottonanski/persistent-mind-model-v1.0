@@ -31,8 +31,12 @@ def _tail(evlog: EventLog, n: int) -> list[dict[str, Any]]:
             return list(evlog.read_tail(limit=int(n)))
         except TypeError:
             return list(evlog.read_tail(int(n)))
-    # Fallback: full scan
-    return list(evlog.read_all())
+    # Fallback: use read_all for fake event logs in tests
+    try:
+        all_events = list(evlog.read_all())
+        return all_events[-int(n) :] if len(all_events) > int(n) else all_events
+    except Exception:
+        return []
 
 
 def snapshot(eventlog: EventLog, *, limit: int = 50, redact=None) -> dict:
@@ -46,8 +50,7 @@ def snapshot(eventlog: EventLog, *, limit: int = 50, redact=None) -> dict:
       }
 
     Notes:
-      - Reads events via `eventlog.read_all()`
-      - Builds the model via `build_self_model(events)`
+      - Builds the model via projection cache (eventlog-backed)
       - `events` in the result are the last <= limit items (ascending order preserved)
     Optional redaction
     -------------------
@@ -67,8 +70,13 @@ def snapshot(eventlog: EventLog, *, limit: int = 50, redact=None) -> dict:
 
     These helpers are examples only and not used by default.
     """
-    events = eventlog.read_all()
-    model = build_self_model(events)
+    # Build model from projection cache (bounded, no full scan)
+    model = build_self_model([], eventlog=eventlog)
+    # Get recent events only (ascending order)
+    try:
+        events = eventlog.read_tail(limit=limit if limit and limit > 0 else 50)
+    except Exception:
+        events = []
 
     # Slice to last <= limit while keeping ascending order
     if limit and limit > 0:
@@ -86,7 +94,9 @@ def snapshot(eventlog: EventLog, *, limit: int = 50, redact=None) -> dict:
     }
     # Tiny augmentation: include top-k directives derived from the same events (read-only)
     try:
-        dirs_all = build_directives(events)
+        # Use a larger tail window for directives view without full scans
+        tail = _tail(eventlog, DIRECTIVES_TAIL_WINDOW)
+        dirs_all = build_directives(tail)
         top = dirs_all[:5]
     except Exception:
         top = []
@@ -115,9 +125,8 @@ def snapshot_paged(
       - Always ascending order.
       - Strictly read-only; no writes.
     """
-    # Build full model from all events (unchanged from snapshot())
-    all_events = eventlog.read_all()
-    model = build_self_model(all_events)
+    # Build model from projection cache (bounded, no full scan)
+    model = build_self_model([], eventlog=eventlog)
 
     # Determine page slice (ascending order)
     if after_id is not None:
@@ -372,8 +381,9 @@ def memory_summary(evlog: EventLog) -> str:
     Includes identity, a short list of open commitments, and a count of
     reflections and directives. Purely read-only.
     """
-    events = evlog.read_all()
-    model = build_self_model(events)
+    # Use projection cache for model and bounded tail for counts
+    model = build_self_model([], eventlog=evlog)
+    events = _tail(evlog, DIRECTIVES_TAIL_WINDOW)
     name = (model.get("identity") or {}).get("name") or "—"
     # Open commitments (top 3 by recency)
     opens = []

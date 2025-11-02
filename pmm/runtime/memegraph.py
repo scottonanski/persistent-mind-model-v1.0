@@ -548,6 +548,66 @@ class MemeGraphProjection:
                     }
             return result
 
+    # ---------------------- Deterministic query helpers (bounded) ---------
+    def get_open_commitment_ids(self, limit: int | None = None) -> list[int]:
+        """Return event IDs associated with currently open commitments.
+
+        Uses the in-memory commitment state; returns IDs in ascending order.
+        If a limit is provided, returns the most recent N by event id.
+        """
+        with self._lock:
+            ids = [
+                int(data.get("last_event_id") or 0)
+                for data in self._commitment_state.values()
+                if data.get("open") and int(data.get("last_event_id") or 0) > 0
+            ]
+        ids.sort()
+        if limit is not None and limit > 0:
+            return ids[-int(limit) :]
+        return ids
+
+    def get_recent_reflection_ids(self, limit: int = 5) -> list[int]:
+        """Return IDs of recent reflections, ascending order, bounded by limit."""
+        with self._lock:
+            ids = sorted(int(rid) for rid in self._reflection_index.keys())
+        if limit and limit > 0:
+            ids = ids[-int(limit) :]
+        return ids
+
+    def get_identity_milestone_ids(self, limit: int = 3) -> list[int]:
+        """Return IDs of identity milestones (adoptions and recent stage transitions).
+
+        Deterministic selection from in-memory indices; returns ascending order.
+        """
+        milestones: set[int] = set()
+        # Identity adoptions: scan event nodes with kind=identity_adopt
+        with self._lock:
+            try:
+                for node in self._nodes.values():
+                    if node.label != "event":
+                        continue
+                    attrs = node.attrs or {}
+                    if str(attrs.get("kind") or "") == "identity_adopt":
+                        try:
+                            eid = int(attrs.get("id") or 0)
+                        except Exception:
+                            eid = 0
+                        if eid > 0:
+                            milestones.add(eid)
+            except Exception:
+                pass
+            # Stage transitions captured in _stage_history as (eid, from, to)
+            try:
+                for eid, _from, _to in self._stage_history:
+                    if int(eid) > 0:
+                        milestones.add(int(eid))
+            except Exception:
+                pass
+        ids = sorted(milestones)
+        if limit and limit > 0:
+            ids = ids[-int(limit) :]
+        return ids
+
     def policy_updates_for_reflection(self, ref_event_id: int) -> list[int]:
         with self._lock:
             digest = self._event_index.get(ref_event_id)

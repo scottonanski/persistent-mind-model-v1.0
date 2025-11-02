@@ -13,7 +13,6 @@ from pmm.commitments.intent_detector import (
     extract_commitment_claims as _extract_commitment_claims_semantic,
 )
 from pmm.runtime.embeddings import compute_embedding, cosine_similarity
-from pmm.runtime.loop import io as _io
 from pmm.storage.eventlog import EventLog
 from pmm.utils.parsers import (
     extract_closed_commitment_claims,
@@ -23,6 +22,8 @@ from pmm.utils.parsers import (
 from pmm.utils.parsers import (
     extract_commitment_claims as _extract_commitment_claims_keywords,
 )
+
+from . import io as _io
 
 logger = logging.getLogger(__name__)
 

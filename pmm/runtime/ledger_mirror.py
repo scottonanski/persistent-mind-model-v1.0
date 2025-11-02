@@ -156,6 +156,55 @@ class LedgerMirror:
 
         return self._get("open_commitments_snapshot", _load)
 
+    # ------------------------- convenience helpers (bounded, graph-first) ---
+    def read_recent_by_kind(self, kind: str, limit: int = 10) -> list[dict]:
+        """Return recent events of a given kind using graph indices when possible.
+
+        Falls back to tail scan with kind filtering if indices are unavailable.
+        """
+        # Try graph-derived IDs first (if future indices exist)
+        try:
+            ids: list[int] | None = None
+            if hasattr(self.memegraph, "event_ids"):
+                # No per-kind index yet; fall back to tail + filter below
+                ids = None
+            if ids:
+                return self.read_by_ids(ids[: int(limit)])
+        except Exception:
+            pass
+
+        # Fallback: read a slightly larger tail and filter by kind
+        tail_lim = max(int(limit) * 5, int(limit))
+        evs = self.read_tail(limit=tail_lim)
+        out = [e for e in evs if (e.get("kind") == str(kind))]
+        return out[-int(limit) :]
+
+    def get_commitment_chain(self, commitment_id: str) -> list[dict]:
+        """Return lifecycle events for a specific commitment id (graph-first).
+
+        Falls back to tail scan if a structural index is not available.
+        """
+        if not commitment_id:
+            return []
+        # Future: use graph index when exposed
+        try:
+            ids: list[int] | None = None
+            if hasattr(self.memegraph, "event_ids"):
+                ids = None
+            if ids:
+                return self.read_by_ids(ids)
+        except Exception:
+            pass
+
+        # Fallback: bounded tail filter
+        evs = self.read_tail(limit=2000)
+        return [
+            e
+            for e in evs
+            if (e.get("meta") or {}).get("cid") == str(commitment_id)
+            or (e.get("meta") or {}).get("commitment_id") == str(commitment_id)
+        ]
+
     def infer_stage(self) -> str | None:
         def _load() -> str | None:
             events = self.read_tail(limit=1000)

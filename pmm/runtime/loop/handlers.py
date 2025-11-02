@@ -1356,4 +1356,12 @@ def handle_user_input(
     except Exception:
         logger.debug("Commitment count verification failed", exc_info=True)
 
+    # Debug: Check what we're returning
+    if reply is None:
+        print(
+            "[DEBUG] WARNING: handle_user_input returning None!",
+            file=sys.stderr,
+            flush=True,
+        )
+
     return reply

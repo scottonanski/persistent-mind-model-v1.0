@@ -14,7 +14,6 @@ from pmm.directives.detector import extract as _extract_directives
 from pmm.runtime import embeddings as _emb
 from pmm.runtime.insight_scorer import COMPOSITE_THRESHOLD, score_insight
 from pmm.runtime.llm_trait_adjuster import apply_llm_trait_adjustments
-from pmm.runtime.loop import io as _io
 from pmm.runtime.recall import suggest_recall
 from pmm.runtime.validators import (
     DECISION_PROBE_PROMPT,
@@ -24,6 +23,8 @@ from pmm.runtime.validators import (
     validate_gate_check,
 )
 from pmm.storage.projection import build_identity
+
+from . import io as _io
 
 
 def emit_autonomy_directives(

@@ -9,8 +9,9 @@ import hashlib as _hashlib
 import json as _json
 from typing import TYPE_CHECKING
 
-from pmm.runtime.loop import io as _io
 from pmm.runtime.stage_tracker import StageTracker
+
+from . import io as _io
 
 if TYPE_CHECKING:
     from pmm.storage.eventlog import EventLog

@@ -239,11 +239,13 @@ def _metrics_panel(snap: dict) -> Panel:
                         f"{int(open_prev)}→{open_count} (Δ{open_count - int(open_prev)})",
                         style="bold white",
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    failures_logger.debug(
+                        f"Open commitments delta render failed: {e}", exc_info=True
+                    )
             grid.add_row(d_line)
-    except Exception:
-        pass
+    except Exception as e:
+        failures_logger.debug(f"Metrics panel render failed: {e}", exc_info=True)
 
     if priority:
         pr_line = Text("Priority ", style="magenta")
@@ -355,8 +357,10 @@ def main() -> None:
     for cache_dir in cache_dirs:
         try:
             shutil.rmtree(cache_dir)
-        except Exception:
-            pass  # Ignore errors, cache clearing is best-effort
+        except Exception as e:
+            failures_logger.debug(
+                f"Cache clear failed for {cache_dir}: {e}", exc_info=True
+            )
 
     print("[DEBUG] CLI main() started", file=sys.stderr, flush=True)
 
@@ -405,7 +409,11 @@ def main() -> None:
                     for line in path_ngram.read_text(encoding="utf-8").splitlines()
                     if line.strip()
                 ]
-        except Exception:
+        except Exception as e:
+            failures_logger.debug(
+                f"Failed to load ngram bans from {env.ngram_ban_file}: {e}",
+                exc_info=True,
+            )
             ngram_bans = None
 
     runtime = Runtime(cfg, eventlog, ngram_bans=ngram_bans)
@@ -450,8 +458,10 @@ def main() -> None:
         logger.info(
             "[bold blue]reflection[/] ON — acceptance/cadence gates applied deterministically."
         )
-    except Exception:
-        pass
+    except Exception as e:
+        failures_logger.debug(
+            f"Autonomy/logging status banner failed: {e}", exc_info=True
+        )
 
     try:
         while True:

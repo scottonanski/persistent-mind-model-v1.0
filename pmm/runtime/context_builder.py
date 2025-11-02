@@ -21,6 +21,7 @@ The implementation follows CONTRIBUTING.md principles:
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime as _dt
 from typing import Any
 
@@ -35,6 +36,8 @@ from pmm.storage.projection import build_identity, build_self_model
 from pmm.utils.parsers import extract_first_sentence, normalize_whitespace
 
 __all__ = ["build_context_from_ledger"]
+
+logger = logging.getLogger(__name__)
 
 
 def _iso_short(ts: str | None) -> str:
@@ -64,6 +67,9 @@ def build_context_from_ledger(
     include_commitments: bool = True,
     include_reflections: bool = True,
     diagnostics: dict[str, Any] | None = None,
+    # Deterministic default: disable routed context unless explicitly enabled by caller
+    # to comply with CONTRIBUTING.md (no env-variable gates for behavior).
+    use_routing: bool = False,
 ) -> str:
     """Return a formatted context block derived from the ledger.
 
@@ -93,11 +99,38 @@ def build_context_from_ledger(
         Multi-line string suitable for inclusion as a system message.
     """
 
-    # Performance optimization (Phase 1.3): Use read_tail for recent context
-    # Most context needs (IAS/GAS, recent reflections, commitments) are in
-    # the recent 500-1000 events. Full projection still uses read_all().
-    # Increase limit when commitments are requested to ensure visibility
-    tail_limit = 5000 if include_commitments else 1000
+    # Prefer routed context builder only when explicitly requested by caller.
+    if use_routing:
+        try:
+            from pmm.runtime.routed_integration import build_context_routed_or_fallback
+
+            routed = build_context_routed_or_fallback(
+                eventlog,
+                routed_infrastructure=None,
+                mirror=mirror,
+                snapshot=snapshot,
+                n_reflections=n_reflections,
+                max_commitment_chars=max_commitment_chars,
+                max_reflection_chars=max_reflection_chars,
+                compact_mode=compact_mode,
+                include_metrics=include_metrics,
+                include_commitments=include_commitments,
+                include_reflections=include_reflections,
+                diagnostics=diagnostics,
+                memegraph=memegraph,
+            )
+            if isinstance(routed, str) and routed.strip():
+                return routed
+        except Exception as _e:  # pragma: no cover — resilience path
+            try:
+                logger.warning("Routed context failed; using tail fallback: %s", _e)
+            except Exception:
+                pass
+
+    # Performance optimization (Tiered Access): Use read_hot_events for recent context
+    # Bounded and deterministic query window to avoid full scans.
+    # Fixed cap aligns with CONTRIBUTING.md determinism requirements.
+    hot_limit = 2000
     tail_truncated = False
 
     diag: dict[str, Any]
@@ -111,8 +144,8 @@ def build_context_from_ledger(
         {
             "used_snapshot": snapshot is not None,
             "fallback_full_scan": False,
-            "tail_limit": (
-                tail_limit if snapshot is None and use_tail_optimization else None
+            "hot_limit": (
+                hot_limit if snapshot is None and use_tail_optimization else None
             ),
             "tail_truncated": False,
             "metrics_missing": False,
@@ -138,27 +171,90 @@ def build_context_from_ledger(
     else:
         try:
             if use_tail_optimization:
-                # Read recent events only (5-10x faster for large DBs)
-                if mirror is not None:
-                    events = mirror.read_tail(limit=tail_limit)
-                else:
-                    events = eventlog.read_tail(limit=tail_limit)
-                diag["tail_limit"] = tail_limit
+                # Read recent events only using tiered access (bounded)
+                # Always prefer EventLog.read_hot_events to keep behavior consistent and bounded.
+                events = eventlog.read_hot_events(limit=hot_limit)
+                diag["hot_limit"] = hot_limit
                 if events:
                     try:
                         first_id = int(events[0].get("id") or 0)
                     except Exception:
                         first_id = 0
-                    tail_truncated = first_id > 1 or len(events) >= tail_limit
+                    tail_truncated = first_id > 1 or len(events) >= hot_limit
                     diag["tail_truncated"] = tail_truncated
             else:
-                # Fallback to full scan if needed
-                events = (
-                    mirror.read_all() if mirror is not None else eventlog.read_all()
-                )
-                diag["tail_limit"] = None
+                # Fallback path retained for compatibility; still bounded
+                events = eventlog.read_hot_events(limit=hot_limit)
+                diag["hot_limit"] = hot_limit
         except Exception:  # pragma: no cover — safety net
             events = []
+
+    # Augment with strategic older events via MemeGraph, bounded and deterministic
+    strategic_selected = 0
+    if memegraph is not None:
+        try:
+            recent_ids = {int(e.get("id") or 0) for e in events}
+        except Exception:
+            recent_ids = set()
+        try:
+            strategic_ids: list[int] = []
+            try:
+                # Open commitments help continuity; identity milestones anchor self-model
+                strategic_ids.extend(memegraph.get_open_commitment_ids(limit=10))
+            except Exception:
+                pass
+            try:
+                strategic_ids.extend(memegraph.get_identity_milestone_ids(limit=3))
+            except Exception:
+                pass
+            try:
+                strategic_ids.extend(memegraph.get_recent_reflection_ids(limit=5))
+            except Exception:
+                pass
+
+            # Deduplicate and exclude IDs already in tail
+            strategic_ids = [
+                i
+                for i in sorted(set(int(x) for x in strategic_ids))
+                if i not in recent_ids
+            ]
+
+            if strategic_ids:
+                # Hydrate older events deterministically via full-event fetch (blob-aware)
+                older_events: list[dict] = []
+                try:
+                    for sid in strategic_ids:
+                        ev = eventlog.get_full_event(int(sid))
+                        if ev:
+                            older_events.append(ev)
+                except Exception:
+                    # Fallback to best-effort basic fetch
+                    for sid in strategic_ids:
+                        try:
+                            ev = eventlog.get_event(int(sid))
+                        except Exception:
+                            ev = None
+                        if ev:
+                            older_events.append(ev)
+
+                # Merge and sort chronologically
+                if older_events:
+                    strategic_selected = len(older_events)
+                    events = list(older_events) + list(events)
+                    try:
+                        events.sort(key=lambda e: int(e.get("id") or 0))
+                    except Exception:
+                        pass
+        except Exception:
+            # If graph augmentation fails, proceed with tail-only events
+            pass
+
+    # Diagnostics: capture selection sizes
+    try:
+        diag["context_event_count"] = int(len(events))
+        diag["strategic_count"] = int(strategic_selected)
+    except Exception:
+        pass
 
     # --- Identity & Traits -------------------------------------------------
     # Priority: MemeGraph (full history) > Snapshot > Events (tail)
@@ -224,42 +320,7 @@ def build_context_from_ledger(
     except Exception:
         pass
 
-    # If tail slice missed user identity, fall back to full ledger read once.
-    fallback_events: list[dict[str, Any]] | None = None
-    if (
-        user_name is None
-        and snapshot is None
-        and use_tail_optimization
-        and len(events) >= 1000
-    ):
-        try:
-            all_events = (
-                mirror.read_all() if mirror is not None else eventlog.read_all()
-            )
-        except Exception:
-            all_events = events
-        if len(all_events) > len(events):
-            try:
-                for ev in reversed(all_events):
-                    if ev.get("kind") == "user_identity_set":
-                        meta = ev.get("meta", {})
-                        candidate = meta.get("user_name")
-                        if candidate:
-                            fallback_events = all_events
-                            user_name = candidate
-                            break
-            except Exception:
-                fallback_events = None
-
-    if fallback_events is not None:
-        events = fallback_events
-        # Recompute identity/traits deterministically against full ledger
-        identity = build_identity(events)
-        name = identity.get("name") or "Unknown"
-        traits = identity.get("traits", {})
-        trait_str = ", ".join(
-            f"{abbr}={traits.get(key, 0.5):.2f}" for key, abbr in trait_order
-        )
+    # No unbounded fallbacks: skip full scans to preserve determinism and performance
 
     # --- IAS / GAS / Stage --------------------------------------------------
     # Priority: MemeGraph (full history) > Snapshot > Events (tail)

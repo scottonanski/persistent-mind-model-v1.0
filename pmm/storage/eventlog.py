@@ -64,6 +64,11 @@ class EventLog:
         except Exception:
             self._embeddings_index_available = False
 
+        # Optional, lazily-initialized side-table for large blobs. We never
+        # mutate existing events; blobs are auxiliary storage for read-time
+        # hydration only.
+        self._blobs_table_ready: bool | None = None
+
     # ------------------------------------------------------------------
     # Cache coordination helpers
     # ------------------------------------------------------------------
@@ -729,6 +734,180 @@ class EventLog:
         """Register a callback invoked after each successful append."""
         with self._lock:
             self._append_listeners.append(callback)
+
+    # ------------------------------------------------------------------
+    # Tiered access helpers (bounded, deterministic; read-only)
+    # ------------------------------------------------------------------
+
+    def read_hot_events(self, *, limit: int = 2000) -> list[dict]:
+        """Return recent events using a bounded tail window.
+
+        Deterministic; equivalent to read_tail(limit=...). No writes.
+        """
+        lim = max(1, int(limit))
+        return self.read_tail(limit=lim)
+
+    def read_warm_events(
+        self, *, since_id: int, until_id: int, limit: int = 10000
+    ) -> list[dict]:
+        """Return events in [since_id, until_id] inclusive, capped.
+
+        - Ascending order by id
+        - Cap limit to 10k to prevent unbounded reads
+        - Read-only, deterministic
+        """
+        lo = max(0, int(since_id))
+        hi = max(lo, int(until_id))
+        lim = min(10000, max(1, int(limit)))
+        with self._lock:
+            cur = self._conn.execute(
+                (
+                    "SELECT id, ts, kind, content, meta FROM events "
+                    "WHERE id >= ? AND id <= ? ORDER BY id ASC LIMIT ?"
+                ),
+                (lo, hi, lim),
+            )
+            rows = cur.fetchall()
+        result: list[dict] = []
+        for rid, ts, kind, content, meta_json in rows:
+            try:
+                meta_obj = _json.loads(meta_json) if meta_json else {}
+            except Exception:
+                meta_obj = {}
+            result.append(
+                {
+                    "id": int(rid),
+                    "ts": str(ts),
+                    "kind": str(kind),
+                    "content": str(content),
+                    "meta": meta_obj,
+                }
+            )
+        return result
+
+    def read_cold_events(self, event_ids: list[int]) -> list[dict]:
+        """Return specific events by ID via read_by_ids(). Read-only."""
+        return self.read_by_ids(list(event_ids or []))
+
+    # ------------------------------------------------------------------
+    # Optional blob storage for large contents (no mutations to events)
+    # ------------------------------------------------------------------
+
+    def _ensure_event_blobs_table(self) -> bool:
+        """Create side table for large event contents if not exists.
+
+        Schema: event_blobs(eid INTEGER PRIMARY KEY, content BLOB, content_hash TEXT, created_at INTEGER)
+        Returns True on success, False otherwise.
+        """
+        try:
+            with self._lock:
+                with self._conn:
+                    self._conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS event_blobs (
+                            eid INTEGER PRIMARY KEY,
+                            content BLOB,
+                            content_hash TEXT,
+                            created_at INTEGER
+                        );
+                        """
+                    )
+            self._blobs_table_ready = True
+            return True
+        except Exception:
+            self._blobs_table_ready = False
+            return False
+
+    @staticmethod
+    def _sha256_bytes(data: bytes) -> str:
+        return _hashlib.sha256(data).hexdigest()
+
+    def insert_event_blob(self, *, eid: int, content: str) -> str | None:
+        """Insert a blob row for the given event id.
+
+        Does not alter the corresponding event row. Returns the content hash on
+        success, None otherwise.
+        """
+        if not isinstance(eid, int) or eid <= 0:
+            return None
+        if not isinstance(content, str):
+            return None
+        if self._blobs_table_ready is None:
+            self._ensure_event_blobs_table()
+        if not self._blobs_table_ready:
+            return None
+        blob = content.encode("utf-8", errors="ignore")
+        digest = self._sha256_bytes(blob)
+        try:
+            import time as _time
+
+            with self._lock:
+                with self._conn:
+                    self._conn.execute(
+                        """
+                        INSERT OR REPLACE INTO event_blobs(eid, content, content_hash, created_at)
+                        VALUES(?, ?, ?, ?)
+                        """,
+                        (int(eid), blob, digest, int(_time.time())),
+                    )
+            return digest
+        except Exception:
+            return None
+
+    def _fetch_blob(self, blob_hash: str) -> bytes | None:
+        """Fetch blob by content_hash. Returns bytes or None.
+
+        Note: The table is keyed by eid; this helper searches by hash to keep it
+        flexible for future lookups. Deterministic and read-only.
+        """
+        if not blob_hash:
+            return None
+        if self._blobs_table_ready is None:
+            self._ensure_event_blobs_table()
+        if not self._blobs_table_ready:
+            return None
+        try:
+            with self._lock:
+                row = self._conn.execute(
+                    "SELECT content FROM event_blobs WHERE content_hash=? LIMIT 1",
+                    (str(blob_hash),),
+                ).fetchone()
+            if not row:
+                return None
+            data = row[0]
+            if isinstance(data, (bytes, bytearray)):
+                return bytes(data)
+            try:
+                return bytes(data)
+            except Exception:
+                return None
+        except Exception:
+            return None
+
+    def get_full_event(self, event_id: int) -> dict[str, Any] | None:
+        """Return a single event, hydrating from blob store if referenced.
+
+        Never mutates the underlying event. If a blob pointer is present in
+        meta (e.g., meta['blob_hash'] or meta['content_hash']), attempts to
+        fetch it and returns a copy with hydrated 'content'.
+        """
+        base = self.get_event(int(event_id))
+        if not base:
+            return None
+        meta = base.get("meta") or {}
+        blob_hash = meta.get("blob_hash") or meta.get("content_hash")
+        if not blob_hash:
+            return base
+        data = self._fetch_blob(str(blob_hash))
+        if data is None:
+            return base
+        try:
+            text = data.decode("utf-8", errors="replace")
+        except Exception:
+            text = base.get("content", "")
+        out = dict(base)
+        out["content"] = text
+        return out
 
 
 def get_default_eventlog() -> EventLog:

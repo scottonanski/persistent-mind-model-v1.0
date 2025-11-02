@@ -90,7 +90,9 @@ def test_cadence_applies_by_stage(log, monkeypatch):
     # So we need 4 stages: one for init (ignored), then S0, S1, S2 for the three ticks
     _monkey_stage(monkeypatch, ["S0", "S0", "S1", "S2"])
 
-    loop = AutonomyLoop(eventlog=log, cooldown=_CDControlled(), interval_seconds=0.01)
+    cd = _CDControlled()
+    cd.set_ok()  # Enable reflection for cadence test
+    loop = AutonomyLoop(eventlog=log, cooldown=cd, interval_seconds=0.01)
 
     # First tick at S0 -> should emit policy_update with S0 params
     loop.tick()
