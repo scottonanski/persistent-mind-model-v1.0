@@ -329,7 +329,7 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
                     )
                 else:
                     actual_commitments_preview = [
-                        c['text'][:100] + '...' if len(c['text']) > 100 else c['text']
+                        c["text"][:100] + "..." if len(c["text"]) > 100 else c["text"]
                         for c in actual_commitments[:3]
                     ]
                     logger.warning(
