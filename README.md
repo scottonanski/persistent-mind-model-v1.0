@@ -185,6 +185,13 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 # Install PMM
 pip install --upgrade pip
 pip install -e .
+
+# If for some reason the .venv folder is corrupted or mismatched with your Python version (Debian 12 uses Python 3.11+ or 3.12+), recreate it:
+rm -rf .venv
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
 ### 3. Configuration
