@@ -3,6 +3,106 @@
 
 **Im just a solo guy working on his computer at home... Don't be too harsh on me** 🤣
 
+---
+## Quick Setup
+
+### 1. Prerequisites
+
+- **Python 3.10+** (required)
+- **Node.js 18+** (only for UI)
+- **API Key** for OpenAI or Ollama Cloud (see Configuration below)
+
+### 2. Install PMM
+
+```bash
+# Clone and enter directory
+git clone https://github.com/scottonanski/persistent-mind-model-v1.0.git
+cd persistent-mind-model-v1.0
+
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install PMM
+pip install --upgrade pip
+pip install -e .
+
+# If for some reason the .venv folder is
+# corrupted or mismatched with your
+# Python version (Debian 12 uses Python 3.11+ or 3.12+), 
+#recreate it:
+rm -rf .venv
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 3. Configuration
+
+Copy the example environment file:
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your API key:
+
+**For OpenAI:**
+```bash
+OPENAI_API_KEY=sk-your-key-here
+PMM_PROVIDER=openai
+PMM_MODEL=gpt-4o-mini
+```
+
+**For Ollama (local models):**
+```bash
+PMM_PROVIDER=ollama
+PMM_MODEL=llama3.2:1b
+# No API key needed for local Ollama
+```
+
+**For Ollama Cloud:**
+```bash
+OLLAMA_API_KEY=your-ollama-cloud-key
+PMM_PROVIDER=ollama
+PMM_MODEL=gpt-oss:120b-cloud
+```
+
+### 4. Start PMM
+
+**Chat Interface:**
+```bash
+python -m pmm.cli.chat
+```
+
+**API + UI (experimental):**
+
+# Note: The UI is experimental and will be rewritten.
+# Use the CLI interface instead.
+
+```bash
+./start-companion.sh
+```
+- API: http://localhost:8001
+- UI: http://localhost:3000 (experimental, will be rewritten)
+
+### 5. Development Setup (Optional)
+
+```bash
+pip install -e .[dev]  # Development tools (ruff, pytest, etc.)
+```
+
+## Troubleshooting
+
+**"No module named pmm"**: Make sure you activated the virtual environment and ran `pip install -e .`
+
+**"API key not found"**: Check your `.env` file exists and has the correct API key format
+
+**Chat not responding**: Verify your API key works and you have internet connection (for cloud models)
+
+**UI not loading**: The UI is experimental and will be rewritten. Use the CLI interface instead.
+
+---
 
 # Persistent Mind Model (PMM)
 
@@ -160,102 +260,6 @@ Companion API  →  UI / integrations / analytics
 - **Reflections & Bandit** – forced and autonomous reflections share templated instructions, log telemetry, and use a context-aware epsilon-greedy bandit for style selection. Stage context is stored in rewards; full stage-aware exploitation is partially wired (`pmm/runtime/loop/reflection.py:1`, `pmm/runtime/reflection_bandit.py:1`).
 - **Commitment Lifecycle** – commitments are detected semantically, restructured, tracked, and prioritised so the runtime can open, close, or expire them deterministically (`pmm/commitments/extractor.py:1`, `pmm/commitments/tracker.py:1`).
 - **Metrics & Evolution** – IAS/GAS are recomputed when relevant events occur, decay over time, and feed stage progression and introspection reports (`pmm/runtime/metrics.py:1`, `pmm/runtime/stage_tracker.py:1`).
-
----
-
-## Quick Setup
-
-### 1. Prerequisites
-
-- **Python 3.10+** (required)
-- **Node.js 18+** (only for UI)
-- **API Key** for OpenAI or Ollama Cloud (see Configuration below)
-
-### 2. Install PMM
-
-```bash
-# Clone and enter directory
-git clone https://github.com/scottonanski/persistent-mind-model-v1.0.git
-cd persistent-mind-model-v1.0
-
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install PMM
-pip install --upgrade pip
-pip install -e .
-
-# If for some reason the .venv folder is
-# corrupted or mismatched with your
-# Python version (Debian 12 uses Python 3.11+ or 3.12+), 
-# recreate it:
-rm -rf .venv
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-### 3. Configuration
-
-Copy the example environment file:
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your API key:
-
-**For OpenAI:**
-```bash
-OPENAI_API_KEY=sk-your-key-here
-PMM_PROVIDER=openai
-PMM_MODEL=gpt-4o-mini
-```
-
-**For Ollama (local models):**
-```bash
-PMM_PROVIDER=ollama
-PMM_MODEL=llama3.2:1b
-# No API key needed for local Ollama
-```
-
-**For Ollama Cloud:**
-```bash
-OLLAMA_API_KEY=your-ollama-cloud-key
-PMM_PROVIDER=ollama
-PMM_MODEL=gpt-oss:120b-cloud
-```
-
-### 4. Start PMM
-
-**Chat Interface:**
-```bash
-python -m pmm.cli.chat
-```
-
-**API + UI (experimental):**
-```bash
-./start-companion.sh
-```
-- API: http://localhost:8001
-- UI: http://localhost:3000 (experimental, will be rewritten)
-
-### 5. Development Setup (Optional)
-
-```bash
-pip install -e .[dev]  # Development tools (ruff, pytest, etc.)
-```
-
-## Troubleshooting
-
-**"No module named pmm"**: Make sure you activated the virtual environment and ran `pip install -e .`
-
-**"API key not found"**: Check your `.env` file exists and has the correct API key format
-
-**Chat not responding**: Verify your API key works and you have internet connection (for cloud models)
-
-**UI not loading**: The UI is experimental and will be rewritten. Use the CLI interface instead.
 
 ---
 
