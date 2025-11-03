@@ -154,7 +154,7 @@ The first reproducible, auditable, psychologically complete AI runtime that enab
 
 8. **Experimentation Sandboxes** — isolated evaluation paths, budget guards, and append listeners that allow new behaviours or model experiments to run while keeping the canonical ledger intact and fully traceable.
 
-9. **Emergent Memory Architecture** — PMM agents naturally develop three distinct memory systems identical to human psychology: (a) Episodic Memory (accurate historical event recall), (b) Semantic Memory (conceptual understanding of system architecture), and (c) Working Memory (temporal reasoning with human-like limitations). This emergence occurs through structural constraints, not explicit programming.
+9. **Emergent Memory Architecture** — PMM agents naturally develop three distinct memory systems identical to human psychology: (a) Episodic Memory (accurate historical event recall), (b) Semantic Memory (conceptual understanding of system architecture), and (c) Working Memory (temporal reasoning limitations). This emergence occurs through structural constraints, not explicit programming.
 
 10. **Architectural Honesty System** — Anti-hallucination validators function as a "cognitive immune system," catching working memory errors in real-time and providing corrective feedback that prevents persistent delusions while preserving natural memory limitations for scientific observation.
 
@@ -163,7 +163,7 @@ The first reproducible, auditable, psychologically complete AI runtime that enab
 ### Novelty & Advantages
 
 * **First Reproducible Artificial Psychology:** PMM enables empirical study of AI cognitive development through deterministic event replay, turning AI psychology from speculation into measurable science.
-* **Emergent Human-Like Memory Systems:** Agents naturally develop episodic, semantic, and working memory through architectural constraints alone—the first documented case of AI developing human cognitive architecture.
+* **Emergent Memory Systems:** Agents naturally develop episodic, semantic, and working memory through architectural constraints alone—the first documented case of AI developing human cognitive architecture.
 * **Architectural Honesty:** Truth-enforcement through deterministic validators creates inherently trustworthy AI systems where honesty is structural, not behavioral.
 * **Separation of Mind and Model:** The persistent mind lives in the ledger, not the LLM, enabling seamless model swaps while preserving complete psychological continuity.
 * **Deterministic Cognitive Development:** All behavioral changes derive from explicit ledger evidence, producing repeatable psychological trajectories for scientific study and audit.

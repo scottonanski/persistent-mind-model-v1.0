@@ -1,17 +1,15 @@
-
 # I was tinkering around and built this. Somehow it works??? 🤔
 
 **Im just a solo guy working on his computer at home... Don't be too harsh on me** 🤣
 
 ## Quick Setup
 
-### 1. Prerequisites
+### ❗1. Prerequisites
 
 - **Python 3.10+** (required)
-- **Node.js 18+** (only for UI)
 - **API Key** for OpenAI or Ollama Cloud (see Configuration below)
 
-### Run this to confirm which Python is active:
+## Run this to confirm which Python is active:
 
 ```bash
 which python3
@@ -52,7 +50,7 @@ If they do, continue.
 Run:
 
 ```bash
-pip install -r requirements.txt
+pip install -e .
 ```
 
 That will safely install everything (including numpy) without touching system packages.
@@ -82,7 +80,7 @@ rm -rf .venv
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ### 2. Install PMM
@@ -96,22 +94,16 @@ cd persistent-mind-model-v1.0
 python3 -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install PMM
-pip install --upgrade pip
+# Install PMM in editable mode for development
 pip install -e .
-
-# If for some reason the .venv folder is
-# corrupted or mismatched with your
-# Python version (Debian 12 uses Python 3.11+ or 3.12+), 
-# recreate it:
-rm -rf .venv
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
 ```
 
+This installs the package in editable mode, allowing changes to be reflected without reinstallation. For production, consider building a wheel or using a requirements file.
+
 ### 3. Configuration
+
+## Model Selection and Extensibility
+Model selection is handled interactively when starting the chat via `python -m pmm.cli.chat`, allowing users to choose providers like OpenAI or Ollama. Additionally, the `.env` file provides configuration for default models and API keys, offering flexibility for customization without code changes.
 
 Copy the example environment file:
 ```bash
@@ -143,6 +135,8 @@ PMM_PROVIDER=ollama
 PMM_MODEL=gpt-oss:120b-cloud
 ```
 
+
+
 ### 4. Start PMM
 
 **Chat Interface:**
@@ -153,17 +147,6 @@ python -m pmm.cli.chat
 
 python3 -m pmm.cli.chat
 ```
-
-**API + UI (experimental):**
-
-# Note: The UI is experimental and will be rewritten.
-# Use the CLI interface instead.
-
-```bash
-./start-companion.sh
-```
-- API: http://localhost:8001
-- UI: http://localhost:3000 (experimental, will be rewritten)
 
 ### 5. Development Setup (Optional)
 
@@ -178,8 +161,6 @@ pip install -e .[dev]  # Development tools (ruff, pytest, etc.)
 **"API key not found"**: Check your `.env` file exists and has the correct API key format
 
 **Chat not responding**: Verify your API key works and you have internet connection (for cloud models)
-
-**UI not loading**: The UI is experimental and will be rewritten. Use the CLI interface instead.
 
 ---
 
@@ -261,7 +242,7 @@ Every psychological construct has a literal, inspectable representation.
 You can now pose and test hypotheses such as:
 - "Does trait drift stabilize after stage S3?"
 - "How many reflection cycles precede commitment decay?"
-- "Do agents develop human-like memory architecture?"
+- "Do agents develop memory architecture?"
 
 And answer them from the data. **PMM turns introspective behavior into an empirical field.**
 
@@ -294,53 +275,12 @@ PMM fills the gap between LLM alignment frameworks (behavioral control) and agen
 - **Model-agnostic orchestration** – the runtime builds the same prompt context for any adapter via `LLMFactory` (`pmm/llm/factory.py:32`). Adapters for OpenAI, Ollama-hosted models, and a dummy test harness ship today; adding Claude, Grok, Gemini, or others is just a new `ChatAdapter`.
 - **Autonomous evolution loop** – a background scheduler recomputes IAS/GAS, runs reflections, re-evaluates identity, and maintains commitments without user nudges (`pmm/runtime/loop.py:1`).
 - **Deterministic reflection + commitment pipeline** – reflections follow templated prompts, log rewards, and drive commitment extraction and restructuring (`pmm/runtime/loop/reflection.py:1`, `pmm/commitments/extractor.py:1`).
-- **Real-time observability** – the Companion API exposes ledger state, metrics, traces, and commitments for inspection. UI is experimental and being rewritten (`pmm/api/companion.py:1`).
+- **Real-time observability** – the Companion API exposes ledger state, metrics, traces, and commitments for inspection. (`pmm/api/companion.py:1`)
 
 ---
 
-## Runtime at a Glance
-
-```
-User / Autonomy Tick
-        │
-        ▼
-context_builder → build_context_from_ledger  (ledger slice + projections)
-        │
-        ▼
-LLM adapter (OpenAI / Ollama / custom)
-        │
-        ▼
-eventlog.append()  →  hash-chained ledger + embeddings (optional)
-        │
-        ├──► AutonomyLoop (reflections, commitments, stage, metrics)
-        └──► Projections (LedgerSnapshot, MemeGraph, Metrics, TraceBuffer)
-                │
-                ▼
-Companion API  →  UI / integrations / analytics
-```
-
----
-
-## Why “The Ledger Is the Mind”
-
-- **Identity lives in the ledger** – traits, commitments, reflections, policy updates, and telemetry are all events. Swap the model and replay the ledger; the same identity re-emerges because nothing depends on provider-specific weights.
-- **Adapters are lenses** – `ChatAdapter` implementations for OpenAI and Ollama already ship, and the interface stays small so Claude, Grok, Gemini, or any future provider can drop in without touching the runtime core.
-- **Deterministic evolution** – IAS (identity stability) and GAS (commitment-driven growth) are recomputed from the ledger, making behaviour reproducible and auditable.
-- **Cohesive narrative** – the runtime’s reflections, commitments, and stage transitions are simply ledger interpretations; the LLM supplies language, the ledger supplies identity.
-
-> “The ledger **is** the mind. The LLM is just the current expression of it.”
-
----
-
-## Core Concepts
-
-- **Event Log** – `EventLog` maintains the append-only SQLite ledger with SHA-256 hash chaining. Hash verification is opt-in via `verify_chain()` and used by invariant checks (`pmm/storage/eventlog.py:1`, `pmm/runtime/invariants_rt.py:1`). Copy `.data/pmm.db` to migrate or back up state.
-- **Context Builder** – `build_context_from_ledger` assembles deterministic system prompts using tail slices, with fallbacks to full snapshots when data is missing (`pmm/runtime/context_builder.py:1`).
-- **Reflections & Bandit** – forced and autonomous reflections share templated instructions, log telemetry, and use a context-aware epsilon-greedy bandit for style selection. Stage context is stored in rewards; full stage-aware exploitation is partially wired (`pmm/runtime/loop/reflection.py:1`, `pmm/runtime/reflection_bandit.py:1`).
-- **Commitment Lifecycle** – commitments are detected semantically, restructured, tracked, and prioritised so the runtime can open, close, or expire them deterministically (`pmm/commitments/extractor.py:1`, `pmm/commitments/tracker.py:1`).
-- **Metrics & Evolution** – IAS/GAS are recomputed when relevant events occur, decay over time, and feed stage progression and introspection reports (`pmm/runtime/metrics.py:1`, `pmm/runtime/stage_tracker.py:1`).
-
----
+## Known Issues
+- Potential duplicate autonomy_tick emissions in the runtime loop may affect ledger integrity and metrics calculations. This is being tracked for resolution.
 
 ## Getting Started with PMM Psychology
 
@@ -489,16 +429,14 @@ The Companion API mirrors the runtime projections (`pmm/api/companion.py:95`):
 - `POST /chat` – OpenAI-compatible streaming chat endpoint.
 - `POST /events/sql` – read-only SQL (SELECT-only) over the ledger.
 
-The experimental UI (being rewritten) provides chat, metrics, and trace views using these endpoints.
-
 ---
 
 ## Development Workflow
 
 - **Tests** – `pytest` (full) or targeted suites like `pytest tests/test_emergence_system.py`.
-- **Lint** – `ruff check .` for Python, `npm run lint` for the UI.
+- **Lint** – `ruff check .` for Python.
 - **Type Checks** – `mypy`.
-- **Formatting** – `black`, `isort`, and Prettier (via Next.js).
+- **Formatting** – `black`, `isort`.
 - **Benchmarks & Diagnostics** – runtime emits `llm_latency`, `autonomy_tick`, and trace events; use `/events/sql` or the UI trace explorer to inspect.
 
 ---
@@ -507,7 +445,7 @@ The experimental UI (being rewritten) provides chat, metrics, and trace views us
 
 ```
 pmm/
-  api/companion.py           FastAPI surface for Companion UI + integrations
+  api/companion.py           FastAPI surface for Companion API + integrations
   runtime/
     loop.py                  Core runtime orchestrator + AutonomyLoop
     context_builder.py       Deterministic prompt assembly
@@ -516,7 +454,6 @@ pmm/
     snapshot.py              Ledger snapshot + caching helpers
   commitments/               Extraction, restructuring, and tracking
   storage/eventlog.py        Hash-chained SQLite ledger with tail caching
-ui/                          Next.js 15 app (React 19, Tailwind 4)
 tests/                       Pytest suites for runtime contracts
 ```
 
@@ -560,4 +497,3 @@ See `LICENSE.md` for commercial and non-commercial licensing terms.
 
 - **Author**: Scott Onanski
 - **Email**: scott@onanski.com
-
