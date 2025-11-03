@@ -11,6 +11,80 @@
 - **Node.js 18+** (only for UI)
 - **API Key** for OpenAI or Ollama Cloud (see Configuration below)
 
+### Run this to confirm which Python is active:
+
+```bash
+which python3
+```
+
+If it points to something like `/usr/bin/python3`, your venv isn’t actually activated.
+
+---
+
+### ✅ 2. Properly activate your venv
+
+From inside your project directory:
+
+```bash
+source .venv/bin/activate
+```
+
+You should now see something like:
+
+```
+(.venv) you@your-computer:~/persistent-mind-model-v1.0$
+```
+
+Now check:
+
+```bash
+which python
+which pip
+```
+
+Both should point inside `.venv/bin/`.
+If they do, continue.
+
+---
+
+### ⚙️ 3. Install dependencies *inside* the venv
+
+Run:
+
+```bash
+pip install -r requirements.txt
+```
+
+That will safely install everything (including numpy) without touching system packages.
+
+---
+
+### 🧠 4. Then start the PMM chat
+
+```bash
+python -m pmm.cli.chat
+```
+
+If the shebang or alias still fails, you can also do:
+
+```bash
+python3 -m pmm.cli.chat
+```
+
+---
+
+### ⚠️ 5. If activation still fails
+
+If for some reason the `.venv` folder is corrupted or mismatched with your Python version (Debian 12 uses Python 3.11+ or 3.12+), recreate it:
+
+```bash
+rm -rf .venv
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
 ### 2. Install PMM
 
 ```bash
@@ -29,7 +103,7 @@ pip install -e .
 # If for some reason the .venv folder is
 # corrupted or mismatched with your
 # Python version (Debian 12 uses Python 3.11+ or 3.12+), 
-#recreate it:
+# recreate it:
 rm -rf .venv
 python3 -m venv .venv
 source .venv/bin/activate
@@ -51,7 +125,6 @@ Edit `.env` with your API key:
 
 # For OpenAI
 # (Plans to add more vendor adapter in the furture)
-
 OPENAI_API_KEY=sk-your-key-here
 ```
 
@@ -60,6 +133,7 @@ OPENAI_API_KEY=sk-your-key-here
 PMM_PROVIDER=ollama
 PMM_MODEL=llama3.2:1b
 # No API key needed for local Ollama
+# Or 'ollama list' in the terminal to see available models
 ```
 
 **For Ollama Cloud:**
@@ -74,6 +148,10 @@ PMM_MODEL=gpt-oss:120b-cloud
 **Chat Interface:**
 ```bash
 python -m pmm.cli.chat
+
+# Or
+
+python3 -m pmm.cli.chat
 ```
 
 **API + UI (experimental):**
