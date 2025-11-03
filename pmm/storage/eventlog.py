@@ -676,13 +676,19 @@ class EventLog:
             A list of event dictionaries with keys: id, timestamp, kind, content, meta.
         """
         with self._lock:
-            cur = self._conn.execute(
-                "SELECT id, ts, kind, content, meta FROM events ORDER BY id DESC LIMIT ?",
-                (limit,),
-            )
+            if kind:
+                cur = self._conn.execute(
+                    "SELECT id, ts, kind, content, meta FROM events WHERE kind = ? ORDER BY id DESC LIMIT ?",
+                    (kind, limit),
+                )
+            else:
+                cur = self._conn.execute(
+                    "SELECT id, ts, kind, content, meta FROM events ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                )
             rows = cur.fetchall()
             result: list[dict[str, Any]] = []
-            for rid, ts, kind, content, meta_json in rows:
+            for rid, ts, event_kind, content, meta_json in rows:
                 try:
                     meta_obj = _json.loads(meta_json) if meta_json else {}
                 except Exception:
@@ -691,7 +697,7 @@ class EventLog:
                     {
                         "id": int(rid),
                         "timestamp": str(ts),
-                        "kind": str(kind),
+                        "kind": str(event_kind),
                         "content": str(content),
                         "meta": meta_obj,
                     }

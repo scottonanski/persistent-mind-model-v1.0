@@ -161,7 +161,9 @@ def build_context_from_ledger(
         if not value:
             return "none"
         try:
-            return str(value)[:12]
+            # Return full digest to prevent Echo from fabricating completions
+            # Truncated tokens cause pattern-completion hallucinations
+            return str(value)
         except Exception:
             return "none"
 
@@ -509,7 +511,9 @@ def build_context_from_ledger(
             max_commitments = 3 if compact_mode else 5
             for ev in commitment_events[:max_commitments]:
                 eid = ev.get("id", "?")
-                cid = (ev.get("meta") or {}).get("cid", "")[:8]
+                cid = (ev.get("meta") or {}).get(
+                    "cid", ""
+                )  # Use full CID to prevent hallucinations
                 meta_text = (ev.get("meta") or {}).get("text")
                 content_text = ev.get("content", "")
                 base_text = meta_text if meta_text else content_text
@@ -580,12 +584,21 @@ def build_context_from_ledger(
                 continue
             ts = _iso_short(ev.get("ts")) if not compact_mode else ""
             txt = _short_reflection(ev.get("content", ""))
+            # Enhanced token system: include content for deterministic resolution
+            # This prevents hallucinations by ensuring token→content traceability
             token: str | None = None
+            token_content: str | None = None
             if memegraph is not None:
                 try:
                     token = memegraph.event_digest(int(ev.get("id") or 0))
+                    # Get content to match token reference - CONTRIBUTING.md compliance
+                    if token:
+                        token_content = memegraph.get_event_content(
+                            int(ev.get("id") or 0)
+                        )
                 except Exception:
                     token = None
+                    token_content = None
 
             # Enforce character budget to reduce token count
             if total_chars + len(txt) > max_reflection_chars:
@@ -597,7 +610,17 @@ def build_context_from_ledger(
                     else:
                         line = f'  - {ts}: "{txt}"'
                     if token:
-                        line += f" (token={_short_digest(token)})"
+                        # Enhanced token: include content preview for deterministic access
+                        content_preview = ""
+                        if token_content:
+                            content_preview = (
+                                token_content[:30] + "..."
+                                if len(token_content) > 30
+                                else token_content
+                            )
+                            line += f" (token={_short_digest(token)} | content: {content_preview})"
+                        else:
+                            line += f" (token={_short_digest(token)})"
                     reflections_block.append(line)
                 break
 
@@ -606,7 +629,19 @@ def build_context_from_ledger(
             else:
                 line = f'  - {ts}: "{txt}"'
             if token:
-                line += f" (token={_short_digest(token)})"
+                # Enhanced token: include content preview for deterministic access
+                content_preview = ""
+                if token_content:
+                    content_preview = (
+                        token_content[:50] + "..."
+                        if len(token_content) > 50
+                        else token_content
+                    )
+                    line += (
+                        f" (token={_short_digest(token)} | content: {content_preview})"
+                    )
+                else:
+                    line += f" (token={_short_digest(token)})"
             reflections_block.append(line)
             total_chars += len(txt)
             count += 1
@@ -699,12 +734,12 @@ def build_context_from_ledger(
             stage_event_token = _short_digest(stage_entry.get("event_digest"))
             stage_event_id = stage_entry.get("event_id")
             lines.append(
-                f"Stage evidence: token={stage_token} via event {stage_event_id} (event_token={stage_event_token})"
+                f"Stage evidence: {stage_event_id}:{stage_token} (event_token={stage_event_token})"
             )
         elif stage_history_tokens:
             latest = stage_history_tokens[-1]
             lines.append(
-                "Stage evidence: token={stage_digest} via event {event_id} (event_token={event_digest})".format(
+                "Stage evidence: {event_id}:{stage_digest} (event_token={event_digest})".format(
                     stage_digest=_short_digest(latest.get("stage_digest")),
                     event_id=latest.get("event_id"),
                     event_digest=_short_digest(latest.get("event_digest")),

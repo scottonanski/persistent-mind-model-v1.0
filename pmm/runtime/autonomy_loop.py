@@ -42,6 +42,7 @@ from pmm.runtime.stage_tracker import StageTracker
 from pmm.storage.eventlog import EventLog
 from pmm.storage.projection import build_identity, build_self_model
 
+# Initialize logger for this module
 logger = logging.getLogger(__name__)
 
 # Re-export functions for backward compatibility
@@ -1506,6 +1507,29 @@ class AutonomyLoop:
 
         # EMIT THE HEARTBEAT
         self.eventlog.append(kind="autonomy_tick", content="", meta=telemetry_meta)
+
+        # Enhanced Feedback Loop - Phase 1C: Measure pending impacts and apply adaptations
+        try:
+            from pmm.runtime.adaptive_policy import compute_and_apply_adaptations
+            from pmm.runtime.impact_tracker import measure_pending_impacts
+
+            # Get current tick count
+            current_tick = len([e for e in events if e.get("kind") == "autonomy_tick"])
+
+            # Measure pending impacts that are due
+            measured_count = measure_pending_impacts(
+                self.eventlog, current_tick=current_tick, window_ticks=10
+            )
+
+            # Apply adaptations based on recent impact data
+            if (
+                measured_count > 0 or current_tick % 3 == 0
+            ):  # Adapt every 3 ticks or when impacts measured
+                compute_and_apply_adaptations(self.eventlog)
+
+        except Exception as e:
+            # Log error but don't break the tick cycle
+            logger.error(f"Enhanced feedback loop error: {e}")
 
         # Emit reflection audit periodically (every 5 ticks)
         try:

@@ -30,3 +30,8 @@ class EventKinds:
     STAGE_UPDATE = "stage_update"
     POLICY_UPDATE = "policy_update"
     METRICS_UPDATE = "metrics_update"
+
+    # Enhanced feedback loop events (Phase 1)
+    ACTION_INITIATED = "action_initiated"
+    IMPACT_MEASURED = "impact_measured"
+    ADAPTATION_APPLIED = "adaptation_applied"

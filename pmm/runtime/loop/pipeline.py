@@ -87,7 +87,7 @@ def build_context_block(
         compact_mode=False,
         include_metrics=False,
         include_commitments=True,  # Always include commitments for visibility
-        include_reflections=False,
+        include_reflections=True,  # Enable to match token references and prevent hallucinations
         diagnostics=diagnostics,
     )
 
