@@ -3,7 +3,6 @@
 
 **Im just a solo guy working on his computer at home... Don't be too harsh on me** 🤣
 
----
 ## Quick Setup
 
 ### 1. Prerequisites
@@ -49,9 +48,11 @@ Edit `.env` with your API key:
 
 **For OpenAI:**
 ```bash
+
+# For OpenAI
+# (Plans to add more vendor adapter in the furture)
+
 OPENAI_API_KEY=sk-your-key-here
-PMM_PROVIDER=openai
-PMM_MODEL=gpt-4o-mini
 ```
 
 **For Ollama (local models):**
