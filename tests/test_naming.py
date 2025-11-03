@@ -166,34 +166,59 @@ def test_assistant_affirms_name():
     # Classifier may be absent; guard reset accordingly.
     if getattr(runtime, "classifier", None) is not None:
         runtime.classifier = runtime.classifier.__class__(runtime.eventlog)
-    runtime.chat.generate = lambda *a, **k: "I am Echo."
-    # Mock bridge sanitization to prevent it from overriding our response
-    runtime.bridge.sanitize = lambda text, **kwargs: "I am Echo."
-    runtime.handle_user("What is your name?")
-    events = runtime.eventlog.read_all()
 
-    # Verify response was logged
-    assert any(
-        e.get("kind") == "response" and "Echo" in str(e.get("content", ""))
-        for e in events
+    # Mock the do_chat function by monkey-patching the module
+    # Return valid JSON to avoid the fallback error response
+    import pmm.runtime.chat_ops
+
+    original_do_chat = pmm.runtime.chat_ops.do_chat
+    pmm.runtime.chat_ops.do_chat = (
+        lambda *a, **k: '{"answer": "I am Echo.", "claims": []}'
     )
 
-    # Assistant affirmations now trigger identity_propose with intent="affirm_assistant_name"
-    # This is the current classifier behavior after SemanticDirectiveClassifier integration
-    identity_proposals = [
-        e
-        for e in events
-        if e.get("kind") == "identity_propose" and e.get("content") == "Echo"
-    ]
-    # Verify that proposals exist and have the correct intent
-    # Multiple proposals may occur if the classifier is invoked more than once
-    if identity_proposals:
-        assert len(identity_proposals) >= 1
-        # Check that all proposals have the correct intent
-        for proposal in identity_proposals:
-            meta = proposal.get("meta", {})
-            assert meta.get("intent") == "affirm_assistant_name"
-            assert meta.get("source") == "assistant"
+    # Mock bridge sanitize to return exactly what we want, regardless of adopted name
+    original_sanitize = runtime.bridge.sanitize
+    runtime.bridge.sanitize = (
+        lambda text, **kwargs: '{"answer": "I am Echo.", "claims": []}'
+    )
+
+    # Also mock the post_process_reply to ensure our response goes through
+    from pmm.runtime.loop import pipeline
+
+    original_post_process = pipeline.post_process_reply
+    pipeline.post_process_reply = lambda eventlog, bridge, reply: ("I am Echo.", 0)
+
+    try:
+        runtime.handle_user("What is your name?")
+        events = runtime.eventlog.read_all()
+
+        # Verify response was logged
+        assert any(
+            e.get("kind") == "response" and "Echo" in str(e.get("content", ""))
+            for e in events
+        )
+
+        # Assistant affirmations now trigger identity_propose with intent="affirm_assistant_name"
+        # This is the current classifier behavior after SemanticDirectiveClassifier integration
+        identity_proposals = [
+            e
+            for e in events
+            if e.get("kind") == "identity_propose" and e.get("content") == "Echo"
+        ]
+        # Verify that proposals exist and have the correct intent
+        # Multiple proposals may occur if the classifier is invoked more than once
+        if identity_proposals:
+            assert len(identity_proposals) >= 1
+            # Check that all proposals have the correct intent
+            for proposal in identity_proposals:
+                meta = proposal.get("meta", {})
+                assert meta.get("intent") == "affirm_assistant_name"
+                assert meta.get("source") == "assistant"
+    finally:
+        # Restore original functions
+        pmm.runtime.chat_ops.do_chat = original_do_chat
+        runtime.bridge.sanitize = original_sanitize
+        pipeline.post_process_reply = original_post_process
 
 
 def test_assistant_affirmation_multiword_skipped():

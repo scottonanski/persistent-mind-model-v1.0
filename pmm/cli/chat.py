@@ -378,6 +378,46 @@ def main() -> None:
     env = load_runtime_env(".env")
     Path(env.db_path).parent.mkdir(parents=True, exist_ok=True)
 
+    # Initialize EventLog immediately so database is created on startup
+    eventlog = EventLog(env.db_path)
+
+    # Create default database file if it doesn't exist
+    if env.default_db_path != env.db_path:
+        default_db_path = Path(env.default_db_path)
+        if not default_db_path.exists():
+            # Create empty default database file
+            from pmm.storage.eventlog import EventLog as DefaultEventLog
+
+            DefaultEventLog(env.default_db_path)
+            print(
+                f"[DEBUG] Created default database: {env.default_db_path}",
+                file=sys.stderr,
+                flush=True,
+            )
+
+    # Initialize capability cache to create model_caps.json
+
+    cache_path = Path(".data/model_caps.json")
+    if not cache_path.exists():
+        cache_path.write_text("{}")  # Create empty cache file
+
+    # Initialize debug file structure
+    debug_path = Path(".data/debug_context_block.txt")
+    if not debug_path.exists():
+        debug_path.touch()  # Create empty debug file
+
+    # Initialize allocation tuner file
+    alloc_tuner_path = Path(".data/alloc_tuner.json")
+    if not alloc_tuner_path.exists():
+        alloc_tuner_path.write_text("{}")  # Create empty alloc tuner file
+
+    # Initialize logs directory
+    logs_dir = Path(".logs")
+    logs_dir.mkdir(exist_ok=True)
+    context_log_path = logs_dir / "context_preview.txt"
+    if not context_log_path.exists():
+        context_log_path.touch()  # Create empty context log file
+
     assistant_console.print(
         _system_panel(
             "🚀 Welcome to PMM! Please select your model.",
@@ -400,8 +440,6 @@ def main() -> None:
             "[bold red]OPENAI_API_KEY not set in environment (.env). Exiting.[/]"
         )
         sys.exit(2)
-
-    eventlog = EventLog(env.db_path)
     cfg = LLMConfig(
         provider=provider, model=model_name, embed_provider=None, embed_model=None
     )
