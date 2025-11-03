@@ -328,14 +328,15 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
                         f"claimed '{claim[:80]}' vs closest '{best_match.get('raw_text', '')[:80]}'"
                     )
                 else:
+                    actual_commitments_preview = [
+                        c['text'][:100] + '...' if len(c['text']) > 100 else c['text']
+                        for c in actual_commitments[:3]
+                    ]
                     logger.warning(
                         f"⚠️  Commitment hallucination detected!\n"
                         f"    (sim={best_sim:.2f}): LLM claimed commitment about '{claim}' "
                         f"but no matching commitment_open found in ledger.\n"
-                        f"    Actual open commitments: {[
-                            c['text'][:100] + '...' if len(c['text']) > 100 else c['text']
-                            for c in actual_commitments[:3]
-                        ]}"
+                        f"    Actual open commitments: {actual_commitments_preview}"
                     )
 
                 # Build correction message with graduated feedback
