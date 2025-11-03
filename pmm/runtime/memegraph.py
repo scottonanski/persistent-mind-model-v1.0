@@ -123,6 +123,21 @@ class MemeGraphProjection:
         with self._lock:
             return self._event_index.get(int(event_id))
 
+    def get_event_content(self, event_id: int) -> str | None:
+        """Return the event content for a given ledger event id.
+
+        Provides complete content access for enhanced token system,
+        ensuring deterministic token→content resolution per CONTRIBUTING.md.
+        """
+        try:
+            # Access the full event from the eventlog - truth-first principle
+            event = self.eventlog.get_event(int(event_id))
+            if event:
+                return event.get("content", "")
+        except Exception:
+            pass
+        return None
+
     def reflection_digest(self, reflection_id: int) -> str | None:
         """Return the reflection-node digest for a given reflection event id."""
 

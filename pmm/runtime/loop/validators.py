@@ -145,6 +145,13 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
                 "i'll do my best",
                 "let me know",
                 "i can help",
+                "instead, it's",
+                "instead, it is",
+                "the commitments i make",
+                "the events i process",
+                "the reflections i have",
+                "record of my actions",
+                "record of my *actions*",
             ]
             if not any(sent_lower.startswith(start) for start in conversational_starts):
                 semantic_claims.append(sent)
@@ -313,19 +320,22 @@ def verify_commitment_claims(reply: str, eventlog: EventLog) -> tuple[bool, str 
                 if best_sim >= 0.60:
                     logger.info(
                         f"ℹ️  Commitment reference is paraphrased (sim={best_sim:.2f}): "
-                        f"claimed '{claim[:50]}' vs actual '{best_match.get('raw_text', '')[:50]}'"
+                        f"claimed '{claim[:80]}' vs actual '{best_match.get('raw_text', '')[:80]}'"
                     )
                 elif best_sim >= 0.40:
                     logger.warning(
                         f"⚠️  Commitment reference has semantic drift (sim={best_sim:.2f}): "
-                        f"claimed '{claim[:50]}' vs closest '{best_match.get('raw_text', '')[:50]}'"
+                        f"claimed '{claim[:80]}' vs closest '{best_match.get('raw_text', '')[:80]}'"
                     )
                 else:
                     logger.warning(
                         f"⚠️  Commitment hallucination detected!\n"
                         f"    (sim={best_sim:.2f}): LLM claimed commitment about '{claim}' "
                         f"but no matching commitment_open found in ledger.\n"
-                        f"    Actual open commitments: {[c['text'][:50] for c in actual_commitments[:3]]}"
+                        f"    Actual open commitments: {[
+                            c['text'][:100] + '...' if len(c['text']) > 100 else c['text']
+                            for c in actual_commitments[:3]
+                        ]}"
                     )
 
                 # Build correction message with graduated feedback
@@ -542,40 +552,86 @@ def verify_memegraph_tokens(
         (is_valid, fake_tokens): True if all tokens are valid, False otherwise.
         fake_tokens is a list of invalid tokens found.
     """
+    from pmm.runtime.memegraph import MemeGraphProjection
     from pmm.utils.parsers import extract_memegraph_tokens
 
-    found_tokens = extract_memegraph_tokens(reply.lower())
+    found_tokens = extract_memegraph_tokens(reply)
 
     if not found_tokens:
         return (True, None)
 
     fake_tokens = []
+
+    # Get memegraph to verify stage digests
+    try:
+        memegraph = MemeGraphProjection(eventlog)
+        stage_history = memegraph.stage_history_with_tokens(
+            limit=50
+        )  # Get more history
+
+        # Create sets of valid digests
+        valid_event_digests = {
+            entry["event_digest"]
+            for entry in stage_history
+            if entry.get("event_digest")
+        }
+        valid_stage_digests = {
+            entry["stage_digest"]
+            for entry in stage_history
+            if entry.get("stage_digest")
+        }
+
+        # Also check event hashes directly
+        for entry in stage_history:
+            event_id = entry.get("event_id")
+            if event_id:
+                event = eventlog.get_event(event_id)
+                if event and event.get("hash"):
+                    valid_event_digests.add(event["hash"])
+
+    except Exception:
+        # If we can't get memegraph data, be conservative
+        valid_event_digests = set()
+        valid_stage_digests = set()
+
     # Verify tokens against the ledger
     try:
         for token in found_tokens:
             # Remove brackets if present
             clean_token = token.strip("[]")
-            if ":" not in clean_token:
-                continue
 
-            try:
-                event_id, digest = clean_token.split(":", 1)
-                event_id = int(event_id)
+            # Check if it's in event_id:digest format
+            if ":" in clean_token:
+                try:
+                    event_id, digest = clean_token.split(":", 1)
+                    event_id = int(event_id)
 
-                # Check if the event exists
-                event = eventlog.get_event(event_id)
-                if not event:
+                    # Check if the event exists
+                    event = eventlog.get_event(event_id)
+                    if not event:
+                        fake_tokens.append(token.strip("[]"))
+                        continue
+
+                    # Check if digest matches any valid digest
+                    if (
+                        digest not in valid_event_digests
+                        and digest not in valid_stage_digests
+                    ):
+                        # Also check if it matches the actual event hash
+                        event_hash = event.get("hash", "")
+                        if not event_hash.startswith(digest):
+                            fake_tokens.append(token.strip("[]"))
+                            continue
+
+                except (ValueError, IndexError):
                     fake_tokens.append(token.strip("[]"))
-                    continue
-
-                # Verify the digest matches the actual event hash
-                actual_hash = event.get("hash", "")
-                if not actual_hash.startswith(digest):
-                    fake_tokens.append(token.strip("[]"))
-                    continue
-
-            except (ValueError, IndexError):
-                fake_tokens.append(token.strip("[]"))
+            else:
+                # Standalone token - check if it's a valid digest
+                if (
+                    clean_token not in valid_event_digests
+                    and clean_token not in valid_stage_digests
+                ):
+                    fake_tokens.append(clean_token)
 
     except Exception:
         # If we can't verify, be conservative and flag them

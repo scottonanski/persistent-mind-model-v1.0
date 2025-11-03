@@ -804,12 +804,14 @@ def extract_memegraph_tokens(text: str) -> list[str]:
     Extract MemeGraph tokens from text using deterministic parsing.
 
     MemeGraph tokens have format: "<event_id>:<hex_digest>"
-    where event_id is an integer and hex_digest is 8 hex characters.
+    where event_id is an integer and hex_digest is 40 hex characters (SHA1).
     May be wrapped in square brackets.
 
     Examples:
-    - "1828:c7f68f47"
-    - "[1828:c7f68f47]"
+    - "1828:c7f68f47a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+    - "[1828:c7f68f47a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6]"
+
+    Also catches standalone 40-char hex strings that might be hallucinated tokens.
 
     Args:
         text: Input text to scan
@@ -825,32 +827,36 @@ def extract_memegraph_tokens(text: str) -> list[str]:
 
     for word in words:
         # Remove common punctuation from start/end
-        clean_word = word.strip('.,!?;:"\'()')
+        clean_word = word.strip(".,!?;:\"'()")
 
         # Check for bracketed or unbracketed format
-        if clean_word.startswith('[') and clean_word.endswith(']'):
+        if clean_word.startswith("[") and clean_word.endswith("]"):
             inner = clean_word[1:-1]
         else:
             inner = clean_word
 
-        # Check if it contains a colon
-        if ':' not in inner:
-            continue
+        # Check if it contains a colon (proper format)
+        if ":" in inner:
+            parts = inner.split(":", 1)
+            if len(parts) == 2:
+                # Check if first part is an integer
+                try:
+                    int(parts[0])
+                except ValueError:
+                    continue
 
-        parts = inner.split(':', 1)
-        if len(parts) != 2:
-            continue
-
-        # Check if first part is an integer
-        try:
-            int(parts[0])
-        except ValueError:
-            continue
-
-        # Check if second part is 8 hex characters
-        digest = parts[1]
-        if len(digest) == 8 and all(c in '0123456789abcdefABCDEF' for c in digest):
-            tokens.append(clean_word)
+                # Check if second part is 40 hex characters (SHA1 digest)
+                digest = parts[1]
+                if len(digest) == 40 and all(
+                    c in "0123456789abcdefABCDEF" for c in digest
+                ):
+                    tokens.append(clean_word)
+        else:
+            # Also catch standalone 40-char hex strings (potential hallucinations)
+            if len(clean_word) == 40 and all(
+                c in "0123456789abcdefABCDEF" for c in clean_word
+            ):
+                tokens.append(clean_word)
 
     return tokens
 
@@ -881,14 +887,14 @@ def has_ledger_claims(text: str) -> bool:
     for i, word in enumerate(words):
         if word == "stage" and i + 1 < len(words):
             next_word = words[i + 1]
-            if next_word.startswith('s') and len(next_word) > 1:
+            if next_word.startswith("s") and len(next_word) > 1:
                 # Check if it's S0, S1, S2, S3, S4
                 stage_num = next_word[1:]
                 if stage_num.isdigit() and 0 <= int(stage_num) <= 4:
                     return True
         elif word in ["i'm", "im", "i"] and i + 2 < len(words):
             if words[i + 1] == "in" and words[i + 2] == "stage":
-                if i + 3 < len(words) and words[i + 3].startswith('s'):
+                if i + 3 < len(words) and words[i + 3].startswith("s"):
                     stage_num = words[i + 3][1:]
                     if stage_num.isdigit() and 0 <= int(stage_num) <= 4:
                         return True
@@ -898,8 +904,8 @@ def has_ledger_claims(text: str) -> bool:
         if word in ["ias", "gas"] and i + 1 < len(words):
             next_word = words[i + 1]
             # Check for decimal number
-            if '.' in next_word:
-                parts = next_word.split('.')
+            if "." in next_word:
+                parts = next_word.split(".")
                 if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
                     return True
 
@@ -913,21 +919,38 @@ def has_ledger_claims(text: str) -> bool:
                 return True
 
     # Check for trait claims
-    traits = ["neuroticism", "conscientiousness", "openness", "agreeableness", "extraversion"]
+    traits = [
+        "neuroticism",
+        "conscientiousness",
+        "openness",
+        "agreeableness",
+        "extraversion",
+    ]
     for i, word in enumerate(words):
         if word in traits and i + 1 < len(words):
             next_word = words[i + 1]
             # Check for decimal number (possibly with minus sign)
-            if next_word.replace('-', '').replace('.', '').isdigit():
-                if '.' in next_word:
-                    parts = next_word.split('.')
-                    if len(parts) == 2 and parts[0].replace('-', '').isdigit() and parts[1].isdigit():
+            if next_word.replace("-", "").replace(".", "").isdigit():
+                if "." in next_word:
+                    parts = next_word.split(".")
+                    if (
+                        len(parts) == 2
+                        and parts[0].replace("-", "").isdigit()
+                        and parts[1].isdigit()
+                    ):
                         return True
         elif word == "trait" and i + 2 < len(words):
-            if words[i + 1] == "updated" and words[i + 2].replace('-', '').replace('.', '').isdigit():
-                if '.' in words[i + 2]:
-                    parts = words[i + 2].split('.')
-                    if len(parts) == 2 and parts[0].replace('-', '').isdigit() and parts[1].isdigit():
+            if (
+                words[i + 1] == "updated"
+                and words[i + 2].replace("-", "").replace(".", "").isdigit()
+            ):
+                if "." in words[i + 2]:
+                    parts = words[i + 2].split(".")
+                    if (
+                        len(parts) == 2
+                        and parts[0].replace("-", "").isdigit()
+                        and parts[1].isdigit()
+                    ):
                         return True
 
     return False

@@ -72,6 +72,7 @@ def generate_system_status_reflection(
             commit_summary = "no commitments"
     except Exception:
         commit_summary = "commitment tracking unavailable"
+
     return (
         f"System status: IAS={ias:.3f}, GAS={gas:.3f}, Stage={stage_str}.\n"
         f"Reflecting on {commit_summary} (tick {hash_suffix}) at tick {tick_id}.\n"

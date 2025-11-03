@@ -49,13 +49,16 @@ from pmm.llm.limits import RATE_LIMITED, TickBudget
 
 # Re-export AutonomyLoop from the dedicated module
 from pmm.runtime.autonomy_loop import AutonomyLoop as AutonomyLoop
+from pmm.runtime.belief_update import BeliefUpdate
 from pmm.runtime.bridge import ResponseRenderer
 
 # --- Prompt context builder (ledger slice injection) ---
 from pmm.runtime.cooldown import ReflectionCooldown
 from pmm.runtime.eventlog import EventLog
 from pmm.runtime.evolution_kernel import EvolutionKernel
+from pmm.runtime.experiment_harness import ExperimentHarness
 from pmm.runtime.graph_trigger import GraphInsightTrigger
+from pmm.runtime.hypothesis_tracker import HypothesisTracker
 from pmm.runtime.introspection import run_audit
 from pmm.runtime.ledger_mirror import LedgerMirror
 from pmm.runtime.loop import assessment as _assessment_module
@@ -122,6 +125,9 @@ from pmm.runtime.stage_tracker import (
     StageTracker,
     stage_str_to_level,
 )
+
+# ---- Phase 3: Proactive Synthesis & Hypothesis-Driven Learning ----
+from pmm.runtime.synthesis_engine import SynthesisEngine
 from pmm.runtime.trace_buffer import TraceBuffer
 from pmm.storage.projection import build_identity, build_self_model
 
@@ -316,6 +322,25 @@ class Runtime:
         else:
             self.trace_buffer = None
             logger.info("Reasoning trace disabled")
+
+        # ---- Phase 3: Initialize Proactive Synthesis & Hypothesis-Driven Learning ----
+        # Initialize with deterministic seed for reproducible behavior
+        self.synthesis_engine = SynthesisEngine(self.eventlog, self.memegraph, seed=42)
+        self.hypothesis_tracker = HypothesisTracker(self.eventlog)
+        self.experiment_harness = ExperimentHarness(self.eventlog, seed=42)
+        self.belief_update = BeliefUpdate(self.eventlog)
+
+        # Phase 3 cooldown and cadence controls
+        self._last_synthesis_tick = 0
+        self._synthesis_cadence = 50  # Run synthesis every 50 ticks
+        self._last_experiment_tick = 0
+        self._experiment_cadence = 100  # Check experiments every 100 ticks
+        self._last_belief_update_tick = 0
+        self._belief_update_cadence = 25  # Update beliefs every 25 ticks
+
+        logger.info(
+            "Phase 3 components initialized: synthesis, hypothesis tracking, experiments, belief updates"
+        )
 
         self._init_llm_backend()
 
@@ -2483,6 +2508,152 @@ class Runtime:
     def _propose_identity_name(self) -> str | None:
         """Bootstrap proposer disabled; identities arise semantically."""
         return None
+
+    # ---- Phase 3: Proactive Synthesis & Hypothesis-Driven Learning ----
+    def maybe_run_synthesis_tick(self) -> None:
+        """Run synthesis analysis if conditions are met."""
+        try:
+            # Run synthesis analysis on recent ledger data
+            snapshot = self.synthesis_engine.run_synthesis(
+                window_size=100, min_pattern_support=3, max_candidates=5
+            )
+
+            # Log synthesis results
+            self.eventlog.append(
+                kind="synthesis_tick",
+                content=f"Synthesis analysis: {len(snapshot.patterns)} patterns, {len(snapshot.candidates)} candidates",
+                meta={
+                    "patterns_found": len(snapshot.patterns),
+                    "candidates_generated": len(snapshot.candidates),
+                    "analysis_seed": snapshot.metadata.get("analysis_seed"),
+                    "timestamp": snapshot.timestamp,
+                },
+            )
+
+            # Generate hypotheses from strong patterns
+            for pattern in snapshot.patterns[:2]:  # Top 2 patterns
+                if pattern.confidence >= 0.7:
+                    hypothesis_id = (
+                        self.synthesis_engine.generate_hypothesis_from_pattern(
+                            pattern, self.hypothesis_tracker
+                        )
+                    )
+                    if hypothesis_id:
+                        logger.info(
+                            f"Generated hypothesis {hypothesis_id} from pattern: {pattern.description}"
+                        )
+
+        except Exception:
+            logger.exception("Synthesis tick failed")
+
+    def maybe_spawn_experiments(self) -> None:
+        """Spawn experiments for supported hypotheses if conditions are met."""
+        try:
+            # Get supported hypotheses that don't have active experiments
+            supported_hypotheses = self.hypothesis_tracker.get_supported_hypotheses()
+            active_experiments = self.experiment_harness.get_active_experiments()
+            active_hypothesis_ids = {
+                exp.config.hypothesis_id for exp in active_experiments
+            }
+
+            # Spawn experiments for new supported hypotheses
+            for hypothesis in supported_hypotheses:
+                if (
+                    hypothesis.id not in active_hypothesis_ids
+                    and len(active_experiments)
+                    < self.experiment_harness._max_concurrent
+                ):
+
+                    # Create simple A/B test based on hypothesis content
+                    exp_id = self.experiment_harness.create_experiment(
+                        hypothesis_id=hypothesis.id,
+                        name=f"Test hypothesis {hypothesis.id}",
+                        description=f"Testing: {hypothesis.statement}",
+                        arms=["control", "variant"],
+                        metric="user_satisfaction",
+                        horizon=20,
+                        sample_size=10,
+                    )
+
+                    if exp_id:
+                        self.experiment_harness.start_experiment(exp_id)
+                        logger.info(
+                            f"Spawned experiment {exp_id} for hypothesis {hypothesis.id}"
+                        )
+
+                        # Log experiment spawn
+                        self.eventlog.append(
+                            kind="experiment_spawn",
+                            content=f"Spawned experiment {exp_id} for hypothesis {hypothesis.id}",
+                            meta={
+                                "experiment_id": exp_id,
+                                "hypothesis_id": hypothesis.id,
+                                "hypothesis_statement": hypothesis.statement,
+                            },
+                        )
+
+            # Cleanup old experiments
+            cleaned = self.experiment_harness.cleanup_completed_experiments()
+            if cleaned > 0:
+                logger.info(f"Cleaned up {cleaned} old experiments")
+
+        except Exception:
+            logger.exception("Experiment spawn failed")
+
+    def apply_belief_updates(self) -> None:
+        """Apply belief updates based on evidence from hypotheses and experiments."""
+        try:
+            # Compute potential updates from evidence
+            updates = self.belief_update.compute_updates_from_evidence(
+                self.hypothesis_tracker, self.experiment_harness
+            )
+
+            if updates:
+                # Apply updates in batch
+                batch = self.belief_update.apply_belief_updates(
+                    updates, "Scheduled belief update from evidence"
+                )
+
+                # Log belief update batch
+                self.eventlog.append(
+                    kind="belief_update_tick",
+                    content=f"Applied belief update batch {batch.batch_id}: {len(batch.updates)} updates",
+                    meta={
+                        "batch_id": batch.batch_id,
+                        "updates_applied": len(batch.updates),
+                        "total_delta": batch.total_delta,
+                        "evidence_summary": batch.evidence_summary,
+                    },
+                )
+
+                logger.info(
+                    f"Applied belief update batch {batch.batch_id}: "
+                    f"{len(batch.updates)} updates, total delta {batch.total_delta:.3f}"
+                )
+
+                # Get stability metrics
+                stability = self.belief_update.get_policy_stability_metrics()
+                avg_stability = (
+                    sum(stability.values()) / len(stability) if stability else 0.0
+                )
+
+                # Log stability metrics
+                self.eventlog.append(
+                    kind="policy_stability_metrics",
+                    content=f"Policy stability: {avg_stability:.3f} average",
+                    meta={
+                        "average_stability": avg_stability,
+                        "policy_stabilities": stability,
+                    },
+                )
+
+            # Cleanup old hypotheses
+            cleaned = self.hypothesis_tracker.cleanup_expired_hypotheses()
+            if cleaned > 0:
+                logger.info(f"Cleaned up {cleaned} old hypotheses")
+
+        except Exception:
+            logger.exception("Belief update failed")
 
 
 # ---- Identity helpers extracted to pmm.runtime.loop.identity ----

@@ -1610,6 +1610,43 @@ def handle_user_input(
     except Exception:
         logger.debug("Allocation inspection failed", exc_info=True)
 
+    # ---- Phase 3: Proactive Synthesis & Hypothesis-Driven Learning ----
+    # Three thin orchestration calls with cadence gating
+    try:
+        current_tick = len(events)
+
+        # 1. Maybe run synthesis analysis
+        if hasattr(runtime, "synthesis_engine"):
+            if (
+                current_tick - runtime._last_synthesis_tick
+                >= runtime._synthesis_cadence
+            ):
+                runtime.maybe_run_synthesis_tick()
+                runtime._last_synthesis_tick = current_tick
+
+        # 2. Maybe spawn experiments from hypotheses
+        if hasattr(runtime, "hypothesis_tracker") and hasattr(
+            runtime, "experiment_harness"
+        ):
+            if (
+                current_tick - runtime._last_experiment_tick
+                >= runtime._experiment_cadence
+            ):
+                runtime.maybe_spawn_experiments()
+                runtime._last_experiment_tick = current_tick
+
+        # 3. Apply belief updates from evidence
+        if hasattr(runtime, "belief_update"):
+            if (
+                current_tick - runtime._last_belief_update_tick
+                >= runtime._belief_update_cadence
+            ):
+                runtime.apply_belief_updates()
+                runtime._last_belief_update_tick = current_tick
+
+    except Exception:
+        logger.debug("Phase 3 orchestration failed", exc_info=True)
+
     # Debug: Check what we're returning
     if reply is None:
         print(

@@ -526,6 +526,36 @@ class CommitmentTracker:
             self._ensure_project_open(explicit_pid)
         content = f"Commitment opened: {text}"
         self.eventlog.append(kind="commitment_open", content=content, meta=meta)
+
+        # Enhanced Feedback Loop - Phase 1C: Register commitment action for impact tracking
+        try:
+            from pmm.runtime.impact_tracker import register_action
+
+            # Get current tick count
+            current_tick = len(
+                [
+                    e
+                    for e in self.eventlog.query(limit=1000)
+                    if e.get("kind") == "autonomy_tick"
+                ]
+            )
+
+            # Register this commitment action
+            register_action(
+                self.eventlog,
+                action_type="commitment_open",
+                action_data={
+                    "commitment_id": cid,
+                    "text": text,
+                    "priority": meta.get("priority", "medium"),
+                    "project_id": explicit_pid,
+                },
+                tick_no=current_tick,
+            )
+        except Exception as e:
+            # Log error but don't break commitment opening
+            logger.error(f"Enhanced feedback loop action registration error: {e}")
+
         return cid
 
     # --- Projects: idempotent project lifecycle helpers ---

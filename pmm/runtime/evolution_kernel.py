@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time as _time
 from collections.abc import Sequence
 from math import isnan
@@ -13,6 +14,9 @@ from pmm.runtime.policy.evolution import DEFAULT_POLICY, EvolutionPolicy
 from pmm.runtime.snapshot import LedgerSnapshot
 from pmm.runtime.traits import normalize_key
 from pmm.storage.projection import build_identity, build_self_model
+
+# Initialize logger for this module
+logger = logging.getLogger(__name__)
 
 
 def _clamp01(value: float) -> float:
@@ -211,7 +215,41 @@ class EvolutionKernel:
             "targets_summary": summary,
         }
         try:
-            return self.eventlog.append("reflection", content, meta)
+            reflection_id = self.eventlog.append("reflection", content, meta)
+
+            # Enhanced Feedback Loop - Phase 1C: Register reflection action for impact tracking
+            try:
+                from pmm.runtime.impact_tracker import register_action
+
+                # Get current tick count
+                current_tick = len(
+                    [
+                        e
+                        for e in self.eventlog.query(limit=1000)
+                        if e.get("kind") == "autonomy_tick"
+                    ]
+                )
+
+                # Register this reflection action
+                register_action(
+                    self.eventlog,
+                    action_type="reflection",
+                    action_data={
+                        "reflection_id": reflection_id,
+                        "reason": meta.get("reason", ""),
+                        "targets_summary": meta.get("targets_summary", ""),
+                        "ias": float(evald.get("ias", 0.0)),
+                        "gas": float(evald.get("gas", 0.0)),
+                    },
+                    tick_no=current_tick,
+                )
+            except Exception as e:
+                # Log error but don't break reflection
+                logger.error(
+                    f"Enhanced feedback loop reflection action registration error: {e}"
+                )
+
+            return reflection_id
         except Exception:
             return None
 

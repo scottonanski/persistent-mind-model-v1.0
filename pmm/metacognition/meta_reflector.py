@@ -217,12 +217,12 @@ class MetaReflector:
             self.reflection_history[-1] if self.reflection_history else None
         )
         if (
-            not last_reflection or time.time() - last_reflection.timestamp > 3600
-        ):  # 1 hour
+            not last_reflection or time.time() - last_reflection.timestamp > 10
+        ):  # 10 seconds - essentially every eligible turn
             triggers.append(
                 ReflectionTrigger(
                     trigger_type="periodic_reflection",
-                    threshold=3600,
+                    threshold=10,
                     current_value=time.time()
                     - (last_reflection.timestamp if last_reflection else 0),
                     urgency=0.3,
