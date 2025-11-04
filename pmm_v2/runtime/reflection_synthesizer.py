@@ -18,6 +18,7 @@ def synthesize_reflection(
     meta_extra: Optional[Dict[str, str]] = None,
     source: str = "user_turn",
     staleness_threshold: Optional[int] = None,
+    auto_close_threshold: Optional[int] = None,
 ) -> Optional[int]:
     """Deterministically synthesize and append a reflection event.
 
@@ -29,7 +30,7 @@ def synthesize_reflection(
     Returns the new event id or None if prerequisites are missing (user_turn only).
     """
     if meta_extra and meta_extra.get("source") == "autonomy_kernel":
-        # Autonomous commitment-review reflection – now with staleness detection
+        # Autonomous commitment-review reflection – now with staleness detection and auto-close
         mirror = LedgerMirror(eventlog)
         open_cids = mirror.get_open_commitment_events()
 
@@ -40,6 +41,28 @@ def synthesize_reflection(
             events_since = len(
                 [e for e in eventlog.read_all() if e["id"] > oldest["id"]]
             )
+
+        # Auto-close stale commitments
+        if (
+            auto_close_threshold is not None
+            and events_since > auto_close_threshold
+            and oldest
+        ):
+            eventlog.append(
+                kind="commitment_close",
+                content=f"CLOSE: {oldest['meta']['cid']}",
+                meta={"reason": "auto_close_stale", "cid": oldest["meta"]["cid"]},
+            )
+            # Re-fetch open commitments after auto-close
+            mirror = LedgerMirror(eventlog)
+            open_cids = mirror.get_open_commitment_events()
+            # Recalculate events_since based on new oldest
+            oldest = min((c for c in open_cids), key=lambda c: c["id"], default=None)
+            events_since = 0
+            if oldest and staleness_threshold is not None:
+                events_since = len(
+                    [e for e in eventlog.read_all() if e["id"] > oldest["id"]]
+                )
 
         stale_flag = 1 if events_since > staleness_threshold else 0
 

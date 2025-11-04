@@ -54,6 +54,7 @@ class AutonomyKernel:
             "reflection_interval": 10,
             "summary_interval": 50,
             "commitment_staleness": 20,
+            "commitment_auto_close": 30,
         }
         self.thresholds = defaults.copy()
         if thresholds:
@@ -73,6 +74,7 @@ class AutonomyKernel:
             f"reflection_interval:{self.thresholds['reflection_interval']}"
             f",summary_interval:{self.thresholds['summary_interval']}"
             f",commitment_staleness:{self.thresholds['commitment_staleness']}"
+            f",commitment_auto_close:{self.thresholds['commitment_auto_close']}"
             "}"
         )
         self.eventlog.append(

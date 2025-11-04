@@ -266,11 +266,15 @@ class RuntimeLoop:
                 "staleness_threshold": str(
                     self.autonomy.thresholds["commitment_staleness"]
                 ),
+                "auto_close_threshold": str(
+                    self.autonomy.thresholds["commitment_auto_close"]
+                ),
             }
             synthesize_reflection(
                 self.eventlog,
                 meta_extra=meta_extra,
                 staleness_threshold=int(meta_extra["staleness_threshold"]),
+                auto_close_threshold=int(meta_extra["auto_close_threshold"]),
             )
         elif decision.decision == "summarize":
             from pmm_v2.runtime.identity_summary import maybe_append_summary

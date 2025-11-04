@@ -86,3 +86,34 @@ def test_autonomous_reflection_diff():
     refl = log.events[-1]
     assert "commitments_reviewed:2" in refl["content"]
     assert "stale:1" in refl["content"]
+
+
+def test_autonomous_reflection_auto_close_stale():
+    """Test auto-close of stale commitments (>30 events since oldest open)."""
+    events = [
+        {"kind": "user_message", "id": 1, "content": "hi"},
+        {"kind": "assistant_message", "id": 2, "content": "hello"},
+        {"kind": "metrics_turn", "id": 3},
+        {"kind": "commitment_open", "id": 4, "content": "c1", "meta": {"cid": "c1"}},
+        {"kind": "commitment_open", "id": 5, "content": "c2", "meta": {"cid": "c2"}},
+    ]
+    # 31 events after oldest (id 4): ids 5 to 35
+    many_events = [
+        {"kind": "autonomy_tick", "id": i} for i in range(6, 36)
+    ]  # 30 extra, total 31 after 4
+    log = MockEventLog(events + many_events)
+    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter(), autonomy=True)
+    loop.autonomy.decide_next_action = lambda: KernelDecision("reflect", "", [])
+    loop.run_tick(slot=0, slot_id="test")
+
+    # Assert commitment_close event emitted for oldest (c1)
+    close_events = [e for e in log.events if e["kind"] == "commitment_close"]
+    assert len(close_events) == 1
+    assert close_events[0]["content"] == "CLOSE: c1"
+    assert close_events[0]["meta"]["reason"] == "auto_close_stale"
+
+    # Assert reflection shows commitments_reviewed:1 (after close)
+    refl = [e for e in log.events if e["kind"] == "reflection"][-1]
+    assert "commitments_reviewed:1" in refl["content"]
+    # Remaining commitment has >20 events since its open, so stale:1
+    assert "stale:1" in refl["content"]
