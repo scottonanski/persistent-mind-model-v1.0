@@ -17,15 +17,18 @@ import datetime
 from pathlib import Path
 from collections import Counter
 
+
 # ------------------------------------------------------------------
 # 0. Helpers
 # ------------------------------------------------------------------
 def iso_to_dt(ts: str) -> datetime.datetime:
     return datetime.datetime.fromisoformat(ts)
 
+
 def extract_refs(text: str) -> list[str]:
     """Return list of REF: lines (stripped)."""
     return [ln[5:].strip() for ln in text.splitlines() if ln.startswith("REF: ")]
+
 
 # ------------------------------------------------------------------
 # 1. Open DB
@@ -46,7 +49,7 @@ diagnostics: dict = {}
 c.execute("SELECT COUNT(*), MAX(id) FROM events")
 total, max_id = c.fetchone()
 diagnostics["summary"] = {"total_events": total, "last_event_id": max_id}
-print(f"\n=== PMM Ledger Summary ===")
+print("\n=== PMM Ledger Summary ===")
 print(f"Events: {total:,}   Last ID: {max_id}")
 
 # ------------------------------------------------------------------
@@ -77,14 +80,20 @@ diagnostics["reflection_intervals"] = {
     "average_seconds": round(avg, 2) if avg else None,
 }
 for i in range(1, len(rows)):
-    print(f"{rows[i-1].strftime('%H:%M:%S')} → {rows[i].strftime('%H:%M:%S')}  Δ={intervals[i-1]:.2f}s")
+    print(
+        f"{rows[i-1].strftime('%H:%M:%S')} → {rows[i].strftime('%H:%M:%S')}  Δ={intervals[i-1]:.2f}s"
+    )
 
 # ------------------------------------------------------------------
 # 5. Commitment statistics
 # ------------------------------------------------------------------
 print("\n-- Commitments --")
-open_cnt = c.execute("SELECT COUNT(*) FROM events WHERE kind='commitment_open'").fetchone()[0]
-closed_cnt = c.execute("SELECT COUNT(*) FROM events WHERE kind='commitment_close'").fetchone()[0]
+open_cnt = c.execute(
+    "SELECT COUNT(*) FROM events WHERE kind='commitment_open'"
+).fetchone()[0]
+closed_cnt = c.execute(
+    "SELECT COUNT(*) FROM events WHERE kind='commitment_close'"
+).fetchone()[0]
 diagnostics["commitments"] = {
     "open": open_cnt,
     "closed": closed_cnt,
@@ -108,7 +117,9 @@ diagnostics["autonomy_ticks"] = {
     "count": len(ticks),
     "average_interval_seconds": round(avg_tick, 2) if avg_tick else None,
 }
-print(f"Ticks: {len(ticks)}   Avg interval: {avg_tick:.2f}s" if avg_tick else "No ticks")
+print(
+    f"Ticks: {len(ticks)}   Avg interval: {avg_tick:.2f}s" if avg_tick else "No ticks"
+)
 
 # ------------------------------------------------------------------
 # 7. Hash-chain integrity
@@ -161,7 +172,9 @@ for content, meta_json in ref_rows:
 
 diagnostics["inter_ledger_refs"] = ref_stats
 
-print(f"Total refs: {ref_stats['total']}   Verified: {ref_stats['verified']}   Failed: {ref_stats['failed']}")
+print(
+    f"Total refs: {ref_stats['total']}   Verified: {ref_stats['verified']}   Failed: {ref_stats['failed']}"
+)
 if ref_stats["paths"]:
     print("  Most referenced ledgers:")
     for p, n in ref_stats["paths"].most_common(3):
