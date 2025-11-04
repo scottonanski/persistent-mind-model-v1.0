@@ -1,0 +1,31 @@
+from __future__ import annotations
+
+from pmm_v2.core.event_log import EventLog
+from pmm_v2.runtime.loop import RuntimeLoop
+
+
+class CloseAdapter:
+    def __init__(self, cid: str) -> None:
+        self.cid = cid
+
+    def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
+        return f"CLOSE: {self.cid}"
+
+
+def test_idempotent_closure():
+    log = EventLog(":memory:")
+    # pre-open
+    log.append(kind="commitment_open", content="c", meta={"cid": "abcd", "text": "x"})
+    loop = RuntimeLoop(eventlog=log, adapter=CloseAdapter("abcd"))
+    # First turn closes and reflects
+    events1 = loop.run_turn("do close")
+    kinds1 = [e["kind"] for e in events1 if e["kind"] != "autonomy_rule_table"]
+    assert kinds1.count("commitment_close") == 1
+    assert kinds1[-4:] == ["commitment_close", "reflection", "autonomy_tick", "reflection"]
+    assert events1[-1]["meta"].get("source") == "autonomy_kernel"
+
+    # Second turn attempts to close again; should not close
+    events2 = loop.run_turn("do close again")
+    kinds2 = [e["kind"] for e in events2 if e["kind"] != "autonomy_rule_table"]
+    assert kinds2.count("commitment_close") == 1
+    assert kinds2[-1] == "autonomy_tick"
