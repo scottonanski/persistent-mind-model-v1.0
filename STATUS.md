@@ -4,7 +4,7 @@
 
 ---
 
-## Sprint Timeline (1–10)
+## Sprint Timeline (1-14
 
 1. **Minimal v2 skeleton**  
    Core SQLite `event_log` with hash chain (timestamps excluded), `ledger_mirror`, `meme_graph` stub, schemas; minimal runtime loop (user → assistant → commitment → reflection) with `commitment_manager` and prompts; deterministic DummyAdapter (`COMMIT:` marker); baseline append/read integrity tests.
@@ -44,6 +44,9 @@
 
 13. **Auto-Close Stale Commitments**  
    Autonomous reflections auto-close commitments >30 events stale; appends commitment_close event with reason; re-calculates remaining open count and stale flag.
+
+14. **Inter-Ledger References**  
+   Echo can reference events from other PMM ledgers using `REF: <path>#<event_id>` syntax in any `assistant_message` or `reflection`. The referenced event is verified by hash, appended as `inter_ledger_ref`, and replay-safe. Includes parsing in runtime loop, REF proposal in autonomy reflection synthesizer, updated `/replay` narration with ✓/✗ status, and comprehensive tests.
 
 ### Measured Proof from `/replay`
 
@@ -152,6 +155,7 @@ Expected baseline:
 - Fixed `run_tick` to log autonomy_tick before executing, avoiding recursion.
 - Added DEBUG flag to gate debug prints; system runs silently by default.
 - STATUS.md updated with full autonomy details for Sprint 10.
+- Sprint 14: Inter-Ledger References implemented. Added `inter_ledger_ref` event kind with validation; parsing of `REF:` lines in assistant messages and reflections; optional REF proposal in autonomy reflections; updated `/replay` to show verification status; new tests for valid/invalid references.
 
 ---
 

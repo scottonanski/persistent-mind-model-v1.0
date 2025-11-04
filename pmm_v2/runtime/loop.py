@@ -90,15 +90,6 @@ class RuntimeLoop:
                 cids.append(line.split(":", 1)[1].strip())
         return cids
 
-    def _extract_claims(self, text: str) -> List[Claim]:
-        lines = (text or "").splitlines()
-        try:
-            parsed = extract_claims(lines)
-        except ValueError:
-            # Keep runtime robust: skip malformed claim lines
-            parsed = []
-        return [Claim(type=ctype, data=data) for ctype, data in parsed]
-
     def _extract_reflect(self, text: str) -> Dict[str, Any] | None:
         for line in (text or "").splitlines():
             if line.startswith("REFLECT:"):
@@ -108,6 +99,35 @@ class RuntimeLoop:
                 except Exception:
                     return None
         return None
+
+    def _extract_claims(self, text: str) -> List[Claim]:
+        lines = (text or "").splitlines()
+        try:
+            parsed = extract_claims(lines)
+        except ValueError:
+            # Keep runtime robust: skip malformed claim lines
+            parsed = []
+        return [Claim(type=ctype, data=data) for ctype, data in parsed]
+
+    def _parse_ref_lines(self, content: str) -> None:
+        ref_lines = [line for line in content.splitlines() if line.startswith("REF: ")]
+        for line in ref_lines:
+            path, event_id_str = line[5:].strip().split("#", 1)
+            event_id = int(event_id_str)
+            target_log = EventLog(path)
+            target_event = target_log.get(event_id)
+            if target_event:
+                self.eventlog.append(
+                    kind="inter_ledger_ref",
+                    content=f"REF: {path}#{event_id}",
+                    meta={"target_hash": target_event["hash"], "verified": True},
+                )
+            else:
+                self.eventlog.append(
+                    kind="inter_ledger_ref",
+                    content=f"REF: {path}#{event_id}",
+                    meta={"verified": False, "error": "not found"},
+                )
 
     def run_turn(self, user_input: str) -> List[Dict[str, Any]]:
         if self.replay:
@@ -143,6 +163,9 @@ class RuntimeLoop:
             content=assistant_reply,
             meta={"role": "assistant"},
         )
+
+        # 4a. Parse REF: lines and append inter_ledger_ref events
+        self._parse_ref_lines(assistant_reply)
 
         # 4b. Per-turn diagnostics (deterministic formatting)
         prov = "dummy"
@@ -199,6 +222,7 @@ class RuntimeLoop:
                     content=reflection_text,
                     meta={"about_event": ai_event_id},
                 )
+                self._parse_ref_lines(reflection_text)
 
         return self.eventlog.read_all()
 
@@ -270,12 +294,15 @@ class RuntimeLoop:
                     self.autonomy.thresholds["commitment_auto_close"]
                 ),
             }
-            synthesize_reflection(
+            reflection_id = synthesize_reflection(
                 self.eventlog,
                 meta_extra=meta_extra,
                 staleness_threshold=int(meta_extra["staleness_threshold"]),
                 auto_close_threshold=int(meta_extra["auto_close_threshold"]),
             )
+            if reflection_id:
+                target_event = self.eventlog.get(reflection_id)
+                self._parse_ref_lines(target_event["content"])
         elif decision.decision == "summarize":
             from pmm_v2.runtime.identity_summary import maybe_append_summary
 

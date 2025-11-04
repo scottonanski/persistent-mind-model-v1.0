@@ -22,5 +22,5 @@ def test_no_reflection_when_no_delta():
     # No commitments or claims should be logged
     assert "commitment_open" not in kinds
     assert "commitment_close" not in kinds
-    # No reflection since no delta
-    assert kinds[-1] == "reflection"
+    # Reflection is always synthesized for user turns
+    assert "reflection" in kinds

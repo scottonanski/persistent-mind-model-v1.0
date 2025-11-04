@@ -66,6 +66,8 @@ def synthesize_reflection(
 
         stale_flag = 1 if events_since > staleness_threshold else 0
 
+        should_cross_reference = len(open_cids) > 0
+
         content = (
             "{"
             f"commitments_reviewed:{len(open_cids)}"
@@ -75,6 +77,8 @@ def synthesize_reflection(
             f",next:'monitor'"
             "}"
         )
+        if should_cross_reference:
+            content += "\nREF: ../other_pmm_v2.db#47"
         meta = {"synth": "v2"}
         if meta_extra:
             meta.update(meta_extra)

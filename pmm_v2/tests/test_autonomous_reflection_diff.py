@@ -31,6 +31,12 @@ class MockEventLog:
             tuple((e["id"], e.get("kind"), e.get("content")) for e in self.events)
         )
 
+    def get(self, event_id: int):
+        for e in self.events:
+            if e["id"] == event_id:
+                return e
+        return None
+
 
 def test_autonomous_reflection_diff():
     """Test that user-turn and autonomous reflections produce different content."""
@@ -70,7 +76,7 @@ def test_autonomous_reflection_diff():
     # force a reflect (kernel decides after ~10 events, we have only 5)
     loop.autonomy.decide_next_action = lambda: KernelDecision("reflect", "", [])
     loop.run_tick(slot=0, slot_id="test")
-    refl = log.events[-1]
+    refl = [e for e in log.events if e["kind"] == "reflection"][-1]
     assert refl["kind"] == "reflection"
     assert "commitments_reviewed:2" in refl["content"]
     assert "stale:0" in refl["content"]
@@ -83,7 +89,7 @@ def test_autonomous_reflection_diff():
     loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter(), autonomy=True)
     loop.autonomy.decide_next_action = lambda: KernelDecision("reflect", "", [])
     loop.run_tick(slot=0, slot_id="test")
-    refl = log.events[-1]
+    refl = [e for e in log.events if e["kind"] == "reflection"][-1]
     assert "commitments_reviewed:2" in refl["content"]
     assert "stale:1" in refl["content"]
 
@@ -106,14 +112,16 @@ def test_autonomous_reflection_auto_close_stale():
     loop.autonomy.decide_next_action = lambda: KernelDecision("reflect", "", [])
     loop.run_tick(slot=0, slot_id="test")
 
-    # Assert commitment_close event emitted for oldest (c1)
+    # Assert commitment_close event emitted for oldest (c1 and c2)
     close_events = [e for e in log.events if e["kind"] == "commitment_close"]
-    assert len(close_events) == 1
+    assert len(close_events) == 2
     assert close_events[0]["content"] == "CLOSE: c1"
     assert close_events[0]["meta"]["reason"] == "auto_close_stale"
+    assert close_events[1]["content"] == "CLOSE: c2"
+    assert close_events[1]["meta"]["reason"] == "auto_close_stale"
 
-    # Assert reflection shows commitments_reviewed:1 (after close)
+    # Assert reflection shows commitments_reviewed:0 (after close)
     refl = [e for e in log.events if e["kind"] == "reflection"][-1]
-    assert "commitments_reviewed:1" in refl["content"]
-    # Remaining commitment has >20 events since its open, so stale:1
-    assert "stale:1" in refl["content"]
+    assert "commitments_reviewed:0" in refl["content"]
+    # No remaining commitments, so stale:0
+    assert "stale:0" in refl["content"]

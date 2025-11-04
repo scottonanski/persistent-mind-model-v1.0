@@ -68,6 +68,26 @@ class EventLog:
     def append(
         self, *, kind: str, content: str, meta: Optional[Dict[str, Any]] = None
     ) -> int:
+        valid_kinds = {
+            "user_message",
+            "assistant_message",
+            "reflection",
+            "metrics_turn",
+            "commitment_open",
+            "commitment_close",
+            "claim",
+            "autonomy_rule_table",
+            "autonomy_tick",
+            "autonomy_stimulus",
+            "summary_update",
+            "inter_ledger_ref",
+            "config",
+            "filler",
+            "test_event",
+            "metrics_update",
+        }
+        if kind not in valid_kinds:
+            raise ValueError(f"Invalid event kind: {kind}")
         meta = meta or {}
         ts = _iso_now()
         prev_hash = self._last_hash()
