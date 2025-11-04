@@ -33,8 +33,8 @@
 9. **Reflection synthesis & identity summary**  
    `reflection_synthesizer.py` builds `{intent,outcome,next}` from latest user/assistant/metrics events; `identity_summary.py` appends `summary_update` every 3 reflections or >10 events (open commitments, reflections_since_last, last_event_id); runtime integration after `metrics_turn`; deterministic tests for both modules. Historical baseline tagged `v2.0-sprint8`.
 
-10. **Autonomy kernel & tick contract**  
-    Deterministic Autonomy Kernel (`runtime/autonomy_kernel.py`) emits `KernelDecision`, records `autonomy_rule_table`, and drives `/tick`; runtime loop logs each decision as `autonomy_tick` before executing deterministic reflections/summaries; CLI exposes `/tick`; metrics ignore instrumentation events; autonomy-focused tests cover idle/non-idle decisions, replay safety, and rule-table idempotency.
+10. **Full Autonomy Integration**  
+   Autonomous supervisor launches at process boot, emits `autonomy_stimulus` every 10 seconds; listener parses event content for slot/slot_id, triggers `run_tick` which logs decision before executing reflections/summaries; debug prints gated by DEBUG flag; system runs silently, autonomously generating ticks without user intervention.
 
 ---
 
@@ -116,10 +116,11 @@ Expected baseline:
 
 ## Recent Changes
 
-- Autonomy Kernel integrated with the main loop and CLI; manual `/tick` supported.
-- `reflection_synthesizer` accepts extra metadata so autonomous reflections are tagged.
-- Ledger metrics ignore instrumentation kinds to keep canonical counts stable across autonomy activity.
-- STATUS.md refreshed with sprint-by-sprint record and autonomy governance details.
+- Full autonomy: supervisor launches at boot, emits stimuli every 10s, triggers ticks automatically; no manual `/tick` needed.
+- Fixed `_on_autonomy_stimulus` to parse slot/slot_id from event content JSON.
+- Fixed `run_tick` to log autonomy_tick before executing, avoiding recursion.
+- Added DEBUG flag to gate debug prints; system runs silently by default.
+- STATUS.md updated with full autonomy details for Sprint 10.
 
 ---
 
