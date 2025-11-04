@@ -43,6 +43,16 @@ All tests must pass locally before opening a PR.
 - Use structured parsing or semantic extractors only.
 - Allowed in tests or tooling only.
 
+### No Hidden User Gates
+
+Autonomy **must** start at process boot and run continuously. It is **forbidden** to:
+
+- Tie autonomy to CLI commands (/tick, /animate)
+- Gate autonomy behind config flags
+- Emit actions outside the ledger path
+
+Any PR introducing a user-triggered autonomy path will be rejected.
+
 ### Idempotency
 
 - If an operation yields no semantic delta, do not emit a new event.

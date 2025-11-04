@@ -97,10 +97,6 @@ def main() -> None:  # pragma: no cover - thin wrapper
                 for e in events:
                     print(f"[{e['id']}] metrics_turn | {e['content']}")
                 continue
-            if cmd in {"/tick"}:
-                decision = loop.run_tick()
-                print(f"Autonomy> {decision.decision} ({decision.reasoning})")
-                continue
             events = loop.run_turn(user)
             ai_msgs = [e for e in events if e.get("kind") == "assistant_message"]
             if ai_msgs:

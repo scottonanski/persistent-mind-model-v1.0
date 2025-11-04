@@ -17,9 +17,13 @@ from pmm_v2.core.schemas import Claim
 from pmm_v2.core.validators import validate_claim
 from pmm_v2.core.semantic_extractor import extract_commitments, extract_claims
 from pmm_v2.runtime.context_builder import build_context
-from pmm_v2.runtime.reflection_synthesizer import synthesize_reflection
-from pmm_v2.runtime.identity_summary import maybe_append_summary
+from pmm_v2.runtime.autonomy_supervisor import AutonomySupervisor
+import asyncio
+import threading
 import time
+
+
+DEBUG = False  # Set to True for debugging
 
 
 class RuntimeLoop:
@@ -35,6 +39,36 @@ class RuntimeLoop:
         self.autonomy = AutonomyKernel(eventlog)
         if not self.replay:
             self.autonomy.ensure_rule_table_event()
+
+            # Start autonomy supervisor
+            epoch = "2025-11-01T00:00:00Z"  # Hardcoded for now
+            interval_s = 10  # Hardcoded for testing
+            self.supervisor = AutonomySupervisor(eventlog, epoch, interval_s)
+            # LISTENER FIRST — catch every stimulus
+            self.eventlog.register_listener(self._on_autonomy_stimulus)
+            # THEN start the supervisor
+            self._supervisor_thread = threading.Thread(target=self._run_supervisor_async, daemon=True)
+            self._supervisor_thread.start()
+
+    def _run_supervisor_async(self) -> None:
+        """Run the supervisor in an asyncio event loop."""
+        asyncio.run(self.supervisor.run_forever())
+
+    def _on_autonomy_stimulus(self, event: Dict[str, Any]) -> None:
+        if DEBUG:
+            print(f"[STIMULUS RECEIVED] id={event['id']} | kind={event['kind']}")
+        if event.get("kind") == "autonomy_stimulus":
+            try:
+                payload = json.loads(event["content"])
+                slot = payload.get("slot")
+                slot_id = payload.get("slot_id")
+                if slot is not None and slot_id:
+                    if DEBUG:
+                        print(f" → CALLING run_tick(slot={slot}, id={slot_id})")
+                    self.run_tick(slot=slot, slot_id=slot_id)
+            except json.JSONDecodeError:
+                if DEBUG:
+                    print(" → [ERROR] Failed to parse autonomy_stimulus content")
 
     def _extract_commitments(self, text: str) -> List[str]:
         lines = (text or "").splitlines()
@@ -70,6 +104,9 @@ class RuntimeLoop:
         if self.replay:
             # Replay mode: do not mutate ledger; simply return existing events.
             return self.eventlog.read_all()
+
+        from pmm_v2.runtime.reflection_synthesizer import synthesize_reflection
+        from pmm_v2.runtime.identity_summary import maybe_append_summary
 
         # 1. Log user message
         self.eventlog.append(kind="user_message", content=user_input, meta={"role": "user"})
@@ -147,9 +184,6 @@ class RuntimeLoop:
                     kind="reflection", content=reflection_text, meta={"about_event": ai_event_id}
                 )
 
-        if not self.replay:
-            self.run_tick()
-
         return self.eventlog.read_all()
 
     def run_interactive(self) -> None:  # pragma: no cover - simple IO wrapper
@@ -161,10 +195,6 @@ class RuntimeLoop:
                 # Graceful exits
                 if inp.strip().lower() in {"exit", ".exit", "quit"}:
                     break
-                if inp.strip() == "/tick":
-                    decision = self.run_tick()
-                    print(f"Autonomy> {decision.decision} ({decision.reasoning})")
-                    continue
                 before = self.eventlog.hash_sequence()
                 events = self.run_turn(inp)
                 after = self.eventlog.hash_sequence()
@@ -185,25 +215,27 @@ class RuntimeLoop:
         except (EOFError, KeyboardInterrupt):
             return
 
-    def run_tick(self) -> KernelDecision:
-        """Execute a deterministic autonomy tick."""
-        if self.replay:
-            return KernelDecision("idle", "replay mode (no mutations allowed)", [])
-
+    def run_tick(self, *, slot: int, slot_id: str) -> KernelDecision:
+        if DEBUG:
+            print(f"[AUTONOMY TICK] slot={slot} | id={slot_id}")
         decision = self.autonomy.decide_next_action()
+        if DEBUG:
+            print(f" → DECISION: {decision.decision} | {decision.reasoning}")
+
+        # Log the tick FIRST
         payload = json.dumps(decision.as_dict(), sort_keys=True, separators=(",", ":"))
         self.eventlog.append(
             kind="autonomy_tick",
             content=payload,
-            meta={"source": "autonomy_kernel"},
+            meta={"source": "autonomy_kernel", "slot": slot, "slot_id": slot_id},
         )
 
-        if decision.decision == "idle":
-            return decision
-
+        # THEN execute
         if decision.decision == "reflect":
-            synthesize_reflection(self.eventlog, meta_extra={"source": "autonomy_kernel"})
+            from pmm_v2.runtime.reflection_synthesizer import synthesize_reflection
+            synthesize_reflection(self.eventlog, meta_extra={"source": "autonomy_kernel", "slot_id": slot_id})
         elif decision.decision == "summarize":
+            from pmm_v2.runtime.identity_summary import maybe_append_summary
             maybe_append_summary(self.eventlog)
 
         return decision
