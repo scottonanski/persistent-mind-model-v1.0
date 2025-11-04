@@ -36,12 +36,14 @@
 10. **Full Autonomy Integration**  
    Autonomous supervisor launches at process boot, emits `autonomy_stimulus` every 10 seconds; listener parses event content for slot/slot_id, triggers `run_tick` which logs decision before executing reflections/summaries; debug prints gated by DEBUG flag; system runs silently, autonomously generating ticks without user intervention.
 
----
-
-## Sprint Timeline (11)
-
 11. **Autonomous Commitment Review**  
    Differentiated autonomous reflections: commitment review synth. Fixes duplication; enables self-review.
+
+12. **Stale Commitment Detection**  
+   Autonomy kernel flags commitments as stale:1 if >20 events since oldest open commitment; deterministic threshold in kernel defaults.
+
+13. **Auto-Close Stale Commitments**  
+   Autonomous reflections auto-close commitments >30 events stale; appends commitment_close event with reason; re-calculates remaining open count and stale flag.
 
 ### Measured Proof from `/replay`
 
