@@ -1,18 +1,13 @@
+#!/usr/bin/env python3
 # -----------------------------------------------------------
-# PMM Diagnostic Script with JSON Output
+# PMM Diagnostic Script – now with Inter-Ledger References
 # -----------------------------------------------------------
-# This tool analyzes a Persistent Mind Model (PMM) ledger.
-# It reads events from a SQLite database and outputs:
-#   • Basic ledger metrics
-#   • Event counts by kind
-#   • Reflection cadence (intervals between reflections)
-#   • Commitment statistics (open vs closed)
-#   • Autonomy tick frequency
-#   • Hash-chain integrity verification
-#   • All results saved as JSON for auditing
+#   • All previous metrics (counts, cadence, commitments, …)
+#   • **inter_ledger_ref** counts + verification stats
+#   • **REF:** line extraction from assistant/reflection text
+#   • JSON output unchanged (just extra keys)
 #
-# Usage:
-#   python pmm_diag.py pmm_v2.db
+# Usage:   python pmm_diag.py pmm_v2.db
 # -----------------------------------------------------------
 
 import sqlite3
@@ -20,8 +15,21 @@ import json
 import sys
 import datetime
 from pathlib import Path
+from collections import Counter
 
-# --- Get database path from command-line argument ---
+# ------------------------------------------------------------------
+# 0. Helpers
+# ------------------------------------------------------------------
+def iso_to_dt(ts: str) -> datetime.datetime:
+    return datetime.datetime.fromisoformat(ts)
+
+def extract_refs(text: str) -> list[str]:
+    """Return list of REF: lines (stripped)."""
+    return [ln[5:].strip() for ln in text.splitlines() if ln.startswith("REF: ")]
+
+# ------------------------------------------------------------------
+# 1. Open DB
+# ------------------------------------------------------------------
 if len(sys.argv) < 2:
     print("Usage: python pmm_diag.py <pmm_database.db>")
     sys.exit(1)
@@ -30,121 +38,162 @@ db_path = Path(sys.argv[1])
 conn = sqlite3.connect(db_path)
 c = conn.cursor()
 
-diagnostics = {}  # store everything for JSON output
+diagnostics: dict = {}
 
-# -----------------------------------------------------------
-# 1. Basic summary: total events and last event ID
-# -----------------------------------------------------------
-print("\n=== PMM Diagnostic Summary ===")
+# ------------------------------------------------------------------
+# 2. Basic summary
+# ------------------------------------------------------------------
 c.execute("SELECT COUNT(*), MAX(id) FROM events")
-total, maxid = c.fetchone()
-print(f"Events: {total}, Last ID: {maxid}")
-diagnostics["summary"] = {"total_events": total, "last_event_id": maxid}
+total, max_id = c.fetchone()
+diagnostics["summary"] = {"total_events": total, "last_event_id": max_id}
+print(f"\n=== PMM Ledger Summary ===")
+print(f"Events: {total:,}   Last ID: {max_id}")
 
-# -----------------------------------------------------------
-# 2. Counts by kind
-# -----------------------------------------------------------
+# ------------------------------------------------------------------
+# 3. Counts by kind (including new inter_ledger_ref)
+# ------------------------------------------------------------------
 print("\n-- Counts by kind --")
 kinds = {}
-
-# Repeat the aggregate expression instead of using alias "n"
-for kind, n in c.execute(
-    "SELECT kind, COUNT(*) as count FROM events GROUP BY kind ORDER BY COUNT(*) DESC"
-):
-    print(f"{kind:20} {n}")
+c.execute("SELECT kind, COUNT(*) FROM events GROUP BY kind ORDER BY COUNT(*) DESC")
+for kind, n in c.fetchall():
+    print(f"{kind:25} {n}")
     kinds[kind] = n
-
 diagnostics["counts_by_kind"] = kinds
 
-# -----------------------------------------------------------
-# 3. Reflection cadence (intervals between reflection events)
-# -----------------------------------------------------------
+# ------------------------------------------------------------------
+# 4. Reflection cadence
+# ------------------------------------------------------------------
 print("\n-- Reflection cadence --")
 c.execute("SELECT ts FROM events WHERE kind='reflection' ORDER BY id")
-rows = [datetime.datetime.fromisoformat(ts[0]) for ts in c.fetchall()]
+rows = [iso_to_dt(r[0]) for r in c.fetchall()]
 intervals = []
 if len(rows) > 1:
     for i in range(1, len(rows)):
         delta = (rows[i] - rows[i - 1]).total_seconds()
         intervals.append(delta)
-        print(f"{rows[i-1]} → {rows[i]}  Δ={delta:.2f}s")
-avg_interval = sum(intervals) / len(intervals) if intervals else None
+avg = sum(intervals) / len(intervals) if intervals else None
 diagnostics["reflection_intervals"] = {
     "count": len(intervals),
-    "average_seconds": avg_interval,
+    "average_seconds": round(avg, 2) if avg else None,
 }
+for i in range(1, len(rows)):
+    print(f"{rows[i-1].strftime('%H:%M:%S')} → {rows[i].strftime('%H:%M:%S')}  Δ={intervals[i-1]:.2f}s")
 
-# -----------------------------------------------------------
-# 4. Commitment statistics
-# -----------------------------------------------------------
-print("\n-- Commitments (open vs closed) --")
-open_count = c.execute(
-    "SELECT COUNT(*) FROM events WHERE kind='commitment_open'"
-).fetchone()[0]
-closed_count = c.execute(
-    "SELECT COUNT(*) FROM events WHERE kind='commitment_close'"
-).fetchone()[0]
-print(f"Open: {open_count}, Closed: {closed_count}")
+# ------------------------------------------------------------------
+# 5. Commitment statistics
+# ------------------------------------------------------------------
+print("\n-- Commitments --")
+open_cnt = c.execute("SELECT COUNT(*) FROM events WHERE kind='commitment_open'").fetchone()[0]
+closed_cnt = c.execute("SELECT COUNT(*) FROM events WHERE kind='commitment_close'").fetchone()[0]
 diagnostics["commitments"] = {
-    "open": open_count,
-    "closed": closed_count,
-    "open_to_closed_ratio": (
-        round(open_count / closed_count, 2) if closed_count else None
-    ),
+    "open": open_cnt,
+    "closed": closed_cnt,
+    "ratio": round(open_cnt / closed_cnt, 2) if closed_cnt else None,
 }
+print(f"Open: {open_cnt}   Closed: {closed_cnt}")
 
-# -----------------------------------------------------------
-# 5. Autonomy tick frequency
-# -----------------------------------------------------------
+# ------------------------------------------------------------------
+# 6. Autonomy tick frequency
+# ------------------------------------------------------------------
 print("\n-- Autonomy tick frequency --")
 c.execute("SELECT ts FROM events WHERE kind='autonomy_tick' ORDER BY id")
-ticks = [datetime.datetime.fromisoformat(ts[0]) for ts in c.fetchall()]
-tick_intervals = []
+ticks = [iso_to_dt(r[0]) for r in c.fetchall()]
+tick_ints = []
 if len(ticks) > 1:
     for i in range(1, len(ticks)):
         delta = (ticks[i] - ticks[i - 1]).total_seconds()
-        tick_intervals.append(delta)
-avg_tick_interval = (
-    sum(tick_intervals) / len(tick_intervals) if tick_intervals else None
-)
-print(
-    f"Ticks: {len(ticks)}, Avg interval: {avg_tick_interval:.2f}s"
-    if avg_tick_interval
-    else "No tick data."
-)
+        tick_ints.append(delta)
+avg_tick = sum(tick_ints) / len(tick_ints) if tick_ints else None
 diagnostics["autonomy_ticks"] = {
     "count": len(ticks),
-    "average_interval_seconds": avg_tick_interval,
+    "average_interval_seconds": round(avg_tick, 2) if avg_tick else None,
 }
+print(f"Ticks: {len(ticks)}   Avg interval: {avg_tick:.2f}s" if avg_tick else "No ticks")
 
-# -----------------------------------------------------------
-# 6. Hash-chain integrity check
-# -----------------------------------------------------------
-print("\n-- Hash integrity check --")
-rows = c.execute("SELECT id, prev_hash, hash FROM events ORDER BY id").fetchall()
-hash_breaks = []
+# ------------------------------------------------------------------
+# 7. Hash-chain integrity
+# ------------------------------------------------------------------
+print("\n-- Hash-chain integrity --")
+c.execute("SELECT id, prev_hash, hash FROM events ORDER BY id")
+rows = c.fetchall()
+breaks = []
 for i in range(1, len(rows)):
-    prev = rows[i - 1][2]
-    if prev != rows[i][1]:
-        hash_breaks.append(rows[i][0])
-if hash_breaks:
-    print(f"⚠️  Hash break(s) detected at event IDs: {hash_breaks}")
-else:
-    print("✅ Hash chain continuous (no breaks detected)")
+    if rows[i - 1][2] != rows[i][1]:
+        breaks.append(rows[i][0])
 diagnostics["hash_integrity"] = {
-    "breaks_found": len(hash_breaks),
-    "break_ids": hash_breaks,
-    "status": "ok" if not hash_breaks else "broken",
+    "breaks_found": len(breaks),
+    "break_ids": breaks,
+    "status": "ok" if not breaks else "broken",
 }
+print("Hash chain continuous" if not breaks else f"Breaks at IDs: {breaks}")
 
-# -----------------------------------------------------------
-# 7. Output results to JSON file
-# -----------------------------------------------------------
-timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-output_file = db_path.with_name(f"pmm_diag_{timestamp}.json")
+# ------------------------------------------------------------------
+# 8. **NEW** Inter-ledger reference diagnostics
+# ------------------------------------------------------------------
+print("\n-- Inter-ledger references (Sprint 14) --")
+c.execute(
+    """SELECT content, meta FROM events WHERE kind='inter_ledger_ref' ORDER BY id"""
+)
+ref_rows = c.fetchall()
 
-with open(output_file, "w", encoding="utf-8") as f:
+ref_stats = {
+    "total": len(ref_rows),
+    "verified": 0,
+    "failed": 0,
+    "paths": Counter(),
+    "referenced_event_ids": Counter(),
+    "raw_refs": [],
+}
+for content, meta_json in ref_rows:
+    meta = json.loads(meta_json) if meta_json else {}
+    verified = meta.get("verified", False)
+    ref_stats["verified" if verified else "failed"] += 1
+    # Parse "REF: path#id"
+    if content.startswith("REF: "):
+        raw = content[5:].strip()
+        ref_stats["raw_refs"].append(raw)
+        try:
+            path, eid = raw.rsplit("#", 1)
+            ref_stats["paths"][path] += 1
+            ref_stats["referenced_event_ids"][int(eid)] += 1
+        except Exception:
+            pass
+
+diagnostics["inter_ledger_refs"] = ref_stats
+
+print(f"Total refs: {ref_stats['total']}   Verified: {ref_stats['verified']}   Failed: {ref_stats['failed']}")
+if ref_stats["paths"]:
+    print("  Most referenced ledgers:")
+    for p, n in ref_stats["paths"].most_common(3):
+        print(f"    {p}: {n}")
+
+# ------------------------------------------------------------------
+# 9. **NEW** Count of REF: lines inside assistant/reflection text
+# ------------------------------------------------------------------
+print("\n-- REF: lines inside assistant & reflection messages --")
+c.execute(
+    """SELECT kind, content FROM events
+       WHERE kind IN ('assistant_message','reflection')
+       ORDER BY id"""
+)
+msg_rows = c.fetchall()
+ref_line_counter = Counter()
+for kind, txt in msg_rows:
+    refs = extract_refs(txt)
+    if refs:
+        ref_line_counter[kind] += len(refs)
+
+diagnostics["ref_lines_in_messages"] = dict(ref_line_counter)
+for k, n in ref_line_counter.items():
+    print(f"{k:20} {n} REF: line(s)")
+
+# ------------------------------------------------------------------
+# 10. Write JSON report
+# ------------------------------------------------------------------
+ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+out_file = db_path.with_name(f"pmm_diag_{ts}.json")
+with open(out_file, "w", encoding="utf-8") as f:
     json.dump(diagnostics, f, indent=2, default=str)
 
-print(f"\n📄 Diagnostics written to {output_file.name}")
+print(f"\nDiagnostics → {out_file.name}")
 conn.close()
