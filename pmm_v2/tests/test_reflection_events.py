@@ -29,13 +29,13 @@ def test_reflection_appended_when_delta(tmp_path):
     # DummyAdapter emits a COMMIT line, creating a delta -> reflection appended by loop
     db = tmp_path / "refl.db"
     log = EventLog(str(db))
-    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter())
+    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter(), autonomy=False)
     loop.run_turn("hello")
     events = log.read_all()
     kinds = [e["kind"] for e in events if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")]
     assert "assistant_message" in kinds
-    assert kinds.count("reflection") >= 1
-    assert kinds[-2] == "autonomy_tick"
+    assert kinds.count("reflection") == 2
+    assert kinds[-2] == "commitment_open"
     assert kinds[-1] == "reflection"
     last_reflection = [e for e in events if e["kind"] == "reflection"][-1]
-    assert last_reflection["meta"].get("source") == "autonomy_kernel"
+    assert last_reflection["meta"].get("source") is None

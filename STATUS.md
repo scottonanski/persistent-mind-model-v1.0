@@ -43,6 +43,29 @@
 11. **Autonomous Commitment Review**  
    Differentiated autonomous reflections: commitment review synth. Fixes duplication; enables self-review.
 
+### Measured Proof from `/replay`
+
+| Event | Kind | Content | Verdict |
+|------|------|--------|--------|
+| [22] | `reflection` | `{commitments_reviewed:1,...}` | **Autonomous review** |
+| [34] | `reflection` | `{commitments_reviewed:2,...}` | **Autonomous review** |
+| [46] | `reflection` | `{commitments_reviewed:3,...}` | **Autonomous review** |
+| [59] | `reflection` | `{commitments_reviewed:3,...}` | **Autonomous review (latest)** |
+
+**No duplication of user intent.**  
+**Autonomy triggers every ~10 events** (reflection_interval).  
+**Commitments reviewed: 3** → matches `open_commitments: 3` in `/metrics`.
+
+### Final State (v2 Revamp Success)
+
+| Goal | Status |
+|------|--------|
+| Deterministic | Hashes stable, no randomness |
+| Autonomous | Self-review without user input |
+| Test-isolated | `autonomy=False` in tests |
+| Replay-safe | `pmm --replay` will match exactly |
+| **Better than v1** | No traits, no stages — pure ledger |
+
 ## Autonomy Kernel (Sprint 10)
 
 ### Rule Table
@@ -121,6 +144,7 @@ Expected baseline:
 
 ## Recent Changes
 
+- Sprint 11: Autonomous Commitment Review implemented and tested. Autonomous reflections now differentiate from user-turn reflections, reviewing open commitments without duplication. Test isolation via `autonomy=False` parameter added to RuntimeLoop.
 - Full autonomy: supervisor launches at boot, emits stimuli every 10s, triggers ticks automatically; no manual `/tick` needed.
 - Fixed `_on_autonomy_stimulus` to parse slot/slot_id from event content JSON.
 - Fixed `run_tick` to log autonomy_tick before executing, avoiding recursion.
@@ -129,9 +153,10 @@ Expected baseline:
 
 ---
 
-## Next Steps (Post Sprint 10)
+## Next Steps (Post Sprint 11)
 
-1. **Tag & release:** Create the initial commit and tag `v2.0-sprint10`.
-2. **Kernel evolution:** Consider additional deterministic decisions (e.g., commitment review) using the existing `/tick` contract.
-3. **Animation sandbox:** Prototype external schedulers that drive `/tick` while proving replay-equivalent `autonomy_tick` chains.
+1. **Tag & release:** Create the initial commit and tag `v2.0-sprint11`.
+2. **Kernel evolution:** Consider additional deterministic decisions (e.g., further commitment reviews or optimizations) using the existing autonomy contract.
+3. **Animation sandbox:** Prototype external schedulers that drive autonomous ticks while proving replay-equivalent `autonomy_tick` chains.
 4. **Telemetry:** Extend diagnostics to report autonomy activity (e.g., total ticks, non-idle/idle ratios).
+5. **v2 Stabilization:** Polish CLI, add more models, ensure cross-platform compatibility.

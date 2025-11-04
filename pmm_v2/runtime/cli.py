@@ -95,7 +95,7 @@ def main() -> None:  # pragma: no cover - thin wrapper
             if cmd in {"/diag"}:
                 events = [e for e in elog.read_tail(200) if e.get("kind") == "metrics_turn"][-5:]
                 for e in events:
-                    print(f"[{e['id']}] metrics_turn | {e['content']}")
+                    print(f"[{e['id']}] {e.get('ts', '')} metrics_turn | {e['content']}")
                 continue
             events = loop.run_turn(user)
             ai_msgs = [e for e in events if e.get("kind") == "assistant_message"]

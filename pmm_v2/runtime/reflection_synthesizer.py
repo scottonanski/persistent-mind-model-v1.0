@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict, Optional, List
 
 from pmm_v2.core.event_log import EventLog
+from pmm_v2.core.ledger_mirror import LedgerMirror
 
 
 def _last_by_kind(events: List[Dict], kind: str) -> Optional[Dict]:
@@ -12,7 +13,7 @@ def _last_by_kind(events: List[Dict], kind: str) -> Optional[Dict]:
     return None
 
 
-def synthesize_reflection(eventlog: EventLog, meta_extra: Optional[Dict[str, str]] = None, source: str = "user_turn") -> Optional[int]:
+def synthesize_reflection(eventlog: EventLog, meta_extra: Optional[Dict[str, str]] = None, source: str = "user_turn", staleness_threshold: Optional[int] = None) -> Optional[int]:
     """Deterministically synthesize and append a reflection event.
 
     For user_turn: Uses the last user_message, assistant_message, and metrics_turn to compose
@@ -22,11 +23,28 @@ def synthesize_reflection(eventlog: EventLog, meta_extra: Optional[Dict[str, str
 
     Returns the new event id or None if prerequisites are missing (user_turn only).
     """
-    if source == "autonomy_kernel":
-        from pmm_v2.core.ledger_mirror import LedgerMirror
+    if meta_extra and meta_extra.get("source") == "autonomy_kernel":
+        # Autonomous commitment-review reflection – now with staleness detection
         mirror = LedgerMirror(eventlog)
         open_cids = mirror.get_open_commitment_events()
-        content = f"{{commitments_reviewed:{len(open_cids)},stale:0,relevance:'all_active',action:'maintain',next:'monitor'}}"
+
+        # Count events since the *oldest* open commitment
+        oldest = min((c for c in open_cids), key=lambda c: c["id"], default=None)
+        events_since = 0
+        if oldest and staleness_threshold is not None:
+            events_since = len([e for e in eventlog.read_all() if e["id"] > oldest["id"]])
+
+        stale_flag = 1 if events_since > staleness_threshold else 0
+
+        content = (
+            "{"
+            f"commitments_reviewed:{len(open_cids)}"
+            f",stale:{stale_flag}"
+            f",relevance:'all_active'"
+            f",action:'maintain'"
+            f",next:'monitor'"
+            "}"
+        )
         meta = {"synth": "v2"}
         if meta_extra:
             meta.update(meta_extra)

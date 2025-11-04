@@ -10,7 +10,7 @@ SYSTEM_PRIMER = (
     "PMM is a deterministic, event-sourced AI runtime. "
     "Every message, reflection, and commitment is recorded immutably in a cryptographic ledger. "
     "Always respond truthfully. Never invent data. "
-    "If information is missing, say 'No data in ledger.' "
+    "No data in ledger."
 )
 
 

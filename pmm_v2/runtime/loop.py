@@ -27,7 +27,7 @@ DEBUG = False  # Set to True for debugging
 
 
 class RuntimeLoop:
-    def __init__(self, *, eventlog: EventLog, adapter, replay: bool = False) -> None:
+    def __init__(self, *, eventlog: EventLog, adapter, replay: bool = False, autonomy: bool = True) -> None:
         self.eventlog = eventlog
         self.mirror = LedgerMirror(eventlog)
         self.memegraph = MemeGraph()
@@ -40,15 +40,16 @@ class RuntimeLoop:
         if not self.replay:
             self.autonomy.ensure_rule_table_event()
 
-            # Start autonomy supervisor
-            epoch = "2025-11-01T00:00:00Z"  # Hardcoded for now
-            interval_s = 10  # Hardcoded for testing
-            self.supervisor = AutonomySupervisor(eventlog, epoch, interval_s)
-            # LISTENER FIRST — catch every stimulus
-            self.eventlog.register_listener(self._on_autonomy_stimulus)
-            # THEN start the supervisor
-            self._supervisor_thread = threading.Thread(target=self._run_supervisor_async, daemon=True)
-            self._supervisor_thread.start()
+            if autonomy:
+                # Start autonomy supervisor
+                epoch = "2025-11-01T00:00:00Z"  # Hardcoded for now
+                interval_s = 10  # Hardcoded for testing
+                self.supervisor = AutonomySupervisor(eventlog, epoch, interval_s)
+                # LISTENER FIRST — catch every stimulus
+                self.eventlog.register_listener(self._on_autonomy_stimulus)
+                # THEN start the supervisor
+                self._supervisor_thread = threading.Thread(target=self._run_supervisor_async, daemon=True)
+                self._supervisor_thread.start()
 
     def _run_supervisor_async(self) -> None:
         """Run the supervisor in an asyncio event loop."""
@@ -233,7 +234,13 @@ class RuntimeLoop:
         # THEN execute
         if decision.decision == "reflect":
             from pmm_v2.runtime.reflection_synthesizer import synthesize_reflection
-            synthesize_reflection(self.eventlog, meta_extra={"source": "autonomy_kernel", "slot_id": slot_id}, source="autonomy_kernel")
+            # Pass the staleness threshold so the synthesizer can compute stale flags
+            meta_extra = {
+                "source": "autonomy_kernel",
+                "slot_id": slot_id,
+                "staleness_threshold": str(self.autonomy.thresholds["commitment_staleness"]),
+            }
+            synthesize_reflection(self.eventlog, meta_extra=meta_extra, staleness_threshold=int(meta_extra["staleness_threshold"]))
         elif decision.decision == "summarize":
             from pmm_v2.runtime.identity_summary import maybe_append_summary
             maybe_append_summary(self.eventlog)
