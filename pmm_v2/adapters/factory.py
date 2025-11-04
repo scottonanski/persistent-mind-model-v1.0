@@ -19,4 +19,3 @@ class LLMFactory:
         if self.provider == "ollama":
             return OllamaAdapter()
         return DummyAdapter()
-

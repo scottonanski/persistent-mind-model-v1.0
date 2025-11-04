@@ -20,4 +20,3 @@ def test_replay_does_not_mutate_ledger(tmp_path):
     events_after = log2.read_all()
     assert events_before == events_after
     assert seq_before == log2.hash_sequence()
-

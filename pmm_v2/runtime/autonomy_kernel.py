@@ -20,7 +20,9 @@ def _events_after(events: List[Dict], anchor: Optional[Dict]) -> List[Dict]:
     return [event for event in events if event.get("id", 0) > anchor_id]
 
 
-def _last_event_matching(events: List[Dict], kind: str, predicate: Callable[[Dict], bool]) -> Optional[Dict]:
+def _last_event_matching(
+    events: List[Dict], kind: str, predicate: Callable[[Dict], bool]
+) -> Optional[Dict]:
     for event in reversed(events):
         if event.get("kind") == kind and predicate(event):
             return event
@@ -44,7 +46,9 @@ class KernelDecision:
 class AutonomyKernel:
     """Deterministic self-direction derived solely from ledger facts."""
 
-    def __init__(self, eventlog: EventLog, thresholds: Optional[Dict[str, int]] = None) -> None:
+    def __init__(
+        self, eventlog: EventLog, thresholds: Optional[Dict[str, int]] = None
+    ) -> None:
         self.eventlog = eventlog
         defaults = {
             "reflection_interval": 10,
@@ -114,10 +118,14 @@ class AutonomyKernel:
         autonomy_reflections_since_summary = [
             event
             for event in events_since_summary
-            if event.get("kind") == "reflection" and event.get("meta", {}).get("source") == "autonomy_kernel"
+            if event.get("kind") == "reflection"
+            and event.get("meta", {}).get("source") == "autonomy_kernel"
         ]
 
-        if autonomy_reflections_since_summary and len(events_since_summary) >= self.thresholds["summary_interval"]:
+        if (
+            autonomy_reflections_since_summary
+            and len(events_since_summary) >= self.thresholds["summary_interval"]
+        ):
             return KernelDecision(
                 decision="summarize",
                 reasoning=f"summary_interval reached ({len(events_since_summary)})",

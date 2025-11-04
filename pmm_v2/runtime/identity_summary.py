@@ -43,4 +43,4 @@ def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
         f",last_event_id:{last_event_id}"
         "}"
     )
-    return eventlog.append(kind="summary_update", content=content, meta={"synth":"v2"})
+    return eventlog.append(kind="summary_update", content=content, meta={"synth": "v2"})

@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import Mock
 
 from pmm_v2.runtime.reflection_synthesizer import synthesize_reflection
@@ -28,7 +27,9 @@ class MockEventLog:
 
     def hash_sequence(self):
         # simple hash
-        return hash(tuple((e["id"], e.get("kind"), e.get("content")) for e in self.events))
+        return hash(
+            tuple((e["id"], e.get("kind"), e.get("content")) for e in self.events)
+        )
 
 
 def test_autonomous_reflection_diff():
@@ -37,7 +38,10 @@ def test_autonomous_reflection_diff():
     events = [
         {"kind": "user_message", "content": "some intent"},
         {"kind": "assistant_message", "content": "some outcome"},
-        {"kind": "metrics_turn", "content": "provider:dummy,model:none,in_tokens:1,out_tokens:1,lat_ms:0"},
+        {
+            "kind": "metrics_turn",
+            "content": "provider:dummy,model:none,in_tokens:1,out_tokens:1,lat_ms:0",
+        },
         {"kind": "commitment_open", "meta": {"cid": "c1"}, "content": "commit 1"},
         {"kind": "commitment_open", "meta": {"cid": "c2"}, "content": "commit 2"},
     ]

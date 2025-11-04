@@ -11,7 +11,9 @@ from typing import Dict, List, Tuple
 
 def extract_commitments(lines: List[str]) -> List[str]:
     """Return commitment texts for exact COMMIT: prefix lines."""
-    return [ln.split("COMMIT:", 1)[1].strip() for ln in lines if ln.startswith("COMMIT:")]
+    return [
+        ln.split("COMMIT:", 1)[1].strip() for ln in lines if ln.startswith("COMMIT:")
+    ]
 
 
 def extract_claims(lines: List[str]) -> List[Tuple[str, Dict]]:
@@ -27,4 +29,3 @@ def extract_claims(lines: List[str]) -> List[Tuple[str, Dict]]:
             data = json.loads(raw)
             out.append((type_, data))
     return out
-

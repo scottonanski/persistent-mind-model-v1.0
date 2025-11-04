@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from typing import List
 from pmm_v2.runtime.prompts import SYSTEM_PRIMER
 
 
@@ -29,7 +28,10 @@ class OpenAIAdapter:
                 temperature=0,
                 top_p=1,
                 messages=[
-                    {"role": "system", "content": f"{SYSTEM_PRIMER}\n\n{system_prompt}"},
+                    {
+                        "role": "system",
+                        "content": f"{SYSTEM_PRIMER}\n\n{system_prompt}",
+                    },
                     {"role": "user", "content": user_prompt},
                 ],
             )
@@ -41,7 +43,10 @@ class OpenAIAdapter:
                 temperature=0,
                 top_p=1,
                 messages=[
-                    {"role": "system", "content": f"{SYSTEM_PRIMER}\n\n{system_prompt}"},
+                    {
+                        "role": "system",
+                        "content": f"{SYSTEM_PRIMER}\n\n{system_prompt}",
+                    },
                     {"role": "user", "content": user_prompt},
                 ],
             )

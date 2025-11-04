@@ -11,7 +11,11 @@ def test_single_turn_with_commitment_and_reflection():
 
     events = loop.run_turn("hello world")
 
-    kinds = [e["kind"] for e in events if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")]
+    kinds = [
+        e["kind"]
+        for e in events
+        if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")
+    ]
     assert kinds[0] == "user_message"
     assert kinds[1] == "assistant_message"
     assert "commitment_open" in kinds

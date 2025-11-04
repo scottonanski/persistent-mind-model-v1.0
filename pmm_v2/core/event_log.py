@@ -12,8 +12,6 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Any, Dict, List, Optional
 
-from .schemas import Event
-
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
@@ -67,7 +65,9 @@ class EventLog:
         row = cur.fetchone()
         return row[0] if row and row[0] else None
 
-    def append(self, *, kind: str, content: str, meta: Optional[Dict[str, Any]] = None) -> int:
+    def append(
+        self, *, kind: str, content: str, meta: Optional[Dict[str, Any]] = None
+    ) -> int:
         meta = meta or {}
         ts = _iso_now()
         prev_hash = self._last_hash()

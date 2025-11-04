@@ -10,7 +10,11 @@ def test_synthesize_reflection_deterministic(tmp_path):
     # seed one turn
     log.append(kind="user_message", content="hello", meta={})
     log.append(kind="assistant_message", content="hi there", meta={})
-    log.append(kind="metrics_turn", content="provider:dummy,model:,in_tokens:2,out_tokens:2,lat_ms:0", meta={})
+    log.append(
+        kind="metrics_turn",
+        content="provider:dummy,model:,in_tokens:2,out_tokens:2,lat_ms:0",
+        meta={},
+    )
 
     r1_id = synthesize_reflection(log)
     # remove it and synthesize again to compare content determinism
@@ -24,4 +28,3 @@ def test_synthesize_reflection_deterministic(tmp_path):
     r1 = [e for e in log.read_all() if e["id"] == r1_id][0]
     r2 = [e for e in log2.read_all() if e["id"] == r2_id][0]
     assert r1["content"] == r2["content"]
-

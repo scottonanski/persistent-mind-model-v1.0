@@ -58,9 +58,13 @@ def test_summary_decision_fires_when_interval_met():
 def test_rule_table_event_only_appended_once():
     log = EventLog(":memory:")
     RuntimeLoop(eventlog=log, adapter=DummyAdapter())
-    first_pass = [event for event in log.read_all() if event["kind"] == "autonomy_rule_table"]
+    first_pass = [
+        event for event in log.read_all() if event["kind"] == "autonomy_rule_table"
+    ]
     assert len(first_pass) == 1
 
     RuntimeLoop(eventlog=log, adapter=DummyAdapter())
-    second_pass = [event for event in log.read_all() if event["kind"] == "autonomy_rule_table"]
+    second_pass = [
+        event for event in log.read_all() if event["kind"] == "autonomy_rule_table"
+    ]
     assert len(second_pass) == 1

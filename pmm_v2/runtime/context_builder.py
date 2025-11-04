@@ -19,4 +19,3 @@ def build_context(eventlog: EventLog, limit: int = 5) -> str:
             lines.append(f"{kind}: {e.get('content','')}")
     tail = lines[-(limit * 2) :]
     return "\n".join(tail)
-

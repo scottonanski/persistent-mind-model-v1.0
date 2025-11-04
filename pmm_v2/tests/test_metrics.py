@@ -59,4 +59,3 @@ def test_append_metrics_if_delta_idempotent(tmp_path):
     log.append(kind="assistant_message", content="Hi", meta={})
     did3 = append_metrics_if_delta(db)
     assert did3 is True
-

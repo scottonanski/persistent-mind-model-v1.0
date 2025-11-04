@@ -9,7 +9,7 @@ from pmm_v2.runtime.loop import RuntimeLoop
 def test_supervisor_starts_on_boot(tmp_path):
     """Test that autonomy supervisor starts on RuntimeLoop init and emits stimuli."""
     log = EventLog(":memory:")
-    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter())
+    _ = RuntimeLoop(eventlog=log, adapter=DummyAdapter())
     # Wait a bit for supervisor to emit
     time.sleep(0.1)
     events = log.read_all()
@@ -20,7 +20,7 @@ def test_supervisor_starts_on_boot(tmp_path):
 def test_no_cli_dependency():
     """Test that autonomy runs without CLI triggers."""
     log = EventLog(":memory:")
-    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter())
+    _ = RuntimeLoop(eventlog=log, adapter=DummyAdapter())
     time.sleep(0.1)
     events = log.read_all()
     # Ensure no /tick or similar in content
@@ -31,7 +31,7 @@ def test_no_cli_dependency():
 def test_replay_equals_live():
     """Test that replay mode produces same autonomy events."""
     log = EventLog(":memory:")
-    live_loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter())
+    _ = RuntimeLoop(eventlog=log, adapter=DummyAdapter())
     time.sleep(0.1)
     live_events = log.read_all()
 
@@ -51,7 +51,7 @@ def test_replay_equals_live():
 def test_idempotent_slots():
     """Test that same slot doesn't emit multiple stimuli."""
     log = EventLog(":memory:")
-    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter())
+    _ = RuntimeLoop(eventlog=log, adapter=DummyAdapter())
     time.sleep(0.5)  # Allow multiple ticks
     events = log.read_all()
     stimuli = [e for e in events if e.get("kind") == "autonomy_stimulus"]

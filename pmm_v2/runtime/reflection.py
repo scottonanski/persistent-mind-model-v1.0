@@ -16,7 +16,9 @@ class TurnDelta:
     reflect_block: Optional[Dict] = None
 
     def is_empty(self) -> bool:
-        return not (self.opened or self.closed or self.failed_claims or self.reflect_block)
+        return not (
+            self.opened or self.closed or self.failed_claims or self.reflect_block
+        )
 
 
 def build_reflection_text(delta: TurnDelta) -> str:

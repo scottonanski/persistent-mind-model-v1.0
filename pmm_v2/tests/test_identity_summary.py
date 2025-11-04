@@ -25,4 +25,3 @@ def test_summary_threshold_and_determinism(tmp_path):
     s1 = [e for e in log.read_all() if e["id"] == sid][0]
     s2 = [e for e in log2.read_all() if e["id"] == sid2][0]
     assert s1["content"] == s2["content"]
-

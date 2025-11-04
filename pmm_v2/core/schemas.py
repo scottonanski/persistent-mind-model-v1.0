@@ -7,12 +7,13 @@ and implementation-agnostic to preserve determinism and clarity.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 
 @dataclass
 class Event:
     """Canonical event record stored in the EventLog."""
+
     id: Optional[int]
     ts: str
     kind: str
@@ -25,6 +26,6 @@ class Event:
 @dataclass
 class Claim:
     """Structured claim made by the model, for future validation."""
+
     type: str
     data: Dict[str, Any]
-

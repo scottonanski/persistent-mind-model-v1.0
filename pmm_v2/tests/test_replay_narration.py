@@ -9,7 +9,11 @@ def test_replay_narration_last_two_lines(tmp_path):
     log = EventLog(str(db))
     log.append(kind="user_message", content="hi", meta={})
     log.append(kind="assistant_message", content="hello", meta={})
-    log.append(kind="commitment_open", content="Commitment opened: abc", meta={"cid": "c1", "text": "abc"})
+    log.append(
+        kind="commitment_open",
+        content="Commitment opened: abc",
+        meta={"cid": "c1", "text": "abc"},
+    )
     log.append(kind="reflection", content="something to say", meta={})
 
     text = narrate(log, limit=2)
@@ -18,4 +22,3 @@ def test_replay_narration_last_two_lines(tmp_path):
     # Should narrate the last two events
     assert "reflection |" in text
     assert "commitment_open |" in text
-

@@ -14,7 +14,9 @@ SYSTEM_PRIMER = (
 )
 
 
-def compose_system_prompt(history: List[Dict[str, Any]], open_commitments: List[Dict[str, Any]]) -> str:
+def compose_system_prompt(
+    history: List[Dict[str, Any]], open_commitments: List[Dict[str, Any]]
+) -> str:
     parts = [
         "You are PMM v2. Respond helpfully.",
         "If you commit, start a line with 'COMMIT:'.",

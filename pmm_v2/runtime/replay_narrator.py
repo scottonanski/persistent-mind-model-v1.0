@@ -21,4 +21,3 @@ def narrate(ledger: EventLog, limit: int = 10) -> str:
         content = (ev.get("content") or "")[:60]
         lines.append(f"[{cid}] {ts} {kind} | {content}")
     return "\n".join(lines)
-

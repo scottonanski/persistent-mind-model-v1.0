@@ -13,7 +13,12 @@ def _last_by_kind(events: List[Dict], kind: str) -> Optional[Dict]:
     return None
 
 
-def synthesize_reflection(eventlog: EventLog, meta_extra: Optional[Dict[str, str]] = None, source: str = "user_turn", staleness_threshold: Optional[int] = None) -> Optional[int]:
+def synthesize_reflection(
+    eventlog: EventLog,
+    meta_extra: Optional[Dict[str, str]] = None,
+    source: str = "user_turn",
+    staleness_threshold: Optional[int] = None,
+) -> Optional[int]:
     """Deterministically synthesize and append a reflection event.
 
     For user_turn: Uses the last user_message, assistant_message, and metrics_turn to compose
@@ -32,7 +37,9 @@ def synthesize_reflection(eventlog: EventLog, meta_extra: Optional[Dict[str, str
         oldest = min((c for c in open_cids), key=lambda c: c["id"], default=None)
         events_since = 0
         if oldest and staleness_threshold is not None:
-            events_since = len([e for e in eventlog.read_all() if e["id"] > oldest["id"]])
+            events_since = len(
+                [e for e in eventlog.read_all() if e["id"] > oldest["id"]]
+            )
 
         stale_flag = 1 if events_since > staleness_threshold else 0
 
@@ -61,11 +68,7 @@ def synthesize_reflection(eventlog: EventLog, meta_extra: Optional[Dict[str, str
         outcome = (assistant.get("content") or "").strip()[:256]
         # Compose a stable, manually-ordered string (no json.dumps ordering)
         content = (
-            "{"
-            f"intent:'{intent}'"
-            f",outcome:'{outcome}'"
-            f",next:'continue'"
-            "}"
+            "{" f"intent:'{intent}'" f",outcome:'{outcome}'" f",next:'continue'" "}"
         )
         meta = {"synth": "v2"}
         if meta_extra:

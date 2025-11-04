@@ -22,7 +22,10 @@ def test_context_builder_tail_window(tmp_path):
     ctx = build_context(log, limit=3)
     lines = ctx.splitlines()
     assert len(lines) <= 6
-    assert all(l.startswith("user_message") or l.startswith("assistant_message") for l in lines)
+    assert all(
+        line.startswith("user_message") or line.startswith("assistant_message")
+        for line in lines
+    )
 
 
 def test_reflection_appended_when_delta(tmp_path):
@@ -32,7 +35,11 @@ def test_reflection_appended_when_delta(tmp_path):
     loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter(), autonomy=False)
     loop.run_turn("hello")
     events = log.read_all()
-    kinds = [e["kind"] for e in events if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")]
+    kinds = [
+        e["kind"]
+        for e in events
+        if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")
+    ]
     assert "assistant_message" in kinds
     assert kinds.count("reflection") == 2
     assert kinds[-2] == "commitment_open"

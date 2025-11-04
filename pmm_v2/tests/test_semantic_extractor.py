@@ -29,4 +29,3 @@ def test_extract_claims_invalid_json_raises():
 def test_empty_input_returns_empty_lists():
     assert extract_commitments([]) == []
     assert extract_claims([]) == []
-

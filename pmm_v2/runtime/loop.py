@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from typing import Any, Dict, List
 
 from pmm_v2.core.event_log import EventLog
@@ -27,7 +26,14 @@ DEBUG = False  # Set to True for debugging
 
 
 class RuntimeLoop:
-    def __init__(self, *, eventlog: EventLog, adapter, replay: bool = False, autonomy: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        eventlog: EventLog,
+        adapter,
+        replay: bool = False,
+        autonomy: bool = True,
+    ) -> None:
         self.eventlog = eventlog
         self.mirror = LedgerMirror(eventlog)
         self.memegraph = MemeGraph()
@@ -48,7 +54,9 @@ class RuntimeLoop:
                 # LISTENER FIRST — catch every stimulus
                 self.eventlog.register_listener(self._on_autonomy_stimulus)
                 # THEN start the supervisor
-                self._supervisor_thread = threading.Thread(target=self._run_supervisor_async, daemon=True)
+                self._supervisor_thread = threading.Thread(
+                    target=self._run_supervisor_async, daemon=True
+                )
                 self._supervisor_thread.start()
 
     def _run_supervisor_async(self) -> None:
@@ -94,7 +102,7 @@ class RuntimeLoop:
     def _extract_reflect(self, text: str) -> Dict[str, Any] | None:
         for line in (text or "").splitlines():
             if line.startswith("REFLECT:"):
-                j = line[len("REFLECT:"):]
+                j = line[len("REFLECT:") :]
                 try:
                     return json.loads(j)
                 except Exception:
@@ -110,7 +118,9 @@ class RuntimeLoop:
         from pmm_v2.runtime.identity_summary import maybe_append_summary
 
         # 1. Log user message
-        self.eventlog.append(kind="user_message", content=user_input, meta={"role": "user"})
+        self.eventlog.append(
+            kind="user_message", content=user_input, meta={"role": "user"}
+        )
 
         # 2. Build prompts
         history = self.eventlog.read_tail(limit=10)
@@ -122,14 +132,17 @@ class RuntimeLoop:
 
         # 3. Invoke model
         t0 = time.perf_counter()
-        assistant_reply = self.adapter.generate_reply(system_prompt=system_prompt, user_prompt=user_input)
+        assistant_reply = self.adapter.generate_reply(
+            system_prompt=system_prompt, user_prompt=user_input
+        )
         t1 = time.perf_counter()
 
         # 4. Log assistant message
         ai_event_id = self.eventlog.append(
-            kind="assistant_message", content=assistant_reply, meta={"role": "assistant"}
+            kind="assistant_message",
+            content=assistant_reply,
+            meta={"role": "assistant"},
         )
-        ai_event = [e for e in self.eventlog.read_all() if e["id"] == ai_event_id][0]
 
         # 4b. Per-turn diagnostics (deterministic formatting)
         prov = "dummy"
@@ -182,7 +195,9 @@ class RuntimeLoop:
             reflection_text = build_reflection_text(delta)
             if reflection_text:
                 self.eventlog.append(
-                    kind="reflection", content=reflection_text, meta={"about_event": ai_event_id}
+                    kind="reflection",
+                    content=reflection_text,
+                    meta={"about_event": ai_event_id},
                 )
 
         return self.eventlog.read_all()
@@ -196,23 +211,32 @@ class RuntimeLoop:
                 # Graceful exits
                 if inp.strip().lower() in {"exit", ".exit", "quit"}:
                     break
-                before = self.eventlog.hash_sequence()
                 events = self.run_turn(inp)
-                after = self.eventlog.hash_sequence()
                 # Print last assistant/reflection contents
                 if self.replay:
                     # In replay, nothing new; just show last assistant/reflection in log
                     for e in events[::-1]:
                         if e["kind"] in ("assistant_message", "reflection"):
-                            role = "Assistant" if e["kind"] == "assistant_message" else "Reflection"
+                            role = (
+                                "Assistant"
+                                if e["kind"] == "assistant_message"
+                                else "Reflection"
+                            )
                             print(f"{role}> {e['content']}")
                             break
                 else:
                     # fresh turn appended; print the last assistant
-                    last_ai = [e for e in events if e["kind"] == "assistant_message"][-1]
+                    last_ai = [e for e in events if e["kind"] == "assistant_message"][
+                        -1
+                    ]
                     # Hide COMMIT lines from user display (still logged in ledger)
-                    lines = [ln for ln in (last_ai["content"] or "").splitlines() if not ln.strip().upper().startswith("COMMIT:")]
-                    print(f"Assistant> {'\n'.join(lines)}")
+                    lines = [
+                        ln
+                        for ln in (last_ai["content"] or "").splitlines()
+                        if not ln.strip().upper().startswith("COMMIT:")
+                    ]
+                    assistant_output = "\n".join(lines)
+                    print(f"Assistant> {assistant_output}")
         except (EOFError, KeyboardInterrupt):
             return
 
@@ -234,15 +258,23 @@ class RuntimeLoop:
         # THEN execute
         if decision.decision == "reflect":
             from pmm_v2.runtime.reflection_synthesizer import synthesize_reflection
+
             # Pass the staleness threshold so the synthesizer can compute stale flags
             meta_extra = {
                 "source": "autonomy_kernel",
                 "slot_id": slot_id,
-                "staleness_threshold": str(self.autonomy.thresholds["commitment_staleness"]),
+                "staleness_threshold": str(
+                    self.autonomy.thresholds["commitment_staleness"]
+                ),
             }
-            synthesize_reflection(self.eventlog, meta_extra=meta_extra, staleness_threshold=int(meta_extra["staleness_threshold"]))
+            synthesize_reflection(
+                self.eventlog,
+                meta_extra=meta_extra,
+                staleness_threshold=int(meta_extra["staleness_threshold"]),
+            )
         elif decision.decision == "summarize":
             from pmm_v2.runtime.identity_summary import maybe_append_summary
+
             maybe_append_summary(self.eventlog)
 
         return decision

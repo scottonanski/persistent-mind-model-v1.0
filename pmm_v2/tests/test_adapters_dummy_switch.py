@@ -15,4 +15,3 @@ def test_import_openai_and_ollama_adapters():
     # Import but do not instantiate network calls
     from pmm_v2.adapters.openai_adapter import OpenAIAdapter  # noqa: F401
     from pmm_v2.adapters.ollama_adapter import OllamaAdapter  # noqa: F401
-

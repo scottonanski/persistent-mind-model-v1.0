@@ -3,9 +3,11 @@ import json
 import subprocess
 
 import os
-from pmm_v2.adapters.factory import LLMFactory
 from pmm_v2.core.event_log import EventLog
-from pmm_v2.core.ledger_metrics import compute_metrics, format_metrics_human, append_metrics_if_delta
+from pmm_v2.core.ledger_metrics import (
+    compute_metrics,
+    format_metrics_human,
+)
 from pmm_v2.runtime.loop import RuntimeLoop
 from pmm_v2.runtime.replay_narrator import narrate
 
@@ -22,14 +24,20 @@ def main() -> None:  # pragma: no cover - thin wrapper
     models: list[str] = []
     try:
         # Prefer JSON list
-        result = subprocess.run(["ollama", "list", "--json"], capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            ["ollama", "list", "--json"], capture_output=True, text=True, check=True
+        )
         models_data = json.loads(result.stdout) if result.stdout.strip() else []
         models.extend([m.get("name") for m in models_data if m.get("name")])
     except Exception:
         # Fallback to table parsing
         try:
-            result = subprocess.run(["ollama", "list"], capture_output=True, text=True, check=True)
-            lines = [ln.strip() for ln in (result.stdout or "").splitlines() if ln.strip()]
+            result = subprocess.run(
+                ["ollama", "list"], capture_output=True, text=True, check=True
+            )
+            lines = [
+                ln.strip() for ln in (result.stdout or "").splitlines() if ln.strip()
+            ]
             if lines and lines[0].lower().startswith("name"):
                 lines = lines[1:]
             models.extend([ln.split()[0] for ln in lines if ln])
@@ -42,7 +50,9 @@ def main() -> None:  # pragma: no cover - thin wrapper
         models.append(f"openai:{default_openai_model}")
 
     if not models:
-        print("No models found. For Ollama, run 'ollama serve' and 'ollama pull <model>'.")
+        print(
+            "No models found. For Ollama, run 'ollama serve' and 'ollama pull <model>'."
+        )
         return
 
     for i, m in enumerate(models, 1):
@@ -54,7 +64,7 @@ def main() -> None:  # pragma: no cover - thin wrapper
     print("  /diag     Show last 5 diagnostic turns")
     print("  /exit     Quit")
     print("────────────────────────────")
-    choice = (input(f"Choice [1-{len(models)}]: ").strip() or "1")
+    choice = input(f"Choice [1-{len(models)}]: ").strip() or "1"
     try:
         selected = models[max(1, min(int(choice), len(models))) - 1]
     except Exception:
@@ -93,9 +103,13 @@ def main() -> None:  # pragma: no cover - thin wrapper
                 print(format_metrics_human(compute_metrics(db_path)))
                 continue
             if cmd in {"/diag"}:
-                events = [e for e in elog.read_tail(200) if e.get("kind") == "metrics_turn"][-5:]
+                events = [
+                    e for e in elog.read_tail(200) if e.get("kind") == "metrics_turn"
+                ][-5:]
                 for e in events:
-                    print(f"[{e['id']}] {e.get('ts', '')} metrics_turn | {e['content']}")
+                    print(
+                        f"[{e['id']}] {e.get('ts', '')} metrics_turn | {e['content']}"
+                    )
                 continue
             events = loop.run_turn(user)
             ai_msgs = [e for e in events if e.get("kind") == "assistant_message"]
@@ -111,7 +125,8 @@ def main() -> None:  # pragma: no cover - thin wrapper
                         # Skip empty-only commit lines
                         continue
                     out_lines.append(ln)
-                print(f"Assistant> {'\n'.join(out_lines)}")
+                assistant_output = "\n".join(out_lines)
+                print(f"Assistant> {assistant_output}")
     except KeyboardInterrupt:
         return
 

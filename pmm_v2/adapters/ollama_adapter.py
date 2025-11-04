@@ -13,7 +13,9 @@ class OllamaAdapter:
 
     def __init__(self, model: str | None = None, base_url: str | None = None) -> None:
         self.model = model or os.environ.get("PMM_OLLAMA_MODEL", "llama3")
-        self.base_url = base_url or os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        self.base_url = base_url or os.environ.get(
+            "OLLAMA_BASE_URL", "http://localhost:11434"
+        )
 
     def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         prompt = f"{SYSTEM_PRIMER}\n\n{system_prompt}\nUser: {user_prompt}\nAssistant:"
@@ -30,6 +32,8 @@ class OllamaAdapter:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with request.urlopen(req, timeout=60) as resp:  # pragma: no cover (network in CI)
+        with request.urlopen(
+            req, timeout=60
+        ) as resp:  # pragma: no cover (network in CI)
             payload = json.loads(resp.read().decode("utf-8"))
             return payload.get("response", "")

@@ -4,8 +4,7 @@ import asyncio
 import hashlib
 import json
 import time
-from datetime import datetime, timezone
-from typing import Dict, Optional
+from datetime import datetime
 
 from pmm_v2.core.event_log import EventLog
 
@@ -21,7 +20,7 @@ class AutonomySupervisor:
 
     def _epoch_timestamp(self) -> float:
         """Parse epoch RFC3339 to Unix timestamp."""
-        dt = datetime.fromisoformat(self.epoch.replace('Z', '+00:00'))
+        dt = datetime.fromisoformat(self.epoch.replace("Z", "+00:00"))
         return dt.timestamp()
 
     def _current_slot(self) -> int:
@@ -33,13 +32,16 @@ class AutonomySupervisor:
     def _slot_id(self, slot: int) -> str:
         """Deterministic slot ID."""
         payload = f"{self.epoch}{self.interval_s}{slot}"
-        return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def _stimulus_exists(self, slot_id: str) -> bool:
         """Check if autonomy_stimulus for this slot_id already exists."""
         events = self.eventlog.read_all()
         for event in events:
-            if event.get("kind") == "autonomy_stimulus" and event.get("meta", {}).get("slot_id") == slot_id:
+            if (
+                event.get("kind") == "autonomy_stimulus"
+                and event.get("meta", {}).get("slot_id") == slot_id
+            ):
                 return True
         return False
 

@@ -31,14 +31,19 @@ def compute_metrics(db_path: str) -> Dict[str, Any]:
     for event in raw_events:
         ph = event.get("prev_hash")
         if prev_hash is None:
-            if ph not in (None, "",):
+            if ph not in (
+                None,
+                "",
+            ):
                 broken_links += 1
         else:
             if ph != prev_hash:
                 broken_links += 1
         prev_hash = event.get("hash")
 
-    canonical_events = [event for event in raw_events if event.get("kind") not in instrumentation]
+    canonical_events = [
+        event for event in raw_events if event.get("kind") not in instrumentation
+    ]
 
     kinds: Dict[str, int] = {}
     opens = 0
@@ -88,7 +93,9 @@ def _last_metrics_snapshot(events: List[Dict[str, Any]]) -> Optional[str]:
 
 
 def _stable_serialize_snapshot(d: Dict[str, Any]) -> str:
-    kinds_items = ",".join(f"{k}:{d['kinds'][k]}" for k in sorted(d.get("kinds", {}).keys()))
+    kinds_items = ",".join(
+        f"{k}:{d['kinds'][k]}" for k in sorted(d.get("kinds", {}).keys())
+    )
     return (
         f"{{"
         f"event_count:{d['event_count']},"

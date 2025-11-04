@@ -16,4 +16,3 @@ def test_reproducible_ledger(tmp_path):
     seq1 = run_loop_dummy(str(tmp_path / "run1.db"))
     seq2 = run_loop_dummy(str(tmp_path / "run2.db"))
     assert seq1 == seq2
-

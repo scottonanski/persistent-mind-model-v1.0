@@ -12,7 +12,9 @@ from .event_log import EventLog
 from .ledger_mirror import LedgerMirror
 
 
-def validate_claim(claim: Claim, ledger: EventLog, mirror: LedgerMirror) -> Tuple[bool, str]:
+def validate_claim(
+    claim: Claim, ledger: EventLog, mirror: LedgerMirror
+) -> Tuple[bool, str]:
     if claim.type == "event_existence":
         ev_id = int(claim.data.get("id", -1))
         exists = ledger.exists(ev_id)

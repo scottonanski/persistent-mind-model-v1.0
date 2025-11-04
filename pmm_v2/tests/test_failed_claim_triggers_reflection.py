@@ -6,14 +6,18 @@ from pmm_v2.runtime.loop import RuntimeLoop
 
 class BadClaimAdapter:
     def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
-        return "CLAIM:event_existence={\"id\": 424242}"
+        return 'CLAIM:event_existence={"id": 424242}'
 
 
 def test_failed_claim_triggers_reflection():
     log = EventLog(":memory:")
     loop = RuntimeLoop(eventlog=log, adapter=BadClaimAdapter(), autonomy=False)
     events = loop.run_turn("hi")
-    kinds = [e["kind"] for e in events if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")]
+    kinds = [
+        e["kind"]
+        for e in events
+        if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")
+    ]
     assert kinds[0] == "user_message"
     assert kinds[1] == "assistant_message"
     assert "commitment_open" not in kinds

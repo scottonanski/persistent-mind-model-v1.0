@@ -32,4 +32,3 @@ class MemeGraph:
 
     def get_event(self, event_id: int) -> Optional[Dict[str, Any]]:
         return self._event_index.get(event_id)
-
