@@ -233,7 +233,7 @@ class RuntimeLoop:
         # THEN execute
         if decision.decision == "reflect":
             from pmm_v2.runtime.reflection_synthesizer import synthesize_reflection
-            synthesize_reflection(self.eventlog, meta_extra={"source": "autonomy_kernel", "slot_id": slot_id})
+            synthesize_reflection(self.eventlog, meta_extra={"source": "autonomy_kernel", "slot_id": slot_id}, source="autonomy_kernel")
         elif decision.decision == "summarize":
             from pmm_v2.runtime.identity_summary import maybe_append_summary
             maybe_append_summary(self.eventlog)

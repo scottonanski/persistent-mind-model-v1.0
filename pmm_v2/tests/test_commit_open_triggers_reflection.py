@@ -13,10 +13,11 @@ def test_commit_open_triggers_reflection():
     log = EventLog(":memory:")
     loop = RuntimeLoop(eventlog=log, adapter=CommitAdapter())
     events = loop.run_turn("hello")
-    kinds = [e["kind"] for e in events if e["kind"] not in {"autonomy_rule_table"}]
+    kinds = [e["kind"] for e in events if e["kind"] not in {"autonomy_rule_table", "autonomy_stimulus"}]
     assert kinds[0] == "user_message"
     assert kinds[1] == "assistant_message"
     assert "commitment_open" in kinds
     assert kinds[-2] == "autonomy_tick"
     assert kinds[-1] == "reflection"
-    assert events[-1]["meta"].get("source") == "autonomy_kernel"
+    last_reflection = [e for e in events if e["kind"] == "reflection"][-1]
+    assert last_reflection["meta"].get("source") == "autonomy_kernel"

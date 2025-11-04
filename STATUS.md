@@ -38,6 +38,11 @@
 
 ---
 
+## Sprint Timeline (11)
+
+11. **Autonomous Commitment Review**  
+   Differentiated autonomous reflections: commitment review synth. Fixes duplication; enables self-review.
+
 ## Autonomy Kernel (Sprint 10)
 
 ### Rule Table

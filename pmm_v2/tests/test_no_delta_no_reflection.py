@@ -13,7 +13,7 @@ def test_no_reflection_when_no_delta():
     log = EventLog(":memory:")
     loop = RuntimeLoop(eventlog=log, adapter=NoDeltaAdapter())
     events = loop.run_turn("hello")
-    kinds = [e["kind"] for e in events if e["kind"] != "autonomy_rule_table"]
+    kinds = [e["kind"] for e in events if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")]
     assert kinds[:2] == ["user_message", "assistant_message"]
     # No commitments or claims should be logged
     assert "commitment_open" not in kinds
@@ -21,4 +21,5 @@ def test_no_reflection_when_no_delta():
     # Loop reflection followed by autonomous reflection
     assert kinds[-2] == "autonomy_tick"
     assert kinds[-1] == "reflection"
-    assert events[-1]["meta"].get("source") == "autonomy_kernel"
+    last_reflection = [e for e in events if e["kind"] == "reflection"][-1]
+    assert last_reflection["meta"].get("source") == "autonomy_kernel"

@@ -7,7 +7,7 @@ from pmm_v2.runtime.loop import RuntimeLoop
 
 def run_loop_dummy(db_path: str) -> list[str]:
     log = EventLog(db_path)
-    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter())
+    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter(), replay=True)
     loop.run_turn("hello determinism")
     return log.hash_sequence()
 

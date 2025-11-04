@@ -23,7 +23,7 @@ def test_run_tick_appends_autonomy_tick_and_reflection():
     log.append(kind="assistant_message", content="a1", meta={})
     log.append(kind="metrics_turn", content="provider:dummy", meta={})
 
-    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter())
+    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter(), replay=True)
     decision = loop.run_tick(slot=0, slot_id="test_slot_0")
 
     assert decision.decision == "reflect"
@@ -34,7 +34,7 @@ def test_run_tick_appends_autonomy_tick_and_reflection():
 
 def test_run_tick_idle_still_logs_event():
     log = EventLog(":memory:")
-    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter())
+    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter(), replay=True)
     decision = loop.run_tick(slot=0, slot_id="test_slot_0")
     assert decision.decision == "idle"
     kinds = [event["kind"] for event in log.read_all()]

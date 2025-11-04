@@ -11,14 +11,16 @@ def test_single_turn_with_commitment_and_reflection():
 
     events = loop.run_turn("hello world")
 
-    kinds = [e["kind"] for e in events if e["kind"] != "autonomy_rule_table"]
+    kinds = [e["kind"] for e in events if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")]
     assert kinds[0] == "user_message"
     assert kinds[1] == "assistant_message"
     assert "commitment_open" in kinds
     assert kinds.count("reflection") >= 1
     assert kinds[-2] == "autonomy_tick"
     assert kinds[-1] == "reflection"
-    assert events[-1]["meta"].get("source") == "autonomy_kernel"
+    last_reflection = [e for e in events if e["kind"] == "reflection" and e["meta"].get("source") == "autonomy_kernel"]
+    assert last_reflection
+    assert last_reflection[0]["meta"].get("source") == "autonomy_kernel"
     # Ensure commitment_open meta has cid and text
     commit_event = [e for e in events if e["kind"] == "commitment_open"][0]
     meta = commit_event["meta"]

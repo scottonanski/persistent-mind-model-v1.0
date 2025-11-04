@@ -19,13 +19,14 @@ def test_idempotent_closure():
     loop = RuntimeLoop(eventlog=log, adapter=CloseAdapter("abcd"))
     # First turn closes and reflects
     events1 = loop.run_turn("do close")
-    kinds1 = [e["kind"] for e in events1 if e["kind"] != "autonomy_rule_table"]
+    kinds1 = [e["kind"] for e in events1 if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")]
     assert kinds1.count("commitment_close") == 1
     assert kinds1[-4:] == ["commitment_close", "reflection", "autonomy_tick", "reflection"]
-    assert events1[-1]["meta"].get("source") == "autonomy_kernel"
+    last_reflection1 = [e for e in events1 if e["kind"] == "reflection"][-1]
+    assert last_reflection1["meta"].get("source") == "autonomy_kernel"
 
     # Second turn attempts to close again; should not close
     events2 = loop.run_turn("do close again")
-    kinds2 = [e["kind"] for e in events2 if e["kind"] != "autonomy_rule_table"]
+    kinds2 = [e["kind"] for e in events2 if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")]
     assert kinds2.count("commitment_close") == 1
     assert kinds2[-1] == "autonomy_tick"

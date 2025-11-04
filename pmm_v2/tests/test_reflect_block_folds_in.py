@@ -16,7 +16,7 @@ def test_reflect_block_triggers_reflection_and_folds_content():
     log = EventLog(":memory:")
     loop = RuntimeLoop(eventlog=log, adapter=ReflectOnlyAdapter())
     events = loop.run_turn("hi")
-    kinds = [e["kind"] for e in events if e["kind"] != "autonomy_rule_table"]
+    kinds = [e["kind"] for e in events if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")]
     assert kinds[:2] == ["user_message", "assistant_message"]
     assert kinds[-2] == "autonomy_tick"
     assert kinds[-1] == "reflection"

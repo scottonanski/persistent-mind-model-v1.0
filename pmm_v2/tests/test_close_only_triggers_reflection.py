@@ -18,6 +18,7 @@ def test_close_only_triggers_reflection():
     log.append(kind="commitment_open", content="c", meta={"cid": "abcd", "text": "x"})
     loop = RuntimeLoop(eventlog=log, adapter=CloseAdapter("abcd"))
     events = loop.run_turn("close it")
-    kinds = [e["kind"] for e in events if e["kind"] != "autonomy_rule_table"]
+    kinds = [e["kind"] for e in events if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")]
     assert kinds[-4:] == ["commitment_close", "reflection", "autonomy_tick", "reflection"]
-    assert events[-1]["meta"].get("source") == "autonomy_kernel"
+    last_reflection = [e for e in events if e["kind"] == "reflection"][-1]
+    assert last_reflection["meta"].get("source") == "autonomy_kernel"

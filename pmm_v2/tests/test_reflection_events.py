@@ -32,9 +32,10 @@ def test_reflection_appended_when_delta(tmp_path):
     loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter())
     loop.run_turn("hello")
     events = log.read_all()
-    kinds = [e["kind"] for e in events]
+    kinds = [e["kind"] for e in events if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")]
     assert "assistant_message" in kinds
     assert kinds.count("reflection") >= 1
     assert kinds[-2] == "autonomy_tick"
     assert kinds[-1] == "reflection"
-    assert events[-1]["meta"].get("source") == "autonomy_kernel"
+    last_reflection = [e for e in events if e["kind"] == "reflection"][-1]
+    assert last_reflection["meta"].get("source") == "autonomy_kernel"
