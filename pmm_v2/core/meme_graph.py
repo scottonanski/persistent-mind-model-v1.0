@@ -1,34 +1,87 @@
-"""Minimal MemeGraph projection stub.
+"""MemeGraph projection for causal relationships over EventLog.
 
-Tracks open commitment cids and basic event index; updated incrementally
-via EventLog listener registration.
+Append-only directed graph using NetworkX DiGraph.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import networkx as nx
+from typing import Dict, List
+
+from .event_log import EventLog
 
 
 class MemeGraph:
-    def __init__(self) -> None:
-        self._commit_open: Dict[str, Dict[str, Any]] = {}
-        self._event_index: Dict[int, Dict[str, Any]] = {}
+    TRACKED_KINDS = {
+        "user_message",
+        "assistant_message",
+        "commitment_open",
+        "commitment_close",
+        "reflection",
+        "summary_update",
+    }
 
-    # EventLog listener API
-    def on_event(self, event: Dict[str, Any]) -> None:
-        self._event_index[event["id"]] = event
-        kind = event.get("kind")
-        if kind == "commitment_open":
-            cid = event.get("meta", {}).get("cid")
-            if cid:
-                self._commit_open[cid] = event
+    def __init__(self, eventlog: EventLog) -> None:
+        self.eventlog = eventlog
+        self.graph = nx.DiGraph()
+
+    def rebuild(self, events: List[Dict]) -> None:
+        self.graph.clear()
+        for event in events:
+            self._add_event(event)
+
+    def add_event(self, event: Dict) -> None:
+        if self.graph.has_node(event["id"]):
+            return
+        if event["kind"] not in self.TRACKED_KINDS:
+            return
+        self._add_event(event)
+
+    def _add_event(self, event: Dict) -> None:
+        event_id = event["id"]
+        kind = event["kind"]
+        content = event.get("content", "")
+        meta = event.get("meta", {})
+
+        # Add node
+        self.graph.add_node(event_id, kind=kind)
+
+        # Add edges
+        if kind == "assistant_message":
+            last_user = self._find_last("user_message")
+            if last_user is not None:
+                self.graph.add_edge(event_id, last_user, label="replies_to")
+        elif kind == "commitment_open":
+            if "COMMIT:" in content:
+                cid = content[7:]
+                assistant_node = self._find_node_with_content(
+                    "assistant_message", f"COMMIT:{cid}"
+                )
+                if assistant_node is not None:
+                    self.graph.add_edge(event_id, assistant_node, label="commits_to")
         elif kind == "commitment_close":
-            cid = event.get("meta", {}).get("cid")
-            if cid and cid in self._commit_open:
-                del self._commit_open[cid]
+            if "CLOSE:" in content:
+                cid = content[6:]
+                open_node = self._find_node_with_content(
+                    "commitment_open", f"COMMIT:{cid}"
+                )
+                if open_node is not None:
+                    self.graph.add_edge(event_id, open_node, label="closes")
+        elif kind == "reflection":
+            about_event = meta.get("about_event")
+            if about_event and self.graph.has_node(about_event):
+                self.graph.add_edge(event_id, about_event, label="reflects_on")
 
-    def open_commitment_cids(self) -> List[str]:
-        return list(self._commit_open.keys())
+    def _find_last(self, kind: str) -> int | None:
+        candidates = [
+            n for n in self.graph.nodes if self.graph.nodes[n]["kind"] == kind
+        ]
+        return max(candidates) if candidates else None
 
-    def get_event(self, event_id: int) -> Optional[Dict[str, Any]]:
-        return self._event_index.get(event_id)
+    def _find_node_with_content(self, kind: str, substring: str) -> int | None:
+        for node in self.graph.nodes:
+            if self.graph.nodes[node]["kind"] == kind:
+                full_event = self.eventlog.get(node)
+                if substring in full_event.get("content", ""):
+                    return node
+        return None

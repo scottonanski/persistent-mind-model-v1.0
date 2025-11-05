@@ -63,6 +63,14 @@
 - Tests: **47/47**
 - Tagged: `v2.0-sprint16`
 
+### Sprint 17: Relational Memory Layer — **COMPLETE** ✅
+- Mirror: O(1) open commitments, stale flags, reflection counts
+- MemeGraph: deterministic causal graph (replies_to, commits_to, closes, reflects_on)
+- Full rebuild from ledger → replay parity
+- Listeners only — no Ledger mutation
+- Tests: 8 new, all pass
+- Tagged: `v2.0-sprint17`
+
 ### Measured Proof from `/replay`
 
 | Event | Kind | Content | Verdict |

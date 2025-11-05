@@ -65,9 +65,8 @@ class AutonomyKernel:
     def ensure_rule_table_event(self) -> None:
         """Record the kernel's rule table in the ledger exactly once."""
         events = self.eventlog.read_all()
-        for event in events:
-            if event.get("kind") == "autonomy_rule_table":
-                return
+        if any(event.get("kind") == "autonomy_rule_table" for event in events):
+            return
 
         content = (
             "{"

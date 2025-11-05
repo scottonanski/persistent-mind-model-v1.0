@@ -61,6 +61,11 @@ Any PR introducing a user-triggered autonomy path will be rejected.
 - Duplicate `REF:` lines pointing to the same `(path, event_id)` pair do not generate redundant events.
 - System prompts are stable and deterministic; truth directive is prepended to ensure consistent enforcement without increasing token bounds.
 
+### Projection Integrity
+- Mirror and MemeGraph **must** be fully rebuildable from `eventlog.read_all()` 
+- `sync()` / `add_event()` **must** be idempotent
+- No hidden state — all queries traceable to ledger events
+
 ## 3. Evolution / Reflection Policy
 
 - reflection events are generated deterministically by reflection_synthesizer.py.

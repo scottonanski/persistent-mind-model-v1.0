@@ -27,4 +27,4 @@ def compose_system_prompt(
 
 
 def compose_reflection_prompt(last_assistant_event: Dict[str, Any]) -> str:
-    return "Reflect briefly on the last assistant message in one sentence."
+    return "[REFLECT]: One sentence. No summary. Only: What belief did you just reinforce or question?"

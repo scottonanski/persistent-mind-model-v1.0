@@ -6,7 +6,7 @@ import json
 from typing import Any, Dict, List
 
 from pmm_v2.core.event_log import EventLog
-from pmm_v2.core.ledger_mirror import LedgerMirror
+from pmm_v2.core.mirror import Mirror
 from pmm_v2.core.meme_graph import MemeGraph
 from pmm_v2.runtime.autonomy_kernel import AutonomyKernel, KernelDecision
 from pmm_v2.runtime.commitment_manager import CommitmentManager
@@ -35,14 +35,18 @@ class RuntimeLoop:
         autonomy: bool = True,
     ) -> None:
         self.eventlog = eventlog
-        self.mirror = LedgerMirror(eventlog)
-        self.memegraph = MemeGraph()
-        # wire event listener
-        self.eventlog.register_listener(self.memegraph.on_event)
+        self.mirror = Mirror(eventlog)
+        self.memegraph = MemeGraph(eventlog)
+        # wire event listeners
+        self.eventlog.register_listener(self.mirror.sync)
+        self.eventlog.register_listener(self.memegraph.add_event)
         self.commitments = CommitmentManager(eventlog)
         self.adapter = adapter
         self.replay = replay
         self.autonomy = AutonomyKernel(eventlog)
+        if self.replay:
+            self.mirror.rebuild()
+            self.memegraph.rebuild(self.eventlog.read_all())
         if not self.replay:
             self.autonomy.ensure_rule_table_event()
 
