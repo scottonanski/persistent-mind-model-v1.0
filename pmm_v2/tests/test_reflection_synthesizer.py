@@ -28,3 +28,12 @@ def test_synthesize_reflection_deterministic(tmp_path):
     r1 = [e for e in log.read_all() if e["id"] == r1_id][0]
     r2 = [e for e in log2.read_all() if e["id"] == r2_id][0]
     assert r1["content"] == r2["content"]
+
+
+def test_autonomy_reflection_has_source():
+    log = EventLog(":memory:")
+    synthesize_reflection(
+        log, meta_extra={"source": "autonomy_kernel"}, staleness_threshold=20
+    )
+    ev = log.read_all()[-1]
+    assert ev["meta"]["source"] == "autonomy_kernel"

@@ -85,6 +85,7 @@ class EventLog:
             "filler",
             "test_event",
             "metrics_update",
+            "autonomy_metrics",
         }
         if kind not in valid_kinds:
             raise ValueError(f"Invalid event kind: {kind}")

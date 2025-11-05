@@ -79,9 +79,11 @@ def synthesize_reflection(
         )
         if should_cross_reference:
             content += "\nREF: ../other_pmm_v2.db#47"
-        meta = {"synth": "v2"}
-        if meta_extra:
-            meta.update(meta_extra)
+        meta = {
+            "synth": "v2",
+            "source": meta_extra.get("source") if meta_extra else "unknown",
+        }
+        meta.update(meta_extra or {})
         return eventlog.append(kind="reflection", content=content, meta=meta)
     else:
         events = eventlog.read_all()
@@ -97,7 +99,9 @@ def synthesize_reflection(
         content = (
             "{" f"intent:'{intent}'" f",outcome:'{outcome}'" f",next:'continue'" "}"
         )
-        meta = {"synth": "v2"}
-        if meta_extra:
-            meta.update(meta_extra)
+        meta = {
+            "synth": "v2",
+            "source": meta_extra.get("source") if meta_extra else "unknown",
+        }
+        meta.update(meta_extra or {})
         return eventlog.append(kind="reflection", content=content, meta=meta)

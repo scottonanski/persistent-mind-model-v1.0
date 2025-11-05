@@ -17,6 +17,7 @@ from pmm_v2.core.validators import validate_claim
 from pmm_v2.core.semantic_extractor import extract_commitments, extract_claims
 from pmm_v2.runtime.context_builder import build_context
 from pmm_v2.runtime.autonomy_supervisor import AutonomySupervisor
+from pmm_v2.core.autonomy_tracker import AutonomyTracker
 import asyncio
 import threading
 import time
@@ -44,6 +45,7 @@ class RuntimeLoop:
         self.adapter = adapter
         self.replay = replay
         self.autonomy = AutonomyKernel(eventlog)
+        self.tracker = AutonomyTracker(eventlog)
         if self.replay:
             self.mirror.rebuild()
             self.memegraph.rebuild(self.eventlog.read_all())

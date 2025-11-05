@@ -197,3 +197,11 @@ Expected baseline:
 3. **Animation sandbox:** Prototype external schedulers that drive autonomous ticks while proving replay-equivalent `autonomy_tick` chains.
 4. **Telemetry:** Extend diagnostics to report autonomy activity (e.g., total ticks, non-idle/idle ratios).
 5. **v2 Stabilization:** Polish CLI, add more models, ensure cross-platform compatibility.
+
+## Sprint 18: Autonomy Telemetry
+
+- Added `autonomy_metrics` event every 10 `autonomy_tick` via `AutonomyTracker`.
+- Rebuildable from ledger, idempotent, listener-driven.
+- Integrated into `/metrics` via `compute_metrics(tracker=...)`.
+- Tests: rebuild parity, emit cadence, no-delta idempotency.
+- Deterministic, replay-safe, no model calls.

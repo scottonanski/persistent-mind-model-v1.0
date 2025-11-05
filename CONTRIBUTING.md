@@ -66,6 +66,11 @@ Any PR introducing a user-triggered autonomy path will be rejected.
 - `sync()` / `add_event()` **must** be idempotent
 - No hidden state — all queries traceable to ledger events
 
+### Telemetry
+- Autonomy telemetry must be ledger-only, rebuildable, and idempotent.
+- `autonomy_metrics` events are emitted every 10 ticks, listener-driven.
+- No model calls or external dependencies in telemetry.
+
 ## 3. Evolution / Reflection Policy
 
 - reflection events are generated deterministically by reflection_synthesizer.py.

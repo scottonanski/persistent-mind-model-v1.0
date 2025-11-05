@@ -100,7 +100,10 @@ def main() -> None:  # pragma: no cover - thin wrapper
                 print(narrate(elog, limit=50))
                 continue
             if cmd in {"/metrics"}:
-                print(format_metrics_human(compute_metrics(db_path)))
+                tracker = loop.tracker if hasattr(loop, "tracker") else None
+                if tracker:
+                    tracker.rebuild()  # Rebuild from ledger on CLI load
+                print(format_metrics_human(compute_metrics(db_path, tracker)))
                 continue
             if cmd in {"/diag"}:
                 events = [

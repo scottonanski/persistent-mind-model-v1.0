@@ -9,9 +9,12 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from pmm_v2.core.event_log import EventLog
+from pmm_v2.core.autonomy_tracker import AutonomyTracker
 
 
-def compute_metrics(db_path: str) -> Dict[str, Any]:
+def compute_metrics(
+    db_path: str, tracker: Optional[AutonomyTracker] = None
+) -> Dict[str, Any]:
     """Compute deterministic metrics and integrity info for a ledger.
 
     Returns dict with keys:
@@ -61,7 +64,7 @@ def compute_metrics(db_path: str) -> Dict[str, Any]:
     else:
         last_hash = "0" * 64
 
-    return {
+    metrics = {
         "event_count": len(canonical_events),
         "kinds": kinds,
         "broken_links": broken_links,
@@ -69,6 +72,20 @@ def compute_metrics(db_path: str) -> Dict[str, Any]:
         "closed_commitments": closes,
         "last_hash": last_hash,
     }
+
+    if tracker:
+        tracker.rebuild()  # Ensure rebuild in case not done
+        am = tracker.get_metrics()
+        metrics["autonomy_metrics"] = {
+            "ticks_total": am["ticks_total"],
+            "reflect_count": am["reflect_count"],
+            "summarize_count": am["summarize_count"],
+            "idle_count": am["idle_count"],
+            "last_reflection_id": am["last_reflection_id"],
+            "open_commitments": am["open_commitments"],
+        }
+
+    return metrics
 
 
 def format_metrics_human(metrics: Dict[str, Any]) -> str:
@@ -81,6 +98,15 @@ def format_metrics_human(metrics: Dict[str, Any]) -> str:
     lines.append("kinds:")
     for k in sorted(metrics.get("kinds", {}).keys()):
         lines.append(f"  - {k}: {metrics['kinds'][k]}")
+    if "autonomy_metrics" in metrics:
+        am = metrics["autonomy_metrics"]
+        lines.append("autonomy_metrics:")
+        lines.append(f"  ticks_total: {am['ticks_total']}")
+        lines.append(f"  reflect_count: {am['reflect_count']}")
+        lines.append(f"  summarize_count: {am['summarize_count']}")
+        lines.append(f"  idle_count: {am['idle_count']}")
+        lines.append(f"  last_reflection_id: {am['last_reflection_id']}")
+        lines.append(f"  open_commitments: {am['open_commitments']}")
     return "\n".join(lines)
 
 
