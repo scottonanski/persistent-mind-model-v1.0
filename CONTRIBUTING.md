@@ -57,6 +57,9 @@ Any PR introducing a user-triggered autonomy path will be rejected.
 
 - If an operation yields no semantic delta, do not emit a new event.
 - Re‑emission is allowed only on validated policy change.
+- `claim_verification` events are emitted **once per unique failed reference target**.
+- Duplicate `REF:` lines pointing to the same `(path, event_id)` pair do not generate redundant events.
+- System prompts are stable and deterministic; truth directive is prepended to ensure consistent enforcement without increasing token bounds.
 
 ## 3. Evolution / Reflection Policy
 

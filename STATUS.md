@@ -48,6 +48,21 @@
 14. **Inter-Ledger References**  
    Echo can reference events from other PMM ledgers using `REF: <path>#<event_id>` syntax in any `assistant_message` or `reflection`. The referenced event is verified by hash, appended as `inter_ledger_ref`, and replay-safe. Includes parsing in runtime loop, REF proposal in autonomy reflection synthesizer, updated `/replay` narration with ✓/✗ status, and comprehensive tests.
 
+15. **Cross-Mind Truth Alignment**  
+   `claim_verification` events emitted on failed `inter_ledger_ref` verification. **Idempotent**: one event per unique `(path, event_id)` pair, reconstructed deterministically via `get_failed_ref_keys()`. Verified: `pytest -q` → **43/43 passed**. Live in `pmm_v2.db`: 2 `claim_verification`, 13 failed refs, **no duplicates**.
+
+16. **Enhanced Self-Awareness in Reflections**  
+   Reflections now include a `self_model` field when at least 5 user reflections exist, scanning for patterns and appending a deterministic string `'dynamic, process-defined identity'`. Enhances emergent self-awareness via ledger facts only, preserving replay determinism.
+
+### Sprint 16: Emergent Self-Model — **COMPLETE** ✅
+- `self_model` in reflections (≥5 user refs)
+- `metrics_emergent` on high reflection/commitment load
+- Fixed truth reminder in system prompt
+- `identity_trend` in summaries (delta ≠0)
+- All deterministic, ledger-safe
+- Tests: **47/47**
+- Tagged: `v2.0-sprint16`
+
 ### Measured Proof from `/replay`
 
 | Event | Kind | Content | Verdict |
@@ -71,7 +86,7 @@
 | Replay-safe | `pmm --replay` will match exactly |
 | **Better than v1** | No traits, no stages — pure ledger |
 
-## Autonomy Kernel (Sprint 10)
+## Autonomy Kernel (Sprint 11)
 
 ### Rule Table
 
@@ -89,6 +104,14 @@ Additional governance rules:
 - `autonomy_rule_table` is persisted exactly once per ledger. Current hash: `ca68d073b140fce63170b9790db7acdef5b96487f8af533332a025fd54a1541f`.
 
 Replay contract: identical ledgers reproduce the same sequence of `autonomy_tick`, reflection, and summary events byte-for-byte.
+
+---
+
+## Idempotency
+
+- `claim_verification` events are emitted **once per unique failed reference target**.
+- Duplicate `REF:` lines pointing to the same `(path, event_id)` pair do not generate redundant events.
+- The set of failed references is reconstructed deterministically from existing `claim_verification` events in the ledger.
 
 ---
 
