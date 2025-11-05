@@ -1,4 +1,4 @@
-# Persistent Mind Model (PMM) License — Version 1.1 * 2.0
+# Persistent Mind Model (PMM) License — Version 1.1 & 2.0
 
 **August 2025**
 
