@@ -1,13 +1,17 @@
 from __future__ import annotations
-import json
-import subprocess
 
+import json
 import os
+import subprocess
+from typing import Dict, Optional
+
 from pmm_v2.core.event_log import EventLog
+from pmm_v2.core.ledger_mirror import LedgerMirror
 from pmm_v2.core.ledger_metrics import (
     compute_metrics,
     format_metrics_human,
 )
+from pmm_v2.core.commitment_manager import CommitmentManager
 from pmm_v2.runtime.loop import RuntimeLoop
 from pmm_v2.runtime.replay_narrator import narrate
 
@@ -62,6 +66,8 @@ def main() -> None:  # pragma: no cover - thin wrapper
     print("  /replay   Show last 50 events")
     print("  /metrics  Show ledger metrics summary")
     print("  /diag     Show last 5 diagnostic turns")
+    print("  /goals    Show open internal goals")
+    print(RSM_HELP_TEXT)
     print("  /exit     Quit")
     print("────────────────────────────")
     choice = input(f"Choice [1-{len(models)}]: ").strip() or "1"
@@ -95,7 +101,16 @@ def main() -> None:  # pragma: no cover - thin wrapper
             if user.strip().lower() in {"/exit", "exit", "quit"}:
                 break
             # In-session commands (no CLI flags)
-            cmd = user.strip().lower()
+            raw_cmd = user.strip()
+            cmd = raw_cmd.lower()
+            if cmd.startswith("/rsm"):
+                output = handle_rsm_command(raw_cmd, elog)
+                if output:
+                    print(output)
+                continue
+            if cmd in {"/goals"}:
+                print(handle_goals_command(elog))
+                continue
             if cmd in {"/replay"}:
                 print(narrate(elog, limit=50))
                 continue
@@ -137,3 +152,113 @@ def main() -> None:  # pragma: no cover - thin wrapper
 
 if __name__ == "__main__":  # pragma: no cover
     main()
+
+
+def handle_rsm_command(command: str, eventlog: EventLog) -> Optional[str]:
+    parts = command.strip().split()
+    if not parts or parts[0].lower() != "/rsm":
+        return None
+
+    mirror = LedgerMirror(eventlog, listen=False)
+    try:
+        args = parts[1:]
+        if not args:
+            latest_id = _latest_event_id(eventlog)
+            snapshot = mirror.rsm_snapshot()
+            return _format_snapshot(snapshot, latest_id, current=True)
+        if len(args) == 1:
+            event_id = int(args[0])
+            if event_id < 0:
+                return "Event ids must be non-negative integers."
+            historical = mirror._rebuild_up_to(event_id).rsm_snapshot()
+            return _format_snapshot(historical, event_id, current=False)
+        if len(args) == 3 and args[0].lower() == "diff":
+            start = int(args[1])
+            end = int(args[2])
+            if start < 0 or end < 0:
+                return "Event ids must be non-negative integers."
+            diff = mirror.diff_rsm(start, end)
+            diff_payload = {
+                "from_event": start,
+                "to_event": end,
+                "tendencies_delta": diff["tendencies_delta"],
+                "gaps_added": diff["gaps_added"],
+                "gaps_resolved": diff["gaps_resolved"],
+            }
+            return _format_diff(diff_payload)
+        return "Usage: /rsm [id | diff <a> <b>]"
+    except ValueError:
+        return "Event ids must be integers."
+
+
+def handle_goals_command(eventlog: EventLog) -> str:
+    manager = CommitmentManager(eventlog)
+    open_internal = manager.get_open_commitments(origin="autonomy_kernel")
+    if not open_internal:
+        return "No internal goals."
+
+    lines = ["Internal Goals:", "cid | goal | opened_at"]
+    for event in open_internal:
+        meta = event.get("meta") or {}
+        cid = meta.get("cid", "")
+        goal = meta.get("goal", "")
+        opened_at = event.get("id", "")
+        if not cid:
+            continue
+        lines.append(f"{cid} | {goal} | {opened_at}")
+    if len(lines) == 2:
+        return "No internal goals."
+    return "\n".join(lines)
+
+
+def _latest_event_id(eventlog: EventLog) -> int:
+    tail = eventlog.read_tail(1)
+    return int(tail[-1]["id"]) if tail else 0
+
+
+def _format_snapshot(
+    snapshot: Dict[str, object], event_id: int, *, current: bool
+) -> str:
+    header = (
+        "RSM Snapshot (current ledger)"
+        if current
+        else f"RSM Snapshot (event {event_id})"
+    )
+    lines = [header, "  Behavioral Tendencies:"]
+    tendencies = snapshot.get("behavioral_tendencies", {}) or {}
+    if tendencies:
+        for key in sorted(tendencies):
+            lines.append(f"    {key:<{_COLUMN_WIDTH}} {tendencies[key]}")
+    else:
+        lines.append("    (none)")
+
+    gaps = snapshot.get("knowledge_gaps", []) or []
+    gap_text = ", ".join(sorted(gaps)) if gaps else "(none)"
+    lines.append(f"  Knowledge Gaps:        {gap_text}")
+
+    meta_patterns = snapshot.get("interaction_meta_patterns", []) or []
+    meta_text = ", ".join(sorted(meta_patterns)) if meta_patterns else "(none)"
+    lines.append(f"  Interaction Patterns:  {meta_text}")
+    return "\n".join(lines)
+
+
+def _format_diff(diff: Dict[str, object]) -> str:
+    header = f"RSM Diff ({diff['from_event']} -> {diff['to_event']})"
+    lines = [header, "  Tendencies Delta:"]
+    delta = diff.get("tendencies_delta", {}) or {}
+    if delta:
+        for key in sorted(delta):
+            lines.append(f"    {key:<{_COLUMN_WIDTH}} {delta[key]:+d}")
+    else:
+        lines.append("    (none)")
+    gaps_added = diff.get("gaps_added", []) or []
+    gaps_resolved = diff.get("gaps_resolved", []) or []
+    added_text = ", ".join(sorted(gaps_added)) if gaps_added else "(none)"
+    resolved_text = ", ".join(sorted(gaps_resolved)) if gaps_resolved else "(none)"
+    lines.append(f"  Gaps Added:           {added_text}")
+    lines.append(f"  Gaps Resolved:        {resolved_text}")
+    return "\n".join(lines)
+
+
+RSM_HELP_TEXT = "  /rsm [id | diff <a> <b>] - show Recursive Self-Model"
+_COLUMN_WIDTH = 24

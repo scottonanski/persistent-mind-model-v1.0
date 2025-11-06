@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 import json
 
 from pmm_v2.core.event_log import EventLog
+from pmm_v2.core.ledger_mirror import LedgerMirror
+from pmm_v2.core.commitment_manager import CommitmentManager
 
 
 def _last_event(events: List[Dict], kind: str) -> Optional[Dict]:
@@ -47,6 +49,12 @@ class KernelDecision:
 class AutonomyKernel:
     """Deterministic self-direction derived solely from ledger facts."""
 
+    INTERNAL_GOAL_MONITOR_RSM = "monitor_rsm_evolution"
+    INTERNAL_GOAL_ANALYZE_GAPS = "analyze_knowledge_gaps"
+    KNOWLEDGE_GAP_THRESHOLD = 3
+    RSM_EVENT_INTERVAL = 50
+    SIGNIFICANT_TENDENCY_THRESHOLD = 5
+
     def __init__(
         self, eventlog: EventLog, thresholds: Optional[Dict[str, int]] = None
     ) -> None:
@@ -62,6 +70,9 @@ class AutonomyKernel:
             for key, value in thresholds.items():
                 if key in self.thresholds:
                     self.thresholds[key] = int(value)
+        self._goal_state: Dict[str, Dict[str, int]] = {}
+        self._commitments = CommitmentManager(eventlog)
+        self.last_gap_analysis_cid: Optional[str] = None
 
     def ensure_rule_table_event(self) -> None:
         """Record the kernel's rule table in the ledger exactly once."""
@@ -144,6 +155,14 @@ class AutonomyKernel:
         }
         if len(open_commitments) > 0:
             content_dict["refs"] = ["../other_pmm_v2.db#47"]
+        internal_open = CommitmentManager(eventlog).get_open_commitments(
+            origin="autonomy_kernel"
+        )
+        content_dict["internal_goals"] = [
+            (ev.get("meta") or {}).get("cid")
+            for ev in internal_open
+            if (ev.get("meta") or {}).get("cid")
+        ]
         meta = {
             "synth": "v2",
             "source": meta_extra.get("source") if meta_extra else "unknown",
@@ -151,13 +170,28 @@ class AutonomyKernel:
         meta.update(meta_extra or {})
         return eventlog.append(
             kind="reflection",
-            content=json.dumps(
-                content_dict, sort_keys=True, separators=(",", ":")
-            ),
+            content=json.dumps(content_dict, sort_keys=True, separators=(",", ":")),
             meta=meta,
         )
 
     def decide_next_action(self) -> KernelDecision:
+        self.execute_internal_goal(self.INTERNAL_GOAL_MONITOR_RSM)
+        mirror = LedgerMirror(self.eventlog, listen=False)
+        gaps = mirror.rsm_knowledge_gaps()
+        gap_commitments = self._open_gap_commitments()
+        if not gap_commitments and gaps > self.KNOWLEDGE_GAP_THRESHOLD:
+            reason = f"gaps={gaps}"
+            cid = self._commitments.open_internal(
+                self.INTERNAL_GOAL_ANALYZE_GAPS, reason=reason
+            )
+            if cid:
+                self.last_gap_analysis_cid = cid
+                gap_commitments = self._open_gap_commitments()
+        elif gap_commitments:
+            latest_meta = gap_commitments[-1].get("meta") or {}
+            self.last_gap_analysis_cid = latest_meta.get("cid")
+        else:
+            self.last_gap_analysis_cid = None
         events = self.eventlog.read_all()
         if not events:
             return KernelDecision("idle", "no events recorded", [])
@@ -209,3 +243,143 @@ class AutonomyKernel:
             )
 
         return KernelDecision("idle", "no autonomous action needed", [])
+
+    def _open_gap_commitments(self) -> List[Dict[str, Any]]:
+        return [
+            event
+            for event in self._commitments.get_open_commitments(
+                origin="autonomy_kernel"
+            )
+            if (event.get("meta") or {}).get("goal") == self.INTERNAL_GOAL_ANALYZE_GAPS
+        ]
+
+    def execute_internal_goal(self, goal: str) -> Optional[int]:
+        if goal != self.INTERNAL_GOAL_MONITOR_RSM:
+            return None
+
+        events = self.eventlog.read_all()
+        if not events:
+            return None
+
+        open_goal = self._find_open_internal_goal(goal, events)
+        if not open_goal:
+            return None
+
+        current_event_id = events[-1]["id"]
+        state = self._goal_state.setdefault(
+            goal,
+            {"last_check_id": self._initial_goal_anchor(goal, open_goal, events)},
+        )
+        last_check_id = state["last_check_id"]
+
+        if current_event_id <= last_check_id:
+            return None
+
+        if current_event_id - last_check_id < self.RSM_EVENT_INTERVAL:
+            return None
+
+        mirror = LedgerMirror(self.eventlog, listen=False)
+        diff = mirror.diff_rsm(last_check_id, current_event_id)
+
+        if not self._is_significant_rsm_change(diff):
+            self._goal_state.pop(goal, None)
+            self._close_internal_goal(open_goal, goal)
+            return None
+
+        reflection_id = self._append_rsm_reflection(
+            diff, last_check_id, current_event_id
+        )
+        self._goal_state[goal]["last_check_id"] = reflection_id
+        return reflection_id
+
+    def _is_significant_rsm_change(self, diff: Dict[str, object]) -> bool:
+        tendencies = diff.get("tendencies_delta", {}) or {}
+        if any(
+            abs(int(value)) > self.SIGNIFICANT_TENDENCY_THRESHOLD
+            for value in tendencies.values()
+        ):
+            return True
+        if diff.get("gaps_added") or diff.get("gaps_resolved"):
+            return True
+        return False
+
+    def _find_open_internal_goal(
+        self, goal: str, events: List[Dict[str, object]]
+    ) -> Optional[Dict[str, object]]:
+        open_event: Optional[Dict[str, object]] = None
+        for event in events:
+            if (
+                event.get("kind") == "commitment_open"
+                and event.get("meta", {}).get("goal") == goal
+            ):
+                open_event = event
+            elif (
+                open_event
+                and event.get("kind") == "commitment_close"
+                and event.get("meta", {}).get("cid")
+                == open_event.get("meta", {}).get("cid")
+            ):
+                open_event = None
+        return open_event
+
+    def _initial_goal_anchor(
+        self,
+        goal: str,
+        open_goal: Dict[str, object],
+        events: List[Dict[str, object]],
+    ) -> int:
+        if goal == self.INTERNAL_GOAL_MONITOR_RSM:
+            summary_id = self._last_summary_event_id(events)
+            if summary_id is not None:
+                return summary_id
+            return int(open_goal.get("id", 0))
+        return 0
+
+    def _last_summary_event_id(self, events: List[Dict[str, object]]) -> Optional[int]:
+        for event in reversed(events):
+            if event.get("kind") == "summary_update":
+                return int(event["id"])
+        return None
+
+    def _append_rsm_reflection(
+        self, diff: Dict[str, object], start_id: int, end_id: int
+    ) -> int:
+        tendencies = diff.get("tendencies_delta", {}) or {}
+        ordered_tendencies = {
+            key: int(tendencies[key]) for key in sorted(tendencies.keys())
+        }
+        payload = {
+            "action": self.INTERNAL_GOAL_MONITOR_RSM,
+            "tendencies_delta": ordered_tendencies,
+            "gaps_added": diff.get("gaps_added", []),
+            "gaps_resolved": diff.get("gaps_resolved", []),
+            "from_event": int(start_id),
+            "to_event": int(end_id),
+            "next": "monitor",
+        }
+        meta = {
+            "source": "autonomy_kernel",
+            "goal": self.INTERNAL_GOAL_MONITOR_RSM,
+        }
+        return self.eventlog.append(
+            kind="reflection",
+            content=json.dumps(payload, sort_keys=True, separators=(",", ":")),
+            meta=meta,
+        )
+
+    def _close_internal_goal(
+        self, open_goal: Dict[str, object], goal: str
+    ) -> Optional[int]:
+        cid = (open_goal.get("meta") or {}).get("cid")
+        if not cid:
+            return None
+        return self.eventlog.append(
+            kind="commitment_close",
+            content=f"Commitment closed: {cid}",
+            meta={
+                "source": "autonomy_kernel",
+                "cid": cid,
+                "goal": goal,
+                "reason": "rsm_stable",
+            },
+        )

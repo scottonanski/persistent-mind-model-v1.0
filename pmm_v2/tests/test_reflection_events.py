@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pmm_v2.core.event_log import EventLog
+from pmm_v2.core.commitment_manager import CommitmentManager
 from pmm_v2.runtime.context_builder import build_context
 from pmm_v2.runtime.prompts import SYSTEM_PRIMER
 from pmm_v2.adapters.dummy_adapter import DummyAdapter
@@ -46,3 +47,35 @@ def test_reflection_appended_when_delta(tmp_path):
     assert kinds[-1] == "reflection"
     last_reflection = [e for e in events if e["kind"] == "reflection"][-1]
     assert last_reflection["meta"].get("source") is None
+
+
+def test_context_appends_rsm_section():
+    log = EventLog(":memory:")
+    log.append(kind="user_message", content="who are you", meta={})
+    log.append(
+        kind="assistant_message",
+        content="Determinism shapes the strategy.",
+        meta={},
+    )
+    for _ in range(4):
+        log.append(
+            kind="assistant_message",
+            content="CLAIM: failed to reason about ethics.",
+            meta={"topic": "ethics"},
+        )
+
+    context = build_context(log, limit=2)
+    assert "Recursive Self-Model:" in context
+    assert "- Tendencies: determinism_emphasis (1)" in context
+    assert "- Gaps: ethics" in context
+
+
+def test_context_includes_internal_goals():
+    log = EventLog(":memory:")
+    manager = CommitmentManager(log)
+    cid = manager.open_internal("analyze_knowledge_gaps", reason="gaps=5")
+
+    context = build_context(log, limit=2)
+    assert "Internal Goals:" in context
+    assert cid in context
+    assert "(analyze_knowledge_gaps)" in context

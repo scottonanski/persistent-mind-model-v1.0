@@ -71,6 +71,37 @@
 - Tests: 8 new, all pass
 - Tagged: `v2.0-sprint17`
 
+## Sprint 18: Autonomy Telemetry
+
+- Added `autonomy_metrics` event every 10 `autonomy_tick` via `AutonomyTracker`.
+- Rebuildable from ledger, idempotent, listener-driven.
+- Integrated into `/metrics` via `compute_metrics(tracker=...)`.
+- Tests: rebuild parity, emit cadence, no-delta idempotency.
+- Deterministic, replay-safe, no model calls.
+
+### Sprint 19: Recursive Self-Model (RSM) — **COMPLETE** ✅
+- Added `RecursiveSelfModel` in `ledger_mirror`: tendencies, gaps, meta-patterns
+- Fully rebuildable from ledger, O(1) sync, replay-parity guaranteed
+- RSM exposed in context, reflections, summaries
+- Temporal diffing: `diff_rsm(id_a, id_b)` for self-evolution
+- Autonomy monitors RSM via internal goal "monitor_rsm_evolution"
+- `/rsm` CLI: query current/historical/diff
+- Identity summary delta-gated on RSM changes
+- All logic deterministic, ledger-native, no heuristics
+- Tests: **31/31 passed**
+- Tagged: `v2.0-sprint19`
+
+### Sprint 20: Meta-Cognitive Commitment Layer — **COMPLETE** ✅
+- `origin:"autonomy_kernel"` + `goal` in commitment events
+- `open_internal()` / `close_internal()` with `mc_` cids
+- Autonomy opens internal goals on RSM gaps >3
+- Deterministic execution: analyze_knowledge_gaps
+- `/goals` CLI + context exposure
+- Metrics track `internal_goals_open` 
+- All idempotent, replay-safe, ledger-native
+- Tests: **14/14 passed**
+- Tagged: `v2.0-sprint20`
+
 ### Measured Proof from `/replay`
 
 | Event | Kind | Content | Verdict |
@@ -190,28 +221,5 @@ Expected baseline:
 
 ---
 
-## Next Steps (Post Sprint 11)
 
-1. **Tag & release:** Create the initial commit and tag `v2.0-sprint11`.
-2. **Kernel evolution:** Consider additional deterministic decisions (e.g., further commitment reviews or optimizations) using the existing autonomy contract.
-3. **Animation sandbox:** Prototype external schedulers that drive autonomous ticks while proving replay-equivalent `autonomy_tick` chains.
-4. **Telemetry:** Extend diagnostics to report autonomy activity (e.g., total ticks, non-idle/idle ratios).
-5. **v2 Stabilization:** Polish CLI, add more models, ensure cross-platform compatibility.
 
-## Sprint 18: Autonomy Telemetry
-
-- Added `autonomy_metrics` event every 10 `autonomy_tick` via `AutonomyTracker`.
-- Rebuildable from ledger, idempotent, listener-driven.
-- Integrated into `/metrics` via `compute_metrics(tracker=...)`.
-- Tests: rebuild parity, emit cadence, no-delta idempotency.
-- Deterministic, replay-safe, no model calls.
-
-### Sprint 19: Recursive Self-Model (RSM) Core — **COMPLETE** ✅
-- Added `rsm_update` event and `RecursiveSelfModel` 
-- RSM tracks reflections, commitments, dominant intents, knowledge gaps
-- Rebuildable, idempotent, listener-driven
-- Integrated into `/metrics` 
-- Tests: rebuild parity, gap detection, emit threshold
-- Tests: **59/59**
-- Deterministic, ledger-only, no model calls
-- Tagged: `v2.0-sprint19`

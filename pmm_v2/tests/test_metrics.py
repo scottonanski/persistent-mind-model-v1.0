@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from pmm_v2.core.event_log import EventLog
-from pmm_v2.core.ledger_metrics import compute_metrics, append_metrics_if_delta
+from pmm_v2.core.commitment_manager import CommitmentManager
+from pmm_v2.core.ledger_metrics import (
+    compute_metrics,
+    append_metrics_if_delta,
+    format_metrics_human,
+)
 
 
 def _mkdb(tmp_path: Path) -> str:
@@ -59,3 +64,16 @@ def test_append_metrics_if_delta_idempotent(tmp_path):
     log.append(kind="assistant_message", content="Hi", meta={})
     did3 = append_metrics_if_delta(db)
     assert did3 is True
+
+
+def test_metrics_includes_internal_goals_count(tmp_path):
+    db = _mkdb(tmp_path)
+    log = EventLog(db)
+    manager = CommitmentManager(log)
+    manager.open_internal("analyze_knowledge_gaps", reason="gaps=3")
+
+    metrics = compute_metrics(db)
+    assert metrics["internal_goals_open"] == 1
+
+    formatted = format_metrics_human(metrics)
+    assert "Internal Goals Open: 1" in formatted

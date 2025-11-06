@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 from pmm_v2.core.event_log import EventLog
+from pmm_v2.core.ledger_mirror import LedgerMirror
 
 
 def _events_since_last(events: List[Dict], kind: str) -> List[Dict]:
@@ -24,9 +25,6 @@ def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
     events = eventlog.read_all()
     since = _events_since_last(events, "summary_update")
     reflections = [e for e in since if e.get("kind") == "reflection"]
-    if len(reflections) < 3 and len(since) <= 10:
-        return None
-
     # Derive open commitments deterministically: opens - closes
     opens = sum(1 for e in events if e.get("kind") == "commitment_open")
     closes = sum(1 for e in events if e.get("kind") == "commitment_close")
@@ -36,11 +34,85 @@ def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
     reflections_since = len(reflections)
     last_event_id = events[-1]["id"] if events else 0
 
-    content = (
-        "{"
-        f"open_commitments:{open_commitments}"
-        f",reflections_since_last:{reflections_since}"
-        f",last_event_id:{last_event_id}"
-        "}"
+    mirror = LedgerMirror(eventlog, listen=False)
+    current_snapshot = mirror.rsm_snapshot()
+
+    last_summary = _last_summary_event(events)
+    last_rsm_state = (
+        (last_summary.get("meta") or {}).get("rsm_state") if last_summary else None
     )
-    return eventlog.append(kind="summary_update", content=content, meta={"synth": "v2"})
+
+    rsm_delta_info = _compute_rsm_trend(current_snapshot, last_rsm_state)
+    threshold_reflections = len(reflections) >= 3
+    threshold_events = len(since) > 10
+    rsm_forced = False
+
+    if last_summary is None:
+        if not (threshold_reflections or threshold_events):
+            return None
+    else:
+        if rsm_delta_info["significant"]:
+            rsm_forced = True
+        elif threshold_reflections:
+            rsm_forced = False
+        else:
+            return None
+
+    content_parts = [
+        "{",
+        f"open_commitments:{open_commitments}",
+        f",reflections_since_last:{reflections_since}",
+        f",last_event_id:{last_event_id}",
+    ]
+    if rsm_delta_info["description"]:
+        content_parts.append(f',rsm_trend:"{rsm_delta_info["description"]}"')
+    if rsm_forced:
+        content_parts.append(",rsm_triggered:1")
+    content_parts.append("}")
+    content = "".join(content_parts)
+    meta = {"synth": "v2", "rsm_state": current_snapshot}
+    return eventlog.append(kind="summary_update", content=content, meta=meta)
+
+
+def _last_summary_event(events: List[Dict]) -> Optional[Dict]:
+    for event in reversed(events):
+        if event.get("kind") == "summary_update":
+            return event
+    return None
+
+
+def _compute_rsm_trend(
+    current: Dict[str, object], previous: Optional[Dict[str, object]]
+) -> Dict[str, object]:
+    if not previous:
+        return {"significant": False, "description": ""}
+
+    tendencies_current = current.get("behavioral_tendencies", {}) or {}
+    tendencies_previous = previous.get("behavioral_tendencies", {}) or {}
+    gaps_current = set(current.get("knowledge_gaps", []) or [])
+    gaps_previous = set(previous.get("knowledge_gaps", []) or [])
+
+    deltas: Dict[str, int] = {}
+    for key in sorted(set(tendencies_current) | set(tendencies_previous)):
+        delta = tendencies_current.get(key, 0) - tendencies_previous.get(key, 0)
+        if delta != 0:
+            deltas[key] = delta
+
+    significant = any(abs(value) > 10 for value in deltas.values()) or bool(
+        gaps_current - gaps_previous
+    )
+
+    descriptions: List[str] = []
+    for key in sorted(deltas):
+        change = deltas[key]
+        sign = "+" if change >= 0 else ""
+        descriptions.append(f"{key} {sign}{change}")
+    new_gaps = sorted(gaps_current - gaps_previous)
+    if new_gaps:
+        gap_str = ", ".join(new_gaps)
+        descriptions.append(f"new gap: {gap_str}")
+
+    return {
+        "significant": significant,
+        "description": ", ".join(descriptions) if descriptions else "",
+    }

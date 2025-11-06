@@ -123,29 +123,52 @@ class EventLog:
         return ev_id
 
     def read_all(self) -> List[Dict[str, Any]]:
-        cur = self._conn.execute("SELECT * FROM events ORDER BY id ASC")
-        out: List[Dict[str, Any]] = []
-        for row in cur.fetchall():
-            out.append(
-                {
-                    "id": row["id"],
-                    "ts": row["ts"],
-                    "kind": row["kind"],
-                    "content": row["content"],
-                    "meta": json.loads(row["meta"] or "{}"),
-                    "prev_hash": row["prev_hash"],
-                    "hash": row["hash"],
-                }
-            )
+        with self._lock:
+            cur = self._conn.execute("SELECT * FROM events ORDER BY id ASC")
+            out: List[Dict[str, Any]] = []
+            for row in cur.fetchall():
+                out.append(
+                    {
+                        "id": row["id"],
+                        "ts": row["ts"],
+                        "kind": row["kind"],
+                        "content": row["content"],
+                        "meta": json.loads(row["meta"] or "{}"),
+                        "prev_hash": row["prev_hash"],
+                        "hash": row["hash"],
+                    }
+                )
         return out
 
     def read_tail(self, limit: int) -> List[Dict[str, Any]]:
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM events ORDER BY id DESC LIMIT ?",
+                (limit,),
+            )
+            rows = cur.fetchall()
+            rows.reverse()
+            out: List[Dict[str, Any]] = []
+            for row in rows:
+                out.append(
+                    {
+                        "id": row["id"],
+                        "ts": row["ts"],
+                        "kind": row["kind"],
+                        "content": row["content"],
+                        "meta": json.loads(row["meta"] or "{}"),
+                        "prev_hash": row["prev_hash"],
+                        "hash": row["hash"],
+                    }
+                )
+        return out
+
+    def read_up_to(self, event_id: int) -> List[Dict[str, Any]]:
         cur = self._conn.execute(
-            "SELECT * FROM events ORDER BY id DESC LIMIT ?",
-            (limit,),
+            "SELECT * FROM events WHERE id <= ? ORDER BY id ASC",
+            (event_id,),
         )
         rows = cur.fetchall()
-        rows.reverse()
         out: List[Dict[str, Any]] = []
         for row in rows:
             out.append(

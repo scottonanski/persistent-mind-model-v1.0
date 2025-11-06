@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from pmm_v2.core.event_log import EventLog
 from pmm_v2.core.autonomy_tracker import AutonomyTracker
+from pmm_v2.core.commitment_manager import CommitmentManager
 
 
 def compute_metrics(
@@ -64,6 +65,9 @@ def compute_metrics(
     else:
         last_hash = "0" * 64
 
+    manager = CommitmentManager(log)
+    internal_goals_open = len(manager.get_open_commitments(origin="autonomy_kernel"))
+
     metrics = {
         "event_count": len(canonical_events),
         "kinds": kinds,
@@ -71,6 +75,7 @@ def compute_metrics(
         "open_commitments": max(0, opens - closes),
         "closed_commitments": closes,
         "last_hash": last_hash,
+        "internal_goals_open": internal_goals_open,
     }
 
     if tracker:
@@ -99,6 +104,7 @@ def format_metrics_human(metrics: Dict[str, Any]) -> str:
     lines.append(f"open_commitments: {metrics['open_commitments']}")
     lines.append(f"closed_commitments: {metrics['closed_commitments']}")
     lines.append(f"last_hash: {metrics['last_hash']}")
+    lines.append(f"Internal Goals Open: {metrics.get('internal_goals_open', 0)}")
     lines.append("kinds:")
     for k in sorted(metrics.get("kinds", {}).keys()):
         lines.append(f"  - {k}: {metrics['kinds'][k]}")

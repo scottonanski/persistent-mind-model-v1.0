@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Dict, Optional, List
+from typing import Any, Dict, Optional, List
 import json
 
 from pmm_v2.core.event_log import EventLog
+from pmm_v2.core.ledger_mirror import LedgerMirror
 
 
 def _last_by_kind(events: List[Dict], kind: str) -> Optional[Dict]:
@@ -37,9 +38,27 @@ def synthesize_reflection(
 
         intent = (user.get("content") or "").strip()[:256]
         outcome = (assistant.get("content") or "").strip()[:256]
-        # Compose a stable, manually-ordered string (no json.dumps ordering)
+        payload = {"intent": intent, "outcome": outcome, "next": "continue"}
+
+        reflection_count = sum(1 for e in events if e.get("kind") == "reflection")
+        if reflection_count >= 5:
+            mirror = LedgerMirror(eventlog, listen=False)
+            snapshot = mirror.rsm_snapshot()
+            if _has_rsm_data(snapshot):
+                det_refs = snapshot["behavioral_tendencies"].get(
+                    "determinism_emphasis", 0
+                )
+                gaps = snapshot["knowledge_gaps"]
+                gap_count = len(gaps)
+                description = (
+                    f"RSM: {det_refs} determinism refs, {gap_count} knowledge gaps"
+                )
+                if gaps:
+                    description += f" ({', '.join(gaps)})"
+                payload["self_model"] = description
+
         content = json.dumps(
-            {"intent": intent, "outcome": outcome, "next": "continue"},
+            payload,
             sort_keys=True,
             separators=(",", ":"),
         )
@@ -49,3 +68,12 @@ def synthesize_reflection(
         }
         meta.update(meta_extra or {})
         return eventlog.append(kind="reflection", content=content, meta=meta)
+
+
+def _has_rsm_data(snapshot: Dict[str, Any]) -> bool:
+    if not snapshot:
+        return False
+    tendencies = snapshot.get("behavioral_tendencies") or {}
+    gaps = snapshot.get("knowledge_gaps") or []
+    meta_patterns = snapshot.get("interaction_meta_patterns") or []
+    return bool(tendencies or gaps or meta_patterns)

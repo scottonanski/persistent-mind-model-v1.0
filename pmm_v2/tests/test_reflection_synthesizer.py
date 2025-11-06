@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from pmm_v2.core.event_log import EventLog
 from pmm_v2.runtime.reflection_synthesizer import synthesize_reflection
 
@@ -37,3 +39,59 @@ def test_autonomy_reflection_has_source():
     )
     ev = log.read_all()[-1]
     assert ev["meta"]["source"] == "autonomy_kernel"
+
+
+def _seed_rsm_data(log: EventLog) -> None:
+    for _ in range(4):
+        log.append(
+            kind="assistant_message",
+            content="CLAIM: failed to reason about consciousness.",
+            meta={"topic": "consciousness"},
+        )
+    log.append(
+        kind="assistant_message",
+        content="Determinism remains essential to the plan.",
+        meta={},
+    )
+    for _ in range(5):
+        log.append(kind="reflection", content="{}", meta={})
+
+
+def _append_turn(log: EventLog) -> None:
+    log.append(kind="user_message", content="Requesting update.", meta={})
+    log.append(
+        kind="assistant_message",
+        content="Outcome follows determinism guidance.",
+        meta={},
+    )
+    log.append(
+        kind="metrics_turn",
+        content="provider:dummy,model:,in_tokens:1,out_tokens:1,lat_ms:0",
+        meta={},
+    )
+
+
+def test_reflection_includes_rsm_when_threshold_met():
+    log = EventLog(":memory:")
+    _seed_rsm_data(log)
+    _append_turn(log)
+
+    reflection_id = synthesize_reflection(log)
+    reflection_event = next(e for e in log.read_all() if e["id"] == reflection_id)
+    payload = json.loads(reflection_event["content"])
+    assert (
+        payload["self_model"]
+        == "RSM: 2 determinism refs, 1 knowledge gaps (consciousness)"
+    )
+
+
+def test_rsm_absent_below_threshold():
+    log = EventLog(":memory:")
+    for _ in range(4):
+        log.append(kind="reflection", content="{}", meta={})
+    _append_turn(log)
+
+    reflection_id = synthesize_reflection(log)
+    reflection_event = next(e for e in log.read_all() if e["id"] == reflection_id)
+    payload = json.loads(reflection_event["content"])
+    assert "self_model" not in payload
