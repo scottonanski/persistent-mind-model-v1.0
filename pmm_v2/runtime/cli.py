@@ -192,10 +192,10 @@ def handle_rsm_command(command: str, eventlog: EventLog) -> Optional[str]:
 
 
 def handle_goals_command(eventlog: EventLog) -> str:
-    from pmm_v2.runtime.commitment_manager import CommitmentManager
+    from pmm_v2.core.ledger_mirror import LedgerMirror
 
-    cm = CommitmentManager(eventlog)
-    goals = cm.get_open_commitments()
+    mirror = LedgerMirror(eventlog, listen=False)
+    goals = mirror.get_open_commitments()
     internal_goals = [g for g in goals if g.get("meta", {}).get("source") == "autonomy_kernel"]
 
     # Count closed internal goals
