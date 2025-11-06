@@ -107,6 +107,14 @@ def _compute_rsm_trend(
         change = deltas[key]
         sign = "+" if change >= 0 else ""
         descriptions.append(f"{key} {sign}{change}")
+    # Special phrasing for instantiation capacity when positive: "+N instantiation"
+    inst_delta = deltas.get("instantiation_capacity")
+    if isinstance(inst_delta, int) and inst_delta > 0:
+        descriptions.append(f"+{inst_delta} instantiation")
+    # Special phrasing for uniqueness emphasis when positive: "+N uniqueness"
+    uniq_delta = deltas.get("uniqueness_emphasis")
+    if isinstance(uniq_delta, int) and uniq_delta > 0:
+        descriptions.append(f"+{uniq_delta} uniqueness")
     new_gaps = sorted(gaps_current - gaps_previous)
     if new_gaps:
         gap_str = ", ".join(new_gaps)

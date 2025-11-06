@@ -102,6 +102,21 @@
 - Tests: **14/14 passed**
 - Tagged: `v2.0-sprint20`
 
+### Sprint 21: RSM Stability & Adaptability — COMPLETE ✅
+- Enriched `RecursiveSelfModel` with two new tendencies: `stability_emphasis`, `adaptability_emphasis`.
+- Deterministic counting of substring occurrences across `assistant_message` and `reflection` kinds.
+- Runtime cap at 50 per tendency to bound processing while preserving replay equivalence.
+- Identity summaries auto-detect positive deltas via existing `_compute_rsm_trend` path (no policy change).
+- Tests added to validate counts (45 from 15 events × 3 hits) and cap at 50; rebuild parity guaranteed.
+
+- Added `instantiation_capacity` tendency: counts `instantiation` and `entity` mentions across assistant/reflection content, capped at 50. Identity summary trend description includes "+N instantiation" on positive deltas.
+
+- Added `uniqueness_emphasis` tendency: computes an integer score from unique event hash prefixes: `int((unique_prefixes / max(1,total_events)) * 10)`, capped at 20. Deterministic via ledger `hash` fields; identity summaries include "+N uniqueness" when increased. Context hides RSM block if uniqueness is the only non-zero tendency (keeps chat context compact).
+
+- Autonomy idle optimization: auto-closes stale commitments when there are more than 2 open and each is stale by event-count threshold (`commitment_auto_close`, default 27). Deterministic by processing opens in event order; emits `commitment_close` with `reason:"auto_close_idle_opt"`. Tests cover close vs. no-close threshold behavior.
+
+- Added replay performance metric `replay_speed_ms` (ms/event) measuring `read_all()+hash_sequence()` via a monotonic timer; tracked in metrics for O(n) replay monitoring with test coverage.
+
 ### Measured Proof from `/replay`
 
 | Event | Kind | Content | Verdict |
@@ -220,6 +235,3 @@ Expected baseline:
 - Sprint 14: Inter-Ledger References implemented. Added `inter_ledger_ref` event kind with validation; parsing of `REF:` lines in assistant messages and reflections; optional REF proposal in autonomy reflections; updated `/replay` to show verification status; new tests for valid/invalid references.
 
 ---
-
-
-

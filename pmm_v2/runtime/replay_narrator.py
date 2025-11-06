@@ -21,5 +21,10 @@ def narrate(ledger: EventLog, limit: int = 10) -> str:
         content = ev.get("content") or ""
         meta = ev.get("meta")
         meta_str = f"meta:{json.dumps(meta, separators=(',', ':'))}" if meta else ""
-        lines.append(f"[{cid}] {kind} | {content} | {meta_str}")
+        suffix = ""
+        if kind == "inter_ledger_ref":
+            verified = (meta or {}).get("verified")
+            if verified is False:
+                suffix = f" (unverified ref: {content} - create dummy for test)"
+        lines.append(f"[{cid}] {kind} | {content} | {meta_str}{suffix}")
     return "\n".join(lines)

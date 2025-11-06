@@ -71,3 +71,17 @@ def test_compute_metrics_includes_autonomy_tracker_metrics(tmp_path):
     assert autonomy_metrics["idle_count"] == 1
     assert autonomy_metrics["last_reflection_id"] == reflection_id
     assert autonomy_metrics["open_commitments"] == 1
+
+
+def test_replay_speed_metric_under_threshold(tmp_path):
+    db = _mkdb(tmp_path)
+    log = EventLog(db)
+    # Create 500 events with unique content for stable hashing
+    for i in range(500):
+        log.append(kind="test_event", content=f"e{i}", meta={})
+
+    metrics = compute_metrics(db)
+    speed = metrics.get("replay_speed_ms")
+    assert isinstance(speed, float)
+    # Verify O(n) perf stays below ~0.01 ms/event with small tolerance
+    assert speed < 0.015

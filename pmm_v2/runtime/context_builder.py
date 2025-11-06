@@ -41,6 +41,14 @@ def _render_rsm(snapshot: Dict[str, Any]) -> str:
     tendencies = snapshot.get("behavioral_tendencies") or {}
     gaps = snapshot.get("knowledge_gaps") or []
     meta_patterns = snapshot.get("interaction_meta_patterns") or []
+    # If uniqueness is the only tendency and no other signals, hide RSM block
+    nonzero_tendencies = {k: v for k, v in tendencies.items() if v}
+    if (
+        nonzero_tendencies.keys() == {"uniqueness_emphasis"}
+        and not gaps
+        and not meta_patterns
+    ):
+        return ""
     if not (tendencies or gaps or meta_patterns):
         return ""
 

@@ -21,11 +21,25 @@ class RecursiveSelfModel:
             ("assistant_message", "reflection"),
             _DETERMINISM_MARKERS,
         ),
+        # Sprint 21: Track stability/adaptability emphasis deterministically
+        "stability_emphasis": (
+            ("assistant_message", "reflection"),
+            ("stability",),
+        ),
+        "adaptability_emphasis": (
+            ("assistant_message", "reflection"),
+            ("adaptability", "adapt"),
+        ),
+        "instantiation_capacity": (
+            ("assistant_message", "reflection"),
+            ("instantiation", "entity"),
+        ),
     }
     _IDENTITY_FOLLOWUP_LIMIT = 5
     _META_PATTERN_LABEL = "identity_queries_trigger_determinism_ref"
 
-    def __init__(self) -> None:
+    def __init__(self, eventlog: Optional[EventLog] = None) -> None:
+        self.eventlog = eventlog
         self._event_index = 0
         self._last_processed_event_id: Optional[int] = None
         self._pattern_counts: Dict[str, int] = defaultdict(int)
@@ -33,6 +47,9 @@ class RecursiveSelfModel:
         self._gap_window: Deque[Tuple[int, str]] = deque()
         self._meta_patterns: set[str] = set()
         self._last_identity_event: Optional[int] = None
+        # Uniqueness tracking (first 8 chars of event hash)
+        self._unique_prefixes: set[str] = set()
+        self._total_events: int = 0
         self.behavioral_tendencies: Dict[str, int] = {}
         self.knowledge_gaps: List[str] = []
         self.interaction_meta_patterns: List[str] = []
@@ -46,6 +63,8 @@ class RecursiveSelfModel:
         self._gap_window.clear()
         self._meta_patterns.clear()
         self._last_identity_event = None
+        self._unique_prefixes.clear()
+        self._total_events = 0
         self.behavioral_tendencies = {}
         self.knowledge_gaps = []
         self.interaction_meta_patterns = []
@@ -56,6 +75,18 @@ class RecursiveSelfModel:
         self.reset()
         for event in events:
             self.observe(event)
+        # After full rebuild, ensure uniqueness cache reflects all events.
+        # If an eventlog is available, read from it for complete coverage.
+        if self.eventlog is not None:
+            try:
+                all_events = self.eventlog.read_all()
+                self._unique_prefixes = {
+                    (e.get("hash") or "")[:8] for e in all_events if e.get("hash")
+                }
+                self._total_events = len(all_events)
+            except Exception:
+                # Fallback is already populated via observe loop
+                pass
 
     def observe(self, event: Optional[Dict[str, Any]]) -> None:
         """Process a single event incrementally."""
@@ -78,6 +109,11 @@ class RecursiveSelfModel:
         content = (event.get("content") or "").strip()
         content_lower = content.lower()
         meta = event.get("meta") or {}
+        # Track uniqueness from event hash prefix
+        ev_hash = event.get("hash") or ""
+        if ev_hash:
+            self._unique_prefixes.add(ev_hash[:8])
+        self._total_events += 1
 
         self._track_behavioral_patterns(kind, content_lower)
         self._track_meta_patterns(kind, content_lower, event_idx)
@@ -92,6 +128,17 @@ class RecursiveSelfModel:
             intent = data.get("intent") if isinstance(data, dict) else None
             if isinstance(intent, str):
                 self.reflection_intents.append(intent)
+
+        # Cap behavioral counters for bounded runtime while preserving determinism
+        for key in list(self._pattern_counts.keys()):
+            if self._pattern_counts[key] > 50:
+                self._pattern_counts[key] = 50
+
+        # Compute uniqueness emphasis (0..20, typical 0..10)
+        uniq_score = int((len(self._unique_prefixes) / max(1, self._total_events)) * 10)
+        if uniq_score > 20:
+            uniq_score = 20
+        self._pattern_counts["uniqueness_emphasis"] = uniq_score
 
         # Produce deterministic outward-facing structures
         self.behavioral_tendencies = dict(sorted(self._pattern_counts.items()))
@@ -121,12 +168,24 @@ class RecursiveSelfModel:
         for pattern, (kinds, markers) in self._BEHAVIORAL_PATTERNS.items():
             if kinds and kind not in kinds:
                 continue
-            for marker in markers:
-                if marker in content_lower:
-                    self._pattern_counts[pattern] += 1
-                    if pattern == "identity_query":
-                        self._last_identity_event = self._event_index
-                    break
+            inc = self._count_markers(content_lower, markers)
+            if inc > 0:
+                self._pattern_counts[pattern] += inc
+                if pattern == "identity_query":
+                    self._last_identity_event = self._event_index
+
+    @staticmethod
+    def _count_markers(content_lower: str, markers: Iterable[str]) -> int:
+        """Sum case-insensitive marker occurrences deterministically.
+
+        `content_lower` must already be lowercased. For each marker, count
+        non-overlapping occurrences using `str.count` and sum them.
+        """
+        total = 0
+        for m in markers:
+            # markers are simple substrings; the content is lower-cased above
+            total += content_lower.count(m)
+        return total
 
     def _track_meta_patterns(
         self, kind: Optional[str], content_lower: str, event_idx: int
@@ -175,7 +234,7 @@ class RecursiveSelfModel:
 class LedgerMirror:
     def __init__(self, eventlog: EventLog, *, listen: bool = True) -> None:
         self.eventlog = eventlog
-        self._rsm = RecursiveSelfModel()
+        self._rsm = RecursiveSelfModel(eventlog=self.eventlog)
         self._rsm.rebuild(self.eventlog.read_all())
         if listen:
             self.eventlog.register_listener(self.sync)
@@ -273,6 +332,6 @@ class LedgerMirror:
         events = self.eventlog.read_up_to(event_id)
         mirror = object.__new__(LedgerMirror)
         mirror.eventlog = self.eventlog
-        mirror._rsm = RecursiveSelfModel()
+        mirror._rsm = RecursiveSelfModel(eventlog=self.eventlog)
         mirror._rsm.rebuild(events)
         return mirror

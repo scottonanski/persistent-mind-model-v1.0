@@ -7,6 +7,7 @@ no regex, no env-gated behavior.
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+import time
 
 from pmm_v2.core.event_log import EventLog
 from pmm_v2.core.autonomy_tracker import AutonomyTracker
@@ -71,6 +72,13 @@ def compute_metrics(
     mirror = LedgerMirror(log, listen=False)
     kernel_knowledge_gaps = mirror.rsm_knowledge_gaps()
 
+    # Replay speed metric (ms per event): reload + hash sequence
+    t0 = time.perf_counter()
+    _ = log.read_all()
+    _ = log.hash_sequence()
+    t1 = time.perf_counter()
+    per_event_ms = ((t1 - t0) / max(1, len(raw_events))) * 1000.0
+
     metrics = {
         "event_count": len(canonical_events),
         "kinds": kinds,
@@ -80,6 +88,7 @@ def compute_metrics(
         "last_hash": last_hash,
         "internal_goals_open": internal_goals_open,
         "kernel_knowledge_gaps": kernel_knowledge_gaps,
+        "replay_speed_ms": per_event_ms,
     }
 
     if tracker:
@@ -104,6 +113,7 @@ def format_metrics_human(metrics: Dict[str, Any]) -> str:
     lines.append(f"open_commitments: {metrics['open_commitments']}")
     lines.append(f"closed_commitments: {metrics['closed_commitments']}")
     lines.append(f"last_hash: {metrics['last_hash']}")
+    lines.append(f"replay_speed_ms: {metrics.get('replay_speed_ms', 0):.6f}")
     lines.append(f"Internal Goals Open: {metrics.get('internal_goals_open', 0)}")
     lines.append(f"Kernel knowledge gaps: {metrics.get('kernel_knowledge_gaps', 0)}")
     lines.append("kinds:")

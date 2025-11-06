@@ -70,6 +70,10 @@ def main() -> None:  # pragma: no cover - thin wrapper
     print(RSM_HELP_TEXT)
     print("  /exit     Quit")
     print("────────────────────────────")
+    # Brief autonomy note about idle optimization (deterministic behavior)
+    print(
+        "Note: Autonomy auto-closes stale commitments when >2 are open and staleness exceeds the threshold."
+    )
     choice = input(f"Choice [1-{len(models)}]: ").strip() or "1"
     try:
         selected = models[max(1, min(int(choice), len(models))) - 1]
@@ -266,5 +270,5 @@ def _format_diff(diff: Dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-RSM_HELP_TEXT = "  /rsm [id | diff <a> <b>] - show Recursive Self-Model"
+RSM_HELP_TEXT = "  /rsm [id | diff <a> <b>] - show Recursive Self-Model (includes stability, adaptability, instantiation)"
 _COLUMN_WIDTH = 24

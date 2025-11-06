@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pmm_v2.core.event_log import EventLog
-from pmm_v2.core.ledger_mirror import LedgerMirror
+from pmm_v2.core.ledger_mirror import LedgerMirror, RecursiveSelfModel
 
 
 def test_rsm_rebuild_parity_after_100_events():
@@ -190,7 +190,7 @@ def test_diff_rsm_detects_gap_resolution():
         )
     gap_event_id = log.read_all()[-1]["id"]
 
-    for i in range(600):
+    for i in range(500):
         log.append(kind="user_message", content=f"filler {i}", meta={})
     final_event_id = log.read_all()[-1]["id"]
 
@@ -198,6 +198,130 @@ def test_diff_rsm_detects_gap_resolution():
     assert diff["tendencies_delta"] == {}
     assert diff["gaps_added"] == []
     assert diff["gaps_resolved"] == ["memory"]
+
+
+def test_rsm_counts_stability_and_adaptability_occurrences():
+    log = EventLog(":memory:")
+    mirror = LedgerMirror(log)
+
+    payload = ("stability adapt " * 3).strip()
+
+    # 10 reflections + 5 assistant messages, each contains 3 occurrences
+    for _ in range(10):
+        log.append(kind="reflection", content=payload, meta={})
+    for _ in range(5):
+        log.append(kind="assistant_message", content=payload, meta={})
+
+    snap = mirror.rsm_snapshot()
+    tendencies = snap["behavioral_tendencies"]
+    assert tendencies.get("stability_emphasis") == 45
+    assert tendencies.get("adaptability_emphasis") == 45
+
+    # Rebuild parity: a fresh mirror should match live snapshot
+    rebuilt = LedgerMirror(log)
+    assert rebuilt.rsm_snapshot() == snap
+
+
+def test_rsm_caps_stability_adaptability_at_50():
+    log = EventLog(":memory:")
+    mirror = LedgerMirror(log)
+
+    payload = ("stability adapt " * 3).strip()
+
+    # 20 reflections -> 20 * 3 = 60 occurrences per marker; capped to 50
+    for _ in range(20):
+        log.append(kind="reflection", content=payload, meta={})
+
+    tendencies = mirror.rsm_snapshot()["behavioral_tendencies"]
+    assert tendencies.get("stability_emphasis") == 50
+    assert tendencies.get("adaptability_emphasis") == 50
+
+
+def test_rsm_instantiation_capacity_counts_and_caps():
+    log = EventLog(":memory:")
+    mirror = LedgerMirror(log)
+
+    # 15 assistant + 10 reflections, each containing both markers once -> 60 mentions
+    payload = "instantiation entity"
+    for _ in range(15):
+        log.append(kind="assistant_message", content=payload, meta={})
+    for _ in range(10):
+        log.append(kind="reflection", content=payload, meta={})
+
+    tendencies = mirror.rsm_snapshot()["behavioral_tendencies"]
+    # Capped at 50
+    assert tendencies.get("instantiation_capacity") == 50
+
+    # Rebuild parity
+    rebuilt = LedgerMirror(log)
+    assert rebuilt.rsm_snapshot() == mirror.rsm_snapshot()
+
+
+def test_rsm_instantiation_capacity_counts_without_cap():
+    log = EventLog(":memory:")
+    mirror = LedgerMirror(log)
+
+    # 20 mentions total -> expected exact 20 (single marker per message)
+    payload = "instantiation"
+    for _ in range(10):
+        log.append(kind="assistant_message", content=payload, meta={})
+    for _ in range(10):
+        log.append(kind="reflection", content=payload, meta={})
+
+    tendencies = mirror.rsm_snapshot()["behavioral_tendencies"]
+    assert tendencies.get("instantiation_capacity") == 20
+
+
+def _synthetic_events_with_prefix_uniqueness(unique_prefixes: int, total: int):
+    events = []
+    # Build 'unique_prefixes' distinct 8-char hex prefixes
+    prefixes = [f"{i:08x}" for i in range(unique_prefixes)]
+    # Ensure total events; reuse the first prefix for duplicates
+    for i in range(total):
+        pre = prefixes[i % unique_prefixes]
+        # Expand to 64 hex chars to mimic sha256
+        h = (pre * 8)[:64]
+        events.append(
+            {
+                "id": i + 1,
+                "ts": "2020-01-01T00:00:00.000000Z",
+                "kind": "test_event",
+                "content": "x",
+                "meta": {},
+                "prev_hash": None,
+                "hash": h,
+            }
+        )
+    return events
+
+
+def test_rsm_uniqueness_emphasis_score_from_hash_prefixes():
+    rsm = RecursiveSelfModel()
+    events = _synthetic_events_with_prefix_uniqueness(unique_prefixes=80, total=100)
+    rsm.rebuild(events)
+    snap = rsm.snapshot()
+    tendencies = snap["behavioral_tendencies"]
+    assert tendencies.get("uniqueness_emphasis") == 8
+
+    # Rebuild parity through LedgerMirror using real EventLog still yields deterministic value
+    log = EventLog(":memory:")
+    mirror = LedgerMirror(log)
+    # Feed synthetic events through sync; RSM ignores out-of-order ids and updates deterministically
+    for ev in events:
+        mirror.sync(ev)
+    assert mirror.rsm_snapshot()["behavioral_tendencies"]["uniqueness_emphasis"] == 8
+
+
+def test_rsm_uniqueness_caps_and_edges():
+    # All unique within 10 events -> score 10
+    rsm = RecursiveSelfModel()
+    rsm.rebuild(_synthetic_events_with_prefix_uniqueness(unique_prefixes=10, total=10))
+    assert rsm.snapshot()["behavioral_tendencies"]["uniqueness_emphasis"] == 10
+
+    # All same within 10 events -> score 1
+    rsm2 = RecursiveSelfModel()
+    rsm2.rebuild(_synthetic_events_with_prefix_uniqueness(unique_prefixes=1, total=10))
+    assert rsm2.snapshot()["behavioral_tendencies"]["uniqueness_emphasis"] == 1
 
 
 def test_diff_rsm_same_id_returns_empty():

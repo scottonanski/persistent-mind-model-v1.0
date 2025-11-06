@@ -100,34 +100,32 @@ def test_autonomous_reflection_diff():
 
 
 def test_autonomous_reflection_auto_close_stale():
-    """Test auto-close of stale commitments (>30 events since oldest open)."""
+    """Auto-close engages only when >2 open and staleness exceeds threshold."""
     events = [
         {"kind": "user_message", "id": 1, "content": "hi"},
         {"kind": "assistant_message", "id": 2, "content": "hello"},
         {"kind": "metrics_turn", "id": 3},
         {"kind": "commitment_open", "id": 4, "content": "c1", "meta": {"cid": "c1"}},
         {"kind": "commitment_open", "id": 5, "content": "c2", "meta": {"cid": "c2"}},
+        {"kind": "commitment_open", "id": 6, "content": "c3", "meta": {"cid": "c3"}},
+        {"kind": "commitment_open", "id": 7, "content": "c4", "meta": {"cid": "c4"}},
     ]
     # 31 events after oldest (id 4): ids 5 to 35
     many_events = [
-        {"kind": "autonomy_tick", "id": i} for i in range(6, 36)
-    ]  # 30 extra, total 31 after 4
+        {"kind": "autonomy_tick", "id": i} for i in range(8, 38)
+    ]  # 30 extra, total >30 after 4
     log = MockEventLog(events + many_events)
     loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter(), autonomy=True)
     loop.autonomy.decide_next_action = lambda: KernelDecision("reflect", "", [])
     loop.run_tick(slot=0, slot_id="test")
 
-    # Assert commitment_close event emitted for oldest (c1 and c2)
+    # Assert commitment_close emitted for stale ones, reason updated
     close_events = [e for e in log.events if e["kind"] == "commitment_close"]
-    assert len(close_events) == 2
-    assert close_events[0]["content"] == "CLOSE: c1"
-    assert close_events[0]["meta"]["reason"] == "auto_close_stale"
-    assert close_events[1]["content"] == "CLOSE: c2"
-    assert close_events[1]["meta"]["reason"] == "auto_close_stale"
+    assert len(close_events) == 4
+    assert all(e["meta"]["reason"] == "auto_close_idle_opt" for e in close_events)
 
-    # Assert reflection shows commitments_reviewed:0 (after close)
+    # Reflection shows commitments reviewed based on pre-close state
     refl = [e for e in log.events if e["kind"] == "reflection"][-1]
     payload = json.loads(refl["content"])
-    assert payload["commitments_reviewed"] == 0
-    # No remaining commitments, so stale:0
-    assert payload["stale"] == 0
+    assert payload["commitments_reviewed"] == 4
+    assert payload["stale"] == 1

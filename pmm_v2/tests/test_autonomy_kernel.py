@@ -322,3 +322,60 @@ def test_internal_goal_opens_at_gap_4():
     meta = gap_commitments[0]["meta"]
     assert meta["origin"] == "autonomy_kernel"
     assert "4 unresolved singleton intents" in meta["reason"]
+
+
+def _open_many_commitments(log: EventLog, count: int) -> None:
+    for i in range(count):
+        log.append(
+            kind="commitment_open",
+            content=f"Commitment opened: c{i}",
+            meta={"cid": f"c{i}", "source": "assistant"},
+        )
+
+
+def _append_fillers(log: EventLog, count: int) -> None:
+    for i in range(count):
+        log.append(kind="test_event", content=f"f{i}", meta={})
+
+
+def test_auto_close_stale_commitments_when_many_and_stale():
+    log = EventLog(":memory:")
+    # Open 4 commitments early, then add many fillers to surpass staleness > 27
+    _open_many_commitments(log, 4)
+    _append_fillers(log, 36)
+    # Add metrics_turn to enable reflect decision
+    log.append(kind="metrics_turn", content="provider:dummy", meta={})
+
+    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter(), replay=True)
+    decision = loop.run_tick(slot=0, slot_id="idle_opt1")
+    assert decision.decision == "reflect"
+
+    closes = [
+        e
+        for e in log.read_all()
+        if e["kind"] == "commitment_close"
+        and e.get("meta", {}).get("reason") == "auto_close_idle_opt"
+    ]
+    assert len(closes) == 4
+
+
+def test_no_auto_close_when_not_stale_enough():
+    log = EventLog(":memory:")
+    # Open 4 commitments late so staleness < 27
+    _append_fillers(log, 20)
+    _open_many_commitments(log, 4)
+    _append_fillers(log, 5)
+    # Add metrics_turn to enable reflect decision
+    log.append(kind="metrics_turn", content="provider:dummy", meta={})
+
+    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter(), replay=True)
+    decision = loop.run_tick(slot=0, slot_id="idle_opt2")
+    assert decision.decision == "reflect"
+
+    closes = [
+        e
+        for e in log.read_all()
+        if e["kind"] == "commitment_close"
+        and e.get("meta", {}).get("reason") == "auto_close_idle_opt"
+    ]
+    assert len(closes) == 0

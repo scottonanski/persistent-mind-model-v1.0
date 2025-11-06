@@ -128,20 +128,22 @@ class AutonomyKernel:
             if staleness_threshold is not None and events_since > staleness_threshold
             else 0
         )
-        # Auto-close stale commitments
-        if (
-            auto_close_threshold is not None
-            and events_since > auto_close_threshold
-            and open_commitments
-        ):
-            for c in open_commitments:
-                eventlog.append(
-                    kind="commitment_close",
-                    content=f"CLOSE: {c['meta']['cid']}",
-                    meta={"reason": "auto_close_stale", "cid": c["meta"]["cid"]},
-                )
-            open_commitments = []
-            events_since = 0
+        # Auto-close stale commitments (idle optimization)
+        # Conditions: more than 2 open commitments AND each considered stale
+        # Staleness defined as number of events since its open (ID diff count)
+        if auto_close_threshold is not None and len(open_commitments) > 2:
+            # Process in open order (by event id)
+            for c in sorted(open_commitments, key=lambda ev: ev["id"]):
+                cid = (c.get("meta") or {}).get("cid")
+                if not cid:
+                    continue
+                events_since_open = sum(1 for e in events if e["id"] > c["id"])
+                if events_since_open > auto_close_threshold:
+                    eventlog.append(
+                        kind="commitment_close",
+                        content=f"CLOSE: {cid}",
+                        meta={"reason": "auto_close_idle_opt", "cid": cid},
+                    )
         stale_flag = (
             1
             if staleness_threshold is not None and events_since > staleness_threshold

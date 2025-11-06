@@ -96,6 +96,12 @@ Any PR introducing a user-triggered autonomy path will be rejected.
 
 All new modules must include direct tests. Tests must never stub or simulate unimplemented future behavior.
 
+### Test Size & Performance Guidance
+
+- Keep performance‑oriented mocks to 200–500 events to ensure local runs complete in < 1s on typical hardware while still validating O(n) behavior.
+- For replay/metrics timing, assert per‑event budgets (e.g., < 0.01 ms/event) rather than absolute wall‑clock time.
+- Avoid multi‑thousand event fixtures in unit tests; reserve larger loads for targeted manual benchmarking if needed.
+
 ## 5. Commit & PR Discipline
 
 - One logical change per commit.
