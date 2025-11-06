@@ -27,6 +27,16 @@ class CommitmentManager:
         )
         return cid
 
+    def open_internal(self, goal: str, reason: str) -> str:
+        text = f"INTERNAL_GOAL: {goal} | {reason}"
+        cid = self._derive_cid(text)
+        self.eventlog.append(
+            kind="commitment_open",
+            content=f"Commitment opened: {text}",
+            meta={"cid": cid, "goal": goal, "reason": reason, "source": "autonomy_kernel"},
+        )
+        return cid
+
     def close_commitment(self, cid: str, source: str = "assistant") -> Optional[int]:
         if not cid:
             return None
