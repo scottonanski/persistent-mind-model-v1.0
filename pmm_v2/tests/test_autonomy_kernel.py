@@ -194,7 +194,7 @@ def _gap_heavy_log() -> EventLog:
     return log
 
 
-def test_autonomy_opens_internal_goal_when_gaps_exceed_threshold():
+def test_autonomy_opens_internal_goal_when_gaps_gt_3():
     log = _gap_heavy_log()
     kernel = AutonomyKernel(log)
 
@@ -210,7 +210,7 @@ def test_autonomy_opens_internal_goal_when_gaps_exceed_threshold():
     meta = gap_commitments[0]["meta"]
     assert meta["origin"] == "autonomy_kernel"
     assert meta["reason"] == "RSM reports 4 knowledge gaps"
-    assert kernel.last_gap_goal_cid == meta["cid"]
+    assert kernel.active_gap_analysis_cid == meta["cid"]
 
 
 def test_gap_goal_included_in_reflection_payload():
@@ -250,7 +250,9 @@ def test_execute_analyze_gaps_creates_reflection():
     final_reflections = [e for e in log.read_all() if e["kind"] == "reflection"]
     assert len(final_reflections) == len(initial_reflections) + 1
     new_reflection = final_reflections[-1]
-    assert "RSM Gap Analysis" in new_reflection["content"]
+    payload = json.loads(new_reflection["content"])
+    assert payload["intent"] == "gap_analysis"
+    assert "RSM gaps:" in payload["outcome"]
     assert new_reflection["meta"]["goal"] == AutonomyKernel.INTERNAL_GOAL_ANALYZE_GAPS
 
 
@@ -271,4 +273,53 @@ def test_execute_closes_internal_goal_after_analysis():
         if e["kind"] == "commitment_close" and e.get("meta", {}).get("cid") == cid
     ]
     assert len(close_events) == 1
-    assert close_events[0]["meta"]["outcome"] == "gap_analysis_complete"
+    assert close_events[0]["meta"]["outcome"] == "analyzed"
+
+
+def test_no_duplicate_gap_goal():
+    log = _gap_heavy_log()
+    kernel = AutonomyKernel(log)
+
+    # Manually open the goal
+    cid = kernel.commitment_manager.open_internal(
+        AutonomyKernel.INTERNAL_GOAL_ANALYZE_GAPS, reason="test"
+    )
+
+    kernel.decide_next_action()
+    open_events = [
+        e
+        for e in log.read_all()
+        if e["kind"] == "commitment_open"
+        and e.get("meta", {}).get("goal") == AutonomyKernel.INTERNAL_GOAL_ANALYZE_GAPS
+    ]
+    assert len(open_events) == 1
+    assert open_events[0]["meta"]["cid"] == cid
+
+
+def test_internal_goal_opens_at_gap_4():
+    log = EventLog(":memory:")
+    kernel = AutonomyKernel(log)
+
+    # Create 4 unresolved intents (count == 1)
+    for topic in ("topic1", "topic2", "topic3", "topic4"):
+        log.append(
+            kind="assistant_message",
+            content=f"CLAIM: failed on {topic}",
+            meta={"topic": topic},
+        )
+
+    # Add a metrics turn to allow reflection
+    log.append(kind="metrics_turn", content="provider:dummy", meta={})
+
+    kernel.decide_next_action()
+
+    gap_commitments = [
+        e
+        for e in log.read_all()
+        if e["kind"] == "commitment_open"
+        and e.get("meta", {}).get("goal") == "analyze_knowledge_gaps"
+    ]
+    assert len(gap_commitments) == 1
+    meta = gap_commitments[0]["meta"]
+    assert meta["origin"] == "autonomy_kernel"
+    assert "RSM reports" in meta["reason"]

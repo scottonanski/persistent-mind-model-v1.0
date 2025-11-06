@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from typing import Any, Deque, Dict, Iterable, List, Optional, Tuple
+import json
 
 from .event_log import EventLog
 
@@ -35,6 +36,7 @@ class RecursiveSelfModel:
         self.behavioral_tendencies: Dict[str, int] = {}
         self.knowledge_gaps: List[str] = []
         self.interaction_meta_patterns: List[str] = []
+        self.reflection_intents: List[str] = []
 
     def reset(self) -> None:
         self._event_index = 0
@@ -47,6 +49,7 @@ class RecursiveSelfModel:
         self.behavioral_tendencies = {}
         self.knowledge_gaps = []
         self.interaction_meta_patterns = []
+        self.reflection_intents = []
 
     def rebuild(self, events: Iterable[Dict[str, Any]]) -> None:
         """Rebuild internal state from the supplied ordered events."""
@@ -81,6 +84,15 @@ class RecursiveSelfModel:
         self._track_knowledge_gaps(kind, content_lower, meta, event_idx)
         self._trim_gap_window()
 
+        if kind == "reflection":
+            try:
+                data = json.loads(content)
+                intent = data.get("intent")
+                if isinstance(intent, str):
+                    self.reflection_intents.append(intent)
+            except:
+                pass
+
         # Produce deterministic outward-facing structures
         self.behavioral_tendencies = dict(sorted(self._pattern_counts.items()))
         self.knowledge_gaps = sorted(
@@ -94,6 +106,8 @@ class RecursiveSelfModel:
             "behavioral_tendencies": dict(self.behavioral_tendencies),
             "knowledge_gaps": list(self.knowledge_gaps),
             "interaction_meta_patterns": list(self.interaction_meta_patterns),
+            "intents": dict(self._gap_counts),
+            "reflections": [{"intent": i} for i in self.reflection_intents],
         }
 
     def knowledge_gap_count(self) -> int:
@@ -209,7 +223,14 @@ class LedgerMirror:
         return self._rsm.snapshot()
 
     def rsm_knowledge_gaps(self) -> int:
-        return self._rsm.knowledge_gap_count()
+        snapshot = self.rsm_snapshot()
+        gaps = 0
+        for intent, count in snapshot["intents"].items():
+            if count == 1:  # singleton
+                # Check if ANY reflection covers it (first 50 chars)
+                if not any(r["intent"].startswith(intent[:50]) for r in snapshot["reflections"]):
+                    gaps += 1
+        return gaps
 
     def diff_rsm(self, event_id_a: int, event_id_b: int) -> Dict[str, Any]:
         base = {

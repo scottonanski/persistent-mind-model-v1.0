@@ -73,16 +73,15 @@ def test_rsm_help_includes_all_variants():
     assert "[id | diff <a> <b>]" in RSM_HELP_TEXT
 
 
-def test_cli_goals_command_output():
+def test_cli_goals_shows_mc_cid_and_goal():
     log = EventLog(":memory:")
     manager = CommitmentManager(log)
     cid = manager.open_internal("analyze_knowledge_gaps", reason="gaps=4")
 
     output = handle_goals_command(log)
-    assert "Internal Goals:" in output
-    assert "cid | goal | opened_at" in output
     assert cid in output
     assert "analyze_knowledge_gaps" in output
+    assert "opened:" in output
 
 
 def test_goals_empty_when_none():

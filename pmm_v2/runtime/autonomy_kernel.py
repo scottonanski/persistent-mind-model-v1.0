@@ -73,7 +73,7 @@ class AutonomyKernel:
         self._goal_state: Dict[str, Dict[str, int]] = {}
         self.commitment_manager = CommitmentManager(eventlog)
         self.mirror = LedgerMirror(eventlog)
-        self.last_gap_goal_cid: Optional[str] = None
+        self.active_gap_analysis_cid: Optional[str] = None
 
     def ensure_rule_table_event(self) -> None:
         """Record the kernel's rule table in the ledger exactly once."""
@@ -179,11 +179,14 @@ class AutonomyKernel:
         self.execute_internal_goal(self.INTERNAL_GOAL_MONITOR_RSM)
         gaps = self.mirror.rsm_knowledge_gaps()
         if gaps > 3 and not self.has_open_gap_goal():
-            cid = self.commitment_manager.open_internal(
-                goal="analyze_knowledge_gaps",
-                reason=f"RSM reports {gaps} knowledge gaps",
-            )
-            self.last_gap_goal_cid = cid
+            open_goals = self.commitment_manager.get_open_commitments(origin="autonomy_kernel")
+            if not any(c.get('meta', {}).get('goal') == "analyze_knowledge_gaps" for c in open_goals):
+                reason = f"RSM reports {gaps} knowledge gaps"
+                cid = self.commitment_manager.open_internal(
+                    goal="analyze_knowledge_gaps",
+                    reason=reason
+                )
+                self.active_gap_analysis_cid = cid
         self.execute_internal_goal(self.INTERNAL_GOAL_ANALYZE_GAPS)
         events = self.eventlog.read_all()
         if not events:
@@ -292,11 +295,12 @@ class AutonomyKernel:
             self._goal_state[goal]["last_check_id"] = reflection_id
             return reflection_id
         elif goal == self.INTERNAL_GOAL_ANALYZE_GAPS:
-            snapshot = self.mirror.rsm_snapshot()
-            gaps = snapshot["knowledge_gaps"]
-            reflection_content = (
-                f"RSM Gap Analysis: Found {len(gaps)} gaps: {', '.join(gaps)}"
-            )
+            snap = self.mirror.rsm_snapshot()
+            unresolved = [i for i,c in snap["intents"].items() if c==1 and not any(r["intent"].startswith(i[:50]) for r in snap["reflections"])]
+            reflection_content = json.dumps({
+                "intent": "gap_analysis",
+                "outcome": f"Unresolved: {', '.join(unresolved)}"
+            })
             reflection_id = self.eventlog.append(
                 kind="reflection",
                 content=reflection_content,
@@ -311,7 +315,7 @@ class AutonomyKernel:
                         "source": "autonomy_kernel",
                         "cid": cid,
                         "goal": goal,
-                        "outcome": "gap_analysis_complete",
+                        "outcome": "analyzed",
                     },
                 )
             return reflection_id

@@ -192,23 +192,15 @@ def handle_rsm_command(command: str, eventlog: EventLog) -> Optional[str]:
 
 
 def handle_goals_command(eventlog: EventLog) -> str:
-    manager = CommitmentManager(eventlog)
-    open_internal = manager.get_open_commitments(origin="autonomy_kernel")
-    if not open_internal:
+    commitment_manager = CommitmentManager(eventlog)
+    goals = commitment_manager.get_open_commitments(origin="autonomy_kernel")
+    if not goals:
         return "No internal goals."
-
-    lines = ["Internal Goals:", "cid | goal | opened_at"]
-    for event in open_internal:
-        meta = event.get("meta") or {}
-        cid = meta.get("cid", "")
-        goal = meta.get("goal", "")
-        opened_at = event.get("id", "")
-        if not cid:
-            continue
-        lines.append(f"{cid} | {goal} | {opened_at}")
-    if len(lines) == 2:
-        return "No internal goals."
-    return "\n".join(lines)
+    else:
+        lines = []
+        for g in goals:
+            lines.append(f"{g['meta']['cid']} | {g['meta']['goal']} | opened: {g['id']}")
+        return "\n".join(lines)
 
 
 def _latest_event_id(eventlog: EventLog) -> int:

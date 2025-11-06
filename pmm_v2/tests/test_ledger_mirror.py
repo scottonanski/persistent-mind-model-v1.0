@@ -82,7 +82,7 @@ def test_rsm_counts_knowledge_gaps_deterministically():
 
     snapshot = mirror.rsm_snapshot()
     assert snapshot["knowledge_gaps"] == ["math"]
-    assert mirror.rsm_knowledge_gaps() == 1
+    assert mirror.rsm_knowledge_gaps() == 0
 
     for _ in range(500):
         log.append(kind="user_message", content="filler event", meta={})
@@ -90,19 +90,44 @@ def test_rsm_counts_knowledge_gaps_deterministically():
     assert mirror.rsm_snapshot()["knowledge_gaps"] == []
 
 
-def test_rsm_snapshot_includes_all_fields():
+def test_gaps_count_only_unresolved_intents():
     log = EventLog(":memory:")
     mirror = LedgerMirror(log)
 
+    # Add one unresolved intent (count == 1)
+    log.append(
+        kind="assistant_message",
+        content="CLAIM: failed to explain quantum physics.",
+        meta={"topic": "quantum"},
+    )
+
+    # Add another unresolved intent
+    log.append(
+        kind="assistant_message",
+        content="unknown status for chemistry.",
+        meta={"topic": "chemistry"},
+    )
+
+    # Add a resolved intent (count == 2)
+    log.append(
+        kind="assistant_message",
+        content="CLAIM: failed on biology.",
+        meta={"topic": "biology"},
+    )
+    log.append(
+        kind="assistant_message",
+        content="biology remains unknown.",
+        meta={"topic": "biology"},
+    )
+
+    # Check that unresolved count is 2
+    assert mirror.rsm_knowledge_gaps() == 2
+
+    # Snapshot intents should have quantum:1, chemistry:1, biology:2
     snapshot = mirror.rsm_snapshot()
-    assert set(snapshot.keys()) == {
-        "behavioral_tendencies",
-        "knowledge_gaps",
-        "interaction_meta_patterns",
-    }
-    assert isinstance(snapshot["behavioral_tendencies"], dict)
-    assert isinstance(snapshot["knowledge_gaps"], list)
-    assert isinstance(snapshot["interaction_meta_patterns"], list)
+    assert snapshot["intents"]["quantum"] == 1
+    assert snapshot["intents"]["chemistry"] == 1
+    assert snapshot["intents"]["biology"] == 2
 
 
 def test_rsm_sync_idempotent_on_replay():
