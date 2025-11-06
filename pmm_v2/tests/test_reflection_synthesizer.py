@@ -4,6 +4,7 @@ import json
 
 from pmm_v2.core.event_log import EventLog
 from pmm_v2.runtime.reflection_synthesizer import synthesize_reflection
+from pmm_v2.core.commitment_manager import CommitmentManager
 
 
 def test_synthesize_reflection_deterministic(tmp_path):
@@ -95,3 +96,16 @@ def test_rsm_absent_below_threshold():
     reflection_event = next(e for e in log.read_all() if e["id"] == reflection_id)
     payload = json.loads(reflection_event["content"])
     assert "self_model" not in payload
+
+
+def test_reflection_includes_internal_goal_when_active():
+    log = EventLog(":memory:")
+    cm = CommitmentManager(log)
+    cid = cm.open_internal("test_goal", reason="test")
+    _append_turn(log)
+
+    reflection_id = synthesize_reflection(log)
+    reflection_event = next(e for e in log.read_all() if e["id"] == reflection_id)
+    payload = json.loads(reflection_event["content"])
+    assert "internal_goals" in payload
+    assert payload["internal_goals"] == [f"{cid} (test_goal)"]

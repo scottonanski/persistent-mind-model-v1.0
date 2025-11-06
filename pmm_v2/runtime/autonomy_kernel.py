@@ -71,8 +71,9 @@ class AutonomyKernel:
                 if key in self.thresholds:
                     self.thresholds[key] = int(value)
         self._goal_state: Dict[str, Dict[str, int]] = {}
-        self._commitments = CommitmentManager(eventlog)
-        self.last_gap_analysis_cid: Optional[str] = None
+        self.commitment_manager = CommitmentManager(eventlog)
+        self.mirror = LedgerMirror(eventlog)
+        self.last_gap_goal_cid: Optional[str] = None
 
     def ensure_rule_table_event(self) -> None:
         """Record the kernel's rule table in the ledger exactly once."""
@@ -176,22 +177,14 @@ class AutonomyKernel:
 
     def decide_next_action(self) -> KernelDecision:
         self.execute_internal_goal(self.INTERNAL_GOAL_MONITOR_RSM)
-        mirror = LedgerMirror(self.eventlog, listen=False)
-        gaps = mirror.rsm_knowledge_gaps()
-        gap_commitments = self._open_gap_commitments()
-        if not gap_commitments and gaps > self.KNOWLEDGE_GAP_THRESHOLD:
-            reason = f"gaps={gaps}"
-            cid = self._commitments.open_internal(
-                self.INTERNAL_GOAL_ANALYZE_GAPS, reason=reason
+        gaps = self.mirror.rsm_knowledge_gaps()
+        if gaps > 3 and not self.has_open_gap_goal():
+            cid = self.commitment_manager.open_internal(
+                goal="analyze_knowledge_gaps",
+                reason=f"RSM reports {gaps} knowledge gaps",
             )
-            if cid:
-                self.last_gap_analysis_cid = cid
-                gap_commitments = self._open_gap_commitments()
-        elif gap_commitments:
-            latest_meta = gap_commitments[-1].get("meta") or {}
-            self.last_gap_analysis_cid = latest_meta.get("cid")
-        else:
-            self.last_gap_analysis_cid = None
+            self.last_gap_goal_cid = cid
+        self.execute_internal_goal(self.INTERNAL_GOAL_ANALYZE_GAPS)
         events = self.eventlog.read_all()
         if not events:
             return KernelDecision("idle", "no events recorded", [])
@@ -247,14 +240,20 @@ class AutonomyKernel:
     def _open_gap_commitments(self) -> List[Dict[str, Any]]:
         return [
             event
-            for event in self._commitments.get_open_commitments(
+            for event in self.commitment_manager.get_open_commitments(
                 origin="autonomy_kernel"
             )
             if (event.get("meta") or {}).get("goal") == self.INTERNAL_GOAL_ANALYZE_GAPS
         ]
 
+    def has_open_gap_goal(self) -> bool:
+        return bool(self._open_gap_commitments())
+
     def execute_internal_goal(self, goal: str) -> Optional[int]:
-        if goal != self.INTERNAL_GOAL_MONITOR_RSM:
+        if (
+            goal != self.INTERNAL_GOAL_MONITOR_RSM
+            and goal != self.INTERNAL_GOAL_ANALYZE_GAPS
+        ):
             return None
 
         events = self.eventlog.read_all()
@@ -275,22 +274,47 @@ class AutonomyKernel:
         if current_event_id <= last_check_id:
             return None
 
-        if current_event_id - last_check_id < self.RSM_EVENT_INTERVAL:
-            return None
+        if goal == self.INTERNAL_GOAL_MONITOR_RSM:
+            if current_event_id - last_check_id < self.RSM_EVENT_INTERVAL:
+                return None
 
-        mirror = LedgerMirror(self.eventlog, listen=False)
-        diff = mirror.diff_rsm(last_check_id, current_event_id)
+            mirror = LedgerMirror(self.eventlog, listen=False)
+            diff = mirror.diff_rsm(last_check_id, current_event_id)
 
-        if not self._is_significant_rsm_change(diff):
-            self._goal_state.pop(goal, None)
-            self._close_internal_goal(open_goal, goal)
-            return None
+            if not self._is_significant_rsm_change(diff):
+                self._goal_state.pop(goal, None)
+                self._close_internal_goal(open_goal, goal)
+                return None
 
-        reflection_id = self._append_rsm_reflection(
-            diff, last_check_id, current_event_id
-        )
-        self._goal_state[goal]["last_check_id"] = reflection_id
-        return reflection_id
+            reflection_id = self._append_rsm_reflection(
+                diff, last_check_id, current_event_id
+            )
+            self._goal_state[goal]["last_check_id"] = reflection_id
+            return reflection_id
+        elif goal == self.INTERNAL_GOAL_ANALYZE_GAPS:
+            snapshot = self.mirror.rsm_snapshot()
+            gaps = snapshot["knowledge_gaps"]
+            reflection_content = (
+                f"RSM Gap Analysis: Found {len(gaps)} gaps: {', '.join(gaps)}"
+            )
+            reflection_id = self.eventlog.append(
+                kind="reflection",
+                content=reflection_content,
+                meta={"source": "autonomy_kernel", "goal": goal},
+            )
+            cid = (open_goal.get("meta") or {}).get("cid")
+            if cid:
+                self.eventlog.append(
+                    kind="commitment_close",
+                    content=f"Commitment closed: {cid}",
+                    meta={
+                        "source": "autonomy_kernel",
+                        "cid": cid,
+                        "goal": goal,
+                        "outcome": "gap_analysis_complete",
+                    },
+                )
+            return reflection_id
 
     def _is_significant_rsm_change(self, diff: Dict[str, object]) -> bool:
         tendencies = diff.get("tendencies_delta", {}) or {}

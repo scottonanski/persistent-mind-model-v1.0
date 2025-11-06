@@ -5,6 +5,7 @@ import json
 
 from pmm_v2.core.event_log import EventLog
 from pmm_v2.core.ledger_mirror import LedgerMirror
+from pmm_v2.core.commitment_manager import CommitmentManager
 
 
 def _last_by_kind(events: List[Dict], kind: str) -> Optional[Dict]:
@@ -39,6 +40,15 @@ def synthesize_reflection(
         intent = (user.get("content") or "").strip()[:256]
         outcome = (assistant.get("content") or "").strip()[:256]
         payload = {"intent": intent, "outcome": outcome, "next": "continue"}
+
+        internal = CommitmentManager(eventlog).get_open_commitments(
+            origin="autonomy_kernel"
+        )
+        if internal:
+            payload["internal_goals"] = [
+                f"{c.get('meta', {}).get('cid')} ({c.get('meta', {}).get('goal')})"
+                for c in internal
+            ]
 
         reflection_count = sum(1 for e in events if e.get("kind") == "reflection")
         if reflection_count >= 5:
