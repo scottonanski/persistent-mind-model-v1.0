@@ -184,7 +184,6 @@ class AutonomyKernel:
                 goal="analyze_knowledge_gaps",
                 reason=f"{gaps} unresolved singleton intents"
             )
-            return KernelDecision("reflect", f"gaps >= 3 ({gaps})", evidence=[])
 
         # 2. EXECUTE EXISTING GOAL
         self.execute_internal_goal(self.INTERNAL_GOAL_ANALYZE_GAPS)

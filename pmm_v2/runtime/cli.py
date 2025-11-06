@@ -192,15 +192,25 @@ def handle_rsm_command(command: str, eventlog: EventLog) -> Optional[str]:
 
 
 def handle_goals_command(eventlog: EventLog) -> str:
-    commitment_manager = CommitmentManager(eventlog)
-    goals = commitment_manager.get_open_commitments(origin="autonomy_kernel")
-    if not goals:
-        return "No internal goals."
-    else:
-        lines = []
-        for g in goals:
-            lines.append(f"{g['meta']['cid']} | {g['meta']['goal']} | opened: {g['id']}")
-        return "\n".join(lines)
+    from pmm_v2.runtime.commitment_manager import CommitmentManager
+
+    cm = CommitmentManager(eventlog)
+    goals = cm.get_open_commitments()
+    internal_goals = [g for g in goals if g.get("meta", {}).get("source") == "autonomy_kernel"]
+
+    # Count closed internal goals
+    closed_count = sum(
+        1 for e in eventlog.read_all()
+        if e.get("kind") == "commitment_close" and e.get("meta", {}).get("source") == "autonomy_kernel"
+    )
+
+    if not internal_goals:
+        return f"No open internal goals. {closed_count} closed."
+
+    lines = [f"Open internal goals ({closed_count} closed):"]
+    for g in internal_goals:
+        lines.append(f"{g['meta']['cid']} | {g['meta']['goal']} | opened: {g['id']}")
+    return "\n".join(lines)
 
 
 def _latest_event_id(eventlog: EventLog) -> int:
