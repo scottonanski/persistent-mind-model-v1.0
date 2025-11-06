@@ -179,7 +179,7 @@ class AutonomyKernel:
         gaps = self.mirror.rsm_knowledge_gaps()
 
         # 1. OPEN GOAL IF NEEDED
-        if gaps >= 3 and not self.has_open_gap_goal():
+        if gaps >= 3:
             self.commitment_manager.open_internal(
                 goal="analyze_knowledge_gaps",
                 reason=f"{gaps} unresolved singleton intents"
