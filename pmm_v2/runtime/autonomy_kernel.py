@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
+import json
 
 from pmm_v2.core.event_log import EventLog
 
@@ -134,23 +135,27 @@ class AutonomyKernel:
             if staleness_threshold is not None and events_since > staleness_threshold
             else 0
         )
-        content = (
-            "{"
-            f"commitments_reviewed:{len(open_commitments)}"
-            f",stale:{stale_flag}"
-            f",relevance:'all_active'"
-            f",action:'maintain'"
-            f",next:'monitor'"
-            "}"
-        )
+        content_dict: Dict[str, object] = {
+            "commitments_reviewed": len(open_commitments),
+            "stale": stale_flag,
+            "relevance": "all_active",
+            "action": "maintain",
+            "next": "monitor",
+        }
         if len(open_commitments) > 0:
-            content += "\nREF: ../other_pmm_v2.db#47"
+            content_dict["refs"] = ["../other_pmm_v2.db#47"]
         meta = {
             "synth": "v2",
             "source": meta_extra.get("source") if meta_extra else "unknown",
         }
         meta.update(meta_extra or {})
-        return eventlog.append(kind="reflection", content=content, meta=meta)
+        return eventlog.append(
+            kind="reflection",
+            content=json.dumps(
+                content_dict, sort_keys=True, separators=(",", ":")
+            ),
+            meta=meta,
+        )
 
     def decide_next_action(self) -> KernelDecision:
         events = self.eventlog.read_all()

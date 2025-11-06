@@ -19,11 +19,8 @@ def test_idempotent_closure():
     loop = RuntimeLoop(eventlog=log, adapter=CloseAdapter("abcd"), autonomy=False)
     # First turn closes and reflects
     events1 = loop.run_turn("do close")
-    kinds1 = [
-        e["kind"]
-        for e in events1
-        if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")
-    ]
+    ignored = {"autonomy_rule_table", "autonomy_stimulus", "rsm_update"}
+    kinds1 = [e["kind"] for e in events1 if e["kind"] not in ignored]
     assert kinds1.count("commitment_close") == 1
     assert kinds1[-3:] == ["reflection", "commitment_close", "reflection"]
     last_reflection1 = [e for e in events1 if e["kind"] == "reflection"][-1]
@@ -31,10 +28,6 @@ def test_idempotent_closure():
 
     # Second turn attempts to close again; should not close
     events2 = loop.run_turn("do close again")
-    kinds2 = [
-        e["kind"]
-        for e in events2
-        if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")
-    ]
+    kinds2 = [e["kind"] for e in events2 if e["kind"] not in ignored]
     assert kinds2.count("commitment_close") == 1
     assert kinds2[-1] == "summary_update"

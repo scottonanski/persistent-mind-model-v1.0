@@ -26,7 +26,7 @@ def _tick(log: EventLog, decision: str) -> None:
 
 
 def _reflect(log: EventLog, id: int) -> None:
-    content = "{intent:'test',outcome:'done',next:'continue'}"
+    content = '{"intent":"test","outcome":"done","next":"continue"}'
     log.append(
         kind="reflection", content=content, meta={"source": "autonomy_kernel", "id": id}
     )

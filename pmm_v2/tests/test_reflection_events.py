@@ -38,7 +38,7 @@ def test_reflection_appended_when_delta(tmp_path):
     kinds = [
         e["kind"]
         for e in events
-        if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")
+        if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus", "rsm_update")
     ]
     assert "assistant_message" in kinds
     assert kinds.count("reflection") == 2

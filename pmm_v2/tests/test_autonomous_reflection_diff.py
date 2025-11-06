@@ -1,4 +1,5 @@
 from unittest.mock import Mock
+import json
 
 from pmm_v2.runtime.reflection_synthesizer import synthesize_reflection
 from pmm_v2.runtime.loop import RuntimeLoop
@@ -58,8 +59,10 @@ def test_autonomous_reflection_diff():
     synthesize_reflection(mock_eventlog, source="user_turn")
     call_args = mock_eventlog.append.call_args
     assert call_args[1]["kind"] == "reflection"
-    content = call_args[1]["content"]
-    assert content.startswith("{intent:'some intent'")
+    content = json.loads(call_args[1]["content"])
+    assert content["intent"] == "some intent"
+    assert content["outcome"] == "some outcome"
+    assert content["next"] == "continue"
 
     # ------------------------------------------------------------------
     # 1. No stale – fewer than threshold events after oldest commitment
@@ -78,8 +81,9 @@ def test_autonomous_reflection_diff():
     loop.run_tick(slot=0, slot_id="test")
     refl = [e for e in log.events if e["kind"] == "reflection"][-1]
     assert refl["kind"] == "reflection"
-    assert "commitments_reviewed:2" in refl["content"]
-    assert "stale:0" in refl["content"]
+    payload = json.loads(refl["content"])
+    assert payload["commitments_reviewed"] == 2
+    assert payload["stale"] == 0
 
     # ------------------------------------------------------------------
     # 2. Stale – more than threshold events after oldest commitment
@@ -90,8 +94,9 @@ def test_autonomous_reflection_diff():
     loop.autonomy.decide_next_action = lambda: KernelDecision("reflect", "", [])
     loop.run_tick(slot=0, slot_id="test")
     refl = [e for e in log.events if e["kind"] == "reflection"][-1]
-    assert "commitments_reviewed:2" in refl["content"]
-    assert "stale:1" in refl["content"]
+    payload = json.loads(refl["content"])
+    assert payload["commitments_reviewed"] == 2
+    assert payload["stale"] == 1
 
 
 def test_autonomous_reflection_auto_close_stale():
@@ -122,6 +127,7 @@ def test_autonomous_reflection_auto_close_stale():
 
     # Assert reflection shows commitments_reviewed:0 (after close)
     refl = [e for e in log.events if e["kind"] == "reflection"][-1]
-    assert "commitments_reviewed:0" in refl["content"]
+    payload = json.loads(refl["content"])
+    assert payload["commitments_reviewed"] == 0
     # No remaining commitments, so stale:0
-    assert "stale:0" in refl["content"]
+    assert payload["stale"] == 0

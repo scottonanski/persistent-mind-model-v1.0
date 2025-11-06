@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Dict, Optional, List
+import json
 
 from pmm_v2.core.event_log import EventLog
 
@@ -37,8 +38,10 @@ def synthesize_reflection(
         intent = (user.get("content") or "").strip()[:256]
         outcome = (assistant.get("content") or "").strip()[:256]
         # Compose a stable, manually-ordered string (no json.dumps ordering)
-        content = (
-            "{" f"intent:'{intent}'" f",outcome:'{outcome}'" f",next:'continue'" "}"
+        content = json.dumps(
+            {"intent": intent, "outcome": outcome, "next": "continue"},
+            sort_keys=True,
+            separators=(",", ":"),
         )
         meta = {
             "synth": "v2",

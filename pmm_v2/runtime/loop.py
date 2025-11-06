@@ -128,10 +128,30 @@ class RuntimeLoop:
         return [Claim(type=ctype, data=data) for ctype, data in parsed]
 
     def _parse_ref_lines(self, content: str) -> None:
-        ref_lines = [line for line in content.splitlines() if line.startswith("REF: ")]
-        for line in ref_lines:
-            path, event_id_str = line[5:].strip().split("#", 1)
-            event_id = int(event_id_str)
+        refs: List[str] = []
+        parsed: Dict[str, Any] | None = None
+        try:
+            parsed = json.loads(content)
+        except (TypeError, json.JSONDecodeError):
+            parsed = None
+
+        if isinstance(parsed, dict) and isinstance(parsed.get("refs"), list):
+            refs = [str(r) for r in parsed["refs"]]
+        else:
+            refs = [
+                line[5:].strip()
+                for line in content.splitlines()
+                if line.startswith("REF: ")
+            ]
+
+        for ref in refs:
+            if "#" not in ref:
+                continue
+            path, event_id_str = ref.split("#", 1)
+            try:
+                event_id = int(event_id_str)
+            except ValueError:
+                continue
             target_log = EventLog(path)
             target_event = target_log.get(event_id)
             if target_event:

@@ -8,11 +8,23 @@ def test_summary_threshold_and_determinism(tmp_path):
     db = tmp_path / "sum9.db"
     log = EventLog(str(db))
     # fewer than 3 reflections: no summary
-    log.append(kind="reflection", content="{intent:'a',outcome:'b',next:'c'}", meta={})
+    log.append(
+        kind="reflection",
+        content='{"intent":"a","outcome":"b","next":"c"}',
+        meta={},
+    )
     assert maybe_append_summary(log) is None
     # reach 3 reflections
-    log.append(kind="reflection", content="{intent:'a',outcome:'b',next:'c'}", meta={})
-    log.append(kind="reflection", content="{intent:'a',outcome:'b',next:'c'}", meta={})
+    log.append(
+        kind="reflection",
+        content='{"intent":"a","outcome":"b","next":"c"}',
+        meta={},
+    )
+    log.append(
+        kind="reflection",
+        content='{"intent":"a","outcome":"b","next":"c"}',
+        meta={},
+    )
     sid = maybe_append_summary(log)
     assert isinstance(sid, int)
 
