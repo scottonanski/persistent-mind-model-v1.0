@@ -182,7 +182,7 @@ class AutonomyKernel:
         if gaps >= 3:
             self.commitment_manager.open_internal(
                 goal="analyze_knowledge_gaps",
-                reason=f"{gaps} unresolved singleton intents"
+                reason=f"{gaps} unresolved singleton intents",
             )
 
         # 2. EXECUTE EXISTING GOAL
@@ -296,11 +296,18 @@ class AutonomyKernel:
             return reflection_id
         elif goal == self.INTERNAL_GOAL_ANALYZE_GAPS:
             snap = self.mirror.rsm_snapshot()
-            unresolved = [i for i,c in snap["intents"].items() if c==1 and not any(r["intent"].startswith(i[:50]) for r in snap["reflections"])]
-            reflection_content = json.dumps({
-                "intent": "gap_analysis",
-                "outcome": f"Unresolved: {', '.join(unresolved)}"
-            })
+            unresolved = [
+                i
+                for i, c in snap["intents"].items()
+                if c == 1
+                and not any(r["intent"].startswith(i[:50]) for r in snap["reflections"])
+            ]
+            reflection_content = json.dumps(
+                {
+                    "intent": "gap_analysis",
+                    "outcome": f"Unresolved: {', '.join(unresolved)}",
+                }
+            )
             reflection_id = self.eventlog.append(
                 kind="reflection",
                 content=reflection_content,

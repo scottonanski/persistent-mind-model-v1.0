@@ -35,7 +35,12 @@ class CommitmentManager:
         self.eventlog.append(
             kind="commitment_open",
             content=f"Commitment opened: {text}",
-            meta={"cid": cid, "goal": goal, "reason": reason, "source": "autonomy_kernel"},
+            meta={
+                "cid": cid,
+                "goal": goal,
+                "reason": reason,
+                "source": "autonomy_kernel",
+            },
         )
         return cid
 

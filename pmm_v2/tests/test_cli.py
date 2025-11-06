@@ -81,9 +81,9 @@ def test_cli_goals_shows_mc_cid_and_goal():
     output = handle_goals_command(log)
     assert cid in output
     assert "analyze_knowledge_gaps" in output
-    assert "opened:" in output
+    assert "Internal goals" in output
 
 
 def test_goals_empty_when_none():
     log = EventLog(":memory:")
-    assert handle_goals_command(log) == "No internal goals."
+    assert handle_goals_command(log) == "No open internal goals. 0 closed."

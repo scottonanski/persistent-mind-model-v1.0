@@ -118,8 +118,7 @@ def main() -> None:  # pragma: no cover - thin wrapper
                 tracker = loop.tracker if hasattr(loop, "tracker") else None
                 if tracker:
                     tracker.rebuild()  # Rebuild from ledger on CLI load
-                rsm = loop.rsm if hasattr(loop, "rsm") else None
-                print(format_metrics_human(compute_metrics(db_path, tracker, rsm=rsm)))
+                print(format_metrics_human(compute_metrics(db_path, tracker)))
                 continue
             if cmd in {"/diag"}:
                 events = [
@@ -192,24 +191,29 @@ def handle_rsm_command(command: str, eventlog: EventLog) -> Optional[str]:
 
 
 def handle_goals_command(eventlog: EventLog) -> str:
-    from pmm_v2.core.ledger_mirror import LedgerMirror
+    manager = CommitmentManager(eventlog)
+    open_internal = manager.get_open_commitments(origin="autonomy_kernel")
 
-    mirror = LedgerMirror(eventlog, listen=False)
-    goals = mirror.get_open_commitments()
-    internal_goals = [g for g in goals if g.get("meta", {}).get("source") == "autonomy_kernel"]
-
-    # Count closed internal goals
     closed_count = sum(
-        1 for e in eventlog.read_all()
-        if e.get("kind") == "commitment_close" and e.get("meta", {}).get("source") == "autonomy_kernel"
+        1
+        for event in eventlog.read_all()
+        if event.get("kind") == "commitment_close"
+        and (event.get("meta") or {}).get("origin") == "autonomy_kernel"
     )
 
-    if not internal_goals:
+    if not open_internal:
         return f"No open internal goals. {closed_count} closed."
 
-    lines = [f"Open internal goals ({closed_count} closed):"]
-    for g in internal_goals:
-        lines.append(f"{g['meta']['cid']} | {g['meta']['goal']} | opened: {g['id']}")
+    lines = [f"Internal goals ({len(open_internal)} open, {closed_count} closed):"]
+    for event in open_internal:
+        meta = event.get("meta") or {}
+        cid = meta.get("cid", "unknown")
+        goal = meta.get("goal", "unknown")
+        reason = meta.get("reason")
+        detail = f"{cid} | goal: {goal}"
+        if reason:
+            detail += f" | reason: {reason}"
+        lines.append(detail)
     return "\n".join(lines)
 
 

@@ -18,7 +18,6 @@ from pmm_v2.core.semantic_extractor import extract_commitments, extract_claims
 from pmm_v2.runtime.context_builder import build_context
 from pmm_v2.runtime.autonomy_supervisor import AutonomySupervisor
 from pmm_v2.core.autonomy_tracker import AutonomyTracker
-from pmm_v2.core.rsm import RecursiveSelfModel
 import asyncio
 import threading
 import time
@@ -55,9 +54,6 @@ class RuntimeLoop:
                 e["kind"] == "autonomy_rule_table" for e in self.eventlog.read_all()
             ):
                 self.autonomy.ensure_rule_table_event()
-
-            self.rsm = RecursiveSelfModel(eventlog)
-            self.eventlog.register_listener(self.rsm.sync)
 
             if autonomy:
                 # Start autonomy supervisor

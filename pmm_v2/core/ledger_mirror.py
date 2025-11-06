@@ -87,11 +87,11 @@ class RecursiveSelfModel:
         if kind == "reflection":
             try:
                 data = json.loads(content)
-                intent = data.get("intent")
-                if isinstance(intent, str):
-                    self.reflection_intents.append(intent)
-            except:
-                pass
+            except ValueError:
+                data = {}
+            intent = data.get("intent") if isinstance(data, dict) else None
+            if isinstance(intent, str):
+                self.reflection_intents.append(intent)
 
         # Produce deterministic outward-facing structures
         self.behavioral_tendencies = dict(sorted(self._pattern_counts.items()))
@@ -228,7 +228,9 @@ class LedgerMirror:
         for intent, count in snapshot["intents"].items():
             if count == 1:  # singleton
                 # Check if ANY reflection covers it (first 50 chars)
-                if not any(r["intent"].startswith(intent[:50]) for r in snapshot["reflections"]):
+                if not any(
+                    r["intent"].startswith(intent[:50]) for r in snapshot["reflections"]
+                ):
                     gaps += 1
         return gaps
 

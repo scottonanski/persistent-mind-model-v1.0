@@ -11,10 +11,11 @@ from typing import Any, Dict, List, Optional
 from pmm_v2.core.event_log import EventLog
 from pmm_v2.core.autonomy_tracker import AutonomyTracker
 from pmm_v2.core.commitment_manager import CommitmentManager
+from pmm_v2.core.ledger_mirror import LedgerMirror
 
 
 def compute_metrics(
-    db_path: str, tracker: Optional[AutonomyTracker] = None, rsm: Optional[Any] = None
+    db_path: str, tracker: Optional[AutonomyTracker] = None
 ) -> Dict[str, Any]:
     """Compute deterministic metrics and integrity info for a ledger.
 
@@ -67,6 +68,8 @@ def compute_metrics(
 
     manager = CommitmentManager(log)
     internal_goals_open = len(manager.get_open_commitments(origin="autonomy_kernel"))
+    mirror = LedgerMirror(log, listen=False)
+    kernel_knowledge_gaps = mirror.rsm_knowledge_gaps()
 
     metrics = {
         "event_count": len(canonical_events),
@@ -76,6 +79,7 @@ def compute_metrics(
         "closed_commitments": closes,
         "last_hash": last_hash,
         "internal_goals_open": internal_goals_open,
+        "kernel_knowledge_gaps": kernel_knowledge_gaps,
     }
 
     if tracker:
@@ -90,10 +94,6 @@ def compute_metrics(
             "open_commitments": am["open_commitments"],
         }
 
-    if rsm:
-        rsm.rebuild()
-        metrics["rsm"] = rsm.get_snapshot()
-
     return metrics
 
 
@@ -105,6 +105,7 @@ def format_metrics_human(metrics: Dict[str, Any]) -> str:
     lines.append(f"closed_commitments: {metrics['closed_commitments']}")
     lines.append(f"last_hash: {metrics['last_hash']}")
     lines.append(f"Internal Goals Open: {metrics.get('internal_goals_open', 0)}")
+    lines.append(f"Kernel knowledge gaps: {metrics.get('kernel_knowledge_gaps', 0)}")
     lines.append("kinds:")
     for k in sorted(metrics.get("kinds", {}).keys()):
         lines.append(f"  - {k}: {metrics['kinds'][k]}")
@@ -117,17 +118,6 @@ def format_metrics_human(metrics: Dict[str, Any]) -> str:
         lines.append(f"  idle_count: {am['idle_count']}")
         lines.append(f"  last_reflection_id: {am['last_reflection_id']}")
         lines.append(f"  open_commitments: {am['open_commitments']}")
-    if "rsm" in metrics:
-        rsm = metrics["rsm"]
-        lines.append("rsm:")
-        lines.append(f"  reflections: {rsm.get('reflections', 0)}")
-        lines.append(f"  commitments: {rsm.get('commitments', 0)}")
-        lines.append(f"  gaps: {rsm.get('gaps', 0)}")
-        intents = rsm.get("intents", {})
-        if intents:
-            lines.append("  intents:")
-            for k in sorted(intents.keys()):
-                lines.append(f"    {k}: {intents[k]}")
     return "\n".join(lines)
 
 
