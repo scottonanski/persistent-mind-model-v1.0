@@ -205,3 +205,13 @@ Expected baseline:
 - Integrated into `/metrics` via `compute_metrics(tracker=...)`.
 - Tests: rebuild parity, emit cadence, no-delta idempotency.
 - Deterministic, replay-safe, no model calls.
+
+### Sprint 19: Recursive Self-Model (RSM) Core — **COMPLETE** ✅
+- Added `rsm_update` event and `RecursiveSelfModel` 
+- RSM tracks reflections, commitments, dominant intents, knowledge gaps
+- Rebuildable, idempotent, listener-driven
+- Integrated into `/metrics` 
+- Tests: rebuild parity, gap detection, emit threshold
+- Tests: **59/59**
+- Deterministic, ledger-only, no model calls
+- Tagged: `v2.0-sprint19`

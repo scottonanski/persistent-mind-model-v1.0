@@ -71,6 +71,12 @@ Any PR introducing a user-triggered autonomy path will be rejected.
 - `autonomy_metrics` events are emitted every 10 ticks, listener-driven.
 - No model calls or external dependencies in telemetry.
 
+### Recursive Self-Model (RSM)
+- RSM must derive solely from `EventLog.read_all()` 
+- No regex; use structured JSON parsing
+- Emit `rsm_update` only on semantic delta
+- Rebuildable and idempotent
+
 ## 3. Evolution / Reflection Policy
 
 - reflection events are generated deterministically by reflection_synthesizer.py.

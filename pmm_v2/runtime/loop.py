@@ -18,6 +18,7 @@ from pmm_v2.core.semantic_extractor import extract_commitments, extract_claims
 from pmm_v2.runtime.context_builder import build_context
 from pmm_v2.runtime.autonomy_supervisor import AutonomySupervisor
 from pmm_v2.core.autonomy_tracker import AutonomyTracker
+from pmm_v2.core.rsm import RecursiveSelfModel
 import asyncio
 import threading
 import time
@@ -48,9 +49,15 @@ class RuntimeLoop:
         self.tracker = AutonomyTracker(eventlog)
         if self.replay:
             self.mirror.rebuild()
-            self.memegraph.rebuild(self.eventlog.read_all())
+            self.autonomy = AutonomyKernel(eventlog)
         if not self.replay:
-            self.autonomy.ensure_rule_table_event()
+            if not any(
+                e["kind"] == "autonomy_rule_table" for e in self.eventlog.read_all()
+            ):
+                self.autonomy.ensure_rule_table_event()
+
+            self.rsm = RecursiveSelfModel(eventlog)
+            self.eventlog.register_listener(self.rsm.sync)
 
             if autonomy:
                 # Start autonomy supervisor
@@ -80,7 +87,12 @@ class RuntimeLoop:
                 if slot is not None and slot_id:
                     if DEBUG:
                         print(f" → CALLING run_tick(slot={slot}, id={slot_id})")
-                    self.run_tick(slot=slot, slot_id=slot_id)
+
+                    def _delayed_tick() -> None:
+                        time.sleep(0.2)
+                        self.run_tick(slot=slot, slot_id=slot_id)
+
+                    threading.Thread(target=_delayed_tick, daemon=True).start()
             except json.JSONDecodeError:
                 if DEBUG:
                     print(" → [ERROR] Failed to parse autonomy_stimulus content")

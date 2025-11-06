@@ -14,7 +14,7 @@ def test_single_turn_with_commitment_and_reflection():
     kinds = [
         e["kind"]
         for e in events
-        if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")
+        if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus", "rsm_update")
     ]
     assert kinds[0] == "user_message"
     assert kinds[1] == "assistant_message"

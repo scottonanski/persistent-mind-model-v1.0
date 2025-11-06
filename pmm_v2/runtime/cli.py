@@ -103,7 +103,8 @@ def main() -> None:  # pragma: no cover - thin wrapper
                 tracker = loop.tracker if hasattr(loop, "tracker") else None
                 if tracker:
                     tracker.rebuild()  # Rebuild from ledger on CLI load
-                print(format_metrics_human(compute_metrics(db_path, tracker)))
+                rsm = loop.rsm if hasattr(loop, "rsm") else None
+                print(format_metrics_human(compute_metrics(db_path, tracker, rsm=rsm)))
                 continue
             if cmd in {"/diag"}:
                 events = [

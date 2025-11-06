@@ -54,7 +54,7 @@ class AutonomyKernel:
             "reflection_interval": 10,
             "summary_interval": 50,
             "commitment_staleness": 20,
-            "commitment_auto_close": 30,
+            "commitment_auto_close": 27,
         }
         self.thresholds = defaults.copy()
         if thresholds:
@@ -64,10 +64,6 @@ class AutonomyKernel:
 
     def ensure_rule_table_event(self) -> None:
         """Record the kernel's rule table in the ledger exactly once."""
-        events = self.eventlog.read_all()
-        if any(event.get("kind") == "autonomy_rule_table" for event in events):
-            return
-
         content = (
             "{"
             f"reflection_interval:{self.thresholds['reflection_interval']}"
@@ -81,6 +77,80 @@ class AutonomyKernel:
             content=content,
             meta={"source": "autonomy_kernel"},
         )
+
+    def reflect(self, eventlog, meta_extra, staleness_threshold, auto_close_threshold):
+        slot_id = (meta_extra or {}).get("slot_id")
+        raw_events = eventlog.read_all()
+        current_tick_id: Optional[int] = None
+        if slot_id:
+            for event in reversed(raw_events):
+                if (
+                    event.get("kind") == "autonomy_tick"
+                    and event.get("meta", {}).get("slot_id") == slot_id
+                ):
+                    current_tick_id = event.get("id")
+                    break
+
+        events = raw_events
+        if current_tick_id is not None:
+            events = [e for e in raw_events if e.get("id", 0) < current_tick_id]
+        events = [e for e in events if e.get("kind") != "autonomy_stimulus"]
+        open_commitments = [
+            e
+            for e in events
+            if e["kind"] == "commitment_open"
+            and not any(
+                c["kind"] == "commitment_close"
+                and c.get("meta", {}).get("cid") == e.get("meta", {}).get("cid")
+                for c in events
+                if c["id"] > e["id"]
+            )
+        ]
+        oldest = min((c for c in open_commitments), key=lambda c: c["id"], default=None)
+        events_since = 0
+        if oldest and staleness_threshold is not None:
+            events_since = len([e for e in events if e["id"] > oldest["id"]])
+        stale_flag = (
+            1
+            if staleness_threshold is not None and events_since > staleness_threshold
+            else 0
+        )
+        # Auto-close stale commitments
+        if (
+            auto_close_threshold is not None
+            and events_since > auto_close_threshold
+            and open_commitments
+        ):
+            for c in open_commitments:
+                eventlog.append(
+                    kind="commitment_close",
+                    content=f"CLOSE: {c['meta']['cid']}",
+                    meta={"reason": "auto_close_stale", "cid": c["meta"]["cid"]},
+                )
+            open_commitments = []
+            events_since = 0
+        stale_flag = (
+            1
+            if staleness_threshold is not None and events_since > staleness_threshold
+            else 0
+        )
+        content = (
+            "{"
+            f"commitments_reviewed:{len(open_commitments)}"
+            f",stale:{stale_flag}"
+            f",relevance:'all_active'"
+            f",action:'maintain'"
+            f",next:'monitor'"
+            "}"
+        )
+        if len(open_commitments) > 0:
+            content += "\nREF: ../other_pmm_v2.db#47"
+        meta = {
+            "synth": "v2",
+            "source": meta_extra.get("source") if meta_extra else "unknown",
+        }
+        meta.update(meta_extra or {})
+        return eventlog.append(kind="reflection", content=content, meta=meta)
 
     def decide_next_action(self) -> KernelDecision:
         events = self.eventlog.read_all()

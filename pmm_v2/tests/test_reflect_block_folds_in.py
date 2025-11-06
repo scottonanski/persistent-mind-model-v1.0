@@ -19,7 +19,7 @@ def test_reflect_block_triggers_reflection_and_folds_content():
     kinds = [
         e["kind"]
         for e in events
-        if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus")
+        if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus", "rsm_update")
     ]
     assert kinds[0] == "user_message"
     assert "assistant_message" in kinds

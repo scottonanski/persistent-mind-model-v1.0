@@ -13,7 +13,7 @@ from pmm_v2.core.autonomy_tracker import AutonomyTracker
 
 
 def compute_metrics(
-    db_path: str, tracker: Optional[AutonomyTracker] = None
+    db_path: str, tracker: Optional[AutonomyTracker] = None, rsm: Optional[Any] = None
 ) -> Dict[str, Any]:
     """Compute deterministic metrics and integrity info for a ledger.
 
@@ -85,6 +85,10 @@ def compute_metrics(
             "open_commitments": am["open_commitments"],
         }
 
+    if rsm:
+        rsm.rebuild()
+        metrics["rsm"] = rsm.get_snapshot()
+
     return metrics
 
 
@@ -107,6 +111,17 @@ def format_metrics_human(metrics: Dict[str, Any]) -> str:
         lines.append(f"  idle_count: {am['idle_count']}")
         lines.append(f"  last_reflection_id: {am['last_reflection_id']}")
         lines.append(f"  open_commitments: {am['open_commitments']}")
+    if "rsm" in metrics:
+        rsm = metrics["rsm"]
+        lines.append("rsm:")
+        lines.append(f"  reflections: {rsm.get('reflections', 0)}")
+        lines.append(f"  commitments: {rsm.get('commitments', 0)}")
+        lines.append(f"  gaps: {rsm.get('gaps', 0)}")
+        intents = rsm.get("intents", {})
+        if intents:
+            lines.append("  intents:")
+            for k in sorted(intents.keys()):
+                lines.append(f"    {k}: {intents[k]}")
     return "\n".join(lines)
 
 

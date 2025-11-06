@@ -8,13 +8,15 @@ from pmm_v2.runtime.loop import RuntimeLoop
 def test_replay_does_not_mutate_ledger(tmp_path):
     db = tmp_path / "log.db"
     log = EventLog(str(db))
-    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter())
+    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter(), autonomy=False)
     loop.run_turn("hello")
     seq_before = log.hash_sequence()
 
     # New loop in replay mode on same DB
     log2 = EventLog(str(db))
-    loop2 = RuntimeLoop(eventlog=log2, adapter=DummyAdapter(), replay=True)
+    loop2 = RuntimeLoop(
+        eventlog=log2, adapter=DummyAdapter(), replay=True, autonomy=False
+    )
     events_before = log2.read_all()
     loop2.run_turn("ignored in replay")
     events_after = log2.read_all()
