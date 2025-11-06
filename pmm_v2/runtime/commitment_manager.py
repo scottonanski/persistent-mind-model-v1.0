@@ -28,8 +28,10 @@ class CommitmentManager:
         return cid
 
     def open_internal(self, goal: str, reason: str) -> str:
-        text = f"INTERNAL_GOAL: {goal} | {reason}"
-        cid = self._derive_cid(text)
+        text = f"INTERNAL_GOAL: {goal}"
+        if reason:
+            text += f" | {reason}"
+        cid = f"mc_{self._derive_cid(text)}"
         self.eventlog.append(
             kind="commitment_open",
             content=f"Commitment opened: {text}",
