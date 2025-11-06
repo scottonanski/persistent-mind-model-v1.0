@@ -189,7 +189,7 @@ def _gap_heavy_log() -> EventLog:
     log = EventLog(":memory:")
     log.append(kind="user_message", content="need insights", meta={})
     for topic in ("alpha", "beta", "gamma", "delta"):
-        _record_gap_events(log, topic, count=4)
+        _record_gap_events(log, topic, count=1)
     log.append(kind="metrics_turn", content="provider:dummy", meta={})
     return log
 
@@ -209,8 +209,7 @@ def test_autonomy_opens_internal_goal_when_gaps_gt_3():
     assert len(gap_commitments) == 1
     meta = gap_commitments[0]["meta"]
     assert meta["origin"] == "autonomy_kernel"
-    assert meta["reason"] == "RSM reports 4 knowledge gaps"
-    assert kernel.active_gap_analysis_cid == meta["cid"]
+    assert meta["reason"] == "4 unresolved singleton intents"
 
 
 def test_gap_goal_included_in_reflection_payload():
@@ -252,7 +251,7 @@ def test_execute_analyze_gaps_creates_reflection():
     new_reflection = final_reflections[-1]
     payload = json.loads(new_reflection["content"])
     assert payload["intent"] == "gap_analysis"
-    assert "RSM gaps:" in payload["outcome"]
+    assert "Unresolved:" in payload["outcome"]
     assert new_reflection["meta"]["goal"] == AutonomyKernel.INTERNAL_GOAL_ANALYZE_GAPS
 
 
@@ -322,4 +321,4 @@ def test_internal_goal_opens_at_gap_4():
     assert len(gap_commitments) == 1
     meta = gap_commitments[0]["meta"]
     assert meta["origin"] == "autonomy_kernel"
-    assert "RSM reports" in meta["reason"]
+    assert "unresolved singleton intents" in meta["reason"]
