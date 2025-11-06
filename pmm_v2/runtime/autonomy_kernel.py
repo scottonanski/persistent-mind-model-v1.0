@@ -177,14 +177,11 @@ class AutonomyKernel:
 
     def decide_next_action(self) -> KernelDecision:
         self.execute_internal_goal(self.INTERNAL_GOAL_MONITOR_RSM)
-        gaps = self.mirror.rsm_knowledge_gaps()  # already fixed to unresolved singletons
-        if gaps > 3:
-            open_goals = self.commitment_manager.get_open_commitments(origin="autonomy_kernel")
-            if not any(g.get('meta', {}).get('goal') == "analyze_knowledge_gaps" for g in open_goals):
-                self.commitment_manager.open_internal(
-                    goal="analyze_knowledge_gaps",
-                    reason=f"{gaps} unresolved singleton intents"
-                )
+        if self.mirror.rsm_knowledge_gaps() > 3:
+            self.commitment_manager.open_internal(
+                goal="analyze_knowledge_gaps",
+                reason="RSM gaps exceed threshold"
+            )
         self.execute_internal_goal(self.INTERNAL_GOAL_ANALYZE_GAPS)
         events = self.eventlog.read_all()
         if not events:

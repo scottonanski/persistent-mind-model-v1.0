@@ -209,7 +209,7 @@ def test_autonomy_opens_internal_goal_when_gaps_gt_3():
     assert len(gap_commitments) == 1
     meta = gap_commitments[0]["meta"]
     assert meta["origin"] == "autonomy_kernel"
-    assert meta["reason"] == "4 unresolved singleton intents"
+    assert meta["reason"] == "RSM gaps exceed threshold"
 
 
 def test_gap_goal_included_in_reflection_payload():
@@ -321,4 +321,4 @@ def test_internal_goal_opens_at_gap_4():
     assert len(gap_commitments) == 1
     meta = gap_commitments[0]["meta"]
     assert meta["origin"] == "autonomy_kernel"
-    assert "unresolved singleton intents" in meta["reason"]
+    assert "RSM gaps exceed threshold" in meta["reason"]
