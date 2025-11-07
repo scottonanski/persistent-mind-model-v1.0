@@ -5,8 +5,21 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pmm"
 version = "2.0.0"
-description = "Persistent Mind Model v2"
+description = "Persistent Mind Model"
 requires-python = ">=3.9"
+dependencies = [
+    "networkx>=3.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.0.0"]
+dev = [
+    "pytest>=7.0",
+]
+full = [
+    "openai>=1.0.0",
+]
 
 [project.scripts]
-pmm = "pmm_v2.runtime.cli:main"
+pmm = "pmm.runtime.cli:main"

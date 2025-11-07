@@ -1,4 +1,4 @@
-# Persistent Mind Model v2 — Status
+# Persistent Mind Model — Status
 
 > Persistent Mind Model (PMM) is a deterministic, ledger-recall system. Every behavior, reflection, or summary must be reconstructable from the event ledger alone—no hidden state, no heuristics, no probabilistic shortcuts.
 
@@ -49,7 +49,7 @@
    Echo can reference events from other PMM ledgers using `REF: <path>#<event_id>` syntax in any `assistant_message` or `reflection`. The referenced event is verified by hash, appended as `inter_ledger_ref`, and replay-safe. Includes parsing in runtime loop, REF proposal in autonomy reflection synthesizer, updated `/replay` narration with ✓/✗ status, and comprehensive tests.
 
 15. **Cross-Mind Truth Alignment**  
-   `claim_verification` events emitted on failed `inter_ledger_ref` verification. **Idempotent**: one event per unique `(path, event_id)` pair, reconstructed deterministically via `get_failed_ref_keys()`. Verified: `pytest -q` → **43/43 passed**. Live in `pmm_v2.db`: 2 `claim_verification`, 13 failed refs, **no duplicates**.
+   `claim_verification` events emitted on failed `inter_ledger_ref` verification. **Idempotent**: one event per unique `(path, event_id)` pair, reconstructed deterministically via `get_failed_ref_keys()`. Verified: `pytest -q` → **43/43 passed**. Live in `.data/pmmdb/pmm.db`: 2 `claim_verification`, 13 failed refs, **no duplicates**.
 
 16. **Enhanced Self-Awareness in Reflections**  
    Reflections now include a `self_model` field when at least 5 user reflections exist, scanning for patterns and appending a deterministic string `'dynamic, process-defined identity'`. Enhances emergent self-awareness via ledger facts only, preserving replay determinism.
@@ -154,7 +154,7 @@
 Additional governance rules:
 - Only reflections with `meta.source == "autonomy_kernel"` count toward `reflection_interval`. User-turn reflections do **not** reset the interval.
 - Every tick decision—even `idle`—is logged before execution as an `autonomy_tick` with canonical JSON payload.
-- Autonomous reflections append deterministic content via `reflection_synthesizer` and carry provenance `{"synth": "v2", "source": "autonomy_kernel"}`.
+- Autonomous reflections append deterministic content via `reflection_synthesizer` and carry provenance `{"synth": "pmm", "source": "autonomy_kernel"}`.
 - `autonomy_rule_table` is persisted exactly once per ledger. Current hash: `ca68d073b140fce63170b9790db7acdef5b96487f8af533332a025fd54a1541f`.
 
 Replay contract: identical ledgers reproduce the same sequence of `autonomy_tick`, reflection, and summary events byte-for-byte.
@@ -172,13 +172,16 @@ Replay contract: identical ledgers reproduce the same sequence of `autonomy_tick
 ## Repository Layout
 
 ```
-pmm_v2/
+pmm/
 ├─ adapters/                # Dummy, Ollama, OpenAI adapters + factory
 ├─ core/                    # event_log, ledger_mirror, meme_graph stub, schemas, validators, semantic_extractor, ledger_metrics
 ├─ runtime/                 # loop, autonomy_kernel, commitment_manager, reflection builder, reflection_synthesizer, identity_summary, prompts, context_builder, cli, replay_narrator
 └─ tests/                   # loop, adapters, replay, determinism, validators, reflections, metrics, diagnostics, autonomy kernel, etc.
 pyproject.toml              # packaging; exposes `pmm` console script
 pmm                         # repo-local launcher
+```
+
+Default ledger location: `.data/pmmdb/pmm.db`.
 ```
 
 ### Test Coverage (illustrative files)

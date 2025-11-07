@@ -1,4 +1,4 @@
-# Contributing to Persistent Mind Model v2
+# Contributing to Persistent Mind Model
 
 > Persistent Mind Model (PMM) is a deterministic, ledger‑recall system. Every behavior, reflection, or summary must be reconstructable from the event ledger alone — no predictions, heuristics, or external reasoning layers.
 

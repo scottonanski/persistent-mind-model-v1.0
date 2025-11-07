@@ -7,7 +7,7 @@
 #   • **REF:** line extraction from assistant/reflection text
 #   • JSON output unchanged (just extra keys)
 #
-# Usage:   python pmm_diag.py pmm_v2.db
+# Usage:   python pmm_diag.py pmm.db
 # -----------------------------------------------------------
 
 import sqlite3
@@ -34,10 +34,14 @@ def extract_refs(text: str) -> list[str]:
 # 1. Open DB
 # ------------------------------------------------------------------
 if len(sys.argv) < 2:
-    print("Usage: python pmm_diag.py <pmm_database.db>")
-    sys.exit(1)
-
-db_path = Path(sys.argv[1])
+    # Default to standard PMM location if not provided
+    default_path = Path(".data/pmmdb/pmm.db")
+    if not default_path.exists():
+        print("Usage: python pmm_diag.py <pmm_database.db>")
+        sys.exit(1)
+    db_path = default_path
+else:
+    db_path = Path(sys.argv[1])
 conn = sqlite3.connect(db_path)
 c = conn.cursor()
 

@@ -1,2 +1,0 @@
-[console_scripts]
-pmm = pmm_v2.runtime.cli:main

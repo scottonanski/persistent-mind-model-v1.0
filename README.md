@@ -1,9 +1,32 @@
-# Persistent Mind Model v2
+# Persistent Mind Model
 
 > Persistent Mind Model (PMM) is a deterministic, ledger‑recall system. Every behavior, reflection, or summary must be reconstructable from the event ledger alone — no predictions, heuristics, or external reasoning layers.
 
-- Start: `pmm` (choose a model; use in‑chat commands `/replay`, `/metrics`, `/diag`, `/exit`).
-- Tests: `pytest -q`
+- Quick start (one-time, installs EVERYTHING)
+  1. `python3 -m venv .venv && source .venv/bin/activate`
+  2. `pip install -e ".[full]"`   # installs package + all optional runtime deps
+
+- Run
+  - `pmm`  # choose a model; use in‑chat commands `/replay`, `/metrics`, `/diag`, `/goals`, `/rsm`, `/exit`
+  - The ledger stores at `.data/pmmdb/pmm.db` by default.
+
+Environment / prerequisites
+- For Ollama adapter: install `ollama` and pull at least one local model (`ollama serve` then `ollama pull <model>`)
+- For OpenAI adapter: set `OPENAI_API_KEY` (the full install already includes the OpenAI SDK)
+
+Environment
+- `OPENAI_API_KEY` — your OpenAI API key
+- `PMM_OPENAI_MODEL` or `OPENAI_MODEL` — model name (e.g., `gpt-4o-mini`)
+
+Dotenv
+- If a `.env` file exists at the repo root, it is auto‑loaded on CLI start (via python‑dotenv).
+
+- Tests
+  - `pip install .[dev]`
+  - `pytest -q`
+
+Optional helper scripts
+- `./scripts/bootstrap.sh` sets up a venv and installs deps in one step.
+- `./scripts/run-tests.sh` installs dev deps and runs tests.
 
 See `STATUS.md` for sprint progress and `CONTRIBUTING.md` for development rules.
-
