@@ -99,6 +99,7 @@ def compute_metrics(
             "ticks_total": am["ticks_total"],
             "reflect_count": am["reflect_count"],
             "summarize_count": am["summarize_count"],
+            "intention_summarize_count": am.get("intention_summarize_count", 0),
             "idle_count": am["idle_count"],
             "last_reflection_id": am["last_reflection_id"],
             "open_commitments": am["open_commitments"],
@@ -126,6 +127,9 @@ def format_metrics_human(metrics: Dict[str, Any]) -> str:
         lines.append(f"  ticks_total: {am['ticks_total']}")
         lines.append(f"  reflect_count: {am['reflect_count']}")
         lines.append(f"  summarize_count: {am['summarize_count']}")
+        lines.append(
+            f"  intention_summarize_count: {am.get('intention_summarize_count', 0)}"
+        )
         lines.append(f"  idle_count: {am['idle_count']}")
         lines.append(f"  last_reflection_id: {am['last_reflection_id']}")
         lines.append(f"  open_commitments: {am['open_commitments']}")

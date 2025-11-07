@@ -14,7 +14,8 @@ from pmm.core.event_log import EventLog
 class _Counters:
     ticks_total: int = 0
     reflect_count: int = 0
-    summarize_count: int = 0
+    summarize_count: int = 0  # FACT: number of summary_update events
+    intention_summarize_count: int = 0  # INTENT: ticks that chose summarize
     idle_count: int = 0
     last_reflection_id: Optional[int] = None
 
@@ -46,12 +47,20 @@ class AutonomyTracker:
             if decision == "reflect":
                 self._counters.reflect_count += 1
             elif decision == "summarize":
-                self._counters.summarize_count += 1
+                # Ledger-only truth for summarize_count: do not increment here.
+                # Track intention separately for diagnostics.
+                self._counters.intention_summarize_count += 1
             else:
                 self._counters.idle_count += 1
 
         elif kind == "reflection" and meta.get("source") == "autonomy_kernel":
             self._counters.last_reflection_id = event["id"]
+        elif kind == "summary_update":
+            # Count actual summaries appended to the ledger as well.
+            # This complements the autonomy_tick decision-based count,
+            # ensuring the metric reflects real summary events even if
+            # the decision wasn’t observed (e.g., during replays).
+            self._counters.summarize_count += 1
 
         event_id = event.get("id", 0)
         if event_id > self._max_event_id:
@@ -77,6 +86,7 @@ class AutonomyTracker:
             "ticks_total": self._counters.ticks_total,
             "reflect_count": self._counters.reflect_count,
             "summarize_count": self._counters.summarize_count,
+            "intention_summarize_count": self._counters.intention_summarize_count,
             "idle_count": self._counters.idle_count,
             "last_reflection_id": self._counters.last_reflection_id,
             "open_commitments": open_commits,

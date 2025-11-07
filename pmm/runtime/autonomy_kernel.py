@@ -99,15 +99,25 @@ class AutonomyKernel:
         # Read complete ledger once to build projection-only idempotency sets
         raw_events = eventlog.read_all()
 
-        # Collect previously emitted inter_ledger_ref content strings
+        # Collect previously emitted inter_ledger_ref targets, normalized to
+        # "<path>#<id>" (strip leading "REF: ") so comparisons match our
+        # candidate values.
+        def _normalize_ref(content: str) -> str:
+            content = content or ""
+            return (
+                content.split(":", 1)[1].strip()
+                if content.startswith("REF:")
+                else content
+            )
+
         failed_refs = {
-            e.get("content", "")
+            _normalize_ref(e.get("content", ""))
             for e in raw_events
             if e.get("kind") == "inter_ledger_ref"
             and not (e.get("meta") or {}).get("verified", False)
         }
         seen_refs = {
-            e.get("content", "")
+            _normalize_ref(e.get("content", ""))
             for e in raw_events
             if e.get("kind") == "inter_ledger_ref"
         }
@@ -189,6 +199,7 @@ class AutonomyKernel:
         # Idempotent REF injection: do not re-emit a REF that already failed or was seen
         if len(open_commitments) > 0:
             candidate_ref = "../other_pmm.db#47"
+            # Skip if this target was already seen or previously failed
             if candidate_ref not in failed_refs and candidate_ref not in seen_refs:
                 content_dict["refs"] = [candidate_ref]
 
