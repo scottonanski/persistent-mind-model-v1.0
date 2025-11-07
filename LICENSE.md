@@ -20,7 +20,7 @@ Its intent is to
 
 ---
 
-## 1 — Definitions  
+## 1. Definitions  
 
 **“PMM”** — the Persistent Mind Model architecture, source code, database schema, and derivative systems including event-sourced ledgers, reflection loops, recursive self-models, and deterministic autonomy mechanisms.  
 **“Derivative Work”** — any modification, extension, or system implementing or inspired by PMM principles.  
@@ -30,7 +30,7 @@ Its intent is to
 
 ---
 
-## 2 — Non-Commercial License  
+## 2. Non-Commercial License  
 
 Subject to compliance with this License, the Licensor grants the Licensee a  
 **worldwide, royalty-free, non-exclusive, revocable right** to   
@@ -50,7 +50,7 @@ Subject to compliance with this License, the Licensor grants the Licensee a
 
 ---
 
-## 3 — Commercial License  
+## 3. Commercial License  
 
 Any Commercial Use requires a **signed commercial agreement** with the Licensor.  
 
@@ -66,7 +66,7 @@ Unauthorized commercial deployment constitutes copyright infringement.
 
 ---
 
-## 4 — Attribution & Redistribution  
+## 4. Attribution & Redistribution  
 
 - All redistributions of PMM or Derivative Works must retain this License, author credit, and version number.  
 - Public presentations, publications, or academic references shall cite the PMM as:  
@@ -77,7 +77,7 @@ Unauthorized commercial deployment constitutes copyright infringement.
 
 ---
 
-## 5 — Prior-Art Disclosure  
+## 5. Prior-Art Disclosure  
 
 The following constitutes a **formal disclosure of prior art**, establishing public record of the Persistent Mind Model as an original architecture for deterministic, self-referential AI systems.  
 
