@@ -2,7 +2,7 @@
 ## The following is a conversational record within the Persistent Mind Model with GPT-oss:120b-cloud
 
 
-(.venv) scott@Logos:persistent-mind-model-v1.0$ pmm
+(.venv) me@mycomputer:persistent-mind-model-v1.0$ pmm
 
 🧠  Persistent Mind Model
 ────────────────────────────
