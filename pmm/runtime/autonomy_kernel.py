@@ -1,3 +1,4 @@
+# Path: pmm/runtime/autonomy_kernel.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -92,8 +93,25 @@ class AutonomyKernel:
         )
 
     def reflect(self, eventlog, meta_extra, staleness_threshold, auto_close_threshold):
+        # Idempotent REF handling and deterministic reflection synthesis
         slot_id = (meta_extra or {}).get("slot_id")
+
+        # Read complete ledger once to build projection-only idempotency sets
         raw_events = eventlog.read_all()
+
+        # Collect previously emitted inter_ledger_ref content strings
+        failed_refs = {
+            e.get("content", "")
+            for e in raw_events
+            if e.get("kind") == "inter_ledger_ref"
+            and not (e.get("meta") or {}).get("verified", False)
+        }
+        seen_refs = {
+            e.get("content", "")
+            for e in raw_events
+            if e.get("kind") == "inter_ledger_ref"
+        }
+
         current_tick_id: Optional[int] = None
         if slot_id:
             for event in reversed(raw_events):
@@ -104,10 +122,13 @@ class AutonomyKernel:
                     current_tick_id = event.get("id")
                     break
 
+        # Build decision context excluding current stimulus/tick
         events = raw_events
         if current_tick_id is not None:
             events = [e for e in raw_events if e.get("id", 0) < current_tick_id]
         events = [e for e in events if e.get("kind") != "autonomy_stimulus"]
+
+        # Compute open commitments canonically via cid
         open_commitments = [
             e
             for e in events
@@ -125,14 +146,13 @@ class AutonomyKernel:
             events_since = len([e for e in events if e["id"] > oldest["id"]])
         stale_flag = (
             1
-            if staleness_threshold is not None and events_since > staleness_threshold
+            if (staleness_threshold is not None and events_since > staleness_threshold)
             else 0
         )
-        # Auto-close stale commitments (idle optimization)
-        # Conditions: more than 2 open commitments AND each considered stale
-        # Staleness defined as number of events since its open (ID diff count)
-        if auto_close_threshold is not None and len(open_commitments) > 2:
-            # Process in open order (by event id)
+
+        # Auto-close stale commitments only under threshold policy
+        # Enforce auto-close when there are two or more open commitments
+        if auto_close_threshold is not None and len(open_commitments) >= 2:
             for c in sorted(open_commitments, key=lambda ev: ev["id"]):
                 cid = (c.get("meta") or {}).get("cid")
                 if not cid:
@@ -141,14 +161,23 @@ class AutonomyKernel:
                 if events_since_open > auto_close_threshold:
                     eventlog.append(
                         kind="commitment_close",
-                        content=f"CLOSE: {cid}",
-                        meta={"reason": "auto_close_idle_opt", "cid": cid},
+                        content=f"Commitment closed: {cid}",
+                        meta={
+                            "reason": "auto_close_idle_opt",
+                            "cid": cid,
+                            "origin": "autonomy_kernel",
+                            "source": "autonomy_kernel",
+                        },
                     )
+
+        # Recompute stale flag (structure preserved; result unchanged if no closes)
         stale_flag = (
             1
-            if staleness_threshold is not None and events_since > staleness_threshold
+            if (staleness_threshold is not None and events_since > staleness_threshold)
             else 0
         )
+
+        # Build reflection payload
         content_dict: Dict[str, object] = {
             "commitments_reviewed": len(open_commitments),
             "stale": stale_flag,
@@ -156,9 +185,15 @@ class AutonomyKernel:
             "action": "maintain",
             "next": "monitor",
         }
+
+        # Idempotent REF injection: do not re-emit a REF that already failed or was seen
         if len(open_commitments) > 0:
-            content_dict["refs"] = ["../other_pmm.db#47"]
-        internal_open = CommitmentManager(eventlog).get_open_commitments(
+            candidate_ref = "../other_pmm.db#47"
+            if candidate_ref not in failed_refs and candidate_ref not in seen_refs:
+                content_dict["refs"] = [candidate_ref]
+
+        # Include internal goals list (origin = autonomy_kernel)
+        internal_open = self.commitment_manager.get_open_commitments(
             origin="autonomy_kernel"
         )
         content_dict["internal_goals"] = [
@@ -166,16 +201,18 @@ class AutonomyKernel:
             for ev in internal_open
             if (ev.get("meta") or {}).get("cid")
         ]
+
         meta = {
             "synth": "pmm",
             "source": meta_extra.get("source") if meta_extra else "unknown",
         }
         meta.update(meta_extra or {})
-        return eventlog.append(
-            kind="reflection",
-            content=json.dumps(content_dict, sort_keys=True, separators=(",", ":")),
-            meta=meta,
-        )
+
+        # Append reflection with deterministic JSON encoding
+        import json as _json
+
+        content = _json.dumps(content_dict, sort_keys=True, separators=(",", ":"))
+        return eventlog.append(kind="reflection", content=content, meta=meta)
 
     def decide_next_action(self) -> KernelDecision:
         gaps = self.mirror.rsm_knowledge_gaps()

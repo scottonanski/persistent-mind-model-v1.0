@@ -1,3 +1,4 @@
+# Path: pmm/core/mirror.py
 """Mirror projection for fast queries over EventLog.
 
 Passive, rebuildable denormalized cache of open commitments, stale flags, and reflection counts.
@@ -38,17 +39,18 @@ class Mirror:
 
     def _process_event(self, event: Dict) -> None:
         kind = event.get("kind")
-        content = event.get("content", "")
         meta = event.get("meta", {})
         if kind == "commitment_open":
-            if content.startswith("COMMIT:"):
-                cid = content[7:]
+            # Canonical: require meta.cid for opens
+            cid = meta.get("cid")
+            if isinstance(cid, str) and cid:
                 source = meta.get("source", "user")
                 self.open_commitments[cid] = {"event_id": event["id"], "source": source}
                 self.stale_flags[cid] = False
         elif kind == "commitment_close":
-            if content.startswith("CLOSE:"):
-                cid = content[6:]
+            # Canonical: close strictly by meta.cid
+            cid = meta.get("cid")
+            if isinstance(cid, str) and cid:
                 if cid in self.open_commitments:
                     del self.open_commitments[cid]
                 if cid in self.stale_flags:

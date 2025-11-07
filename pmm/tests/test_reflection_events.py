@@ -11,7 +11,7 @@ from pmm.runtime.loop import RuntimeLoop
 def test_primer_contains_required_terms():
     assert "deterministic" in SYSTEM_PRIMER
     assert "ledger" in SYSTEM_PRIMER
-    assert "No data in ledger." in SYSTEM_PRIMER
+    assert "Prefer citing concrete ledger event IDs" in SYSTEM_PRIMER
 
 
 def test_context_builder_tail_window(tmp_path):

@@ -1,3 +1,4 @@
+# Path: pmm/core/ledger_metrics.py
 """Deterministic ledger metrics and self-consistency checks.
 
 All computations are pure functions of the ledger rows. No heuristics,

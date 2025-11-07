@@ -1,3 +1,4 @@
+# Path: pmm/core/meme_graph.py
 """MemeGraph projection for causal relationships over EventLog.
 
 Append-only directed graph using NetworkX DiGraph.
@@ -40,7 +41,6 @@ class MemeGraph:
     def _add_event(self, event: Dict) -> None:
         event_id = event["id"]
         kind = event["kind"]
-        content = event.get("content", "")
         meta = event.get("meta", {})
 
         # Add node
@@ -52,19 +52,17 @@ class MemeGraph:
             if last_user is not None:
                 self.graph.add_edge(event_id, last_user, label="replies_to")
         elif kind == "commitment_open":
-            if "COMMIT:" in content:
-                cid = content[7:]
-                assistant_node = self._find_node_with_content(
-                    "assistant_message", f"COMMIT:{cid}"
-                )
+            # Link open → assistant_message that emitted a matching COMMIT line by meta.text
+            text = (meta or {}).get("text")
+            if isinstance(text, str) and text:
+                assistant_node = self._find_assistant_with_commit_text(text)
                 if assistant_node is not None:
                     self.graph.add_edge(event_id, assistant_node, label="commits_to")
         elif kind == "commitment_close":
-            if "CLOSE:" in content:
-                cid = content[6:]
-                open_node = self._find_node_with_content(
-                    "commitment_open", f"COMMIT:{cid}"
-                )
+            # Link this close event to its corresponding open event by cid
+            cid = (meta or {}).get("cid")
+            if isinstance(cid, str) and cid:
+                open_node = self._find_commitment_open_by_cid(cid)
                 if open_node is not None:
                     self.graph.add_edge(event_id, open_node, label="closes")
         elif kind == "reflection":
@@ -83,5 +81,27 @@ class MemeGraph:
             if self.graph.nodes[node]["kind"] == kind:
                 full_event = self.eventlog.get(node)
                 if substring in full_event.get("content", ""):
+                    return node
+        return None
+
+    def _find_assistant_with_commit_text(self, text: str) -> int | None:
+        target = (text or "").strip()
+        for node in self.graph.nodes:
+            if self.graph.nodes[node]["kind"] == "assistant_message":
+                full_event = self.eventlog.get(node)
+                content = full_event.get("content", "")
+                for line in content.splitlines():
+                    if line.startswith("COMMIT:"):
+                        remainder = line.split("COMMIT:", 1)[1].strip()
+                        if remainder == target:
+                            return node
+        return None
+
+    def _find_commitment_open_by_cid(self, cid: str) -> int | None:
+        for node in self.graph.nodes:
+            if self.graph.nodes[node]["kind"] == "commitment_open":
+                full_event = self.eventlog.get(node)
+                meta = full_event.get("meta", {})
+                if meta.get("cid") == cid:
                     return node
         return None

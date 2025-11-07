@@ -1,3 +1,4 @@
+# Path: pmm/adapters/ollama_adapter.py
 from __future__ import annotations
 
 import json

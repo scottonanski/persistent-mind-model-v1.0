@@ -6,16 +6,20 @@ from pmm.core.meme_graph import MemeGraph
 
 
 def create_sample_events(log: EventLog) -> None:
-    # Sample events for graph
+    # Sample events for graph (canonical meta-based commitments)
     log.append(kind="user_message", content="hello", meta={"role": "user"})
     log.append(
-        kind="assistant_message", content="COMMIT:task1 hi", meta={"role": "assistant"}
+        kind="assistant_message", content="COMMIT: task1 hi", meta={"role": "assistant"}
     )
     log.append(
-        kind="commitment_open", content="COMMIT:task1", meta={"source": "assistant"}
+        kind="commitment_open",
+        content="Commitment opened: task1 hi",
+        meta={"source": "assistant", "cid": "task1", "text": "task1 hi"},
     )
     log.append(
-        kind="commitment_close", content="CLOSE:task1", meta={"source": "assistant"}
+        kind="commitment_close",
+        content="Commitment closed: task1",
+        meta={"source": "assistant", "cid": "task1"},
     )
     log.append(
         kind="reflection", content="reflect", meta={"about_event": 2}

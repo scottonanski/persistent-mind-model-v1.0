@@ -1,3 +1,4 @@
+# Path: pmm/adapters/dummy_adapter.py
 """Deterministic dummy chat adapter for tests.
 
 Echoes user input and emits a single well-formed commitment line.

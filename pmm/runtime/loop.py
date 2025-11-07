@@ -1,15 +1,16 @@
+# Path: pmm/runtime/loop.py
 """Minimal runtime loop orchestrator for PMM v2."""
 
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from pmm.core.event_log import EventLog
 from pmm.core.mirror import Mirror
 from pmm.core.meme_graph import MemeGraph
 from pmm.runtime.autonomy_kernel import AutonomyKernel, KernelDecision
-from pmm.runtime.commitment_manager import CommitmentManager
+from pmm.core.commitment_manager import CommitmentManager
 from pmm.runtime.prompts import compose_system_prompt
 from pmm.runtime.reflection import TurnDelta, build_reflection_text
 from pmm.core.schemas import Claim
@@ -34,6 +35,7 @@ class RuntimeLoop:
         adapter,
         replay: bool = False,
         autonomy: bool = True,
+        thresholds: Optional[Dict[str, int]] = None,
     ) -> None:
         self.eventlog = eventlog
         self.mirror = Mirror(eventlog)
@@ -44,7 +46,7 @@ class RuntimeLoop:
         self.commitments = CommitmentManager(eventlog)
         self.adapter = adapter
         self.replay = replay
-        self.autonomy = AutonomyKernel(eventlog)
+        self.autonomy = AutonomyKernel(eventlog, thresholds=thresholds)
         self.tracker = AutonomyTracker(eventlog)
         if self.replay:
             self.mirror.rebuild()
@@ -191,11 +193,39 @@ class RuntimeLoop:
         )
         t1 = time.perf_counter()
 
-        # 4. Log assistant message
+        # 3a. If assistant_reply is valid JSON with required string fields,
+        #     record a deterministic, normalized payload in meta. Do NOT change
+        #     the assistant message content to preserve existing control lines
+        #     (e.g., COMMIT:/CLOSE:) and downstream behavior.
+        structured_payload: Optional[str] = None
+        try:
+            parsed = json.loads(assistant_reply)
+            if (
+                isinstance(parsed, dict)
+                and all(
+                    k in parsed for k in ("intent", "outcome", "next", "self_model")
+                )
+                and all(
+                    isinstance(parsed[k], str)
+                    for k in ("intent", "outcome", "next", "self_model")
+                )
+            ):
+                structured_payload = json.dumps(
+                    parsed, sort_keys=True, separators=(",", ":")
+                )
+        except (TypeError, json.JSONDecodeError):
+            structured_payload = None
+
+        # 4. Log assistant message (content preserved; optional structured meta)
+        ai_meta: Dict[str, Any] = {"role": "assistant"}
+        if structured_payload is not None:
+            ai_meta["assistant_structured"] = True
+            ai_meta["assistant_schema"] = "assistant.v1"
+            ai_meta["assistant_payload"] = structured_payload
         ai_event_id = self.eventlog.append(
             kind="assistant_message",
             content=assistant_reply,
-            meta={"role": "assistant"},
+            meta=ai_meta,
         )
 
         # 4a. Parse REF: lines and append inter_ledger_ref events

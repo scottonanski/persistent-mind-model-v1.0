@@ -1,3 +1,4 @@
+# Path: pmm/core/semantic_extractor.py
 """Deterministic semantic extraction from structured lines.
 
 No regex, no heuristics. Exact prefixes only.

@@ -1,3 +1,4 @@
+# Path: pmm/runtime/replay_narrator.py
 """Deterministic narration of existing ledger events (read-only)."""
 
 from __future__ import annotations

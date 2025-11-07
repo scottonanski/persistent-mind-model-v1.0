@@ -1,3 +1,4 @@
+# Path: pmm/runtime/identity_summary.py
 from __future__ import annotations
 
 from typing import Dict, List, Optional
@@ -25,16 +26,14 @@ def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
     events = eventlog.read_all()
     since = _events_since_last(events, "summary_update")
     reflections = [e for e in since if e.get("kind") == "reflection"]
-    # Derive open commitments deterministically: opens - closes
-    opens = sum(1 for e in events if e.get("kind") == "commitment_open")
-    closes = sum(1 for e in events if e.get("kind") == "commitment_close")
-    open_commitments = max(0, opens - closes)
+    # Derive open commitments via Mirror for canonical meta-based state
+    mirror = LedgerMirror(eventlog, listen=False)
+    open_commitments = len(mirror.get_open_commitment_events())
 
     # Observable ledger facts only (no psychometrics):
     reflections_since = len(reflections)
     last_event_id = events[-1]["id"] if events else 0
 
-    mirror = LedgerMirror(eventlog, listen=False)
     current_snapshot = mirror.rsm_snapshot()
 
     last_summary = _last_summary_event(events)

@@ -1,3 +1,4 @@
+# Path: pmm/core/validators.py
 """Structured claim validators for PMM minimal core.
 
 No regex or heuristics; only direct checks against the ledger/mirror.

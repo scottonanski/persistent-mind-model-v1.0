@@ -1,3 +1,4 @@
+# Path: pmm/adapters/__init__.py
 from __future__ import annotations
 
 import os

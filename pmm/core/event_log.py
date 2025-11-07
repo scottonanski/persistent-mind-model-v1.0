@@ -1,3 +1,4 @@
+# Path: pmm/core/event_log.py
 """SQLite-backed EventLog with simple hash-chain integrity.
 
 Minimal deterministic append/query API for PMM.

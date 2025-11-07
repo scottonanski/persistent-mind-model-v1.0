@@ -1,3 +1,4 @@
+# Path: pmm/core/ledger_mirror.py
 """Lightweight read-through mirror utilities over EventLog with RSM support."""
 
 from __future__ import annotations

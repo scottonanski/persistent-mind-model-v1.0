@@ -1,3 +1,4 @@
+# Path: pmm/runtime/prompts.py
 """Prompt helpers and deterministic system primer for PMM."""
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ SYSTEM_PRIMER = (
     "PMM is a deterministic, event-sourced AI runtime. "
     "Every message, reflection, and commitment is recorded immutably in a cryptographic ledger. "
     "Always respond truthfully. Never invent data. "
-    "No data in ledger."
+    "Prefer citing concrete ledger event IDs when making claims about state."
 )
 
 

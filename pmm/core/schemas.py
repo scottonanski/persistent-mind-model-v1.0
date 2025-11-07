@@ -1,3 +1,4 @@
+# Path: pmm/core/schemas.py
 """Core schemas for PMM.
 
 Defines lightweight data structures used across the runtime. Kept minimal

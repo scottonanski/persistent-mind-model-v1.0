@@ -5,19 +5,25 @@ from pmm.core.mirror import Mirror
 
 
 def create_sample_events(log: EventLog) -> None:
-    # Append sample events for testing
+    # Append sample events for testing (canonical meta-based commitments)
     log.append(kind="user_message", content="hello", meta={"role": "user"})
     log.append(
-        kind="assistant_message", content="COMMIT:task1", meta={"role": "assistant"}
+        kind="assistant_message",
+        content="COMMIT: task1",
+        meta={"role": "assistant"},
     )
     log.append(
-        kind="commitment_open", content="COMMIT:task1", meta={"source": "assistant"}
+        kind="commitment_open",
+        content="Commitment opened: task1",
+        meta={"source": "assistant", "cid": "task1", "text": "task1"},
     )
     log.append(kind="reflection", content="reflected", meta={"source": "user"})
     for i in range(21):  # To trigger stale after 20 events
         log.append(kind="user_message", content=f"msg{i}", meta={"role": "user"})
     log.append(
-        kind="commitment_close", content="CLOSE:task1", meta={"source": "assistant"}
+        kind="commitment_close",
+        content="Commitment closed: task1",
+        meta={"source": "assistant", "cid": "task1"},
     )
 
 
@@ -44,7 +50,11 @@ def test_rebuild_equals_incremental():
 
 def test_sync_idempotent():
     log = EventLog(":memory:")
-    log.append(kind="commitment_open", content="COMMIT:test", meta={"source": "user"})
+    log.append(
+        kind="commitment_open",
+        content="Commitment opened: test",
+        meta={"source": "user", "cid": "test", "text": "test"},
+    )
 
     mirror = Mirror(log)
     event = log.read_all()[-1]
@@ -60,7 +70,11 @@ def test_sync_idempotent():
 
 def test_stale_flag_triggers_after_21_events():
     log = EventLog(":memory:")
-    log.append(kind="commitment_open", content="COMMIT:test", meta={"source": "user"})
+    log.append(
+        kind="commitment_open",
+        content="Commitment opened: test",
+        meta={"source": "user", "cid": "test", "text": "test"},
+    )
     mirror = Mirror(log)
 
     # Add 20 more events
@@ -83,7 +97,11 @@ def test_stale_flag_triggers_after_21_events():
 
 def test_close_removes_from_open_and_stale():
     log = EventLog(":memory:")
-    log.append(kind="commitment_open", content="COMMIT:test", meta={"source": "user"})
+    log.append(
+        kind="commitment_open",
+        content="Commitment opened: test",
+        meta={"source": "user", "cid": "test", "text": "test"},
+    )
     mirror = Mirror(log)
 
     # Make it stale
@@ -94,7 +112,11 @@ def test_close_removes_from_open_and_stale():
     assert mirror.stale_flags["test"]
 
     # Close
-    log.append(kind="commitment_close", content="CLOSE:test", meta={"source": "user"})
+    log.append(
+        kind="commitment_close",
+        content="Commitment closed: test",
+        meta={"source": "user", "cid": "test"},
+    )
     mirror.sync(log.read_all()[-1])
 
     assert "test" not in mirror.open_commitments

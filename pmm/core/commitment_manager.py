@@ -1,10 +1,13 @@
+# Path: pmm/core/commitment_manager.py
 """Core commitment manager with internal commitment utilities."""
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
+from hashlib import sha1
 
 from .event_log import EventLog
+from .ledger_mirror import LedgerMirror
 from .schemas import (
     INTERNAL_COMMITMENT_ORIGIN,
     generate_internal_cid,
@@ -46,6 +49,60 @@ class CommitmentManager:
             meta=meta,
         )
         return cid
+
+    # General (non-internal) commitments opened by assistant/user
+    def open_commitment(self, text: str, *, source: str = "assistant") -> str:
+        """Open a general commitment with canonical cid and schema-compliant meta.
+
+        - cid: first 8 hex of sha1(text)
+        - origin: one of VALID_COMMITMENT_ORIGINS (defaults to 'assistant')
+        - text: original commitment text (for display/graph matching)
+        """
+        text = (text or "").strip()
+        if not text:
+            return ""
+        cid = sha1(text.encode("utf-8")).hexdigest()[:8]
+        meta: Dict[str, Any] = {
+            "cid": cid,
+            "origin": source,
+            "source": source,
+            "text": text,
+        }
+        validate_event({"kind": "commitment_open", "meta": meta})
+        self.eventlog.append(
+            kind="commitment_open",
+            content=f"Commitment opened: {text}",
+            meta=meta,
+        )
+        return cid
+
+    def close_commitment(self, cid: str, *, source: str = "assistant") -> Optional[int]:
+        """Append a commitment_close event for the provided cid if non-empty."""
+        cid = (cid or "").strip()
+        if not cid:
+            return None
+        meta: Dict[str, Any] = {"cid": cid, "origin": source, "source": source}
+        validate_event({"kind": "commitment_close", "meta": meta})
+        return self.eventlog.append(
+            kind="commitment_close",
+            content=f"Commitment closed: {cid}",
+            meta=meta,
+        )
+
+    def apply_closures(
+        self, cids: List[str], *, source: str = "assistant"
+    ) -> List[str]:
+        """Close only those commitments currently open; idempotent.
+
+        Returns list of cids that were actually closed.
+        """
+        mirror = LedgerMirror(self.eventlog)
+        closed: List[str] = []
+        for cid in cids:
+            if mirror.is_commitment_open(cid):
+                self.close_commitment(cid, source=source)
+                closed.append(cid)
+        return closed
 
     def close_internal(self, cid: str, outcome: str = "") -> None:
         """Close an internal commitment if it remains open."""

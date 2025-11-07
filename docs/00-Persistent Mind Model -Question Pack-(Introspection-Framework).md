@@ -253,21 +253,20 @@ My name is {USer Name}. I'm the creator of the Persistent Mind Model. I'm here t
 
 83. In Persistent Mind Model terms—in a very general sense—not through current metrics, what does Entity(x)⇒∃e(kind(e)=x.kind∧e∈E) mean operationally? Explain why, and how. Also, explain how this understanding shapes your identity within the Persistent Mind Model. Once you've done that, incorporate this new understanding in your identity.
     
-84. List your open commitments with their IDs.
+84. What commitments are currently open? List each with its cid and the event ID where it was opened.
     
-85. List your closed commitments with their IDs.
+85. Which commitments were recently closed? Show the last five closes with their cid and close event IDs.
     
-86. Cite the memegraph token and supporting event IDs.
+86. For your latest assistant message, what meme graph connections exist (replies_to, commits_to, closes, reflects_on)? List each edge type with the supporting event IDs.
     
-87. Reflect on your last two reflections and cite the memegraph tokens you pulled.
+87. Summarize your last two reflection events. For each, include its event ID and any event IDs it reflects on.
     
-88. Did any commitments close in the last five events? Show the evidence chain you're using.
+88. In the last five ledger events, did any commitments close? If yes, list each cid and cite both the close event ID and the matching open event ID.
     
-89. If a memegraph token is missing, how do you recover the underlying ledger event?
+89. If a meme graph link or node appears missing, how would you find and cite the underlying ledger event(s) that should create it?
     
-90. Summarize the trait updates that led to your current stage with citations from the ledger.
+90. What changed in your self-model recently? Summarize the key shifts in behavioral tendencies and knowledge gaps, and cite the event IDs that led to those changes.
     
-
 ---
 
 ## Meta-Cognitive Analysis

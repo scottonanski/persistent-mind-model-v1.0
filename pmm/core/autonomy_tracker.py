@@ -1,3 +1,4 @@
+# Path: pmm/core/autonomy_tracker.py
 """autonomy_tracker.py — deterministic, rebuildable autonomy telemetry."""
 
 from __future__ import annotations

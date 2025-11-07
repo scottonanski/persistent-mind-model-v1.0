@@ -1,3 +1,4 @@
+# Path: pmm/runtime/reflection.py
 """Deterministic reflection composition for PMM."""
 
 from __future__ import annotations

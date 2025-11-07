@@ -340,13 +340,20 @@ def _append_fillers(log: EventLog, count: int) -> None:
 
 def test_auto_close_stale_commitments_when_many_and_stale():
     log = EventLog(":memory:")
-    # Open 4 commitments early, then add many fillers to surpass staleness > 27
+    # Parameterize using the kernel thresholds
+    auto_close_threshold = 27
+    # Open 4 commitments early, then add many fillers to surpass staleness > threshold
     _open_many_commitments(log, 4)
-    _append_fillers(log, 36)
+    _append_fillers(log, auto_close_threshold + 9)
     # Add metrics_turn to enable reflect decision
     log.append(kind="metrics_turn", content="provider:dummy", meta={})
 
-    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter(), replay=True)
+    loop = RuntimeLoop(
+        eventlog=log,
+        adapter=DummyAdapter(),
+        replay=True,
+        thresholds={"commitment_auto_close": auto_close_threshold},
+    )
     decision = loop.run_tick(slot=0, slot_id="idle_opt1")
     assert decision.decision == "reflect"
 
@@ -361,14 +368,20 @@ def test_auto_close_stale_commitments_when_many_and_stale():
 
 def test_no_auto_close_when_not_stale_enough():
     log = EventLog(":memory:")
-    # Open 4 commitments late so staleness < 27
-    _append_fillers(log, 20)
+    auto_close_threshold = 27
+    # Open 4 commitments late so staleness < threshold
+    _append_fillers(log, auto_close_threshold - 7)
     _open_many_commitments(log, 4)
     _append_fillers(log, 5)
     # Add metrics_turn to enable reflect decision
     log.append(kind="metrics_turn", content="provider:dummy", meta={})
 
-    loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter(), replay=True)
+    loop = RuntimeLoop(
+        eventlog=log,
+        adapter=DummyAdapter(),
+        replay=True,
+        thresholds={"commitment_auto_close": auto_close_threshold},
+    )
     decision = loop.run_tick(slot=0, slot_id="idle_opt2")
     assert decision.decision == "reflect"
 
