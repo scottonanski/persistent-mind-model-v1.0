@@ -128,4 +128,4 @@ All new modules must include direct tests. Tests must never stub or simulate uni
 
 ### Summary
 
-PMM v2 = Determinism + Auditability + Autonomy. Any patch that breaks replay equivalence, hides logic in envs, or adds nondeterminism will be rejected.
+PMM = Determinism + Auditability + Autonomy. Any patch that breaks replay equivalence, hides logic in envs, or adds nondeterminism will be rejected.
