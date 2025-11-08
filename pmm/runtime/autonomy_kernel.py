@@ -67,6 +67,12 @@ class AutonomyKernel:
             "commitment_auto_close": 27,
         }
         self.thresholds = defaults.copy()
+        # Load last autonomy_thresholds config if present
+        cfg = self._last_autonomy_thresholds_config()
+        if cfg:
+            for key in list(self.thresholds.keys()):
+                if key in cfg and isinstance(cfg[key], int):
+                    self.thresholds[key] = int(cfg[key])
         if thresholds:
             for key, value in thresholds.items():
                 if key in self.thresholds:
@@ -75,6 +81,8 @@ class AutonomyKernel:
         self.commitment_manager = CommitmentManager(eventlog)
         self.mirror = LedgerMirror(eventlog)
         self.active_gap_analysis_cid: Optional[str] = None
+        # Listen for autonomy_thresholds config updates at runtime
+        self.eventlog.register_listener(self._on_config_event)
 
     def ensure_rule_table_event(self) -> None:
         """Record the kernel's rule table in the ledger exactly once."""
@@ -86,11 +94,56 @@ class AutonomyKernel:
             f",commitment_auto_close:{self.thresholds['commitment_auto_close']}"
             "}"
         )
-        self.eventlog.append(
-            kind="autonomy_rule_table",
-            content=content,
-            meta={"source": "autonomy_kernel"},
-        )
+        # Append only if not present with identical content
+        recent = self.eventlog.read_all()[-50:]
+        existing = [e for e in recent if e.get("kind") == "autonomy_rule_table"]
+        if not existing or existing[-1].get("content") != content:
+            self.eventlog.append(
+                kind="autonomy_rule_table",
+                content=content,
+                meta={"source": "autonomy_kernel"},
+            )
+
+    def _last_autonomy_thresholds_config(self) -> Optional[Dict[str, int]]:
+        cfg = None
+        try:
+            for e in self.eventlog.read_all():
+                if e.get("kind") != "config":
+                    continue
+                raw = e.get("content") or "{}"
+                data = json.loads(raw)
+                if isinstance(data, dict) and data.get("type") == "autonomy_thresholds":
+                    cfg = data
+        except Exception:
+            return None
+        if isinstance(cfg, dict):
+            return cfg
+        return None
+
+    def _on_config_event(self, event: Dict[str, Any]) -> None:
+        if not event or event.get("kind") != "config":
+            return
+        try:
+            data = json.loads(event.get("content") or "{}")
+        except Exception:
+            return
+        if not (isinstance(data, dict) and data.get("type") == "autonomy_thresholds"):
+            return
+        changed = False
+        for key in (
+            "reflection_interval",
+            "summary_interval",
+            "commitment_staleness",
+            "commitment_auto_close",
+        ):
+            if key in data and isinstance(data[key], int):
+                val = int(data[key])
+                if self.thresholds.get(key) != val:
+                    self.thresholds[key] = val
+                    changed = True
+        if changed:
+            # Emit updated rule table (idempotent guard inside)
+            self.ensure_rule_table_event()
 
     def reflect(self, eventlog, meta_extra, staleness_threshold, auto_close_threshold):
         # Idempotent REF handling and deterministic reflection synthesis

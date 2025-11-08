@@ -19,6 +19,13 @@ class OpenAIAdapter:
             or os.environ.get("OPENAI_MODEL")
             or "gpt-4o-mini"
         )
+        self.generation_meta = {
+            "provider": "openai",
+            "model": self.model,
+            "temperature": 0,
+            "top_p": 1,
+            "seed": None,
+        }
 
     def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         # Lazy import
@@ -42,6 +49,14 @@ class OpenAIAdapter:
                     {"role": "user", "content": user_prompt},
                 ],
             )
+            # Deterministic metadata capture
+            self.generation_meta = {
+                "provider": "openai",
+                "model": self.model,
+                "temperature": 0,
+                "top_p": 1,
+                "seed": None,
+            }
             return resp.choices[0].message.content or ""
         else:
             # legacy
@@ -57,4 +72,11 @@ class OpenAIAdapter:
                     {"role": "user", "content": user_prompt},
                 ],
             )
+            self.generation_meta = {
+                "provider": "openai",
+                "model": self.model,
+                "temperature": 0,
+                "top_p": 1,
+                "seed": None,
+            }
             return resp["choices"][0]["message"]["content"]

@@ -158,6 +158,33 @@ class RecursiveSelfModel:
             "reflections": [{"intent": i} for i in self.reflection_intents],
         }
 
+    def load_snapshot(self, snapshot: Dict[str, Any]) -> None:
+        """Seed internal state from an existing snapshot.
+
+        Deterministic: used only as a checkpoint to reduce replay work. The
+        snapshot should originate from `snapshot()` content (e.g., in
+        summary_update.meta.rsm_state). Fields not present are treated as empty.
+        """
+        self.reset()
+        tendencies = snapshot.get("behavioral_tendencies") or {}
+        if isinstance(tendencies, dict):
+            for k, v in tendencies.items():
+                try:
+                    self._pattern_counts[str(k)] = int(v)
+                except Exception:
+                    continue
+        gaps = snapshot.get("knowledge_gaps") or []
+        if isinstance(gaps, list):
+            for g in gaps:
+                self._gap_counts[str(g)] = max(1, self._gap_counts.get(str(g), 0) + 1)
+        imeta = snapshot.get("interaction_meta_patterns") or []
+        if isinstance(imeta, list):
+            self._meta_patterns = set(str(x) for x in imeta)
+        # Export outward facing structures
+        self.behavioral_tendencies = dict(sorted(self._pattern_counts.items()))
+        self.knowledge_gaps = sorted(k for k in self._gap_counts.keys())
+        self.interaction_meta_patterns = sorted(self._meta_patterns)
+
     def knowledge_gap_count(self) -> int:
         return len(self.knowledge_gaps)
 
@@ -336,3 +363,44 @@ class LedgerMirror:
         mirror._rsm = RecursiveSelfModel(eventlog=self.eventlog)
         mirror._rsm.rebuild(events)
         return mirror
+
+    # Fast rebuild using last summary_update snapshot if available
+    def rebuild_fast(self) -> None:
+        events = self.eventlog.read_all()
+        # Prefer checkpoint_manifest if available; otherwise fall back to last summary_update
+        start_id = 0
+        snap = None
+        # Find last checkpoint_manifest
+        last_manifest = None
+        for ev in reversed(events):
+            if ev.get("kind") == "checkpoint_manifest":
+                last_manifest = ev
+                break
+        if last_manifest is not None:
+            try:
+                data = json.loads(last_manifest.get("content") or "{}")
+            except Exception:
+                data = {}
+            start_id = int(data.get("up_to_id", 0))
+        # Find last summary_update at or before start_id (or the absolute last if no manifest)
+        last_summary = None
+        for ev in reversed(events):
+            if ev.get("kind") == "summary_update":
+                if start_id == 0 or int(ev.get("id", 0)) <= start_id:
+                    last_summary = ev
+                    break
+        if last_summary is None:
+            # Fallback to full rebuild
+            self._rsm.rebuild(events)
+            return
+        meta = last_summary.get("meta") or {}
+        if isinstance(meta, dict):
+            snap = meta.get("rsm_state")
+        if isinstance(snap, dict):
+            self._rsm.load_snapshot(snap)
+        anchor = int(last_summary.get("id", 0))
+        # Replay only subsequent events after the stronger of manifest or summary anchor
+        start = max(start_id, anchor)
+        for ev in events:
+            if int(ev.get("id", 0)) > start:
+                self._rsm.observe(ev)

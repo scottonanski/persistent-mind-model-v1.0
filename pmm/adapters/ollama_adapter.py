@@ -17,6 +17,13 @@ class OllamaAdapter:
         self.base_url = base_url or os.environ.get(
             "OLLAMA_BASE_URL", "http://localhost:11434"
         )
+        self.generation_meta = {
+            "provider": "ollama",
+            "model": self.model,
+            "temperature": 0,
+            "top_p": None,
+            "seed": None,
+        }
 
     def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
         prompt = f"{SYSTEM_PRIMER}\n\n{system_prompt}\nUser: {user_prompt}\nAssistant:"
@@ -25,6 +32,14 @@ class OllamaAdapter:
             "prompt": prompt,
             "options": {"temperature": 0},
             "stream": False,
+        }
+        # Record generation params deterministically
+        self.generation_meta = {
+            "provider": "ollama",
+            "model": self.model,
+            "temperature": 0,
+            "top_p": None,
+            "seed": None,
         }
         data = json.dumps(body).encode("utf-8")
         req = request.Request(

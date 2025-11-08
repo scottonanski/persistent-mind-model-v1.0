@@ -17,7 +17,14 @@ from pmm.core.schemas import Claim
 from pmm.core.validators import validate_claim
 from pmm.core.semantic_extractor import extract_commitments, extract_claims
 from pmm.commitments.binding import extract_exec_binds
-from pmm.runtime.context_builder import build_context
+from pmm.runtime.context_builder import build_context, _last_retrieval_config
+from pmm.retrieval.vector import (
+    select_by_vector,
+    build_context_from_ids,
+    selection_digest,
+    ensure_embedding_for_event,
+    build_index,
+)
 from pmm.runtime.bindings import ExecBindRouter
 from pmm.runtime.autonomy_supervisor import AutonomySupervisor
 from pmm.core.autonomy_tracker import AutonomyTracker
@@ -107,8 +114,22 @@ class RuntimeLoop:
         cids: List[str] = []
         for line in (text or "").splitlines():
             if line.startswith("CLOSE:"):
-                cids.append(line.split(":", 1)[1].strip())
+                candidate = line.split(":", 1)[1].strip()
+                if self._valid_cid(candidate):
+                    cids.append(candidate)
         return cids
+
+    @staticmethod
+    def _valid_cid(cid: str) -> bool:
+        """Return True for any non-empty CID (legacy-compatible).
+
+        Rationale: commitments may use short test CIDs (e.g., "abcd"),
+        internal CIDs (mc_000123), or 8-hex derived IDs. To preserve
+        backward compatibility and avoid rejecting valid closures, accept
+        any non-empty, stripped string here. Deterministic validation of
+        structure can be added later without breaking tests.
+        """
+        return bool((cid or "").strip())
 
     def _extract_reflect(self, text: str) -> Dict[str, Any] | None:
         for line in (text or "").splitlines():
@@ -178,15 +199,80 @@ class RuntimeLoop:
         from pmm.runtime.identity_summary import maybe_append_summary
 
         # 1. Log user message
-        self.eventlog.append(
+        user_event_id = self.eventlog.append(
             kind="user_message", content=user_input, meta={"role": "user"}
         )
+        # If vector retrieval is enabled, append embedding_add for the user message (idempotent)
+        retrieval_cfg = _last_retrieval_config(self.eventlog)
+        if retrieval_cfg and retrieval_cfg.get("strategy") == "vector":
+            model = str(retrieval_cfg.get("model", "hash64"))
+            dims = int(retrieval_cfg.get("dims", 64))
+            ensure_embedding_for_event(
+                events=self.eventlog.read_all(),
+                eventlog=self.eventlog,
+                event_id=user_event_id,
+                text=user_input,
+                model=model,
+                dims=dims,
+            )
 
         # 2. Build prompts
         history = self.eventlog.read_tail(limit=10)
         open_comms = self.mirror.get_open_commitment_events()
-        # Deterministic short context window
-        ctx_block = build_context(self.eventlog, limit=5)
+        # Deterministic retrieval: fixed (default) or vector (Phase 1)
+        ctx_block = ""
+        selection_ids: List[int] | None = None
+        selection_scores: List[float] | None = None
+        if retrieval_cfg and retrieval_cfg.get("strategy") == "vector":
+            try:
+                limit = int(retrieval_cfg.get("limit", 5))
+            except Exception:
+                limit = 5
+            model = str(retrieval_cfg.get("model", "hash64"))
+            dims_raw = retrieval_cfg.get("dims", 64)
+            try:
+                dims = int(dims_raw)
+            except Exception:
+                dims = 64
+            events_full = self.eventlog.read_all()
+            # Prefer stored embeddings when present; fall back to on-the-fly
+            index = build_index(events_full, model=model, dims=dims)
+            if index:
+                from pmm.retrieval.vector import (
+                    DeterministicEmbedder,
+                    cosine,
+                    candidate_messages,
+                )
+
+                qv = DeterministicEmbedder(model=model, dims=dims).embed(user_input)
+                cands = candidate_messages(events_full)
+                scored: List[tuple[int, float]] = []
+                for ev in cands:
+                    eid = int(ev.get("id", 0))
+                    vec = index.get(eid)
+                    if vec is None:
+                        vec = DeterministicEmbedder(model=model, dims=dims).embed(
+                            ev.get("content") or ""
+                        )
+                    s = cosine(qv, vec)
+                    scored.append((eid, s))
+                scored.sort(key=lambda t: (-t[1], t[0]))
+                top = scored[:limit]
+                ids = [eid for (eid, _s) in top]
+                scores = [float(f"{_s:.6f}") for (_eid, _s) in top]
+            else:
+                ids, scores = select_by_vector(
+                    events=events_full,
+                    query_text=user_input,
+                    limit=limit,
+                    model=model,
+                    dims=dims,
+                )
+            ctx_block = build_context_from_ids(events_full, ids)
+            selection_ids, selection_scores = ids, scores
+        else:
+            # Fixed-window fallback
+            ctx_block = build_context(self.eventlog, limit=5)
         base_prompt = compose_system_prompt(history, open_comms)
         system_prompt = f"{ctx_block}\n\n{base_prompt}" if ctx_block else base_prompt
 
@@ -226,16 +312,63 @@ class RuntimeLoop:
             ai_meta["assistant_structured"] = True
             ai_meta["assistant_schema"] = "assistant.v1"
             ai_meta["assistant_payload"] = structured_payload
+        # Include deterministic generation metadata from adapters if present
+        gen_meta = getattr(self.adapter, "generation_meta", None)
+        if isinstance(gen_meta, dict):
+            for k, v in gen_meta.items():
+                ai_meta[k] = v
         ai_event_id = self.eventlog.append(
             kind="assistant_message",
             content=assistant_reply,
             meta=ai_meta,
         )
+        # If vector retrieval, append embedding for assistant message (idempotent)
+        if retrieval_cfg and retrieval_cfg.get("strategy") == "vector":
+            model = str(retrieval_cfg.get("model", "hash64"))
+            dims = int(retrieval_cfg.get("dims", 64))
+            ensure_embedding_for_event(
+                events=self.eventlog.read_all(),
+                eventlog=self.eventlog,
+                event_id=ai_event_id,
+                text=assistant_reply,
+                model=model,
+                dims=dims,
+            )
 
         # 4a. Parse REF: lines and append inter_ledger_ref events
         self._parse_ref_lines(assistant_reply)
 
-        # 4b. Per-turn diagnostics (deterministic formatting)
+        # 4b. If vector retrieval was used, append retrieval_selection event
+        if selection_ids is not None and selection_scores is not None:
+            # Build provenance digest for auditability
+            model = str((retrieval_cfg or {}).get("model", "hash64"))
+            dims = int((retrieval_cfg or {}).get("dims", 64))
+            dig = selection_digest(
+                selected=selection_ids,
+                scores=selection_scores,
+                model=model,
+                dims=dims,
+                query_text=user_input,
+            )
+            import json as _json2
+
+            sel_content = _json2.dumps(
+                {
+                    "turn_id": ai_event_id,
+                    "selected": selection_ids,
+                    "scores": selection_scores,
+                    "strategy": "vector",
+                    "model": model,
+                    "dims": dims,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            self.eventlog.append(
+                kind="retrieval_selection", content=sel_content, meta={"digest": dig}
+            )
+
+        # 4c. Per-turn diagnostics (deterministic formatting)
         prov = "dummy"
         cls = type(self.adapter).__name__.lower()
         if "openai" in cls:
@@ -255,7 +388,7 @@ class RuntimeLoop:
         )
         self.eventlog.append(kind="metrics_turn", content=diag, meta={})
 
-        # 4c. Synthesize deterministic reflection and maybe append summary
+        # 4d. Synthesize deterministic reflection and maybe append summary
         synthesize_reflection(self.eventlog)
         maybe_append_summary(self.eventlog)
 

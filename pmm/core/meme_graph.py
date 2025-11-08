@@ -105,3 +105,63 @@ class MemeGraph:
                 if meta.get("cid") == cid:
                     return node
         return None
+
+    # Read-only helpers (deterministic, rebuildable)
+    def graph_stats(self) -> dict:
+        kinds: dict[str, int] = {}
+        for node in self.graph.nodes:
+            kind = self.graph.nodes[node].get("kind")
+            if kind:
+                kinds[kind] = kinds.get(kind, 0) + 1
+        return {
+            "nodes": int(self.graph.number_of_nodes()),
+            "edges": int(self.graph.number_of_edges()),
+            "counts_by_kind": kinds,
+        }
+
+    def thread_for_cid(self, cid: str) -> list[int]:
+        """Return ordered event ids forming the thread for a commitment cid.
+
+        Order: assistant_message (that issued COMMIT) -> commitment_open ->
+        commitment_close (if any, possibly multiple) -> reflections that
+        reflect on the assistant_message. All ids sorted ascending within
+        each category to keep stable ordering.
+        """
+        cid = (cid or "").strip()
+        if not cid:
+            return []
+        open_node = self._find_commitment_open_by_cid(cid)
+        if open_node is None:
+            return []
+
+        # assistant that triggered this open (edge label commits_to from open -> assistant)
+        assistant_nodes: list[int] = []
+        for succ in self.graph.successors(open_node):
+            edge = self.graph.get_edge_data(open_node, succ)
+            if (edge or {}).get("label") == "commits_to":
+                assistant_nodes.append(int(succ))
+        assistant_nodes.sort()
+
+        # closes pointing to this open (edge label closes from close -> open)
+        close_nodes: list[int] = []
+        for pred in self.graph.predecessors(open_node):
+            edge = self.graph.get_edge_data(pred, open_node)
+            if (edge or {}).get("label") == "closes":
+                close_nodes.append(int(pred))
+        close_nodes.sort()
+
+        # reflections that reflect on the assistant
+        reflection_nodes: list[int] = []
+        for an in assistant_nodes:
+            for pred in self.graph.predecessors(an):
+                edge = self.graph.get_edge_data(pred, an)
+                if (edge or {}).get("label") == "reflects_on":
+                    reflection_nodes.append(int(pred))
+        reflection_nodes = sorted(set(reflection_nodes))
+
+        ordered: list[int] = []
+        ordered.extend(assistant_nodes)
+        ordered.append(int(open_node))
+        ordered.extend(close_nodes)
+        ordered.extend(reflection_nodes)
+        return ordered

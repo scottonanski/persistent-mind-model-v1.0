@@ -20,7 +20,10 @@ def compose_system_prompt(
 ) -> str:
     parts = [
         "You are PMM. Respond helpfully.",
-        "If you commit, start a line with 'COMMIT:'.",
+        "Write a normal response first.",
+        "After a blank line, add control lines:",
+        "  COMMIT: <title> | CLOSE: <CID> | CLAIM:<type>=<json> | REFLECT:<json>",
+        "Use markers exactly; one per line; do not mix markers into prose.",
     ]
     if open_commitments:
         parts.append("Open commitments present.")

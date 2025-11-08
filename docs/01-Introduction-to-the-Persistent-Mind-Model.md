@@ -1,3 +1,5 @@
+[README](../README.md) > Introduction
+
 ## Persistent Mind Model (PMM)
 
 **"Because nothing else even _tries_ to solve the real problem..."**
@@ -128,3 +130,10 @@ _It’s a structure for keeping meaning intact._
 **_Because you shouldn’t have to lose a mind you helped build._**
 
 _-Scott_
+
+
+[TOP](#persistent-mind-model-pmm)
+
+[NEXT: > 02 ARCHITECTURE](./02-ARCHITECTURE.md)
+
+[BACK TO README](../README.md)

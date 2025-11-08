@@ -90,6 +90,9 @@ class EventLog:
             "metrics_update",
             "autonomy_metrics",
             "internal_goal_created",
+            "retrieval_selection",
+            "checkpoint_manifest",
+            "embedding_add",
         }
         binding_kinds = {
             "metric_check",
@@ -115,6 +118,33 @@ class EventLog:
             "prev_hash": prev_hash,
         }
         digest = sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+
+        # Soft idempotency guard: if the computed digest equals the last
+        # row's hash, return the existing last id instead of inserting a
+        # duplicate row. This preserves replay determinism without a DB
+        # UNIQUE constraint and avoids accidental duplicate writes.
+        with self._lock:
+            cur_last = self._conn.execute(
+                "SELECT id, hash FROM events ORDER BY id DESC LIMIT 1"
+            )
+            last_row = cur_last.fetchone()
+            if last_row is not None:
+                last_id, last_hash = int(last_row[0]), last_row[1]
+                if last_hash == digest:
+                    # Emit to listeners to preserve live projections, since
+                    # downstream code may rely on the callback side‑effects
+                    # during append paths. Listeners should be idempotent.
+                    ev = {
+                        "id": last_id,
+                        "ts": "",  # unknown here; listeners should not rely on ts
+                        "kind": kind,
+                        "content": content,
+                        "meta": meta,
+                        "prev_hash": prev_hash,
+                        "hash": digest,
+                    }
+                    self._emit(ev)
+                    return last_id
 
         with self._lock, self._conn:
             cur = self._conn.execute(
