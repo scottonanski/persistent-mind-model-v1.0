@@ -2,6 +2,18 @@
 
 > Persistent Mind Model (PMM) is a deterministic, ledger‑recall system. Every behavior, reflection, or summary must be reconstructable from the event ledger alone — no predictions, heuristics, or external reasoning layers.
 
+## For AI Researchers
+
+PMM solves memory persistence without parameter overhead:
+
+- **[Why PMM Matters](docs/03-WHY-PMM-MATTERS.md)** - Core problem and solution
+- **[Technical Comparison](docs/04-TECHNICAL-COMPARISON.md)** - vs RAG, context extension, fine-tuning
+- **[Granite 4 Proof](docs/IBM-Granite-Chat.md)** - 1.9GB model with 275-event memory
+
+**Key Result**: Deterministic memory that scales independently of model size.
+
+**For Grok Integration**: See integration pseudocode in Technical Comparison.
+
 - Quick start (one-time, installs EVERYTHING)
   1. `python3 -m venv .venv && source .venv/bin/activate`
   2. `pip install -e ".[full]"`   # installs package + all optional runtime deps
@@ -57,7 +69,12 @@ Attempts by forbidden sources (like `cli`) are blocked and recorded as `violatio
 Admin commands remain read-only for inspection (`/pm retrieval status`, `/pm graph stats`, etc). All maintenance is handled autonomously—no manual ops required.
 
 Docs
-- [Introduction](docs/01-Introduction-to-the-Persistent-Mind-Model.md)
-- [Architecture overview](docs/02-ARCHITECTURE.md)
+- [Introduction](./docs/01-Introduction-to-the-Persistent-Mind-Model.md)
+- [Architecture overview](./docs/02-ARCHITECTURE.md)
+- [Why PMM Matters](./docs/03-WHY-PMM-MATTERS.md)
+- [Technical Comparison](./docs/04-TECHNICAL-COMPARISON.md)
+- [IBM Granite 4 Proof](./docs/05-IBM-Granite-Chat.md)
+- [Introspection Question Pack](./docs/00-Persistent%20Mind%20Model%20-Question%20Pack-(Introspection-Framework).md)
+
 
 

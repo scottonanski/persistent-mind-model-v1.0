@@ -207,5 +207,9 @@ graph TD
 
 [TOP](#persistent-mind-model-pmm)
 
+[PREV: Introduction](01-Introduction-to-the-Persistent-Mind-Model.md)
+
+[NEXT: Why PMM Matters](03-WHY-PMM-MATTERS.md)
+
 [BACK TO README](../README.md)
 

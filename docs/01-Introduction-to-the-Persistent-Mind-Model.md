@@ -134,6 +134,6 @@ _-Scott_
 
 [TOP](#persistent-mind-model-pmm)
 
-[NEXT: > 02 ARCHITECTURE](./02-ARCHITECTURE.md)
+[NEXT: Architecture](02-ARCHITECTURE.md)
 
 [BACK TO README](../README.md)
