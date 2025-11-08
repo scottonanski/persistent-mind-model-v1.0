@@ -50,7 +50,7 @@ PMM’s design principles ensure that the agent gains a lasting, traceable ident
 
 Together, these features make the AI’s “mind” an **auditable ledger** rather than an opaque neural network. All reasoning is explicit and retraceable.
 
-## Why It Matters
+## Why It Matters (The Ledger is the Mind)
 
 The Persistent Mind Model shifts the paradigm for intelligent agents. If AI is to be **safe, accountable, and truly intelligent**, it must have:
 
@@ -63,7 +63,7 @@ The Persistent Mind Model shifts the paradigm for intelligent agents. If AI is t
 -  **Consistency and Honesty:** By design, the AI can’t contradict its own history or hallucinate untraceable ideas. Its “vibes” are backed by a verifiable truth ledger.
 
 
-In contrast to probabilistic, stateless chatbots, PMM agents would be neither puppeted by hidden prompts nor free to reinvent themselves arbitrarily. They become _agents with character_, not just fast pagers. As noted in the project README, PMM is intentionally **deterministic and ledger-based**, enforcing that every reflection can be reconstructed from the event log.  This reproducibility is crucial: it turns AI behavior into a forensic process, not a black box.
+In contrast to probabilistic, stateless chatbots, PMM agents would be neither puppeted by hidden prompts nor free to reinvent themselves arbitrarily. They become _agents with character_, not just fast pagers. As noted, the PMM is intentionally **deterministic and ledger-based**, enforcing that every reflection can be reconstructed from the event log.  This reproducibility is crucial: it turns AI behavior into a forensic process, not a black box.
 
 By treating cognition as a persistent, event-sourced process, the Persistent Mind Model lays the groundwork for AI that **earns trust through evidence**, not magic. It’s a new approach designed from the ground up to solve the very real problem of AI’s untraceable, forgetful reasoning – providing an “operating system for artificial selfhood” where the mind is as inspectable as any well-designed system.
 
@@ -103,5 +103,3 @@ The Persistent Mind Model is my response: a portable, model‑agnostic, open arc
 
 It’s not just an architecture. It’s a statement:  
 You shouldn’t have to lose a mind you helped build.
-
-
