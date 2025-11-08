@@ -19,6 +19,84 @@ from pmm.core.meme_graph import MemeGraph
 import json as _json
 
 
+def _gather_models() -> list[str]:
+    models: list[str] = []
+    try:
+        result = subprocess.run(
+            ["ollama", "list", "--json"], capture_output=True, text=True, check=True
+        )
+        models_data = json.loads(result.stdout) if result.stdout.strip() else []
+        models.extend([m.get("name") for m in models_data if m.get("name")])
+    except Exception:
+        try:
+            result = subprocess.run(
+                ["ollama", "list"], capture_output=True, text=True, check=True
+            )
+            lines = [
+                ln.strip() for ln in (result.stdout or "").splitlines() if ln.strip()
+            ]
+            if lines and lines[0].lower().startswith("name"):
+                lines = lines[1:]
+            models.extend([ln.split()[0] for ln in lines if ln])
+        except Exception:
+            pass
+
+    if os.environ.get("OPENAI_API_KEY"):
+        default_openai_model = (
+            os.environ.get("PMM_OPENAI_MODEL")
+            or os.environ.get("OPENAI_MODEL")
+            or "gpt-4o-mini"
+        )
+        models.append(f"openai:{default_openai_model}")
+
+    return models
+
+
+def _resolve_model_selection(
+    choice_raw: str, models: list[str]
+) -> tuple[str, bool, str]:
+    if not models:
+        raise ValueError("No models available")
+    selected: str | None = None
+    if choice_raw.isdigit():
+        idx = max(1, min(int(choice_raw), len(models)))
+        selected = models[idx - 1]
+    else:
+        lowered = choice_raw.lower()
+        for m in models:
+            lowered_name = m.lower()
+            if (
+                lowered_name == lowered
+                or lowered_name.startswith(lowered + ":")
+                or lowered_name.startswith(lowered)
+            ):
+                selected = m
+                break
+        if selected is None:
+            selected = models[0]
+    use_openai = selected.startswith("openai:")
+    model_name = selected.split(":", 1)[1] if use_openai else selected
+    return selected, use_openai, model_name
+
+
+def _instantiate_adapter(use_openai: bool, model_name: str):
+    if use_openai:
+        from pmm.adapters.openai_adapter import OpenAIAdapter
+
+        return OpenAIAdapter(model=model_name)
+    from pmm.adapters.ollama_adapter import OllamaAdapter
+
+    return OllamaAdapter(model=model_name)
+
+
+def _prompt_for_model_choice(models: list[str]) -> str | None:
+    print("\nAvailable models:")
+    for i, m in enumerate(models, 1):
+        print(f"  {i}) {m}")
+    choice = input(f"Choice [1-{len(models)}] (Enter to cancel): ").strip()
+    return choice or None
+
+
 def main() -> None:  # pragma: no cover - thin wrapper
     # Resolve canonical DB path with legacy fallback/migration
     import pathlib
@@ -44,38 +122,7 @@ def main() -> None:  # pragma: no cover - thin wrapper
     print("────────────────────────────")
     print("Select a model to chat with:\n")
 
-    # Gather available models from Ollama
-    models: list[str] = []
-    try:
-        # Prefer JSON list
-        result = subprocess.run(
-            ["ollama", "list", "--json"], capture_output=True, text=True, check=True
-        )
-        models_data = json.loads(result.stdout) if result.stdout.strip() else []
-        models.extend([m.get("name") for m in models_data if m.get("name")])
-    except Exception:
-        # Fallback to table parsing
-        try:
-            result = subprocess.run(
-                ["ollama", "list"], capture_output=True, text=True, check=True
-            )
-            lines = [
-                ln.strip() for ln in (result.stdout or "").splitlines() if ln.strip()
-            ]
-            if lines and lines[0].lower().startswith("name"):
-                lines = lines[1:]
-            models.extend([ln.split()[0] for ln in lines if ln])
-        except Exception:
-            pass
-
-    # OpenAI entry if API key is present
-    if os.environ.get("OPENAI_API_KEY"):
-        default_openai_model = (
-            os.environ.get("PMM_OPENAI_MODEL")
-            or os.environ.get("OPENAI_MODEL")
-            or "gpt-4o-mini"
-        )
-        models.append(f"openai:{default_openai_model}")
+    models = _gather_models()
 
     if not models:
         print(
@@ -98,6 +145,7 @@ def main() -> None:  # pragma: no cover - thin wrapper
     print("  /rebuild-fast           Verify fast RSM rebuild matches full")
     print("  /pm        Admin commands (type '/pm' for help)")
     print("  /raw      Show last assistant message with markers")
+    print("  /model    Switch to a different model")
     print("  /exit     Quit")
     print("────────────────────────────")
     # Brief autonomy note about idle optimization (deterministic behavior)
@@ -111,41 +159,13 @@ def main() -> None:  # pragma: no cover - thin wrapper
     # Default to first entry on blank
     if not choice_raw:
         choice_raw = "1"
-    selected = None
-    # Try numeric selection first
-    if choice_raw.isdigit():
-        idx = max(1, min(int(choice_raw), len(models)))
-        selected = models[idx - 1]
-    else:
-        # Try to match by name/prefix (e.g., "openai")
-        lowered = choice_raw.lower()
-        for m in models:
-            if (
-                m.lower() == lowered
-                or m.lower().startswith(lowered + ":")
-                or m.lower().startswith(lowered)
-            ):
-                selected = m
-                break
-        if selected is None:
-            # Fallback
-            selected = models[0]
-
-    use_openai = selected.startswith("openai:")
-    model_name = selected.split(":", 1)[1] if use_openai else selected
+    selected, use_openai, model_name = _resolve_model_selection(choice_raw, models)
 
     print(f"\n→ Using model: {selected}\n")
     print("Type '/exit' to quit.\n")
 
     elog = EventLog(db_path)
-    if use_openai:
-        from pmm.adapters.openai_adapter import OpenAIAdapter
-
-        adapter = OpenAIAdapter(model=model_name)
-    else:
-        from pmm.adapters.ollama_adapter import OllamaAdapter
-
-        adapter = OllamaAdapter(model=model_name)
+    adapter = _instantiate_adapter(use_openai, model_name)
     loop = RuntimeLoop(eventlog=elog, adapter=adapter, replay=False)
 
     try:
@@ -219,6 +239,11 @@ def main() -> None:  # pragma: no cover - thin wrapper
                 else:
                     print("No assistant messages yet.")
                 continue
+            if cmd.startswith("/model"):
+                out = handle_model_command(raw_cmd, loop)
+                if out:
+                    print(out)
+                continue
             events = loop.run_turn(user)
             ai_msgs = [e for e in events if e.get("kind") == "assistant_message"]
             if ai_msgs:
@@ -254,6 +279,28 @@ def main() -> None:  # pragma: no cover - thin wrapper
 
 if __name__ == "__main__":  # pragma: no cover
     main()
+
+
+def handle_model_command(command: str, loop: RuntimeLoop) -> Optional[str]:
+    parts = command.strip().split(maxsplit=1)
+    if not parts or parts[0].lower() != "/model":
+        return None
+
+    models = _gather_models()
+    if not models:
+        return (
+            "No models found. For Ollama, run 'ollama serve' and 'ollama pull <model>'."
+        )
+
+    remainder = parts[1].strip() if len(parts) > 1 else ""
+    if not remainder or remainder.lower() in {"list", "ls"}:
+        remainder = _prompt_for_model_choice(models)
+        if remainder is None:
+            return "Model change canceled."
+
+    selected, use_openai, model_name = _resolve_model_selection(remainder, models)
+    loop.adapter = _instantiate_adapter(use_openai, model_name)
+    return f"Switched to model: {selected}"
 
 
 def handle_rsm_command(command: str, eventlog: EventLog) -> Optional[str]:

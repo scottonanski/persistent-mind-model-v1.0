@@ -27,6 +27,8 @@ PMM solves memory persistence without parameter overhead:
 
 **For Grok Integration**: See integration pseudocode in Technical Comparison.
 
+---
+
 - Quick start (one-time, installs EVERYTHING)
   1. `python3 -m venv .venv && source .venv/bin/activate`
   2. `pip install -e ".[full]"`   # installs package + all optional runtime deps
@@ -50,9 +52,6 @@ Dotenv
   - `pip install .[dev]`
   - `pytest -q`
 
-Optional helper scripts
-- `./scripts/bootstrap.sh` sets up a venv and installs deps in one step.
-- `./scripts/run-tests.sh` installs dev deps and runs tests.
 
 See `STATUS.md` for sprint progress and `CONTRIBUTING.md` for development rules.
 
