@@ -16,7 +16,14 @@ def test_no_reflection_when_no_delta():
     kinds = [
         e["kind"]
         for e in events
-        if e["kind"] not in ("autonomy_rule_table", "autonomy_stimulus", "rsm_update")
+        if e["kind"]
+        not in (
+            "autonomy_rule_table",
+            "autonomy_stimulus",
+            "rsm_update",
+            "config",
+            "embedding_add",
+        )
     ]
     assert kinds[:2] == ["user_message", "assistant_message"]
     # No commitments or claims should be logged

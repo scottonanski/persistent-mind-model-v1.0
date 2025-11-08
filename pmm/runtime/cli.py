@@ -325,6 +325,9 @@ def handle_pm_command(command: str, eventlog: EventLog) -> Optional[str]:
             return "Fast rebuild not available"
         return "Usage: /pm rebuild fast"
     if topic == "checkpoint":
+        # Deny before attempting if policy forbids CLI writing checkpoint_manifest
+        if _policy_forbids(eventlog, source="cli", kind="checkpoint_manifest"):
+            return "Forbidden by policy."
         return _handle_checkpoint(eventlog)
     if topic == "retrieval":
         # Map retrieval config fixed to existing config handler
@@ -373,8 +376,12 @@ def handle_pm_command(command: str, eventlog: EventLog) -> Optional[str]:
             current = _last_retrieval_config(eventlog)
             if current == cfg:
                 return "No change (idempotent)"
+            if _policy_forbids(eventlog, source="cli", kind="config"):
+                return "Forbidden by policy."
             eventlog.append(
-                kind="config", content=_json.dumps(cfg, separators=(",", ":")), meta={}
+                kind="config",
+                content=_json.dumps(cfg, separators=(",", ":")),
+                meta={"source": "cli"},
             )
             return f"Retrieval config updated: vector limit={cfg['limit']} model={cfg['model']} dims={cfg['dims']}"
         if rest[:1] == ["index"] and len(rest) >= 2 and rest[1] == "backfill":
@@ -382,7 +389,10 @@ def handle_pm_command(command: str, eventlog: EventLog) -> Optional[str]:
                 n = int(rest[2]) if len(rest) >= 3 else 100
             except ValueError:
                 return "Backfill N must be an integer"
-            return _handle_retrieval_backfill(eventlog, n)
+            try:
+                return _handle_retrieval_backfill(eventlog, n)
+            except PermissionError:
+                return "Forbidden by policy."
         if rest == ["status"]:
             return _handle_retrieval_status(eventlog)
         if len(rest) == 2 and rest[0] == "verify" and rest[1].isdigit():
@@ -461,6 +471,27 @@ def _last_autonomy_cfg(eventlog: EventLog) -> Optional[Dict]:
         if isinstance(data, dict) and data.get("type") == "autonomy_thresholds":
             cfg = data
     return cfg
+
+
+def _policy_forbids(eventlog: EventLog, *, source: str, kind: str) -> bool:
+    import json as _j
+
+    policy = None
+    for ev in eventlog.read_all()[::-1]:
+        if ev.get("kind") != "config":
+            continue
+        try:
+            data = _j.loads(ev.get("content") or "{}")
+        except Exception:
+            continue
+        if isinstance(data, dict) and data.get("type") == "policy":
+            policy = data
+            break
+    if not policy:
+        return False
+    fs = policy.get("forbid_sources") or {}
+    kinds = fs.get(source)
+    return isinstance(kinds, list) and kind in kinds
 
 
 def _message_events(events):

@@ -48,6 +48,16 @@ Admin (/pm)
 - Raw output
   - `/raw` (show last assistant message with markers; UI hides markers by default)
 
+### Policy Enforcement
+
+PMM enforces an immutable runtime policy set by the autonomy kernel. Sensitive ledger writes (`config`, `checkpoint_manifest`, `embedding_add`, `retrieval_selection`) are only allowed from trusted sources: `autonomy_kernel`, `assistant`, `user`, or `runtime`.
+
+Attempts by forbidden sources (like `cli`) are blocked and recorded as `violation` events.
+
+Admin commands remain read-only for inspection (`/pm retrieval status`, `/pm graph stats`, etc). All maintenance is handled autonomously—no manual ops required.
+
 Docs
 - [Introduction](docs/01-Introduction-to-the-Persistent-Mind-Model.md)
 - [Architecture overview](docs/02-ARCHITECTURE.md)
+
+

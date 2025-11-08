@@ -119,6 +119,80 @@ class EventLog:
         }
         digest = sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
 
+        # Enforce immutable runtime policy for sensitive kinds
+        sensitive = {
+            "config",
+            "checkpoint_manifest",
+            "embedding_add",
+            "retrieval_selection",
+        }
+        if kind in sensitive:
+            src = (meta or {}).get("source") or "unknown"
+            # Load last policy config
+            try:
+                policy = None
+                # Search from end for last policy
+                for e in self.read_all()[::-1]:
+                    if e.get("kind") != "config":
+                        continue
+                    try:
+                        data = json.loads(e.get("content") or "{}")
+                    except Exception:
+                        continue
+                    if isinstance(data, dict) and data.get("type") == "policy":
+                        policy = data
+                        break
+                if policy and isinstance(policy.get("forbid_sources"), dict):
+                    forbidden = policy["forbid_sources"].get(src)
+                    if isinstance(forbidden, list) and kind in forbidden:
+                        # Append violation and halt write
+                        v_content = f"policy_violation:{src}:{kind}"
+                        v_meta = {
+                            "source": "runtime",
+                            "actor": src,
+                            "attempt_kind": kind,
+                        }
+                        # Write violation directly
+                        with self._lock, self._conn:
+                            v_payload = {
+                                "kind": "violation",
+                                "content": v_content,
+                                "meta": v_meta,
+                                "prev_hash": prev_hash,
+                            }
+                            v_digest = sha256(
+                                _canonical_json(v_payload).encode("utf-8")
+                            ).hexdigest()
+                            curv = self._conn.execute(
+                                "INSERT INTO events (ts, kind, content, meta, prev_hash, hash) VALUES (?, ?, ?, ?, ?, ?)",
+                                (
+                                    ts,
+                                    "violation",
+                                    v_content,
+                                    _canonical_json(v_meta),
+                                    prev_hash,
+                                    v_digest,
+                                ),
+                            )
+                            v_id = int(curv.lastrowid)
+                            self._emit(
+                                {
+                                    "id": v_id,
+                                    "ts": ts,
+                                    "kind": "violation",
+                                    "content": v_content,
+                                    "meta": v_meta,
+                                    "prev_hash": prev_hash,
+                                    "hash": v_digest,
+                                }
+                            )
+                        raise PermissionError(f"Policy forbids {src} writing {kind}")
+            except PermissionError:
+                raise
+            except Exception:
+                # Fail-open if policy unreadable
+                pass
+
         # Soft idempotency guard: if the computed digest equals the last
         # row's hash, return the existing last id instead of inserting a
         # duplicate row. This preserves replay determinism without a DB

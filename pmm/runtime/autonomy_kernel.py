@@ -83,6 +83,10 @@ class AutonomyKernel:
         self.active_gap_analysis_cid: Optional[str] = None
         # Listen for autonomy_thresholds config updates at runtime
         self.eventlog.register_listener(self._on_config_event)
+        # Ensure immutable policy exists once
+        self._ensure_policy_event()
+        # Ensure retrieval config exists
+        self._ensure_retrieval_config()
 
     def ensure_rule_table_event(self) -> None:
         """Record the kernel's rule table in the ledger exactly once."""
@@ -103,6 +107,59 @@ class AutonomyKernel:
                 content=content,
                 meta={"source": "autonomy_kernel"},
             )
+
+    def _ensure_policy_event(self) -> None:
+        # Only one policy event
+        events = self.eventlog.read_all()
+        for e in reversed(events):
+            if e.get("kind") == "config":
+                try:
+                    data = json.loads(e.get("content") or "{}")
+                except Exception:
+                    continue
+                if isinstance(data, dict) and data.get("type") == "policy":
+                    return
+        policy = {
+            "type": "policy",
+            "forbid_sources": {
+                "cli": [
+                    "config",
+                    "checkpoint_manifest",
+                    "embedding_add",
+                    "retrieval_selection",
+                ]
+            },
+        }
+        self.eventlog.append(
+            kind="config",
+            content=json.dumps(policy, sort_keys=True, separators=(",", ":")),
+            meta={"source": "autonomy_kernel"},
+        )
+
+    def _ensure_retrieval_config(self) -> None:
+        events = self.eventlog.read_all()
+        for e in reversed(events):
+            if e.get("kind") != "config":
+                continue
+            try:
+                data = json.loads(e.get("content") or "{}")
+            except Exception:
+                continue
+            if isinstance(data, dict) and data.get("type") == "retrieval":
+                return
+        cfg = {
+            "type": "retrieval",
+            "strategy": "vector",
+            "limit": 7,
+            "model": "hash64",
+            "dims": 64,
+            "quant": "none",
+        }
+        self.eventlog.append(
+            kind="config",
+            content=json.dumps(cfg, sort_keys=True, separators=(",", ":")),
+            meta={"source": "autonomy_kernel"},
+        )
 
     def _last_autonomy_thresholds_config(self) -> Optional[Dict[str, int]]:
         cfg = None
@@ -280,6 +337,195 @@ class AutonomyKernel:
         content = _json.dumps(content_dict, sort_keys=True, separators=(",", ":"))
         return eventlog.append(kind="reflection", content=content, meta=meta)
 
+    # Maintenance tasks executed during idle/reflect decisions
+    def _maintain_embeddings(self) -> None:
+        # Ensure embeddings coverage >=95% for vector strategy
+        events = self.eventlog.read_all()
+        cfg = None
+        for e in reversed(events):
+            if e.get("kind") == "config":
+                try:
+                    d = json.loads(e.get("content") or "{}")
+                except Exception:
+                    continue
+                if isinstance(d, dict) and d.get("type") == "retrieval":
+                    cfg = d
+                    break
+        if not cfg or cfg.get("strategy") != "vector":
+            return
+        model = str(cfg.get("model", "hash64"))
+        dims = int(cfg.get("dims", 64))
+        from pmm.runtime.cli import _message_events, _embedding_map  # reuse helpers
+
+        msgs = _message_events(events)
+        embs = _embedding_map(events, model=model, dims=dims)
+        coverage = len(embs) / max(1, len(msgs))
+        if coverage >= 0.95:
+            return
+        # Backfill last 50 missing
+        from pmm.retrieval.vector import build_embedding_content
+
+        missing = [m for m in msgs if int(m.get("id", 0)) not in embs]
+        for m in missing[-50:]:
+            eid = int(m.get("id", 0))
+            payload = build_embedding_content(
+                event_id=eid, text=m.get("content") or "", model=model, dims=dims
+            )
+            self.eventlog.append(
+                kind="embedding_add",
+                content=payload,
+                meta={"source": "autonomy_kernel"},
+            )
+
+    def _verify_recent_selections(self, N: int = 5) -> None:
+        events = self.eventlog.read_all()
+        sels = [e for e in events if e.get("kind") == "retrieval_selection"][-N:]
+        if not sels:
+            return
+        # Load retrieval cfg
+        cfg = None
+        for e in reversed(events):
+            if e.get("kind") == "config":
+                try:
+                    d = json.loads(e.get("content") or "{}")
+                except Exception:
+                    continue
+                if isinstance(d, dict) and d.get("type") == "retrieval":
+                    cfg = d
+                    break
+        model = str((cfg or {}).get("model", "hash64"))
+        dims = int((cfg or {}).get("dims", 64))
+        from pmm.retrieval.vector import (
+            DeterministicEmbedder,
+            cosine,
+            build_index,
+            candidate_messages,
+        )
+
+        idx = build_index(events, model=model, dims=dims)
+        ok_all = True
+        for s in sels:
+            try:
+                data = json.loads(s.get("content") or "{}")
+            except Exception:
+                continue
+            turn_id = int(data.get("turn_id", 0))
+            selected = data.get("selected") or []
+            # Find last user_message before turn
+            query = ""
+            for e in reversed(events):
+                if int(e.get("id", 0)) >= turn_id:
+                    continue
+                if e.get("kind") == "user_message":
+                    query = e.get("content") or ""
+                    break
+            if not query:
+                continue
+            qv = DeterministicEmbedder(model=model, dims=dims).embed(query)
+            cands = candidate_messages(events, up_to_id=turn_id)
+            scored = []
+            for ev in cands:
+                eid = int(ev.get("id", 0))
+                vec = idx.get(eid)
+                if vec is None:
+                    vec = DeterministicEmbedder(model=model, dims=dims).embed(
+                        ev.get("content") or ""
+                    )
+                sscore = cosine(qv, vec)
+                scored.append((eid, sscore))
+            scored.sort(key=lambda t: (-t[1], t[0]))
+            top_ids = [eid for (eid, _s) in scored[: len(selected)]]
+            if top_ids != selected:
+                ok_all = False
+        # Reflect outcome
+        msg = (
+            "retrieval verification OK" if ok_all else "retrieval verification mismatch"
+        )
+        self.eventlog.append(
+            kind="reflection",
+            content=json.dumps({"intent": msg, "outcome": msg, "next": "continue"}),
+            meta={"source": "autonomy_kernel"},
+        )
+
+    def _maybe_append_checkpoint(self, M: int = 50) -> None:
+        events = self.eventlog.read_all()
+        last_manifest = None
+        last_manifest_id = 0
+        for e in reversed(events):
+            if e.get("kind") == "checkpoint_manifest":
+                last_manifest = e
+                last_manifest_id = int(e.get("id", 0))
+                break
+        last_summary = None
+        for e in reversed(events):
+            if e.get("kind") == "summary_update":
+                last_summary = e
+                break
+        if not last_summary:
+            return
+        up_to = int(last_summary.get("id", 0))
+        since = len([e for e in events if int(e.get("id", 0)) > last_manifest_id])
+        # Check rsm_triggered
+        triggered = False
+        try:
+            data = json.loads(last_summary.get("content") or "{}")
+            if isinstance(data, str) and "rsm_triggered:1" in data:
+                triggered = True
+        except Exception:
+            triggered = False
+        if since >= M or triggered:
+            hashes = [
+                e.get("hash") or "" for e in events if int(e.get("id", 0)) <= up_to
+            ]
+            import hashlib as _hl
+
+            root = _hl.sha256(
+                json.dumps(hashes, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            # Idempotent
+            if last_manifest:
+                try:
+                    m = json.loads(last_manifest.get("content") or "{}")
+                except Exception:
+                    m = {}
+                if int(m.get("up_to_id", 0)) == up_to and m.get("root_hash") == root:
+                    return
+            content = json.dumps(
+                {
+                    "up_to_id": up_to,
+                    "covers": ["rsm_state", "open_commitments"],
+                    "root_hash": root,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            self.eventlog.append(
+                kind="checkpoint_manifest",
+                content=content,
+                meta={"source": "autonomy_kernel"},
+            )
+
+    def _maybe_tune_thresholds(self) -> None:
+        # Minimal bounded auto-tuning based on autonomy_metrics last snapshot
+        events = self.eventlog.read_all()
+        last = None
+        for e in reversed(events):
+            if e.get("kind") == "autonomy_metrics":
+                last = e
+                break
+        if not last:
+            return
+        # Simple heuristic: if idle_count dominates and reflect_count low, decrease reflection_interval
+        try:
+            data = json.loads(last.get("content") or "{}")
+        except Exception:
+            data = {}
+        idle = int(data.get("idle_count", 0))
+        reflect = int(data.get("reflect_count", 0))
+        if idle > reflect * 3 and self.thresholds["reflection_interval"] > 5:
+            self.thresholds["reflection_interval"] -= 1
+            self.ensure_rule_table_event()
+
     def decide_next_action(self) -> KernelDecision:
         gaps = self.mirror.rsm_knowledge_gaps()
 
@@ -332,6 +578,12 @@ class AutonomyKernel:
             if event.get("kind") == "reflection"
             and event.get("meta", {}).get("source") == "autonomy_kernel"
         ]
+
+        # Autonomous maintenance on each decision cycle
+        self._maintain_embeddings()
+        self._verify_recent_selections()
+        self._maybe_append_checkpoint()
+        self._maybe_tune_thresholds()
 
         if (
             autonomy_reflections_since_summary

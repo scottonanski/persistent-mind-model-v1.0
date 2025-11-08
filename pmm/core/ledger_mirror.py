@@ -180,6 +180,12 @@ class RecursiveSelfModel:
         imeta = snapshot.get("interaction_meta_patterns") or []
         if isinstance(imeta, list):
             self._meta_patterns = set(str(x) for x in imeta)
+        # Reflections (intents)
+        refl = snapshot.get("reflections") or []
+        if isinstance(refl, list):
+            for item in refl:
+                if isinstance(item, dict) and isinstance(item.get("intent"), str):
+                    self.reflection_intents.append(item["intent"])
         # Export outward facing structures
         self.behavioral_tendencies = dict(sorted(self._pattern_counts.items()))
         self.knowledge_gaps = sorted(k for k in self._gap_counts.keys())
