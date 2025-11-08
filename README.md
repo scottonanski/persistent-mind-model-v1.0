@@ -3,7 +3,7 @@
 
 **Event-sourced cognitive architecture for persistent AI memory**
 
-## I was thtinker around and built this. Somehow it works??? 🤔
+## I was tinkering around and built this. Somehow it works??? 🤔
 
 **_Go easy on me. I'm just one guy building this in my free time._** 🤣
 
