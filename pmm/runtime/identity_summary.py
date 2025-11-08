@@ -69,6 +69,7 @@ def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
         content_parts.append(",rsm_triggered:1")
     content_parts.append("}")
     content = "".join(content_parts)
+    # Include full snapshot to preserve fast-rebuild parity
     meta = {"synth": "pmm", "rsm_state": current_snapshot}
     return eventlog.append(kind="summary_update", content=content, meta=meta)
 

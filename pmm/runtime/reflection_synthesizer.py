@@ -1,7 +1,7 @@
 # Path: pmm/runtime/reflection_synthesizer.py
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Tuple
 import json
 
 from pmm.core.event_log import EventLog
@@ -88,3 +88,82 @@ def _has_rsm_data(snapshot: Dict[str, Any]) -> bool:
     gaps = snapshot.get("knowledge_gaps") or []
     meta_patterns = snapshot.get("interaction_meta_patterns") or []
     return bool(tendencies or gaps or meta_patterns)
+
+
+def synthesize_kernel_reflection(
+    ledger_slice: List[Dict[str, Any]], *, staleness_threshold: int = 20
+) -> Optional[Tuple[Dict[str, Any], str]]:
+    """Deterministically synthesize autonomy_kernel reflection payload.
+
+    Returns (payload, delta_hash) or None if the computed delta_hash matches the
+    last autonomy_kernel reflection in the provided slice. This provides a
+    lightweight skip mechanism without requiring full-ledger context.
+    """
+    import hashlib as _hl
+
+    # Compute delta hash over last 3 NON-reflection events in the slice
+    non_ref = [e for e in ledger_slice if e.get("kind") != "reflection"]
+    slice3 = non_ref[-3:]
+    compact = [
+        {
+            "kind": e.get("kind"),
+            "content": e.get("content"),
+            "meta": e.get("meta"),
+        }
+        for e in slice3
+    ]
+    delta_hash = _hl.sha256(
+        json.dumps(compact, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+    # If the last autonomy_kernel reflection in the slice carries the same hash, skip
+    last_ref = None
+    last_ref_index = -1
+    for idx in range(len(ledger_slice) - 1, -1, -1):
+        e = ledger_slice[idx]
+        if (
+            e.get("kind") == "reflection"
+            and (e.get("meta") or {}).get("source") == "autonomy_kernel"
+        ):
+            last_ref = e
+            last_ref_index = idx
+            break
+    last_delta = (last_ref.get("meta") or {}).get("delta_hash") if last_ref else None
+    # If there were no new non-ref events after the last autonomy reflection, skip
+    if last_ref is not None:
+        if not any(
+            (ev.get("kind") != "reflection")
+            for ev in ledger_slice[last_ref_index + 1 :]
+        ):
+            return None
+    # If hashes match (when computable), skip
+    if last_delta and last_delta == delta_hash:
+        return None
+
+    # Build content from slice facts
+    open_commitments = [e for e in ledger_slice if e.get("kind") == "commitment_open"]
+    oldest = min(open_commitments, key=lambda e: e.get("id", 0), default=None)
+    events_since = 0
+    if oldest is not None:
+        events_since = sum(
+            1 for e in ledger_slice if int(e.get("id", 0)) > int(oldest.get("id", 0))
+        )
+    stale_flag = 1 if (oldest is not None and events_since > staleness_threshold) else 0
+
+    # Dominant kind heuristic from slice
+    kinds = {}
+    for e in ledger_slice:
+        k = e.get("kind")
+        kinds[k] = kinds.get(k, 0) + 1
+    dominant_kind = max(kinds, key=kinds.get) if kinds else "unknown"
+
+    payload: Dict[str, Any] = {
+        "intent": f"{dominant_kind}_analysis",
+        "outcome": f"{len(open_commitments)} open, stale={stale_flag}",
+        "next": "monitor",
+        "commitments_reviewed": len(open_commitments),
+        "stale": stale_flag,
+        "relevance": "all_active",
+        "action": "maintain",
+    }
+    return payload, delta_hash

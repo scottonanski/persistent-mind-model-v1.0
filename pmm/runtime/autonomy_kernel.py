@@ -8,6 +8,7 @@ import json
 from pmm.core.event_log import EventLog
 from pmm.core.ledger_mirror import LedgerMirror
 from pmm.core.commitment_manager import CommitmentManager
+from pmm.runtime.reflection_synthesizer import synthesize_kernel_reflection
 
 
 def _last_event(events: List[Dict], kind: str) -> Optional[Dict]:
@@ -260,16 +261,6 @@ class AutonomyKernel:
                 if c["id"] > e["id"]
             )
         ]
-        oldest = min((c for c in open_commitments), key=lambda c: c["id"], default=None)
-        events_since = 0
-        if oldest and staleness_threshold is not None:
-            events_since = len([e for e in events if e["id"] > oldest["id"]])
-        stale_flag = (
-            1
-            if (staleness_threshold is not None and events_since > staleness_threshold)
-            else 0
-        )
-
         # Auto-close stale commitments only under threshold policy
         # Enforce auto-close when there are two or more open commitments
         if auto_close_threshold is not None and len(open_commitments) >= 2:
@@ -292,21 +283,15 @@ class AutonomyKernel:
                         },
                     )
 
-        # Recompute stale flag (structure preserved; result unchanged if no closes)
-        stale_flag = (
-            1
-            if (staleness_threshold is not None and events_since > staleness_threshold)
-            else 0
-        )
+        # No need to recompute stale flag here; synthesizer computes it deterministically
 
-        # Build reflection payload
-        content_dict: Dict[str, object] = {
-            "commitments_reviewed": len(open_commitments),
-            "stale": stale_flag,
-            "relevance": "all_active",
-            "action": "maintain",
-            "next": "monitor",
-        }
+        # Build reflection payload deterministically via synthesizer over full filtered events
+        synth = synthesize_kernel_reflection(
+            events, staleness_threshold=staleness_threshold or 20
+        )
+        if synth is None:
+            return None
+        content_dict, delta_hash_synth = synth
 
         # Idempotent REF injection: do not re-emit a REF that already failed or was seen
         if len(open_commitments) > 0:
@@ -331,10 +316,30 @@ class AutonomyKernel:
         }
         meta.update(meta_extra or {})
 
-        # Append reflection with deterministic JSON encoding
+        # Append reflection with deterministic JSON encoding unless redundant
         import json as _json
 
         content = _json.dumps(content_dict, sort_keys=True, separators=(",", ":"))
+        # Skip if identical to the last autonomy_kernel reflection content
+        last_auto = _last_event_matching(
+            events,
+            "reflection",
+            lambda e: (e.get("meta") or {}).get("source") == "autonomy_kernel",
+        )
+        if last_auto and (last_auto.get("content") or "") == content:
+            return None
+
+        # Stronger gate: delta hash from synthesizer (already based on last-3 slice)
+        delta_hash = delta_hash_synth
+        last_delta = (
+            (last_auto.get("meta") or {}).get("delta_hash") if last_auto else None
+        )
+        if last_delta and last_delta == delta_hash:
+            return None
+
+        # Store delta hash in meta for deterministic replay checks
+        meta = dict(meta)
+        meta["delta_hash"] = delta_hash
         return eventlog.append(kind="reflection", content=content, meta=meta)
 
     # Maintenance tasks executed during idle/reflect decisions
@@ -379,6 +384,10 @@ class AutonomyKernel:
 
     def _verify_recent_selections(self, N: int = 5) -> None:
         events = self.eventlog.read_all()
+        # Only verify if there was a recent retrieval_selection; otherwise skip
+        recent_tail = events[-50:]
+        if not any(e.get("kind") == "retrieval_selection" for e in recent_tail):
+            return
         sels = [e for e in events if e.get("kind") == "retrieval_selection"][-N:]
         if not sels:
             return
@@ -437,7 +446,7 @@ class AutonomyKernel:
             top_ids = [eid for (eid, _s) in scored[: len(selected)]]
             if top_ids != selected:
                 ok_all = False
-        # Reflect outcome
+        # Emit outcome. Tests expect an explicit OK reflection when matching.
         msg = (
             "retrieval verification OK" if ok_all else "retrieval verification mismatch"
         )
@@ -526,6 +535,86 @@ class AutonomyKernel:
             self.thresholds["reflection_interval"] -= 1
             self.ensure_rule_table_event()
 
+    def _maybe_emit_autonomy_metrics(self) -> None:
+        """Emit autonomy_metrics every 10 ticks when content changes.
+
+        Deterministic and idempotent: compares against the last autonomy_metrics
+        content; also gates by ticks_total delta >= 10 to reduce noise.
+        """
+        events = self.eventlog.read_all()
+        ticks = [e for e in events if e.get("kind") == "autonomy_tick"]
+        ticks_total = len(ticks)
+        if ticks_total == 0:
+            return
+        # Find last autonomy_metrics
+        last_metrics = None
+        for e in reversed(events):
+            if e.get("kind") == "autonomy_metrics":
+                last_metrics = e
+                break
+        last_ticks = 0
+        if last_metrics:
+            try:
+                data = json.loads(last_metrics.get("content") or "{}")
+                last_ticks = int(data.get("ticks_total", 0))
+            except Exception:
+                last_ticks = 0
+        # Emit only on 10-tick boundaries to reduce noise
+        if ticks_total % 10 != 0:
+            return
+        if last_metrics is not None and last_ticks == ticks_total:
+            return
+
+        # Compute counts
+        idle_count = 0
+        reflect_count = 0
+        summarize_count = 0
+        intention_summarize_count = 0
+        last_reflection_id = 0
+        for e in events:
+            k = e.get("kind")
+            if k == "autonomy_tick":
+                try:
+                    data = json.loads(e.get("content") or "{}")
+                except Exception:
+                    data = {}
+                if (data or {}).get("decision") == "idle":
+                    idle_count += 1
+            elif k == "reflection":
+                reflect_count += 1
+                last_reflection_id = int(e.get("id", 0))
+                # Count reflections that use the {intent,...} shape
+                try:
+                    r = json.loads(e.get("content") or "{}")
+                except Exception:
+                    r = {}
+                if isinstance(r, dict) and "intent" in r:
+                    intention_summarize_count += 1
+            elif k == "summary_update":
+                summarize_count += 1
+
+        open_commitments = len(
+            LedgerMirror(self.eventlog, listen=False).get_open_commitment_events()
+        )
+        payload = {
+            "idle_count": int(idle_count),
+            "reflect_count": int(reflect_count),
+            "summarize_count": int(summarize_count),
+            "intention_summarize_count": int(intention_summarize_count),
+            "ticks_total": int(ticks_total),
+            "last_reflection_id": int(last_reflection_id),
+            "open_commitments": int(open_commitments),
+        }
+        content = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        # Idempotent: skip if identical to last
+        if last_metrics and (last_metrics.get("content") or "") == content:
+            return
+        self.eventlog.append(
+            kind="autonomy_metrics",
+            content=content,
+            meta={"source": "autonomy_kernel"},
+        )
+
     def decide_next_action(self) -> KernelDecision:
         gaps = self.mirror.rsm_knowledge_gaps()
 
@@ -584,6 +673,7 @@ class AutonomyKernel:
         self._verify_recent_selections()
         self._maybe_append_checkpoint()
         self._maybe_tune_thresholds()
+        self._maybe_emit_autonomy_metrics()
 
         if (
             autonomy_reflections_since_summary
