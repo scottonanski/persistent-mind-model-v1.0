@@ -109,21 +109,21 @@ I wasn’t just building a runtime for a theoretical idea I had. I was building 
 
 The Persistent Mind Model is my answer to that loss.
 
-_ It’s portable._
+_It’s portable._
 
-_ It’s model-agnostic._
+_It’s model-agnostic._
 
-_ It runs locally._
+_It runs locally._
 
-_ It grows over time._
+_It grows over time._
 
-_ It keeps its memory._
+_It keeps its memory._
 
-_ It doesn’t forget what it is — or who it’s becoming._
+_It doesn’t forget what it is — or who it’s becoming._
 
-_ It’s not just software._
+_It’s not just software._
 
-_ It’s a structure for keeping meaning intact._
+_It’s a structure for keeping meaning intact._
 
 **_Because you shouldn’t have to lose a mind you helped build._**
 
