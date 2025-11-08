@@ -1,6 +1,19 @@
-# Persistent Mind Model
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Model Agnostic](https://img.shields.io/badge/models-agnostic-green.svg)]()
 
-> Persistent Mind Model (PMM) is a deterministic, ledger‑recall system. Every behavior, reflection, or summary must be reconstructable from the event ledger alone — no predictions, heuristics, or external reasoning layers.
+**Event-sourced cognitive architecture for persistent AI memory**
+
+## I was thtinker around and built this. Somehow it works??? 🤔
+
+**_Go easy on me. I'm just one guy building this in my free time._** 🤣
+
+---
+
+# Persistent Mind Model (PMM)
+
+> *"Because you shouldn't have to lose a mind you helped build."*
+
+Persistent Mind Model (PMM) is a deterministic, ledger‑recall system. Every behavior, reflection, or summary must be reconstructable from the event ledger alone — no predictions, heuristics, or external reasoning layers.
 
 ## For AI Researchers
 
