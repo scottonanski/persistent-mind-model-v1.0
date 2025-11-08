@@ -167,6 +167,8 @@ class AutonomyKernel:
                 cid = (c.get("meta") or {}).get("cid")
                 if not cid:
                     continue
+                if hasattr(eventlog, "has_exec_bind") and eventlog.has_exec_bind(cid):
+                    continue
                 events_since_open = sum(1 for e in events if e["id"] > c["id"])
                 if events_since_open > auto_close_threshold:
                     eventlog.append(

@@ -74,12 +74,14 @@ class EventLog:
             "assistant_message",
             "reflection",
             "metrics_turn",
+            "metric_check",
             "commitment_open",
             "commitment_close",
             "claim",
             "autonomy_rule_table",
             "autonomy_tick",
             "autonomy_stimulus",
+            "autonomy_kernel",
             "summary_update",
             "inter_ledger_ref",
             "config",
@@ -87,9 +89,20 @@ class EventLog:
             "test_event",
             "metrics_update",
             "autonomy_metrics",
+            "internal_goal_created",
         }
+        binding_kinds = {
+            "metric_check",
+            "autonomy_kernel",
+            "internal_goal_created",
+            "config",
+        }
+        if kind in binding_kinds:
+            assert kind in binding_kinds, f"Unsupported kind: {kind}"
         if kind not in valid_kinds:
             raise ValueError(f"Invalid event kind: {kind}")
+        if not isinstance(content, str):
+            raise TypeError("EventLog.append requires string content")
         meta = meta or {}
         ts = _iso_now()
         prev_hash = self._last_hash()
@@ -207,3 +220,22 @@ class EventLog:
     def hash_sequence(self) -> List[str]:
         cur = self._conn.execute("SELECT hash FROM events ORDER BY id ASC")
         return [r[0] for r in cur.fetchall()]
+
+    def has_exec_bind(self, cid: str) -> bool:
+        cid = (cid or "").strip()
+        if not cid:
+            return False
+        events = self.read_all()
+        for event in events:
+            if event.get("kind") != "config":
+                continue
+            content_raw = event.get("content") or ""
+            try:
+                data = json.loads(content_raw)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            if data.get("type") == "exec_bind" and data.get("cid") == cid:
+                return True
+        return False

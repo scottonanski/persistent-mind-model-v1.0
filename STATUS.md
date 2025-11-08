@@ -116,3 +116,11 @@
 - Autonomy idle optimization: auto-closes stale commitments when there are more than 2 open and each is stale by event-count threshold (`commitment_auto_close`, default 27). Deterministic by processing opens in event order; emits `commitment_close` with `reason:"auto_close_idle_opt"`. Tests cover close vs. no-close threshold behavior.
 
 - Added replay performance metric `replay_speed_ms` (ms/event) measuring `read_all()+hash_sequence()` via a monotonic timer; tracked in metrics for O(n) replay monitoring with test coverage.
+
+### Sprint 22: Structured Execution Bindings — COMPLETE ✅
+- Introduced structured execution bindings via `config` events with JSON payloads:
+  `{ "type":"exec_bind", "cid":"<cid>", "exec":"idle_monitor", "params":{...} }`
+- Added `IdleMonitor` to emit `metric_check` on each `autonomy_tick` and to open internal goal `explore_rsm_drift` when an idle threshold is crossed; fully ledger-driven, deterministic.
+- Added `ExecutionRouter` that activates handlers based on binding config; no regex/keyword heuristics, no env gates.
+- CLI `/bindings` shows open commitments and their bound executors.
+- Tests added: `pmm/tests/test_exec_binding_idle_monitor.py` — verifies binding, metric emission, and threshold-triggered goal.

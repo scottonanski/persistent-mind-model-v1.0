@@ -82,4 +82,3 @@ def test_inter_ledger_ref_is_deduplicated(tmp_path):
     inter_refs = [e for e in log.read_all() if e.get("kind") == "inter_ledger_ref"]
     # Should only be a single inter_ledger_ref for the same target
     assert len(inter_refs) == 1
-

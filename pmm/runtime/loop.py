@@ -16,7 +16,9 @@ from pmm.runtime.reflection import TurnDelta, build_reflection_text
 from pmm.core.schemas import Claim
 from pmm.core.validators import validate_claim
 from pmm.core.semantic_extractor import extract_commitments, extract_claims
+from pmm.commitments.binding import extract_exec_binds
 from pmm.runtime.context_builder import build_context
+from pmm.runtime.bindings import ExecBindRouter
 from pmm.runtime.autonomy_supervisor import AutonomySupervisor
 from pmm.core.autonomy_tracker import AutonomyTracker
 import asyncio
@@ -48,10 +50,12 @@ class RuntimeLoop:
         self.replay = replay
         self.autonomy = AutonomyKernel(eventlog, thresholds=thresholds)
         self.tracker = AutonomyTracker(eventlog)
+        self.exec_router: ExecBindRouter | None = None
         if self.replay:
             self.mirror.rebuild()
             self.autonomy = AutonomyKernel(eventlog)
         if not self.replay:
+            self.exec_router = ExecBindRouter(eventlog)
             if not any(
                 e["kind"] == "autonomy_rule_table" for e in self.eventlog.read_all()
             ):
@@ -262,6 +266,10 @@ class RuntimeLoop:
             cid = self.commitments.open_commitment(c, source="assistant")
             if cid:
                 delta.opened.append(cid)
+                extract_exec_binds(self.eventlog, c, cid)
+
+        if self.exec_router is not None:
+            self.exec_router.tick()
 
         # 6. Claims
         for claim in self._extract_claims(assistant_reply):
@@ -371,5 +379,8 @@ class RuntimeLoop:
             from pmm.runtime.identity_summary import maybe_append_summary
 
             maybe_append_summary(self.eventlog)
+
+        if self.exec_router is not None:
+            self.exec_router.tick()
 
         return decision
