@@ -109,6 +109,7 @@ def compute_metrics(
 
 
 def format_metrics_human(metrics: Dict[str, Any]) -> str:
+    """Format metrics as simple text (for backward compatibility)."""
     lines: List[str] = []
     lines.append(f"event_count: {metrics['event_count']}")
     lines.append(f"broken_links: {metrics['broken_links']}")
@@ -134,6 +135,58 @@ def format_metrics_human(metrics: Dict[str, Any]) -> str:
         lines.append(f"  last_reflection_id: {am['last_reflection_id']}")
         lines.append(f"  open_commitments: {am['open_commitments']}")
     return "\n".join(lines)
+
+
+def format_metrics_tables(metrics: Dict[str, Any]):
+    """Format metrics as Rich tables (returns table objects for direct printing)."""
+    from rich.table import Table
+    
+    tables = []
+    
+    # Ledger Overview Table
+    overview = Table(title="[bold cyan]Ledger Overview[/bold cyan]", show_header=True, header_style="bold")
+    overview.add_column("Metric", style="yellow", width=30)
+    overview.add_column("Value", style="cyan")
+    
+    overview.add_row("Event Count", str(metrics['event_count']))
+    overview.add_row("Broken Links", str(metrics['broken_links']))
+    overview.add_row("Open Commitments", str(metrics['open_commitments']))
+    overview.add_row("Closed Commitments", str(metrics['closed_commitments']))
+    overview.add_row("Replay Speed (ms/event)", f"{metrics.get('replay_speed_ms', 0):.6f}")
+    overview.add_row("Internal Goals Open", str(metrics.get('internal_goals_open', 0)))
+    overview.add_row("Kernel Knowledge Gaps", str(metrics.get('kernel_knowledge_gaps', 0)))
+    overview.add_row("Last Hash", metrics['last_hash'][:16] + "...")
+    
+    tables.append(overview)
+    
+    # Event Kinds Table
+    kinds_table = Table(title="[bold cyan]Event Kinds[/bold cyan]", show_header=True, header_style="bold")
+    kinds_table.add_column("Kind", style="yellow", width=30)
+    kinds_table.add_column("Count", style="cyan", justify="right")
+    
+    for k in sorted(metrics.get("kinds", {}).keys()):
+        kinds_table.add_row(k, str(metrics['kinds'][k]))
+    
+    tables.append(kinds_table)
+    
+    # Autonomy Metrics Table (if present)
+    if "autonomy_metrics" in metrics:
+        am = metrics["autonomy_metrics"]
+        autonomy_table = Table(title="[bold cyan]Autonomy Metrics[/bold cyan]", show_header=True, header_style="bold")
+        autonomy_table.add_column("Metric", style="yellow", width=30)
+        autonomy_table.add_column("Value", style="cyan", justify="right")
+        
+        autonomy_table.add_row("Ticks Total", str(am['ticks_total']))
+        autonomy_table.add_row("Reflect Count", str(am['reflect_count']))
+        autonomy_table.add_row("Summarize Count", str(am['summarize_count']))
+        autonomy_table.add_row("Intention Summarize Count", str(am.get('intention_summarize_count', 0)))
+        autonomy_table.add_row("Idle Count", str(am['idle_count']))
+        autonomy_table.add_row("Last Reflection ID", str(am['last_reflection_id']))
+        autonomy_table.add_row("Open Commitments", str(am['open_commitments']))
+        
+        tables.append(autonomy_table)
+    
+    return tables
 
 
 def _last_metrics_snapshot(events: List[Dict[str, Any]]) -> Optional[str]:
