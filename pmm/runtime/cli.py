@@ -36,6 +36,73 @@ CLI_THEME = Theme({
 console = Console(theme=CLI_THEME)
 
 
+def _export_chat_session(elog: EventLog, format: str = "markdown") -> str:
+    """Export chat session to file. Returns filename."""
+    from datetime import datetime
+    import json
+    
+    # Get all user and assistant messages
+    events = elog.read_all()
+    messages = [e for e in events if e.get("kind") in {"user_message", "assistant_message"}]
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    if format == "markdown":
+        filename = f"chat_export_{timestamp}.md"
+        lines = [f"# Chat Session Export\n", f"**Exported:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n", f"**Total Messages:** {len(messages)}\n", "---\n"]
+        
+        for msg in messages:
+            kind = msg.get("kind")
+            content = msg.get("content", "")
+            ts = msg.get("ts", "")
+            
+            if kind == "user_message":
+                lines.append(f"## 👤 User\n")
+                lines.append(f"*{ts}*\n")
+                lines.append(f"{content}\n\n")
+            elif kind == "assistant_message":
+                # Filter out internal markers
+                _hidden = ("COMMIT:", "CLOSE:", "CLAIM:", "REFLECT:")
+                visible_lines = [ln for ln in content.splitlines() if not ln.startswith(_hidden)]
+                visible_content = "\n".join(visible_lines).strip()
+                
+                lines.append(f"## 🤖 Assistant\n")
+                lines.append(f"*{ts}*\n")
+                lines.append(f"{visible_content}\n\n")
+        
+        with open(filename, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+    
+    elif format == "json":
+        filename = f"chat_export_{timestamp}.json"
+        export_data = {
+            "exported_at": datetime.now().isoformat(),
+            "total_messages": len(messages),
+            "messages": []
+        }
+        
+        for msg in messages:
+            kind = msg.get("kind")
+            content = msg.get("content", "")
+            
+            # Filter assistant messages
+            if kind == "assistant_message":
+                _hidden = ("COMMIT:", "CLOSE:", "CLAIM:", "REFLECT:")
+                visible_lines = [ln for ln in content.splitlines() if not ln.startswith(_hidden)]
+                content = "\n".join(visible_lines).strip()
+            
+            export_data["messages"].append({
+                "role": "user" if kind == "user_message" else "assistant",
+                "timestamp": msg.get("ts", ""),
+                "content": content
+            })
+        
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(export_data, f, indent=2, ensure_ascii=False)
+    
+    return filename
+
+
 def _format_replay_table(events: list[dict]) -> Table:
     """Format event log as a Rich table."""
     table = Table(show_header=True, header_style="header", border_style="prompt", expand=True)
@@ -179,6 +246,7 @@ def main() -> None:  # pragma: no cover - thin wrapper
     commands_table.add_column("Command", style="command", width=40)
     commands_table.add_column("Description", style="dim")
     
+    commands_table.add_row("/help", "Show this list of commands")
     commands_table.add_row("/replay", "Show last 50 events")
     commands_table.add_row("/metrics", "Show ledger metrics summary")
     commands_table.add_row("/diag", "Show last 5 diagnostic turns")
@@ -191,6 +259,7 @@ def main() -> None:  # pragma: no cover - thin wrapper
     commands_table.add_row("/pm", "Admin commands (type '/pm' for help)")
     commands_table.add_row("/raw", "Show last assistant message with markers")
     commands_table.add_row("/model", "Switch to a different model")
+    commands_table.add_row("/export [md|json]", "Export chat session to file")
     commands_table.add_row("/exit", "Quit")
     
     console.print(commands_table)
@@ -228,6 +297,30 @@ def main() -> None:  # pragma: no cover - thin wrapper
             # In-session commands (no CLI flags)
             raw_cmd = user.strip()
             cmd = raw_cmd.lower()
+            if cmd == "/help":
+                # Show commands table
+                help_table = Table(show_header=True, header_style="header", border_style="prompt", title="[header]Commands[/header]")
+                help_table.add_column("Command", style="command", width=40)
+                help_table.add_column("Description", style="dim")
+                
+                help_table.add_row("/help", "Show this list of commands")
+                help_table.add_row("/replay", "Show last 50 events")
+                help_table.add_row("/metrics", "Show ledger metrics summary")
+                help_table.add_row("/diag", "Show last 5 diagnostic turns")
+                help_table.add_row("/goals", "Show open internal goals")
+                help_table.add_row("/rsm [id | diff <a> <b>]", "Show Recursive Self-Model")
+                help_table.add_row("/graph stats", "Show event graph stats")
+                help_table.add_row("/graph thread <CID>", "Show thread for a commitment")
+                help_table.add_row("/config retrieval fixed limit <N>", "Set fixed window limit")
+                help_table.add_row("/rebuild-fast", "Verify fast RSM rebuild matches full")
+                help_table.add_row("/pm", "Admin commands (type '/pm' for help)")
+                help_table.add_row("/raw", "Show last assistant message with markers")
+                help_table.add_row("/model", "Switch to a different model")
+                help_table.add_row("/export [md|json]", "Export chat session to file")
+                help_table.add_row("/exit", "Quit")
+                
+                console.print(help_table)
+                continue
             if cmd.startswith("/rsm"):
                 output = handle_rsm_command(raw_cmd, elog)
                 if output:
@@ -300,6 +393,21 @@ def main() -> None:  # pragma: no cover - thin wrapper
                 out = handle_model_command(raw_cmd, loop)
                 if out:
                     print(out)
+                continue
+            if cmd.startswith("/export"):
+                # Parse format (default to markdown)
+                parts = raw_cmd.split()
+                export_format = "markdown"
+                if len(parts) > 1:
+                    fmt = parts[1].lower()
+                    if fmt in {"json", "md", "markdown"}:
+                        export_format = "json" if fmt == "json" else "markdown"
+                
+                try:
+                    filename = _export_chat_session(elog, export_format)
+                    console.print(f"[success]✓ Chat exported to: {filename}[/success]")
+                except Exception as e:
+                    console.print(f"[error]Export failed: {e}[/error]")
                 continue
             
             events = loop.run_turn(user)
