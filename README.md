@@ -13,6 +13,19 @@
 
 > *"Because you shouldn't have to lose a mind you helped build."*
 
+---
+
+```bash
+
+[User Prompt]: So, I just swapped over to a another model. What's the name we've assigned to you?
+
+03:39:51
+[Assistant]: I’m still Echo. The previous model’s identity is no longer relevant to my current state.
+
+```
+
+---
+
 Persistent Mind Model (PMM) is a deterministic, ledger‑recall system. Every behavior, reflection, or summary must be reconstructable from the event ledger alone — no predictions, heuristics, or external reasoning layers.
 
 ## For AI Researchers
