@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 from pmm.core.event_log import EventLog
 from pmm.core.ledger_mirror import LedgerMirror
 from pmm.core.commitment_manager import CommitmentManager
+from pmm.core.meme_graph import MemeGraph
 
 
 def _last_retrieval_config(eventlog: EventLog) -> dict | None:
@@ -55,8 +56,9 @@ def build_context(eventlog: EventLog, limit: int = 5) -> str:
     snapshot = mirror.rsm_snapshot()
     rsm_block = _render_rsm(snapshot)
     goals_block = _render_internal_goals(eventlog)
+    graph_block = _render_graph_context(eventlog)
 
-    extras = "\n".join(section for section in (rsm_block, goals_block) if section)
+    extras = "\n".join(section for section in (rsm_block, goals_block, graph_block) if section)
     if body and extras:
         return f"{body}\n\n{extras}"
     if extras:
@@ -107,3 +109,45 @@ def _render_internal_goals(eventlog: EventLog) -> str:
     if not parts:
         return ""
     return f"Internal Goals: {', '.join(parts)}"
+
+
+def _render_graph_context(eventlog: EventLog) -> str:
+    """Render memegraph structural context for model introspection.
+
+    Deterministically rebuilds graph from ledger and exposes:
+    - Connection density (edges/nodes ratio)
+    - Active commitment thread depths
+
+    Returns empty string if graph has insufficient data (<5 nodes).
+    """
+    mg = MemeGraph(eventlog)
+    mg.rebuild(eventlog.read_all())
+    stats = mg.graph_stats()
+
+    # Only render if graph has meaningful structure
+    if stats["nodes"] < 5:
+        return ""
+
+    # Build thread depth info for open commitments
+    manager = CommitmentManager(eventlog)
+    open_comms = manager.get_open_commitments()
+    thread_parts: List[str] = []
+
+    for comm in open_comms[:3]:  # Limit to 3 most recent
+        meta = comm.get("meta") or {}
+        cid = meta.get("cid")
+        if not cid:
+            continue
+        thread = mg.thread_for_cid(cid)
+        if thread:
+            thread_parts.append(f"{cid}:{len(thread)}")
+
+    lines = [
+        "Graph Context:",
+        f"- Connections: {stats['edges']} edges, {stats['nodes']} nodes",
+    ]
+
+    if thread_parts:
+        lines.append(f"- Thread depths: {', '.join(thread_parts)}")
+
+    return "\n".join(lines)

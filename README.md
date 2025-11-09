@@ -86,6 +86,7 @@ Docs
 - [Why PMM Matters](./docs/03-WHY-PMM-MATTERS.md)
 - [Technical Comparison](./docs/04-TECHNICAL-COMPARISON.md)
 - [IBM Granite 4 Proof](./docs/05-IBM-Granite-Chat.md)
+- [MemeGraph Visibility](./docs/06-MEMEGRAPH-VISIBILITY.md)
 - [Introspection Question Pack](./docs/00-Persistent%20Mind%20Model%20-Question%20Pack-(Introspection-Framework).md)
 
 
