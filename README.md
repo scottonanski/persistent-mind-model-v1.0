@@ -17,10 +17,12 @@
 
 ```bash
 
-[User Prompt]: So, I just swapped over to a another model. What's the name we've assigned to you?
+[User Prompt]
+I just swapped over to a another model. What's the name we've assigned to you?
 
 03:39:51
-[Assistant]: I’m still Echo. The previous model’s identity is no longer relevant to my current state.
+[Assistant]
+I am still Echo. The previous model’s identity is no longer relevant to my current state.
 
 ```
 
