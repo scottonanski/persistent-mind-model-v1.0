@@ -55,6 +55,13 @@ def synthesize_reflection(
         if reflection_count >= 5:
             mirror = LedgerMirror(eventlog, listen=False)
             snapshot = mirror.rsm_snapshot()
+            
+            # Add graph structure awareness
+            from pmm.core.meme_graph import MemeGraph
+            mg = MemeGraph(eventlog)
+            mg.rebuild(events)
+            stats = mg.graph_stats()
+            
             if _has_rsm_data(snapshot):
                 det_refs = snapshot["behavioral_tendencies"].get(
                     "determinism_emphasis", 0
@@ -66,6 +73,12 @@ def synthesize_reflection(
                 )
                 if gaps:
                     description += f" ({', '.join(gaps)})"
+                
+                # Include graph density if meaningful (>= 5 nodes)
+                if stats["nodes"] >= 5:
+                    density = f"{stats['edges']}/{stats['nodes']}"
+                    description += f", graph: {density}"
+                
                 payload["self_model"] = description
 
         content = json.dumps(

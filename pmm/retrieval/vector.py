@@ -8,10 +8,12 @@ events from the ledger.
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 from hashlib import sha256
 import math
 import json
+
+from pmm.core.event_log import EventLog
 
 
 class DeterministicEmbedder:
@@ -99,7 +101,14 @@ def select_by_vector(
     return ids, scores
 
 
-def build_context_from_ids(events: List[Dict], ids: List[int]) -> str:
+def build_context_from_ids(
+    events: List[Dict], ids: List[int], *, eventlog: EventLog | None = None
+) -> str:
+    """Build context from selected event IDs with metadata blocks.
+
+    Includes RSM, goals, and graph context when eventlog is provided,
+    matching the behavior of fixed-window context building.
+    """
     # Order chronologically for readability
     idset = set(ids)
     chosen = [e for e in events if int(e.get("id", 0)) in idset]
@@ -109,6 +118,113 @@ def build_context_from_ids(events: List[Dict], ids: List[int]) -> str:
         kind = e.get("kind")
         content = e.get("content") or ""
         lines.append(f"{kind}: {content}")
+    body = "\n".join(lines)
+
+    # Add metadata blocks if eventlog provided
+    if eventlog is None:
+        return body
+
+    from pmm.core.ledger_mirror import LedgerMirror
+
+    mirror = LedgerMirror(eventlog, listen=False)
+    snapshot = mirror.rsm_snapshot()
+    rsm_block = _render_rsm_vector(snapshot)
+    goals_block = _render_internal_goals_vector(eventlog)
+    graph_block = _render_graph_context_vector(eventlog)
+
+    extras = "\n".join(
+        section for section in (rsm_block, goals_block, graph_block) if section
+    )
+    if body and extras:
+        return f"{body}\n\n{extras}"
+    if extras:
+        return extras
+    return body
+
+
+def _render_rsm_vector(snapshot: Dict[str, Any]) -> str:
+    """Render RSM block for vector retrieval context."""
+    if not snapshot:
+        return ""
+    tendencies = snapshot.get("behavioral_tendencies") or {}
+    gaps = snapshot.get("knowledge_gaps") or []
+    meta_patterns = snapshot.get("interaction_meta_patterns") or []
+    nonzero_tendencies = {k: v for k, v in tendencies.items() if v}
+    if (
+        nonzero_tendencies.keys() == {"uniqueness_emphasis"}
+        and not gaps
+        and not meta_patterns
+    ):
+        return ""
+    if not (tendencies or gaps or meta_patterns):
+        return ""
+
+    tendency_parts = [
+        f"{key} ({tendencies[key]})" for key in sorted(tendencies.keys())
+    ]
+    gaps_part = ", ".join(gaps)
+    tendencies_text = ", ".join(tendency_parts) if tendency_parts else "none"
+    gaps_text = gaps_part if gaps_part else "none"
+    lines = [
+        "Recursive Self-Model:",
+        f"- Tendencies: {tendencies_text}",
+        f"- Gaps: {gaps_text}",
+    ]
+    return "\n".join(lines)
+
+
+def _render_internal_goals_vector(eventlog: EventLog) -> str:
+    """Render internal goals block for vector retrieval context."""
+    from pmm.core.commitment_manager import CommitmentManager
+
+    manager = CommitmentManager(eventlog)
+    open_internal = manager.get_open_commitments(origin="autonomy_kernel")
+    parts: List[str] = []
+    for event in open_internal:
+        meta = event.get("meta") or {}
+        cid = meta.get("cid")
+        goal = meta.get("goal") or "unknown"
+        if not cid:
+            continue
+        parts.append(f"{cid} ({goal})")
+    if not parts:
+        return ""
+    return f"Internal Goals: {', '.join(parts)}"
+
+
+def _render_graph_context_vector(eventlog: EventLog) -> str:
+    """Render memegraph context for vector retrieval."""
+    from pmm.core.meme_graph import MemeGraph
+    from pmm.core.commitment_manager import CommitmentManager
+
+    mg = MemeGraph(eventlog)
+    mg.rebuild(eventlog.read_all())
+    stats = mg.graph_stats()
+
+    if stats["nodes"] < 5:
+        return ""
+
+    manager = CommitmentManager(eventlog)
+    open_comms = manager.get_open_commitments()
+    thread_parts: List[str] = []
+
+    for comm in open_comms[:3]:
+        meta = comm.get("meta") or {}
+        cid = meta.get("cid")
+        if not cid:
+            continue
+        thread = mg.thread_for_cid(cid)
+        if thread:
+            thread_parts.append(f"{cid}:{len(thread)}")
+
+    lines = [
+        "Graph Context:",
+        f"- Connections: {stats['edges']} edges, {stats['nodes']} nodes",
+    ]
+
+    if thread_parts:
+        lines.append(f"- Thread depths: {', '.join(thread_parts)}")
+
     return "\n".join(lines)
 
 

@@ -16,15 +16,28 @@ SYSTEM_PRIMER = (
 
 
 def compose_system_prompt(
-    history: List[Dict[str, Any]], open_commitments: List[Dict[str, Any]]
+    history: List[Dict[str, Any]],
+    open_commitments: List[Dict[str, Any]],
+    context_has_graph: bool = False,
 ) -> str:
     parts = [
         "You are PMM. Respond helpfully.",
+    ]
+    
+    # Only mention graph if it's actually in the context
+    if context_has_graph:
+        parts.append(
+            "Context above includes Graph Context showing your memegraph structure "
+            "(edges, nodes, thread depths)."
+        )
+    
+    parts.extend([
         "Write a normal response first.",
         "After a blank line, add control lines:",
         "  COMMIT: <title> | CLOSE: <CID> | CLAIM:<type>=<json> | REFLECT:<json>",
         "Use markers exactly; one per line; do not mix markers into prose.",
-    ]
+    ])
+    
     if open_commitments:
         parts.append("Open commitments present.")
     return "\n".join(parts)

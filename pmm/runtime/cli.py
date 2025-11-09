@@ -17,6 +17,41 @@ from pmm.runtime.loop import RuntimeLoop
 from pmm.runtime.replay_narrator import narrate
 from pmm.core.meme_graph import MemeGraph
 import json as _json
+from rich.console import Console
+from rich.theme import Theme
+from rich.table import Table
+from datetime import datetime
+
+# CLI Theme - Nord colors
+CLI_THEME = Theme({
+    "header": "bold #88C0D0",      # Nord8 - Frost cyan
+    "command": "bold #EBCB8B",     # Nord13 - Aurora yellow
+    "number": "#EBCB8B",           # Nord13 - Aurora yellow
+    "prompt": "dim #D8DEE9",       # Nord4 - Snow Storm
+    "success": "bold #A3BE8C",     # Nord14 - Aurora green
+    "error": "bold #BF616A",       # Nord11 - Aurora red
+    "info": "#88C0D0",             # Nord8 - Frost cyan
+})
+
+console = Console(theme=CLI_THEME)
+
+
+def _format_replay_table(events: list[dict]) -> Table:
+    """Format event log as a Rich table."""
+    table = Table(show_header=True, header_style="header", border_style="prompt", expand=True)
+    table.add_column("ID", style="number", width=6, no_wrap=True)
+    table.add_column("Kind", style="info", width=20, no_wrap=True)
+    table.add_column("Content", style="dim", no_wrap=False, overflow="fold")
+    
+    for event in events:
+        event_id = str(event.get("id", ""))
+        kind = event.get("kind", "")
+        content = event.get("content", "")
+        
+        # Don't truncate - let Rich wrap the text
+        table.add_row(event_id, kind, content)
+    
+    return table
 
 
 def _gather_models() -> list[str]:
@@ -118,39 +153,51 @@ def main() -> None:  # pragma: no cover - thin wrapper
         pass
 
     # Interactive provider prompt
-    print("\n🧠  Persistent Mind Model")
-    print("────────────────────────────")
-    print("Select a model to chat with:\n")
+    console.print("\n🧠  [header]Persistent Mind Model[/header]\n")
 
     models = _gather_models()
 
     if not models:
-        print(
-            "No models found. For Ollama, run 'ollama serve' and 'ollama pull <model>'."
+        console.print(
+            "[error]No models found. For Ollama, run 'ollama serve' and 'ollama pull <model>'.[/error]"
         )
         return
 
+    # Model selection table
+    model_table = Table(show_header=True, header_style="header", border_style="prompt", title="[info]Select a model to chat with[/info]")
+    model_table.add_column("#", style="number", width=4, justify="right")
+    model_table.add_column("Model", style="info")
+    
     for i, m in enumerate(models, 1):
-        print(f"  {i}) {m}")
-    print("────────────────────────────")
-    print("Commands:")
-    print("  /replay   Show last 50 events")
-    print("  /metrics  Show ledger metrics summary")
-    print("  /diag     Show last 5 diagnostic turns")
-    print("  /goals    Show open internal goals")
-    print(RSM_HELP_TEXT)
-    print("  /graph stats            Show event graph stats")
-    print("  /graph thread <CID>     Show thread for a commitment")
-    print("  /config retrieval fixed limit <N>  Set fixed window limit (idempotent)")
-    print("  /rebuild-fast           Verify fast RSM rebuild matches full")
-    print("  /pm        Admin commands (type '/pm' for help)")
-    print("  /raw      Show last assistant message with markers")
-    print("  /model    Switch to a different model")
-    print("  /exit     Quit")
-    print("────────────────────────────")
+        model_table.add_row(str(i), m)
+    
+    console.print(model_table)
+    console.print()
+    
+    # Commands table
+    commands_table = Table(show_header=True, header_style="header", border_style="prompt", title="[header]Commands[/header]")
+    commands_table.add_column("Command", style="command", width=40)
+    commands_table.add_column("Description", style="dim")
+    
+    commands_table.add_row("/replay", "Show last 50 events")
+    commands_table.add_row("/metrics", "Show ledger metrics summary")
+    commands_table.add_row("/diag", "Show last 5 diagnostic turns")
+    commands_table.add_row("/goals", "Show open internal goals")
+    commands_table.add_row("/rsm [id | diff <a> <b>]", "Show Recursive Self-Model")
+    commands_table.add_row("/graph stats", "Show event graph stats")
+    commands_table.add_row("/graph thread <CID>", "Show thread for a commitment")
+    commands_table.add_row("/config retrieval fixed limit <N>", "Set fixed window limit")
+    commands_table.add_row("/rebuild-fast", "Verify fast RSM rebuild matches full")
+    commands_table.add_row("/pm", "Admin commands (type '/pm' for help)")
+    commands_table.add_row("/raw", "Show last assistant message with markers")
+    commands_table.add_row("/model", "Switch to a different model")
+    commands_table.add_row("/exit", "Quit")
+    
+    console.print(commands_table)
+    console.print()
     # Brief autonomy note about idle optimization (deterministic behavior)
-    print(
-        "Note: Autonomy auto-closes stale commitments when >2 are open and staleness exceeds the threshold."
+    console.print(
+        "[prompt]Note: Autonomy auto-closes stale commitments when >2 are open and staleness exceeds the threshold.[/prompt]"
     )
     choice_raw = input(f"Choice [1-{len(models)}]: ").strip()
     # Allow immediate exit at selection prompt
@@ -161,8 +208,8 @@ def main() -> None:  # pragma: no cover - thin wrapper
         choice_raw = "1"
     selected, use_openai, model_name = _resolve_model_selection(choice_raw, models)
 
-    print(f"\n→ Using model: {selected}\n")
-    print("Type '/exit' to quit.\n")
+    console.print(f"\n[success]→ Using model: {selected}[/success]\n")
+    console.print("[prompt]Type '/exit' to quit.[/prompt]\n")
 
     elog = EventLog(db_path)
     adapter = _instantiate_adapter(use_openai, model_name)
@@ -170,7 +217,7 @@ def main() -> None:  # pragma: no cover - thin wrapper
 
     try:
         while True:
-            user = input("You> ")
+            user = input("[User Prompt]: ")
             if user is None:
                 break
             if user.strip().lower() in {"/exit", "exit", "quit"}:
@@ -184,7 +231,7 @@ def main() -> None:  # pragma: no cover - thin wrapper
             if cmd.startswith("/rsm"):
                 output = handle_rsm_command(raw_cmd, elog)
                 if output:
-                    print(output)
+                    console.print(output)
                 continue
             if cmd == "/pm" or cmd.startswith("/pm "):
                 out = handle_pm_command(raw_cmd, elog)
@@ -207,23 +254,33 @@ def main() -> None:  # pragma: no cover - thin wrapper
                     print(out)
                 continue
             if cmd in {"/goals"}:
-                print(handle_goals_command(elog))
+                console.print(handle_goals_command(elog))
                 continue
             if cmd in {"/replay"}:
-                print(narrate(elog, limit=50))
+                events = elog.read_tail(50)
+                if events:
+                    table = _format_replay_table(events)
+                    console.print(table)
+                else:
+                    console.print("[prompt]No events in ledger.[/prompt]")
                 continue
             if cmd in {"/metrics"}:
+                from pmm.core.ledger_metrics import format_metrics_tables
                 tracker = loop.tracker if hasattr(loop, "tracker") else None
                 if tracker:
-                    tracker.rebuild()  # Rebuild from ledger on CLI load
-                print(format_metrics_human(compute_metrics(db_path, tracker)))
+                    tracker.rebuild()
+                metrics = compute_metrics(db_path, tracker)
+                tables = format_metrics_tables(metrics)
+                for table in tables:
+                    console.print(table)
+                    console.print()
                 continue
             if cmd in {"/diag"}:
                 events = [
                     e for e in elog.read_tail(200) if e.get("kind") == "metrics_turn"
                 ][-5:]
                 for e in events:
-                    print(
+                    console.print(
                         f"[{e['id']}] {e.get('ts', '')} metrics_turn | {e['content']}"
                     )
                 continue
@@ -235,15 +292,16 @@ def main() -> None:  # pragma: no cover - thin wrapper
                     if e.get("kind") == "assistant_message"
                 ]
                 if tail:
-                    print(f"Assistant (raw)> {tail[-1].get('content') or ''}")
+                    console.print(f"Assistant (raw)> {tail[-1].get('content') or ''}")
                 else:
-                    print("No assistant messages yet.")
+                    console.print("[prompt]No assistant messages yet.[/prompt]")
                 continue
             if cmd.startswith("/model"):
                 out = handle_model_command(raw_cmd, loop)
                 if out:
                     print(out)
                 continue
+            
             events = loop.run_turn(user)
             ai_msgs = [e for e in events if e.get("kind") == "assistant_message"]
             if ai_msgs:
@@ -255,7 +313,9 @@ def main() -> None:  # pragma: no cover - thin wrapper
                 ]
                 assistant_output = "\n".join(visible_lines).strip()
                 if assistant_output:
-                    print(f"Assistant> {assistant_output}")
+                    timestamp = datetime.now().strftime("%H:%M:%S")
+                    console.print(f"\n[prompt]{timestamp}[/prompt]")
+                    console.print(f"[info][Assistant]:[/info] {assistant_output}\n")
                 # Optional badge: per-turn counts (derived deterministically from ledger)
                 # Count claims from this assistant message
                 claims = sum(
@@ -272,7 +332,7 @@ def main() -> None:  # pragma: no cover - thin wrapper
                     1 for e in turn_events if e.get("kind") == "commitment_close"
                 )
                 if opened or closed or claims:
-                    print(f"({opened} opened, {closed} closed, {claims} claims)")
+                    console.print(f"[prompt]({opened} opened, {closed} closed, {claims} claims)[/prompt]")
     except KeyboardInterrupt:
         return
 

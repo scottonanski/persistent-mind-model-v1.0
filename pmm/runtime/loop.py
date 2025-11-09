@@ -268,12 +268,15 @@ class RuntimeLoop:
                     model=model,
                     dims=dims,
                 )
-            ctx_block = build_context_from_ids(events_full, ids)
+            ctx_block = build_context_from_ids(events_full, ids, eventlog=self.eventlog)
             selection_ids, selection_scores = ids, scores
         else:
             # Fixed-window fallback
             ctx_block = build_context(self.eventlog, limit=5)
-        base_prompt = compose_system_prompt(history, open_comms)
+        
+        # Check if graph context is actually present
+        context_has_graph = "Graph Context:" in ctx_block
+        base_prompt = compose_system_prompt(history, open_comms, context_has_graph=context_has_graph)
         system_prompt = f"{ctx_block}\n\n{base_prompt}" if ctx_block else base_prompt
 
         # 3. Invoke model
