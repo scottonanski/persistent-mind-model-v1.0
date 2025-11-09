@@ -97,37 +97,6 @@ PMM enables:
 
 All without modifying model architectures.
 
-## Integration Path for Grok
-```python
-# Pseudocode for Grok + PMM
-class GrokWithPMM:
-    def __init__(self):
-        self.grok = GrokModel()  # xAI's model
-        self.ledger = PMMEventLog()
-        self.rsm = RecursiveSelfModel()
-    
-    def respond(self, user_input):
-        # Log input
-        self.ledger.append(user_message=user_input)
-        
-        # Build compressed context
-        context = self.build_context(limit=5)  # Last 5 turns
-        rsm_state = self.rsm.get_snapshot()     # Behavioral metrics
-        
-        # Grok inference with PMM context
-        response = self.grok.generate(
-            context=context,
-            rsm_state=rsm_state
-        )
-        
-        # Log output and update RSM
-        self.ledger.append(assistant_message=response)
-        self.rsm.update_from_ledger()
-        
-        return response
-```
-
-**Result**: Grok gains persistent memory and auditability without architecture changes.
 
 [TOP](#persistent-mind-model-pmm)
 
