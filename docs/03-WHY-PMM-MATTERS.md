@@ -52,13 +52,6 @@ See [IBM Granite 4 Proof](05-IBM-Granite-Chat.md) for the full transcript.
 3. **Truth-Seeking**: Contradictions create explicit corrections
 4. **Scalability**: Memory grows in SQLite, not model weights
 
-## For Grok Integration
-
-PMM could enhance Grok's long-context handling by:
-- Offloading memory to deterministic ledger
-- Providing verifiable reasoning chains
-- Enabling cross-session stateful conversations
-- **Without bloating parameters or increasing inference cost**
 
 The ledger acts as **external memory** that any model can read.
 
