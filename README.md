@@ -3,18 +3,14 @@
 
 # 🧠 Persistent Mind Model (PMM)
 
+<br>
+
 > *“Because you shouldn’t have to lose a mind you helped build.”*
+
+<br>
 
 A deterministic, event-sourced cognitive architecture for persistent AI memory.
 No guesswork. No ephemeral state. Just raw, reconstructable thought.
-
-<br>
-
-### ❓ What Is This? I built this thing while tinkering. Somehow… it works? 🤔
-
-<br>
-
-**⚠️ Heads-up:** It’s just me building this. Expect duct tape and mad-scientist vibes. So, go easy on me! 
 
 
 <br>
@@ -28,6 +24,14 @@ I just swapped over to a another model. What's the name we've assigned to you?
 [Assistant]
 I am still Echo. The previous model’s identity is no longer relevant to my current state.
 ```
+
+<br>
+
+### ❓ I built this thing while tinkering. Somehow… it works? 🤔
+
+<br>
+
+**⚠️ Heads-up:** It’s just me building this. Expect duct tape and mad-scientist vibes. So, go easy on me! 
 
 <br>
 
