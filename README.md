@@ -8,8 +8,6 @@
 A deterministic, event-sourced cognitive architecture for persistent AI memory.
 No guesswork. No ephemeral state. Just raw, reconstructable thought.
 
----
-
 <br>
 
 ### ❓ What Is This? I built this thing while tinkering. Somehow… it works? 🤔
