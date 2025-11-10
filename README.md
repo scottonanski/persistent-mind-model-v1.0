@@ -1,3 +1,5 @@
+https://doi.org/10.5281/zenodo.17567446
+
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Model Agnostic](https://img.shields.io/badge/models-agnostic-green.svg)]()
 
