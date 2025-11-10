@@ -10,13 +10,22 @@ No guesswork. No ephemeral state. Just raw, reconstructable thought.
 
 ---
 
-## ❓ What Is This?
 
-I built this thing while tinkering and... Somehow… it works? 🤔
+# ❓ What Is This? I built this thing while tinkering. Somehow… it works? 🤔
 
 **⚠️ Heads-up:** It’s just me building this. Expect duct tape and mad-scientist vibes. So, go easy on me! 
 
+
 ---
+
+**Actual Example:**
+```bash
+[User Prompt] I just swapped over to a another model. What's the name we've assigned to you? 03:39:51 
+
+[Assistant] I am still Echo. The previous model’s identity is no longer relevant to my current state.
+```
+
+
 
 ## 🧪 For AI Researchers
 
