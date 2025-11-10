@@ -1,4 +1,4 @@
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.8+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![Model Agnostic](https://img.shields.io/badge/models-agnostic-green.svg)](https://github.com/scottonanski/persistent-mind-model-v1.0)
 
 # 🧠 Persistent Mind Model (PMM)
@@ -64,9 +64,27 @@ python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[full]"
 pmm
 ```
 
+Autonomy boots immediately: the `RuntimeLoop` spins up the slot-based `AutonomySupervisor` thread at startup, emits `autonomy_stimulus` events on its own cadence, and does **not** wait for `/tick` or any manual gate.
+
 In-chat commands:
 
-* `/replay`, `/metrics`, `/rsm`, `/goals`, `/diag`, `/exit`
+| Command | Description |
+| --- | --- |
+| `/help` | Show the in-session command reference |
+| `/replay` | Display the last 50 ledger events as a table |
+| `/metrics` | Compute deterministic ledger metrics (rebuilds autonomy tracker first) |
+| `/diag` | Tail the last five `metrics_turn` events |
+| `/goals` | List open internal goals from the commitment ledger |
+| `/rsm [id \| diff <a> <b>]` | Inspect or diff the Recursive Self-Model snapshot |
+| `/graph stats` | Show MemeGraph statistics |
+| `/graph thread <CID>` | Render the thread for a specific commitment |
+| `/config retrieval fixed limit <N>` | Set fixed-window retrieval limits |
+| `/rebuild-fast` | Verify the fast RSM rebuild path |
+| `/pm …` | Admin namespace (graph, retrieval, checkpoint, config) |
+| `/raw` | Show the last assistant message including control markers |
+| `/model` | Switch adapters (Ollama/OpenAI) |
+| `/export [md\|json]` | Export the current chat session |
+| `/exit` | Quit the session |
 
 📓 Default ledger path: `.data/pmmdb/pmm.db`
 📟 Everything the model says/does is recorded and traceable.
@@ -106,16 +124,17 @@ pytest -q
 | `/pm`                | Show admin tools overview              |
 | `/pm retrieval last` | Show most recent retrieval hits        |
 | `/pm graph stats`    | MemeGraph stats                        |
-| `/pm checkpoint`     | Emit an idempotent checkpoint manifest |
+| `/pm checkpoint`     | Attempt to emit a checkpoint manifest (policy-guarded) |
 | `/pm rebuild fast`   | Fast rebuild for consistency testing   |
 | `/raw`               | Show last assistant message w/ markers |
 
 📏 **Autonomy Settings**
-Configure reflection cadence, summary windows, and staleness intervals:
+Reflection cadence, summary windows, and staleness intervals live in ledger-backed `config` events. The runtime seeds defaults (and keeps an immutable rule table) at boot. Because policy forbids the CLI from writing `config`, `/pm config autonomy …` will raise a policy violation. To change thresholds you must either:
 
-```bash
-/pm config autonomy reflection_interval=10 summary_interval=5 ...
-```
+1. Pass `thresholds={...}` when instantiating `RuntimeLoop` programmatically, or
+2. Append an autonomy_thresholds `config` event via a trusted actor (e.g., script emitting with `meta.source="runtime"`).
+
+Both paths maintain determinism and respect the enforced policy.
 
 ---
 
@@ -129,8 +148,9 @@ Writes like `checkpoint`, `retrieval_selection`, `embedding_add` are locked to:
 * `autonomy_kernel`, `assistant`, `user`, or `runtime`
   Attempts from unauthorized sources (like `cli`) are auto-blocked and logged.
 
-All admin commands = read-only.
-No manual patching. **No hidden gates.**
+If a forbidden actor attempts a write, the runtime appends a `violation` event and raises a deterministic `PermissionError`. Admin commands surface the failure but never bypass policy.
+
+Admin surfaces expose state only; they do not gain write privileges. No manual patching. **No hidden gates.**
 
 ---
 
