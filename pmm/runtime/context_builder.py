@@ -137,9 +137,7 @@ def _render_graph_context(eventlog: EventLog) -> str:
 
     # Minimal line for small graphs to keep context size bounded
     if stats["nodes"] <= 8:
-        lines.append(
-            f"Graph: {stats['nodes']} nodes, {stats['edges']} edges"
-        )
+        lines.append(f"Graph: {stats['nodes']} nodes, {stats['edges']} edges")
     else:
         lines.append(
             f"Graph Context:\n- Connections: {stats['edges']} edges, {stats['nodes']} nodes"
