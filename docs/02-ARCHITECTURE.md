@@ -32,7 +32,7 @@ The Persistent Mind Model (PMM) is an event‑sourced architecture that treats a
 - Ledger Mirror: in‑memory replay that derives current state (identity traits, open commitments/goals, summaries) from the log.
 - Runtime Loop: the turn engine that reads state, invokes the model, applies policies, and appends new events.
 - Recursive Self‑Model (RSM): reflection layer that summarizes tendencies, knowledge gaps, and identity; updated by replay.
-- Event Graph (aka MemeGraph): causal links between events (e.g., replies_to, comments_on, closes), keeping threads traceable over time. When vector retrieval is active, the resulting graph statistics may appear in the system prompt so the model is aware of structural context (see [MemeGraph Visibility](06-MEMEGRAPH-VISIBILITY.md)).
+- Event Graph (aka MemeGraph): causal links between events (e.g., replies_to, comments_on, closes), keeping threads traceable over time. When vector retrieval is active, the resulting graph statistics may appear in the system prompt so the model is aware of structural context (see [MemeGraph Visibility](05-MEMEGRAPH-VISIBILITY.md)).
 
 Entities derived from replay:
 - Belief: derived knowledge/convictions reconstructed from events and summaries.

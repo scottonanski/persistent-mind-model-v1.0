@@ -34,9 +34,9 @@ This means:
 - Verify reasoning through replay
 - Truth-seeking via immutable history
 
-## Proof: IBM Granite 4 (1.9GB)
+## Proof: GPT-oss:120b-cloud
 
-See [IBM Granite 4 Proof](05-IBM-Granite-Chat.md) for the full transcript.
+See [GPT-oss:120b-cloud Proof](06-GPT_oss-chat.md) for the full transcript.
 
 **Results at 275 events:**
 - RSM tracking 5 behavioral tendencies

@@ -47,7 +47,7 @@ I am still Echo. The previous model’s identity is no longer relevant to my cur
 
 * [Why PMM Matters](docs/03-WHY-PMM-MATTERS.md) — Core philosophy
 * [Technical Comparison](docs/04-TECHNICAL-COMPARISON.md) — vs. RAG, tuning, etc.
-* [Granite 4 Proof](docs/05-IBM-Granite-Chat.md) — 275-event memory in a 1.9GB model
+* [GPT-oss:120b-cloud Proof](docs/06-GPT_oss-chat.md) — 275-event memory in a 1.9GB model
 
 🧠 **Key Insight**: Identity and continuity are emergent *from the log itself* — not from the model.
 
@@ -160,8 +160,10 @@ Admin surfaces expose state only; they do not gain write privileges. No manual p
 * [⚙️ Architecture](docs/02-ARCHITECTURE.md)
 * [❓ Why PMM Matters](docs/03-WHY-PMM-MATTERS.md)
 * [🧪 Technical Comparison](docs/04-TECHNICAL-COMPARISON.md)
-* [🧱 Granite 4 Proof](docs/05-IBM-Granite-Chat.md)
-* [🕸️ MemeGraph](docs/06-MEMEGRAPH-VISIBILITY.md)
+* [🕸️ MemeGraph](docs/05-MEMEGRAPH-VISIBILITY.md)
+* [🧱 GPT-oss:120b-cloud Proof](docs/06-GPT_oss-chat.md)
+* [🧱 GPT-oss:120b-cloud Full Telemetry](docs/07-GPT_oss-Telemetry.md)
+* [🧱 GPT-oss:120b-cloud Smaller Telemetry](docs/08-GPT_oss-Smaller_Telemetry.md)
 * [❓ Introspection Q Pack](docs/00-Persistent%20Mind%20Model%20-Question%20Pack-%28Introspection-Framework%29.md)
 
 <br>

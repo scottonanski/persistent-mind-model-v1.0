@@ -148,6 +148,8 @@ No ledger events are affected, so rollback is safe and clean.
 
 ---
 
-[PREV: IBM Granite Chat](05-IBM-Granite-Chat.md)
+[PREV: Technical Comparison](04-TECHNICAL-COMPARISON.md)
+
+[NEXT: GPT-oss:120b-cloud Proof](06-GPT_oss-chat.md)
 
 [BACK TO README](../README.md)

@@ -102,6 +102,6 @@ All without modifying model architectures.
 
 [PREV: Why PMM Matters](03-WHY-PMM-MATTERS.md)
 
-[NEXT: IBM Granite 4 Proof](05-IBM-Granite-Chat.md)
+[NEXT: MemeGraph Visibility](05-MEMEGRAPH-VISIBILITY.md)
 
 [BACK TO README](../README.md)
