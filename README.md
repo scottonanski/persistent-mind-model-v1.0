@@ -18,8 +18,6 @@ No guesswork. No ephemeral state. Just raw, reconstructable thought.
 
 **⚠️ Heads-up:** It’s just me building this. Expect duct tape and mad-scientist vibes. So, go easy on me! 
 
-<br>
----
 
 <br>
 
