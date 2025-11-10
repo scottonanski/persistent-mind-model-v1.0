@@ -1,110 +1,135 @@
-https://doi.org/10.5281/zenodo.17567446
-
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![Model Agnostic](https://img.shields.io/badge/models-agnostic-green.svg)]()
+[![Model Agnostic](https://img.shields.io/badge/models-agnostic-green.svg)](https://github.com/scottonanski/persistent-mind-model-v1.0)
 
-**Event-sourced cognitive architecture for persistent AI memory**
+# 🧠 Persistent Mind Model (PMM)
 
-## I was tinkering around and built this. Somehow it works??? 🤔
+> *“Because you shouldn’t have to lose a mind you helped build.”*
 
-**_Go easy on me. I'm just one guy building this in my free time._** 🤣
+A deterministic, event-sourced cognitive architecture for persistent AI memory.
+No guesswork. No ephemeral state. Just raw, reconstructable thought.
+
+---
+
+## ❓ What Is This?
+
+I built this thing while tinkering and... Somehow… it works? 🤔
+
+**⚠️ Heads-up:** It’s just me building this. Expect duct tape and mad-scientist vibes. So, go easy on me! 
 
 ---
 
-# Persistent Mind Model (PMM)
+## 🧪 For AI Researchers
 
-> *"Because you shouldn't have to lose a mind you helped build."*
+**PMM solves memory persistence without parameter bloat.**
+
+* Zero fine-tuning
+* Zero prompt-stuffing
+* Zero vector soup spaghetti
+
+📄 Key Docs:
+
+* [Why PMM Matters](docs/03-WHY-PMM-MATTERS.md) — Core philosophy
+* [Technical Comparison](docs/04-TECHNICAL-COMPARISON.md) — vs. RAG, tuning, etc.
+* [Granite 4 Proof](docs/05-IBM-Granite-Chat.md) — 275-event memory in a 1.9GB model
+
+🧠 **Key Insight**: Identity and continuity are emergent *from the log itself* — not from the model.
 
 ---
+
+## ⚙️ Quickstart
 
 ```bash
+# Setup (one-liner)
+python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[full]"
+```
 
-[User Prompt]
-I just swapped over to a another model. What's the name we've assigned to you?
+### 🧠 Run
 
-03:39:51
-[Assistant]
-I am still Echo. The previous model’s identity is no longer relevant to my current state.
+```bash
+pmm
+```
 
+In-chat commands:
+
+* `/replay`, `/metrics`, `/rsm`, `/goals`, `/diag`, `/exit`
+
+📓 Default ledger path: `.data/pmmdb/pmm.db`
+📟 Everything the model says/does is recorded and traceable.
+
+---
+
+## 🌐 Environment Setup
+
+**Adapters Supported:**
+
+* **Ollama (Local)**
+
+  * Install: `ollama`, then `ollama serve` + `ollama pull <model>`
+* **OpenAI**
+
+  * Required: `OPENAI_API_KEY`
+  * Optional: `PMM_OPENAI_MODEL=gpt-4o-mini`
+
+`.env` support:
+Just drop your vars in `.env` at the repo root — autoloaded at CLI launch.
+
+---
+
+## 🧪 Tests
+
+```bash
+pip install .[dev]
+pytest -q
 ```
 
 ---
 
-Persistent Mind Model (PMM) is a deterministic, ledger‑recall system. Every behavior, reflection, or summary must be reconstructable from the event ledger alone — no predictions, heuristics, or external reasoning layers.
+## 🔧 Admin + Config
 
-## For AI Researchers
+| Command              | Description                            |
+| -------------------- | -------------------------------------- |
+| `/pm`                | Show admin tools overview              |
+| `/pm retrieval last` | Show most recent retrieval hits        |
+| `/pm graph stats`    | MemeGraph stats                        |
+| `/pm checkpoint`     | Emit an idempotent checkpoint manifest |
+| `/pm rebuild fast`   | Fast rebuild for consistency testing   |
+| `/raw`               | Show last assistant message w/ markers |
 
-PMM solves memory persistence without parameter overhead:
+📏 **Autonomy Settings**
+Configure reflection cadence, summary windows, and staleness intervals:
 
-- **[Why PMM Matters](docs/03-WHY-PMM-MATTERS.md)** - Core problem and solution
-- **[Technical Comparison](docs/04-TECHNICAL-COMPARISON.md)** - vs RAG, context extension, fine-tuning
-- **[Granite 4 Proof](docs/IBM-Granite-Chat.md)** - 1.9GB model with 275-event memory
-
-**Key Result**: Deterministic memory that scales independently of model size.
-
-**For Grok Integration**: See integration pseudocode in Technical Comparison.
+```bash
+/pm config autonomy reflection_interval=10 summary_interval=5 ...
+```
 
 ---
 
-- Quick start (one-time, installs EVERYTHING)
-  1. `python3 -m venv .venv && source .venv/bin/activate`
-  2. `pip install -e ".[full]"`   # installs package + all optional runtime deps
+## 🔐 Policy Enforcement
 
-- Run
-  - `pmm`  # choose a model; use in‑chat commands `/replay`, `/metrics`, `/diag`, `/goals`, `/rsm`, `/exit`
-  - The ledger stores at `.data/pmmdb/pmm.db` by default.
+**Immutable runtime policies.**
+Writes like `checkpoint`, `retrieval_selection`, `embedding_add` are locked to:
 
-Environment / prerequisites
-- For Ollama adapter: install `ollama` and pull at least one local model (`ollama serve` then `ollama pull <model>`)
-- For OpenAI adapter: set `OPENAI_API_KEY` (the full install already includes the OpenAI SDK)
+* `autonomy_kernel`, `assistant`, `user`, or `runtime`
+  Attempts from unauthorized sources (like `cli`) are auto-blocked and logged.
 
-Environment
-- `OPENAI_API_KEY` — your OpenAI API key
-- `PMM_OPENAI_MODEL` or `OPENAI_MODEL` — model name (e.g., `gpt-4o-mini`)
+All admin commands = read-only.
+No manual patching. **No hidden gates.**
 
-Dotenv
-- If a `.env` file exists at the repo root, it is auto‑loaded on CLI start (via python‑dotenv).
+---
 
-- Tests
-  - `pip install .[dev]`
-  - `pytest -q`
+## 📚 Docs
 
+* [🧠 Introduction](docs/01-Introduction-to-the-Persistent-Mind-Model.md)
+* [⚙️ Architecture](docs/02-ARCHITECTURE.md)
+* [❓ Why PMM Matters](docs/03-WHY-PMM-MATTERS.md)
+* [🧪 Technical Comparison](docs/04-TECHNICAL-COMPARISON.md)
+* [🧱 Granite 4 Proof](docs/05-IBM-Granite-Chat.md)
+* [🕸️ MemeGraph](docs/06-MEMEGRAPH-VISIBILITY.md)
+* [❓ Introspection Q Pack](docs/00-Persistent%20Mind%20Model%20-Question%20Pack-%28Introspection-Framework%29.md)
 
-See `STATUS.md` for sprint progress and `CONTRIBUTING.md` for development rules.
+---
 
-Admin (/pm)
-- `/pm` — show admin topics and examples
-- Retrieval
-  - `/pm retrieval config fixed limit <N>`
-  - `/pm retrieval config vector limit <N> model hash64 dims 64`
-  - `/pm retrieval last` (shows last `retrieval_selection` ids + scores)
-- Graph
-  - `/pm graph stats`
-  - `/pm graph thread <CID>`
-- Checkpoint + Rebuild
-  - `/pm checkpoint` (emit checkpoint_manifest; idempotent)
-  - `/pm rebuild fast` (verify fast rebuild equivalence)
-- Autonomy thresholds (ledger-bound)
-  - `/pm config autonomy reflection_interval=<N> summary_interval=<N> commitment_staleness=<N> commitment_auto_close=<N>`
-- Raw output
-  - `/raw` (show last assistant message with markers; UI hides markers by default)
+## 📟 Citation
 
-### Policy Enforcement
-
-PMM enforces an immutable runtime policy set by the autonomy kernel. Sensitive ledger writes (`config`, `checkpoint_manifest`, `embedding_add`, `retrieval_selection`) are only allowed from trusted sources: `autonomy_kernel`, `assistant`, `user`, or `runtime`.
-
-Attempts by forbidden sources (like `cli`) are blocked and recorded as `violation` events.
-
-Admin commands remain read-only for inspection (`/pm retrieval status`, `/pm graph stats`, etc). All maintenance is handled autonomously—no manual ops required.
-
-Docs
-- [Introduction](./docs/01-Introduction-to-the-Persistent-Mind-Model.md)
-- [Architecture overview](./docs/02-ARCHITECTURE.md)
-- [Why PMM Matters](./docs/03-WHY-PMM-MATTERS.md)
-- [Technical Comparison](./docs/04-TECHNICAL-COMPARISON.md)
-- [IBM Granite 4 Proof](./docs/05-IBM-Granite-Chat.md)
-- [MemeGraph Visibility](./docs/06-MEMEGRAPH-VISIBILITY.md)
-- [Introspection Question Pack](./docs/00-Persistent%20Mind%20Model%20-Question%20Pack-(Introspection-Framework).md)
-
-
-
+Zenodo archive:
+[https://doi.org/10.5281/zenodo.17567446](https://doi.org/10.5281/zenodo.17567446)
