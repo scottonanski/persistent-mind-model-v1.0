@@ -23,9 +23,12 @@ No guesswork. No ephemeral state. Just raw, reconstructable thought.
 
 **Actual Example:**
 ```bash
-[User Prompt] I just swapped over to a another model. What's the name we've assigned to you? 03:39:51 
+[User Prompt]
+I just swapped over to a another model. What's the name we've assigned to you? 
 
-[Assistant] I am still Echo. The previous model’s identity is no longer relevant to my current state.
+
+[Assistant]
+I am still Echo. The previous model’s identity is no longer relevant to my current state.
 ```
 
 <br>
