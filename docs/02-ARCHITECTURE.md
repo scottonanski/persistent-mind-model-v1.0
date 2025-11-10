@@ -9,15 +9,15 @@ The Persistent Mind Model (PMM) is an event‑sourced architecture that treats a
 ## Guarantees, Invariants, Non‑Goals
 
 ### Guarantees
-- Persistence: all observations, decisions, and internal updates are appended to the event log and recoverable for replay.
-- Model‑agnosticism: adapters allow use of different LLMs (local or hosted) without changing PMM’s core.
-- Identity continuity: the self‑model evolves from history and never “resets” silently.
+- Persistence: every decision output (messages, commitments, reflections, retrieval selections, summaries, metrics) is appended to the event log and recoverable for replay.
+- Model-agnosticism: adapters allow use of different LLMs (local or hosted) without changing PMM’s core.
+- Identity continuity: the self-model evolves from history and never “resets” silently.
 - Exportability: the canonical store is a standard SQLite file that can be backed up, migrated, or inspected.
 - Replayable state: mirror state is a pure function of the log; replays converge to the same state.
 
 ### Invariants
-- No hidden state: all durable decisions flow through the event log; ephemeral caches are derived and discardable.
-- Truth‑first reasoning: ungrounded assertions are marked as `CLAIM:` and reconciled; contradictions produce explicit correction events.
+- No hidden state: durable decisions are captured in the event log; intermediate scoring happens in memory but the resulting choices are persisted.
+- Truth-first discipline: deterministic prompts and structured claim checks steer outputs toward ledger-grounded statements, but factual accuracy still depends on inputs and adapter compliance.
 - Full reconstructability: the agent’s behavior is explainable from the causal chain of events.
 
 ### Non‑Goals
@@ -32,7 +32,7 @@ The Persistent Mind Model (PMM) is an event‑sourced architecture that treats a
 - Ledger Mirror: in‑memory replay that derives current state (identity traits, open commitments/goals, summaries) from the log.
 - Runtime Loop: the turn engine that reads state, invokes the model, applies policies, and appends new events.
 - Recursive Self‑Model (RSM): reflection layer that summarizes tendencies, knowledge gaps, and identity; updated by replay.
-- Event Graph (aka MemeGraph): causal links between events (e.g., replies_to, comments_on, closes), keeping threads traceable over time. As of v2.0, graph structure is exposed to the model's context for structural self-awareness (see [MemeGraph Visibility](06-MEMEGRAPH-VISIBILITY.md)).
+- Event Graph (aka MemeGraph): causal links between events (e.g., replies_to, comments_on, closes), keeping threads traceable over time. When vector retrieval is active, the resulting graph statistics may appear in the system prompt so the model is aware of structural context (see [MemeGraph Visibility](06-MEMEGRAPH-VISIBILITY.md)).
 
 Entities derived from replay:
 - Belief: derived knowledge/convictions reconstructed from events and summaries.
@@ -59,7 +59,7 @@ graph TD
 ```
 
 - Input: append the user’s message as `user_message`.
-- Recall: reconstruct a short working history and the current open commitments; surface an RSM snapshot.
+- Recall: reconstruct a short working history (fixed window or vector retrieval) and the current open commitments; surface an RSM snapshot.
 - Reflect (Plan): the model performs iterated self‑evaluation based on current goals, traits, and context.
 - Consolidate: validate planned assertions against mirror state; stage corrections for conflicts.
 - Commit: parse protocol markers to open/close commitments deterministically.
@@ -108,18 +108,18 @@ Parsing is line‑oriented; markers are case‑sensitive and must start a line. 
 
 ## Algorithms and Policies
 
-- Retrieval: fixed‑window recall of recent messages plus RSM summary; pluggable relevance/recency/vector retrieval can extend this.
-- Reflection cadence: synthesize a `reflection` whenever something changes (e.g., commitments opened/closed, corrections). Append `summary_update` when thresholds are met (e.g., N reflections or M events since last summary) or when RSM reports significant change.
-- Belief consolidation: open/close commitments update active goals; stable tendencies and knowledge gaps update RSM.
-- Conflict resolution: contradictions trigger explicit corrections in reflections instead of silent overwrites; the hash chain prevents tampering.
-- Safety rails: all durable changes flow through the log; rate limits/counters bound runtime; errors are logged as events rather than causing silent failure.
+- Retrieval: vector retrieval is seeded as the default strategy (`autonomy_kernel` appends the config). If no vector data is available, the runtime falls back to fixed-window recall alongside the RSM snapshot.
+- Reflection cadence: synthesize a `reflection` whenever commitments open/close, claims fail validation, or a REFLECT block appears. Append `summary_update` when thresholds are met (≥3 reflections since the last summary, >10 events) or when the RSM shows significant change.
+- Belief consolidation: open/close commitments update active goals; stable tendencies and knowledge gaps update the RSM.
+- Conflict surfacing: failed claims are called out in reflections so discrepancies remain visible; the hash chain prevents tampering.
+- Safety rails: durable changes flow through the log; policy enforcement blocks disallowed writers; errors surface as ledger events instead of silent failure.
 
 
 ## APIs and Hooks
 
 - EventLog API: `append(...)`, `read_all()`, `read_tail(n)`, and `register_listener(fn)` for reactive components like the mirror and event graph.
 - Commitment Manager: `open_commitment(text, source)` generates a deterministic CID and appends `commitment_open`; `close_commitment(cid)` appends `commitment_close`; queries like `get_open_commitments(...)` derive state by replay.
-- CID derivation for assistant/user commitments: `cid = sha1(text)[:8]` (hex); internal autonomy commitments use the `mc_`‑prefixed, zero‑padded form.
+- CID derivation for assistant/user commitments: `cid = sha1(text)[:8]` (hex); internal autonomy commitments use deterministic IDs generated via `generate_internal_cid` (e.g., `mc_000123`).
 - Runtime Loop: `run_turn(user_input)` executes the full cycle: log input, build context, invoke model, parse markers, append metrics/reflection/summary, and update listeners.
 - Prompt contracts: a deterministic system primer enforces protocol (“respond truthfully; don’t invent data; use markers when committing/claiming/reflecting”).
 - Hooks/events: listeners respond to new events (e.g., autonomy ticks, causal graph updates, metrics aggregation).
