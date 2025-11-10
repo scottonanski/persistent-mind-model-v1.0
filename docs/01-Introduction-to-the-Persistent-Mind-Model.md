@@ -18,7 +18,7 @@ PMM is built around a few key components that together ensure a transparent, sel
 
 -  **Recursive Self-Model (RSM):** A deep self-reflection layer that interprets the ledger’s data as a sense of “self.” Rather than relying on an external prompt for identity, the RSM continuously **reconstructs the agent’s identity and beliefs from its history**. It predicts future behavior, reflects on past actions, and adapts — all in terms of what the ledger contains.
   
--  **Truth-First Paradigm:** A strict “conscience” layer enforcing consistency and honesty. Under PMM, the model is bound by rules like _no hallucination_, _full determinism_, and _self-consistency_. The AI cannot lie to itself or violate constraints, because any deviation would break the chain of replayable events.
+-  **Truth-First Discipline:** A deterministic primer and structured claim checks steer outputs toward ledger-grounded statements. PMM records exactly what the agent (or its inputs) assert, so inaccurate data remains visible and auditable, but ultimate factual accuracy still depends on those sources.
 
 -  **MemeGraph** — The semantic map that highlights how moments connect. It charts which reply answered which message, which promise tied back to which statement, and which reflection looked at which event—drawing every line straight from the ledger so long-term threads stay easy to follow.
 
@@ -38,7 +38,7 @@ In short, existing systems have _“AI amnesia”_ and lack accountability. This
 
 PMM’s design principles ensure that the agent gains a lasting, traceable identity and memory:
 
--  **Logs Everything:** Every decision, thought, reflection, goal, and action is written as an immutable event in the ledger. There is no unrecorded internal step.
+-  **Logs Everything:** Every decision output—messages, reflections, commitments, retrieval selections, summaries, metrics—is written as an immutable event in the ledger. Intermediate scoring happens in-memory, but the resulting choices are always captured for replay.
 
 -  **Permanent Recursive Self-Model:** The AI maintains a deep self-model that _grows_ over time but **never resets**. Its sense of identity and knowledge emerges continuously from its history.
 
