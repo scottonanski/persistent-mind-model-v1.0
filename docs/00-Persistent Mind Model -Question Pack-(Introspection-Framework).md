@@ -1,4 +1,4 @@
-## A Curriculum for Self-Evolving AI Systems
+## A Curriculum for Self-Evolving the Persistent Mind Model
 
 ### Introduction
 
