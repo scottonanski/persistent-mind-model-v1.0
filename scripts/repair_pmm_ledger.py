@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: PMM-1.0
+# Copyright (c) 2025 Scott O'Nanski
+
 """Deterministic ledger repair utility for Persistent Mind Model.
 
 This tool rebuilds a fresh SQLite ledger by correcting malformed CLOSE tokens
@@ -147,7 +150,9 @@ def rebuild_database(events: Sequence[EventRow], dest: Path) -> None:
                     "meta": meta_dict,
                     "prev_hash": prev_hash,
                 }
-                digest = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+                digest = hashlib.sha256(
+                    canonical_json(payload).encode("utf-8")
+                ).hexdigest()
                 conn.execute(
                     """
                     INSERT INTO events (id, ts, kind, content, meta, prev_hash, hash)

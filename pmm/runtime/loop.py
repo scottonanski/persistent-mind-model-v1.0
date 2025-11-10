@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: PMM-1.0
+# Copyright (c) 2025 Scott O'Nanski
+
 # Path: pmm/runtime/loop.py
 """Minimal runtime loop orchestrator for PMM v2."""
 
@@ -273,10 +276,12 @@ class RuntimeLoop:
         else:
             # Fixed-window fallback
             ctx_block = build_context(self.eventlog, limit=5)
-        
+
         # Check if graph context is actually present
         context_has_graph = "Graph Context:" in ctx_block
-        base_prompt = compose_system_prompt(history, open_comms, context_has_graph=context_has_graph)
+        base_prompt = compose_system_prompt(
+            history, open_comms, context_has_graph=context_has_graph
+        )
         system_prompt = f"{ctx_block}\n\n{base_prompt}" if ctx_block else base_prompt
 
         # 3. Invoke model

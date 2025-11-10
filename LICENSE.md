@@ -130,6 +130,6 @@ Use of PMM in any form constitutes acceptance of this License. All disputes shal
 ---
 ### End of License  
 
-**Persistent Mind Model License v1.2 (November 2025)**  
+**Persistent Mind Model License v1.0 (August 2025)**  
 **Dual License Structure / Expanded Prior-Art Disclosure Edition**  
 © 2025 Scott O’Nanski — All Rights Reserved

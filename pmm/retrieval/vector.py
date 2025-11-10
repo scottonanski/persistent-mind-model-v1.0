@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: PMM-1.0
+# Copyright (c) 2025 Scott O'Nanski
+
 """Deterministic, local vector selection for PMM (Phase 1).
 
 No external calls. Embeddings are produced via a hashing-based projection
@@ -159,9 +162,7 @@ def _render_rsm_vector(snapshot: Dict[str, Any]) -> str:
     if not (tendencies or gaps or meta_patterns):
         return ""
 
-    tendency_parts = [
-        f"{key} ({tendencies[key]})" for key in sorted(tendencies.keys())
-    ]
+    tendency_parts = [f"{key} ({tendencies[key]})" for key in sorted(tendencies.keys())]
     gaps_part = ", ".join(gaps)
     tendencies_text = ", ".join(tendency_parts) if tendency_parts else "none"
     gaps_text = gaps_part if gaps_part else "none"

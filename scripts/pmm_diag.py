@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: PMM-1.0
+# Copyright (c) 2025 Scott O'Nanski
+
 # -----------------------------------------------------------
 # PMM Diagnostic Script – now with Inter-Ledger References
 # -----------------------------------------------------------

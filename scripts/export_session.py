@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: PMM-1.0
+# Copyright (c) 2025 Scott O'Nanski
+
 """
 PMM Chat Session Exporter
 
@@ -8,16 +11,16 @@ and replay commands, to a Markdown file in the repository root.
 Usage: python scripts/export_session.py
 """
 
-import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+
 
 def export_session():
     repo_root = Path(__file__).resolve().parent.parent
 
     # Path to the PMM database
-    db_path = repo_root / '.data' / 'pmmdb' / 'pmm.db'
+    db_path = repo_root / ".data" / "pmmdb" / "pmm.db"
     if not db_path.exists():
         print(f"Error: PMM database not found at {db_path}")
         return
@@ -33,12 +36,12 @@ def export_session():
 
     # Query relevant events
     event_kinds = (
-        'user_message',
-        'assistant_message',
-        'metrics_turn',
-        'metrics_update',
-        'autonomy_metrics',
-        'retrieval_selection'  # Assuming RSM relates to retrieval selections; adjust if needed
+        "user_message",
+        "assistant_message",
+        "metrics_turn",
+        "metrics_update",
+        "autonomy_metrics",
+        "retrieval_selection",  # Assuming RSM relates to retrieval selections; adjust if needed
         # Add 'replay_command' if there's a specific kind for replay commands
     )
     query = f"""
@@ -55,9 +58,9 @@ def export_session():
     markdown = f"# Chat Session Export - {now.replace('_', ' ')}\n\n"
 
     sections = {
-        'Chat Messages': ['user_message', 'assistant_message'],
-        'Metrics': ['metrics_turn', 'metrics_update', 'autonomy_metrics'],
-        'RSM and Replay Commands': ['retrieval_selection']  # Expand if more kinds
+        "Chat Messages": ["user_message", "assistant_message"],
+        "Metrics": ["metrics_turn", "metrics_update", "autonomy_metrics"],
+        "RSM and Replay Commands": ["retrieval_selection"],  # Expand if more kinds
     }
 
     for section_title, kinds in sections.items():
@@ -65,14 +68,17 @@ def export_session():
         if section_events:
             markdown += f"## {section_title}\n\n"
             for ts, kind, content in section_events:
-                markdown += f"- **[{kind.replace('_', ' ').title()}] {ts}**: {content}\n"
+                markdown += (
+                    f"- **[{kind.replace('_', ' ').title()}] {ts}**: {content}\n"
+                )
             markdown += "\n"
 
     # Write to file
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         f.write(markdown)
 
     print(f"Session exported to {output_path}")
+
 
 if __name__ == "__main__":
     export_session()

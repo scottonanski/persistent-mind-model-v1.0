@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: PMM-1.0
+# Copyright (c) 2025 Scott O'Nanski
+
 from __future__ import annotations
 
 from pmm.core.event_log import EventLog

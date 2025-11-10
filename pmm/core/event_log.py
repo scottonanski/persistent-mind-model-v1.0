@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: PMM-1.0
+# Copyright (c) 2025 Scott O'Nanski
+
 # Path: pmm/core/event_log.py
 """SQLite-backed EventLog with simple hash-chain integrity.
 

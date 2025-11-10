@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: PMM-1.0
+# Copyright (c) 2025 Scott O'Nanski
+
 # Path: pmm/runtime/replay_narrator.py
 """Deterministic narration of existing ledger events (read-only)."""
 

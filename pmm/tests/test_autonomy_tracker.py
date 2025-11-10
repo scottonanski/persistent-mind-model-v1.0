@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: PMM-1.0
+# Copyright (c) 2025 Scott O'Nanski
+
 """test_autonomy_tracker.py — deterministic rebuild + emit cadence."""
 
 from __future__ import annotations

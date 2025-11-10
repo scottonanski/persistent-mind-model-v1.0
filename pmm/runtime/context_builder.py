@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: PMM-1.0
+# Copyright (c) 2025 Scott O'Nanski
+
 # Path: pmm/runtime/context_builder.py
 from __future__ import annotations
 
@@ -56,9 +59,11 @@ def build_context(eventlog: EventLog, limit: int = 5) -> str:
     snapshot = mirror.rsm_snapshot()
     rsm_block = _render_rsm(snapshot)
     goals_block = _render_internal_goals(eventlog)
-    graph_block = _render_graph_context(eventlog)
+    graph_block = _render_graph_context(eventlog) if not tail else ""
 
-    extras = "\n".join(section for section in (rsm_block, goals_block, graph_block) if section)
+    extras = "\n".join(
+        section for section in (rsm_block, goals_block, graph_block) if section
+    )
     if body and extras:
         return f"{body}\n\n{extras}"
     if extras:
@@ -128,6 +133,18 @@ def _render_graph_context(eventlog: EventLog) -> str:
     if stats["nodes"] < 5:
         return ""
 
+    lines = []
+
+    # Minimal line for small graphs to keep context size bounded
+    if stats["nodes"] <= 8:
+        lines.append(
+            f"Graph: {stats['nodes']} nodes, {stats['edges']} edges"
+        )
+    else:
+        lines.append(
+            f"Graph Context:\n- Connections: {stats['edges']} edges, {stats['nodes']} nodes"
+        )
+
     # Build thread depth info for open commitments
     manager = CommitmentManager(eventlog)
     open_comms = manager.get_open_commitments()
@@ -142,12 +159,10 @@ def _render_graph_context(eventlog: EventLog) -> str:
         if thread:
             thread_parts.append(f"{cid}:{len(thread)}")
 
-    lines = [
-        "Graph Context:",
-        f"- Connections: {stats['edges']} edges, {stats['nodes']} nodes",
-    ]
-
     if thread_parts:
-        lines.append(f"- Thread depths: {', '.join(thread_parts)}")
+        if len(lines) == 1 and not lines[0].startswith("Graph Context"):
+            lines.append(f"Threads: {', '.join(thread_parts)}")
+        else:
+            lines.append(f"- Thread depths: {', '.join(thread_parts)}")
 
     return "\n".join(lines)
