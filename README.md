@@ -10,13 +10,18 @@ No guesswork. No ephemeral state. Just raw, reconstructable thought.
 
 ---
 
+<br>
 
-# ❓ What Is This? I built this thing while tinkering. Somehow… it works? 🤔
+### ❓ What Is This? I built this thing while tinkering. Somehow… it works? 🤔
+
+<br>
 
 **⚠️ Heads-up:** It’s just me building this. Expect duct tape and mad-scientist vibes. So, go easy on me! 
 
-
+<br>
 ---
+
+<br>
 
 **Actual Example:**
 ```bash
@@ -25,7 +30,7 @@ No guesswork. No ephemeral state. Just raw, reconstructable thought.
 [Assistant] I am still Echo. The previous model’s identity is no longer relevant to my current state.
 ```
 
-
+<br>
 
 ## 🧪 For AI Researchers
 
@@ -44,6 +49,8 @@ No guesswork. No ephemeral state. Just raw, reconstructable thought.
 🧠 **Key Insight**: Identity and continuity are emergent *from the log itself* — not from the model.
 
 ---
+
+<br>
 
 ## ⚙️ Quickstart
 
@@ -112,6 +119,8 @@ Configure reflection cadence, summary windows, and staleness intervals:
 ```
 
 ---
+
+<br>
 
 ## 🔐 Policy Enforcement
 
