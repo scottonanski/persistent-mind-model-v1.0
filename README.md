@@ -47,8 +47,6 @@ I am still Echo. The previous model’s identity is no longer relevant to my cur
 
 🧠 **Key Insight**: Identity and continuity are emergent *from the log itself* — not from the model.
 
----
-
 <br>
 
 ## ⚙️ Quickstart
@@ -89,7 +87,7 @@ In-chat commands:
 📓 Default ledger path: `.data/pmmdb/pmm.db`
 📟 Everything the model says/does is recorded and traceable.
 
----
+<br>
 
 ## 🌐 Environment Setup
 
@@ -106,7 +104,7 @@ In-chat commands:
 `.env` support:
 Just drop your vars in `.env` at the repo root — autoloaded at CLI launch.
 
----
+<br>
 
 ## 🧪 Tests
 
@@ -115,7 +113,7 @@ pip install .[dev]
 pytest -q
 ```
 
----
+<br>
 
 ## 🔧 Admin + Config
 
@@ -136,8 +134,6 @@ Reflection cadence, summary windows, and staleness intervals live in ledger-back
 
 Both paths maintain determinism and respect the enforced policy.
 
----
-
 <br>
 
 ## 🔐 Policy Enforcement
@@ -152,7 +148,7 @@ If a forbidden actor attempts a write, the runtime appends a `violation` event a
 
 Admin surfaces expose state only; they do not gain write privileges. No manual patching. **No hidden gates.**
 
----
+<br>
 
 ## 📚 Docs
 
@@ -164,7 +160,7 @@ Admin surfaces expose state only; they do not gain write privileges. No manual p
 * [🕸️ MemeGraph](docs/06-MEMEGRAPH-VISIBILITY.md)
 * [❓ Introspection Q Pack](docs/00-Persistent%20Mind%20Model%20-Question%20Pack-%28Introspection-Framework%29.md)
 
----
+<br>
 
 ## 📟 Citation
 
