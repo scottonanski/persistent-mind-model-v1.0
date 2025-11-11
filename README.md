@@ -100,6 +100,7 @@ In-chat commands:
 * **Ollama (Local)**
 
   * Install: `ollama`, then `ollama serve` + `ollama pull <model>`
+  * Note: The Persistent Mind Model currently only supports textbased models.
 * **OpenAI**
 
   * Required: `OPENAI_API_KEY`
