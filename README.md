@@ -43,6 +43,8 @@ Every thought, name, commitment, and reflection is recorded immutably in a pmm.d
 
 With autonomous reflection loops, self-auditing commitments, and policy-enforced write rules, PMM turns ephemeral chatbots into accountable, evolving, self-consistent agents that remember who they are, and evolve their own identity over time.
 
+<br>
+
 ## 🧪 For AI Researchers
 
 **PMM solves memory persistence without parameter bloat.**
