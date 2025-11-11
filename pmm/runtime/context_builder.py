@@ -63,7 +63,9 @@ def build_context(eventlog: EventLog, limit: int = 5) -> str:
     graph_block = _render_graph_context(eventlog) if not tail else ""
 
     extras = "\n".join(
-        section for section in (identity_block, rsm_block, goals_block, graph_block) if section
+        section
+        for section in (identity_block, rsm_block, goals_block, graph_block)
+        if section
     )
     if body and extras:
         return f"{body}\n\n{extras}"
@@ -74,18 +76,18 @@ def build_context(eventlog: EventLog, limit: int = 5) -> str:
 
 def _render_identity_claims(eventlog: EventLog) -> str:
     """Render identity claims (e.g., name) from ledger claim events.
-    
+
     Returns empty string if no identity claims exist.
     """
     events = eventlog.read_all()
     identity_facts: Dict[str, str] = {}
-    
+
     for event in events:
         if event.get("kind") != "claim":
             continue
         meta = event.get("meta") or {}
         claim_type = meta.get("claim_type")
-        
+
         # Extract name from name_change claims
         if claim_type == "name_change":
             try:
@@ -97,10 +99,10 @@ def _render_identity_claims(eventlog: EventLog) -> str:
                         identity_facts["name"] = data["new_name"]
             except (ValueError, json.JSONDecodeError):
                 continue
-    
+
     if not identity_facts:
         return ""
-    
+
     parts = [f"{key}: {value}" for key, value in sorted(identity_facts.items())]
     return "Identity: " + ", ".join(parts)
 

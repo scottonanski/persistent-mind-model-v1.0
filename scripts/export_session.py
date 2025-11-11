@@ -14,8 +14,10 @@ from pathlib import Path
 import textwrap
 from collections import Counter
 
+
 def sha256(data: str) -> str:
     return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
 
 def export_session():
     repo_root = Path(__file__).resolve().parent.parent
@@ -31,18 +33,20 @@ def export_session():
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT id, ts, kind, content, meta, prev_hash, hash
         FROM events
         ORDER BY id ASC
-    """)
+    """
+    )
     rows = cursor.fetchall()
     conn.close()
 
     md = []
-    md.append(f"# Persistent Mind Model — Full Telemetry Export\n")
+    md.append("# Persistent Mind Model — Full Telemetry Export\n")
     md.append(f"**Exported:** {now.replace('_',' ')} UTC\n")
-    md.append(f"**Database:** `.data/pmmdb/pmm.db`\n")
+    md.append("**Database:** `.data/pmmdb/pmm.db`\n")
     md.append("---\n")
 
     total = len(rows)
@@ -53,7 +57,7 @@ def export_session():
     chat_messages = []
     event_sections = []
 
-    for (eid, ts, kind, content, meta, prev_hash, hsh) in rows:
+    for eid, ts, kind, content, meta, prev_hash, hsh in rows:
         kinds[kind] += 1
 
         # Detect continuity breaks
@@ -70,19 +74,33 @@ def export_session():
             try:
                 parsed = json.loads(meta)
                 pretty = json.dumps(parsed, indent=2, ensure_ascii=False)
-                event_md.append(f"<details><summary>Meta</summary>\n\n```json\n{pretty}\n```\n</details>\n")
+                event_md.append(
+                    f"<details><summary>Meta</summary>\n\n```json\n{pretty}\n```\n</details>\n"
+                )
             except Exception:
                 event_md.append(f"_Meta:_ {meta}\n")
 
         role = (
-            "👤 **User:**" if kind == "user_message"
-            else "🤖 **Echo:**" if kind == "assistant_message"
-            else "📊 **Metrics:**" if "metrics" in kind
-            else "🪞 **Reflection:**" if kind == "reflection"
-            else "⚙️ **System:**"
+            "👤 **User:**"
+            if kind == "user_message"
+            else (
+                "🤖 **Echo:**"
+                if kind == "assistant_message"
+                else (
+                    "📊 **Metrics:**"
+                    if "metrics" in kind
+                    else (
+                        "🪞 **Reflection:**"
+                        if kind == "reflection"
+                        else "⚙️ **System:**"
+                    )
+                )
+            )
         )
 
-        event_md.append(f"\n{role}\n\n```text\n{textwrap.dedent(content).strip()}\n```\n")
+        event_md.append(
+            f"\n{role}\n\n```text\n{textwrap.dedent(content).strip()}\n```\n"
+        )
         event_md.append("---\n")
 
         event_sections.append("".join(event_md))
@@ -157,12 +175,15 @@ def export_session():
     md.append("\n```\n")
 
     md.append("\n---\n")
-    md.append("_End of telemetry-enhanced session export — verifiable and replay-compatible._\n")
+    md.append(
+        "_End of telemetry-enhanced session export — verifiable and replay-compatible._\n"
+    )
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("\n".join(md))
 
     print(f"[OK] Telemetry-rich session exported → {output_path}")
+
 
 if __name__ == "__main__":
     export_session()

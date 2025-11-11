@@ -5,12 +5,15 @@
 # PMM — small_telemetry.py
 # Lightweight export for AI model consumption (<5 MB typical)
 
-import sqlite3, json, hashlib
+import sqlite3
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 
+
 def sha256(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
 
 def export_small():
     repo_root = Path(__file__).resolve().parent.parent
@@ -24,19 +27,21 @@ def export_small():
 
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
-    cur.execute("""
+    cur.execute(
+        """
         SELECT id, ts, kind, meta, prev_hash, hash
         FROM events
         ORDER BY id DESC
         LIMIT 250
-    """)
+    """
+    )
     rows = list(reversed(cur.fetchall()))
     conn.close()
 
     total = len(rows)
     digest = sha256("".join(r[5] or "" for r in rows))
     lines = [
-        f"# Persistent Mind Model — Small Telemetry Export",
+        "# Persistent Mind Model — Small Telemetry Export",
         f"**Exported:** {now.replace('_',' ')} UTC",
         f"**Total Events:** {total}",
         f"**SHA256 Digest:** `{digest}`",
@@ -58,6 +63,7 @@ def export_small():
 
     out_path.write_text("\n".join(lines), encoding="utf-8")
     print(f"[OK] Small telemetry file → {out_path}")
+
 
 if __name__ == "__main__":
     export_small()

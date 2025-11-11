@@ -17,9 +17,11 @@ from pathlib import Path
 from collections import Counter
 import textwrap
 
+
 def sha256(data: str) -> str:
     """Return SHA256 digest of provided string."""
     return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
 
 def export_session():
     repo_root = Path(__file__).resolve().parent.parent
@@ -37,11 +39,13 @@ def export_session():
     # Query all events
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT id, ts, kind, content, meta, prev_hash, hash
         FROM events
         ORDER BY id ASC
-    """)
+    """
+    )
     rows = cursor.fetchall()
     conn.close()
 
@@ -54,17 +58,19 @@ def export_session():
     # --- Ledger export data (for gzip) ---
     raw_ledger = []
 
-    for (eid, ts, kind, content, meta, prev_hash, hsh) in rows:
+    for eid, ts, kind, content, meta, prev_hash, hsh in rows:
         kinds[kind] += 1
-        raw_ledger.append({
-            "id": eid,
-            "ts": ts,
-            "kind": kind,
-            "content": content,
-            "meta": meta,
-            "prev_hash": prev_hash,
-            "hash": hsh,
-        })
+        raw_ledger.append(
+            {
+                "id": eid,
+                "ts": ts,
+                "kind": kind,
+                "content": content,
+                "meta": meta,
+                "prev_hash": prev_hash,
+                "hash": hsh,
+            }
+        )
 
         # Detect continuity gaps
         if continuity and prev_hash and prev_hash != continuity[-1]:
@@ -77,8 +83,7 @@ def export_session():
             if kind == "assistant_message":
                 hidden_prefixes = ("COMMIT:", "CLOSE:", "CLAIM:", "REFLECT:")
                 visible = "\n".join(
-                    l for l in visible.splitlines()
-                    if not l.startswith(hidden_prefixes)
+                    line for line in visible.splitlines() if not line.startswith(hidden_prefixes)
                 ).strip()
             chat_msgs.append((kind, ts, visible))
 
@@ -86,7 +91,7 @@ def export_session():
     # 1. Human-readable Markdown (chat only)
     # ============================================================
     readable = []
-    readable.append(f"# Persistent Mind Model — Readable Chat Log\n")
+    readable.append("# Persistent Mind Model — Readable Chat Log\n")
     readable.append(f"**Exported:** {now.replace('_',' ')} UTC\n")
     readable.append(f"**Linked Telemetry:** `{telemetry_path.name}`  \n")
     readable.append(f"**Linked Ledger:** `{ledger_path.name}`\n")
@@ -96,7 +101,9 @@ def export_session():
         role = "👤 User" if kind == "user_message" else "🤖 Echo"
         readable.append(f"### Turn {idx}: {role}\n*{ts}*\n\n```text\n{content}\n```\n")
 
-    readable.append("\n---\n_End of readable log — see telemetry or ledger for verification._\n")
+    readable.append(
+        "\n---\n_End of readable log — see telemetry or ledger for verification._\n"
+    )
 
     with open(readable_path, "w", encoding="utf-8") as f:
         f.write("\n".join(readable))
@@ -105,7 +112,7 @@ def export_session():
     # 2. Telemetry Markdown (condensed)
     # ============================================================
     telemetry = []
-    telemetry.append(f"# Persistent Mind Model — Telemetry Summary\n")
+    telemetry.append("# Persistent Mind Model — Telemetry Summary\n")
     telemetry.append(f"**Exported:** {now.replace('_',' ')} UTC\n")
     telemetry.append(f"**Linked Readable:** `{readable_path.name}`  \n")
     telemetry.append(f"**Linked Ledger:** `{ledger_path.name}`\n")
@@ -115,16 +122,22 @@ def export_session():
     telemetry.append("| ID | Kind | Meta Keys | Prev Hash | Hash |\n")
     telemetry.append("|----|------|------------|-----------|------|\n")
 
-    for (eid, ts, kind, content, meta, prev_hash, hsh) in rows:
+    for eid, ts, kind, content, meta, prev_hash, hsh in rows:
         # truncate meta for readability
-        meta_display = meta.strip().replace("\n", " ") if meta and meta.strip() not in ("{}", "null", "NULL") else ""
+        meta_display = (
+            meta.strip().replace("\n", " ")
+            if meta and meta.strip() not in ("{}", "null", "NULL")
+            else ""
+        )
         if len(meta_display) > 500:
             meta_display = meta_display[:500] + "…"
         try:
             meta_keys = list(json.loads(meta).keys()) if meta_display else []
         except Exception:
             meta_keys = []
-        telemetry.append(f"| {eid} | {kind} | {', '.join(meta_keys) or '—'} | `{prev_hash or '∅'}` | `{hsh or '∅'}` |\n")
+        telemetry.append(
+            f"| {eid} | {kind} | {', '.join(meta_keys) or '—'} | `{prev_hash or '∅'}` | `{hsh or '∅'}` |\n"
+        )
 
     telemetry.append("\n## 📊 Statistics\n\n")
     telemetry.append(f"- **Total Events:** {len(rows)}\n")
@@ -164,7 +177,10 @@ def export_session():
     with gzip.open(ledger_path, "wt", encoding="utf-8") as f:
         json.dump(raw_ledger, f, indent=2, ensure_ascii=False)
 
-    print(f"[OK] Export complete →\n  {readable_path}\n  {telemetry_path}\n  {ledger_path}")
+    print(
+        f"[OK] Export complete →\n  {readable_path}\n  {telemetry_path}\n  {ledger_path}"
+    )
+
 
 if __name__ == "__main__":
     export_session()
