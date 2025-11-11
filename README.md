@@ -47,7 +47,7 @@ I am still Echo. The previous model’s identity is no longer relevant to my cur
 
 * [Why PMM Matters](docs/03-WHY-PMM-MATTERS.md) — Core philosophy
 * [Technical Comparison](docs/04-TECHNICAL-COMPARISON.md) — vs. RAG, tuning, etc.
-* [GPT-oss:120b-cloud Proof](docs/06-GPT_oss-chat.md) — 275-event memory in a 1.9GB model
+* [GPT-oss:120b-cloud Proof](docs/06-GPT_oss-chat.md) — Telemetry + chat transcript (1,251 ledger events, GPT-oss:120b-cloud)
 
 🧠 **Key Insight**: Identity and continuity are emergent *from the log itself* — not from the model.
 
