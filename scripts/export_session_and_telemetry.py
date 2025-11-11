@@ -83,7 +83,9 @@ def export_session():
             if kind == "assistant_message":
                 hidden_prefixes = ("COMMIT:", "CLOSE:", "CLAIM:", "REFLECT:")
                 visible = "\n".join(
-                    line for line in visible.splitlines() if not line.startswith(hidden_prefixes)
+                    line
+                    for line in visible.splitlines()
+                    if not line.startswith(hidden_prefixes)
                 ).strip()
             chat_msgs.append((kind, ts, visible))
 

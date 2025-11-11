@@ -154,11 +154,11 @@ def test_autonomy_embeddings_selection_verification_checkpoint_and_parity():
     assert not cli_sensitive, f"CLI sensitive writes found: {cli_sensitive}"
 
     # Fast rebuild parity
-    from pmm.core.ledger_mirror import LedgerMirror
+    from pmm.core.mirror import Mirror
 
-    lm_full = LedgerMirror(log, listen=False)
-    snap_full = lm_full.rsm_snapshot()
-    lm_fast = LedgerMirror(log, listen=False)
-    lm_fast.rebuild_fast()
-    snap_fast = lm_fast.rsm_snapshot()
+    mirror_full = Mirror(log, enable_rsm=True, listen=False)
+    snap_full = mirror_full.rsm_snapshot()
+    mirror_fast = Mirror(log, enable_rsm=True, listen=False)
+    mirror_fast.rebuild_fast()
+    snap_fast = mirror_fast.rsm_snapshot()
     assert snap_fast == snap_full, "rebuild_fast parity failed"

@@ -28,28 +28,33 @@ This tells the model:
 
 ### Implementation
 
-**Four files modified:**
+**Files modified:**
 
-1. **`pmm/runtime/context_builder.py`**
-   - Added `_render_graph_context()` for fixed-window retrieval
+1. **`pmm/runtime/context_utils.py`** (shared rendering helpers)
+   - Added `render_graph_context()` for both fixed-window and vector retrieval
    - Rebuilds graph from ledger, exposes stats when nodes ≥ 5
+   - Shared by both `context_builder.py` and `vector.py`
 
-2. **`pmm/retrieval/vector.py`**
+2. **`pmm/runtime/context_builder.py`**
+   - Imports `render_graph_context()` from `context_utils`
+   - Uses shared helper for fixed-window retrieval
+
+3. **`pmm/retrieval/vector.py`**
+   - Imports `render_graph_context()` from `context_utils`
    - Extended `build_context_from_ids()` to accept optional `eventlog` parameter
-   - Added helper functions for RSM, goals, and graph rendering
    - Vector retrieval now includes metadata blocks (matching fixed-window behavior)
 
-3. **`pmm/runtime/loop.py`**
+4. **`pmm/runtime/loop.py`**
    - Passes `eventlog=self.eventlog` to enable metadata in vector path
    - Detects if "Graph Context:" is present
    - Conditionally mentions graph in system prompt (prevents hallucination)
 
-4. **`pmm/runtime/prompts.py`**
+5. **`pmm/runtime/prompts.py`**
    - Added `context_has_graph` parameter to `compose_system_prompt()`
    - Only tells model about graph when actually present
    - Critical for awareness without false priming
 
-5. **`pmm/runtime/reflection_synthesizer.py`**
+6. **`pmm/runtime/reflection_synthesizer.py`**
    - Autonomy kernel reflections now include graph density
    - Format: `"RSM: X determinism refs, Y knowledge gaps, graph: E/N"`
    - Enables structural self-monitoring over time
@@ -124,14 +129,17 @@ The graph was always there, tracking causality. Now the agent can **see it, reas
 
 To remove this feature:
 
-**context_builder.py:**
+**context_utils.py:**
+- Remove `render_graph_context()` function
 - Remove `from pmm.core.meme_graph import MemeGraph` import
-- Remove `_render_graph_context()` function
+
+**context_builder.py:**
+- Remove `render_graph_context` from imports
 - Remove `graph_block` from `build_context()` extras line
 
 **vector.py:**
+- Remove `render_graph_context` from imports
 - Revert `build_context_from_ids()` to original signature (remove `eventlog` parameter)
-- Remove helper functions: `_render_rsm_vector()`, `_render_internal_goals_vector()`, `_render_graph_context_vector()`
 
 **loop.py:**
 - Remove `eventlog=self.eventlog` from `build_context_from_ids()` call

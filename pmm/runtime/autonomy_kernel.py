@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 import json
 
 from pmm.core.event_log import EventLog
-from pmm.core.ledger_mirror import LedgerMirror
+from pmm.core.mirror import Mirror
 from pmm.core.commitment_manager import CommitmentManager
 from pmm.runtime.reflection_synthesizer import synthesize_kernel_reflection
 
@@ -83,7 +83,7 @@ class AutonomyKernel:
                     self.thresholds[key] = int(value)
         self._goal_state: Dict[str, Dict[str, int]] = {}
         self.commitment_manager = CommitmentManager(eventlog)
-        self.mirror = LedgerMirror(eventlog)
+        self.mirror = Mirror(eventlog, enable_rsm=True, listen=True)
         self.active_gap_analysis_cid: Optional[str] = None
         # Listen for autonomy_thresholds config updates at runtime
         self.eventlog.register_listener(self._on_config_event)
@@ -320,9 +320,7 @@ class AutonomyKernel:
         meta.update(meta_extra or {})
 
         # Append reflection with deterministic JSON encoding unless redundant
-        import json as _json
-
-        content = _json.dumps(content_dict, sort_keys=True, separators=(",", ":"))
+        content = json.dumps(content_dict, sort_keys=True, separators=(",", ":"))
         # Skip if identical to the last autonomy_kernel reflection content
         last_auto = _last_event_matching(
             events,
@@ -596,9 +594,7 @@ class AutonomyKernel:
             elif k == "summary_update":
                 summarize_count += 1
 
-        open_commitments = len(
-            LedgerMirror(self.eventlog, listen=False).get_open_commitment_events()
-        )
+        open_commitments = len(self.mirror.get_open_commitment_events())
         payload = {
             "idle_count": int(idle_count),
             "reflect_count": int(reflect_count),
@@ -731,7 +727,7 @@ class AutonomyKernel:
             if current_event_id - last_check_id < self.RSM_EVENT_INTERVAL:
                 return None
 
-            mirror = LedgerMirror(self.eventlog, listen=False)
+            mirror = Mirror(self.eventlog, enable_rsm=True, listen=False)
             diff = mirror.diff_rsm(last_check_id, current_event_id)
 
             if not self._is_significant_rsm_change(diff):

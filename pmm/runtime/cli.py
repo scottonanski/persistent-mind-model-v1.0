@@ -10,14 +10,13 @@ import subprocess
 from typing import Dict, Optional
 
 from pmm.core.event_log import EventLog
-from pmm.core.ledger_mirror import LedgerMirror
+from pmm.core.mirror import Mirror
 from pmm.core.ledger_metrics import (
     compute_metrics,
 )
 from pmm.core.commitment_manager import CommitmentManager
 from pmm.runtime.loop import RuntimeLoop
 from pmm.core.meme_graph import MemeGraph
-import json as _json
 from rich.console import Console
 from rich.theme import Theme
 from rich.table import Table
@@ -42,7 +41,6 @@ console = Console(theme=CLI_THEME)
 def _export_chat_session(elog: EventLog, format: str = "markdown") -> str:
     """Export chat session to file. Returns filename."""
     from datetime import datetime
-    import json
 
     # Get all user and assistant messages
     events = elog.read_all()
@@ -522,7 +520,7 @@ def handle_rsm_command(command: str, eventlog: EventLog) -> Optional[str]:
     if not parts or parts[0].lower() != "/rsm":
         return None
 
-    mirror = LedgerMirror(eventlog, listen=False)
+    mirror = Mirror(eventlog, enable_rsm=True, listen=False)
     try:
         args = parts[1:]
         if not args:
@@ -641,7 +639,7 @@ def handle_pm_command(command: str, eventlog: EventLog) -> Optional[str]:
                 return "Forbidden by policy."
             eventlog.append(
                 kind="config",
-                content=_json.dumps(cfg, separators=(",", ":")),
+                content=json.dumps(cfg, separators=(",", ":")),
                 meta={"source": "cli"},
             )
             return f"Retrieval config updated: vector limit={cfg['limit']} model={cfg['model']} dims={cfg['dims']}"
@@ -669,7 +667,7 @@ def handle_pm_command(command: str, eventlog: EventLog) -> Optional[str]:
                 return "No retrieval_selection recorded yet."
             ev = tail[-1]
             try:
-                data = _json.loads(ev.get("content") or "{}")
+                data = json.loads(ev.get("content") or "{}")
             except Exception:
                 data = {}
             return f"retrieval_selection turn_id={data.get('turn_id')} selected={data.get('selected')} scores={data.get('scores')}"
@@ -712,7 +710,7 @@ def handle_pm_command(command: str, eventlog: EventLog) -> Optional[str]:
                     return "No change (idempotent)"
             eventlog.append(
                 kind="config",
-                content=_json.dumps(desired, separators=(",", ":")),
+                content=json.dumps(desired, separators=(",", ":")),
                 meta={"source": "cli"},
             )
             return "Autonomy thresholds updated"
@@ -726,7 +724,7 @@ def _last_autonomy_cfg(eventlog: EventLog) -> Optional[Dict]:
         if ev.get("kind") != "config":
             continue
         try:
-            data = _json.loads(ev.get("content") or "{}")
+            data = json.loads(ev.get("content") or "{}")
         except Exception:
             continue
         if isinstance(data, dict) and data.get("type") == "autonomy_thresholds":
@@ -735,14 +733,12 @@ def _last_autonomy_cfg(eventlog: EventLog) -> Optional[Dict]:
 
 
 def _policy_forbids(eventlog: EventLog, *, source: str, kind: str) -> bool:
-    import json as _j
-
     policy = None
     for ev in eventlog.read_all()[::-1]:
         if ev.get("kind") != "config":
             continue
         try:
-            data = _j.loads(ev.get("content") or "{}")
+            data = json.loads(ev.get("content") or "{}")
         except Exception:
             continue
         if isinstance(data, dict) and data.get("type") == "policy":
@@ -765,7 +761,7 @@ def _embedding_map(events, *, model: str, dims: int):
         if e.get("kind") != "embedding_add":
             continue
         try:
-            data = _json.loads(e.get("content") or "{}")
+            data = json.loads(e.get("content") or "{}")
         except Exception:
             continue
         if (
@@ -818,7 +814,7 @@ def _handle_retrieval_verify(eventlog: EventLog, turn_id: int) -> str:
     for e in reversed(eventlog.read_all()):
         if e.get("kind") == "retrieval_selection":
             try:
-                data = _json.loads(e.get("content") or "{}")
+                data = json.loads(e.get("content") or "{}")
             except Exception:
                 continue
             if int(data.get("turn_id", 0)) == int(turn_id):
@@ -885,7 +881,7 @@ def _handle_checkpoint(eventlog: EventLog) -> str:
     up_to = int(last_summary.get("id", 0))
     # Compute root hash over hash sequence up to anchor
     hashes = [e.get("hash") or "" for e in events if int(e.get("id", 0)) <= up_to]
-    root_blob = _json.dumps(hashes, separators=(",", ":"))
+    root_blob = json.dumps(hashes, separators=(",", ":"))
     import hashlib as _hl
 
     digest = _hl.sha256(root_blob.encode("utf-8")).hexdigest()
@@ -897,12 +893,12 @@ def _handle_checkpoint(eventlog: EventLog) -> str:
             break
     if last_manifest:
         try:
-            data = _json.loads(last_manifest.get("content") or "{}")
+            data = json.loads(last_manifest.get("content") or "{}")
         except Exception:
             data = {}
         if int(data.get("up_to_id", 0)) == up_to and data.get("root_hash") == digest:
             return "No change (idempotent)"
-    content = _json.dumps(
+    content = json.dumps(
         {
             "up_to_id": up_to,
             "covers": ["rsm_state", "open_commitments"],
@@ -954,11 +950,12 @@ def _last_retrieval_config(eventlog: EventLog) -> Optional[Dict]:
         if ev.get("kind") != "config":
             continue
         try:
-            data = _json.loads(ev.get("content") or "{}")
+            data = json.loads(ev.get("content") or "{}")
         except Exception:
             continue
         if isinstance(data, dict) and data.get("type") == "retrieval":
             cfg = data
+            break
     return cfg
 
 
@@ -979,25 +976,20 @@ def handle_config_command(command: str, eventlog: EventLog) -> Optional[str]:
     if current == desired:
         return "No change (idempotent)"
     eventlog.append(
-        kind="config", content=_json.dumps(desired, separators=(",", ":")), meta={}
+        kind="config", content=json.dumps(desired, separators=(",", ":")), meta={}
     )
     return f"Retrieval config updated: limit={limit}"
 
 
 def handle_rebuild_fast(eventlog: EventLog) -> Optional[str]:
-    from pmm.core.ledger_mirror import LedgerMirror
+    mirror_full = Mirror(eventlog, enable_rsm=True, listen=False)
+    snap_full = mirror_full.rsm_snapshot()
 
-    lm_full = LedgerMirror(eventlog, listen=False)
-    snap_full = lm_full.rsm_snapshot()
-
-    # Simulate fast rebuild by constructing a fresh mirror and calling private fast path
-    # (exposed here as a CLI diagnostic only).
-    lm_fast = LedgerMirror(eventlog, listen=False)
+    # Simulate fast rebuild by constructing a fresh mirror and calling fast path.
+    mirror_fast = Mirror(eventlog, enable_rsm=True, listen=False)
     try:
-        # Monkey: call internal method if present
-        if hasattr(lm_fast, "rebuild_fast"):
-            getattr(lm_fast, "rebuild_fast")()
-        snap_fast = lm_fast.rsm_snapshot()
+        mirror_fast.rebuild_fast()
+        snap_fast = mirror_fast.rsm_snapshot()
         return (
             "Fast rebuild identical"
             if snap_fast == snap_full

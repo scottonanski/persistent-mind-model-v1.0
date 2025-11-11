@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional, List, Tuple
 import json
 
 from pmm.core.event_log import EventLog
-from pmm.core.ledger_mirror import LedgerMirror
+from pmm.core.mirror import Mirror
 from pmm.core.commitment_manager import CommitmentManager
 
 
@@ -56,7 +56,7 @@ def synthesize_reflection(
 
         reflection_count = sum(1 for e in events if e.get("kind") == "reflection")
         if reflection_count >= 5:
-            mirror = LedgerMirror(eventlog, listen=False)
+            mirror = Mirror(eventlog, enable_rsm=True, listen=False)
             snapshot = mirror.rsm_snapshot()
 
             # Add graph structure awareness

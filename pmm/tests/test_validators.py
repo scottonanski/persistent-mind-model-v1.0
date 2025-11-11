@@ -4,14 +4,14 @@
 from __future__ import annotations
 
 from pmm.core.event_log import EventLog
-from pmm.core.ledger_mirror import LedgerMirror
+from pmm.core.mirror import Mirror
 from pmm.core.schemas import Claim
 from pmm.core.validators import validate_claim
 
 
 def test_validate_claims_basic():
     log = EventLog(":memory:")
-    mirror = LedgerMirror(log)
+    mirror = Mirror(log, listen=True)
 
     # Seed some events
     e1 = log.append(kind="user_message", content="hi", meta={})

@@ -358,9 +358,7 @@ class RuntimeLoop:
                 dims=dims,
                 query_text=user_input,
             )
-            import json as _json2
-
-            sel_content = _json2.dumps(
+            sel_content = json.dumps(
                 {
                     "turn_id": ai_event_id,
                     "selected": selection_ids,
@@ -417,9 +415,10 @@ class RuntimeLoop:
             ok, _msg = validate_claim(claim, self.eventlog, self.mirror)
             if ok:
                 # Persist valid claims to ledger for future retrieval
-                import json as _json_claim
-
-                claim_content = f"CLAIM:{claim.type}={_json_claim.dumps(claim.data, sort_keys=True, separators=(',', ':'))}"
+                claim_content = (
+                    f"CLAIM:{claim.type}="
+                    f"{json.dumps(claim.data, sort_keys=True, separators=(',', ':'))}"
+                )
                 self.eventlog.append(
                     kind="claim",
                     content=claim_content,

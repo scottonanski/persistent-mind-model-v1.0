@@ -16,7 +16,7 @@ import time
 from pmm.core.event_log import EventLog
 from pmm.core.autonomy_tracker import AutonomyTracker
 from pmm.core.commitment_manager import CommitmentManager
-from pmm.core.ledger_mirror import LedgerMirror
+from pmm.core.mirror import Mirror
 
 
 def compute_metrics(
@@ -73,7 +73,7 @@ def compute_metrics(
 
     manager = CommitmentManager(log)
     internal_goals_open = len(manager.get_open_commitments(origin="autonomy_kernel"))
-    mirror = LedgerMirror(log, listen=False)
+    mirror = Mirror(log, enable_rsm=True, listen=False)
     kernel_knowledge_gaps = mirror.rsm_knowledge_gaps()
 
     # Replay speed metric (ms per event): reload + hash sequence

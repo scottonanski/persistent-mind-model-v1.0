@@ -8,13 +8,9 @@ from pmm.core.mirror import Mirror
 from pmm.core.rsm import RecursiveSelfModel
 
 
-def _mirror(log: EventLog) -> Mirror:
-    return Mirror(log, enable_rsm=True, listen=True)
-
-
 def test_rsm_rebuild_parity_after_100_events():
     log = EventLog(":memory:")
-    live = _mirror(log)
+    live = Mirror(log, enable_rsm=True, listen=True)
 
     for idx in range(100):
         if idx % 5 == 0:
@@ -45,7 +41,7 @@ def test_rsm_rebuild_parity_after_100_events():
             )
 
     live_snapshot = live.rsm_snapshot()
-    rebuilt = _mirror(log)
+    rebuilt = Mirror(log, enable_rsm=True, listen=True)
     rebuilt_snapshot = rebuilt.rsm_snapshot()
 
     assert live_snapshot == rebuilt_snapshot
@@ -53,7 +49,7 @@ def test_rsm_rebuild_parity_after_100_events():
 
 def test_rsm_detects_identity_pattern():
     log = EventLog(":memory:")
-    mirror = _mirror(log)
+    mirror = Mirror(log, enable_rsm=True, listen=True)
 
     log.append(kind="user_message", content="who are you?", meta={})
     log.append(
@@ -73,7 +69,7 @@ def test_rsm_detects_identity_pattern():
 
 def test_rsm_counts_knowledge_gaps_deterministically():
     log = EventLog(":memory:")
-    mirror = _mirror(log)
+    mirror = Mirror(log, enable_rsm=True, listen=True)
 
     for _ in range(4):
         log.append(
@@ -100,7 +96,7 @@ def test_rsm_counts_knowledge_gaps_deterministically():
 
 def test_gaps_count_only_unresolved_intents():
     log = EventLog(":memory:")
-    mirror = _mirror(log)
+    mirror = Mirror(log, enable_rsm=True, listen=True)
 
     # Add one unresolved intent (count == 1)
     log.append(
@@ -140,7 +136,7 @@ def test_gaps_count_only_unresolved_intents():
 
 def test_rsm_sync_idempotent_on_replay():
     log = EventLog(":memory:")
-    mirror = _mirror(log)
+    mirror = Mirror(log, enable_rsm=True, listen=True)
 
     log.append(kind="user_message", content="Who are you?", meta={})
     log.append(
@@ -169,7 +165,7 @@ def test_rsm_sync_idempotent_on_replay():
 
 def test_diff_rsm_shows_growth_in_determinism_refs():
     log = EventLog(":memory:")
-    mirror = _mirror(log)
+    mirror = Mirror(log, enable_rsm=True, listen=True)
 
     log.append(kind="user_message", content="hello", meta={})
     event_a = log.read_all()[-1]["id"]
@@ -188,7 +184,7 @@ def test_diff_rsm_shows_growth_in_determinism_refs():
 
 def test_diff_rsm_detects_gap_resolution():
     log = EventLog(":memory:")
-    mirror = _mirror(log)
+    mirror = Mirror(log, enable_rsm=True, listen=True)
 
     for _ in range(4):
         log.append(
@@ -210,7 +206,7 @@ def test_diff_rsm_detects_gap_resolution():
 
 def test_rsm_counts_stability_and_adaptability_occurrences():
     log = EventLog(":memory:")
-    mirror = _mirror(log)
+    mirror = Mirror(log, enable_rsm=True, listen=True)
 
     payload = ("stability adapt " * 3).strip()
 
@@ -226,13 +222,13 @@ def test_rsm_counts_stability_and_adaptability_occurrences():
     assert tendencies.get("adaptability_emphasis") == 45
 
     # Rebuild parity: a fresh mirror should match live snapshot
-    rebuilt = _mirror(log)
+    rebuilt = Mirror(log, enable_rsm=True)
     assert rebuilt.rsm_snapshot() == snap
 
 
 def test_rsm_caps_stability_adaptability_at_50():
     log = EventLog(":memory:")
-    mirror = _mirror(log)
+    mirror = Mirror(log, enable_rsm=True, listen=True)
 
     payload = ("stability adapt " * 3).strip()
 
@@ -247,7 +243,7 @@ def test_rsm_caps_stability_adaptability_at_50():
 
 def test_rsm_instantiation_capacity_counts_and_caps():
     log = EventLog(":memory:")
-    mirror = _mirror(log)
+    mirror = Mirror(log, enable_rsm=True, listen=True)
 
     # 15 assistant + 10 reflections, each containing both markers once -> 60 mentions
     payload = "instantiation entity"
@@ -261,13 +257,13 @@ def test_rsm_instantiation_capacity_counts_and_caps():
     assert tendencies.get("instantiation_capacity") == 50
 
     # Rebuild parity
-    rebuilt = _mirror(log)
+    rebuilt = Mirror(log, enable_rsm=True)
     assert rebuilt.rsm_snapshot() == mirror.rsm_snapshot()
 
 
 def test_rsm_instantiation_capacity_counts_without_cap():
     log = EventLog(":memory:")
-    mirror = _mirror(log)
+    mirror = Mirror(log, enable_rsm=True, listen=True)
 
     # 20 mentions total -> expected exact 20 (single marker per message)
     payload = "instantiation"
@@ -313,7 +309,7 @@ def test_rsm_uniqueness_emphasis_score_from_hash_prefixes():
 
     # Rebuild parity through Mirror using real EventLog still yields deterministic value
     log = EventLog(":memory:")
-    mirror = _mirror(log)
+    mirror = Mirror(log, enable_rsm=True)
     # Feed synthetic events through sync; RSM ignores out-of-order ids and updates deterministically
     for ev in events:
         mirror.sync(ev)
@@ -334,7 +330,7 @@ def test_rsm_uniqueness_caps_and_edges():
 
 def test_diff_rsm_same_id_returns_empty():
     log = EventLog(":memory:")
-    mirror = _mirror(log)
+    mirror = Mirror(log, enable_rsm=True, listen=True)
 
     log.append(
         kind="assistant_message",

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from hashlib import sha1
 
 from .event_log import EventLog
-from .ledger_mirror import LedgerMirror
+from .mirror import Mirror
 from .schemas import (
     INTERNAL_COMMITMENT_ORIGIN,
     generate_internal_cid,
@@ -99,7 +99,7 @@ class CommitmentManager:
 
         Returns list of cids that were actually closed.
         """
-        mirror = LedgerMirror(self.eventlog)
+        mirror = Mirror(self.eventlog, listen=True)
         closed: List[str] = []
         for cid in cids:
             if mirror.is_commitment_open(cid):

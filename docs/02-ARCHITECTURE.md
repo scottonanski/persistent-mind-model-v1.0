@@ -29,7 +29,7 @@ The Persistent Mind Model (PMM) is an event‑sourced architecture that treats a
 ## Conceptual Model
 
 - Event Log (Ledger): append‑only, hash‑chained record of everything the agent perceives or does.
-- Ledger Mirror: in‑memory replay that derives current state (identity traits, open commitments/goals, summaries) from the log.
+- Mirror: in‑memory replay that derives current state (identity traits, open commitments/goals, summaries) from the log. Optionally includes RSM (Recursive Self-Model) support when enabled.
 - Runtime Loop: the turn engine that reads state, invokes the model, applies policies, and appends new events.
 - Recursive Self‑Model (RSM): reflection layer that summarizes tendencies, knowledge gaps, and identity; updated by replay.
 - Event Graph (aka MemeGraph): causal links between events (e.g., replies_to, comments_on, closes), keeping threads traceable over time. When vector retrieval is active, the resulting graph statistics may appear in the system prompt so the model is aware of structural context (see [MemeGraph Visibility](05-MEMEGRAPH-VISIBILITY.md)).
@@ -194,14 +194,14 @@ graph TD
 Data
 ```mermaid
 graph TD
-  EL[(Event Log)]-->LM[Ledger Mirror]
-  LM-->RSM[Recursive Self-Model]
+  EL[(Event Log)]-->M[Mirror]
+  M-->RSM[Recursive Self-Model]
   EL-->EG[Event/Causal Graph]
 ```
 
 
 ## Notes
-- This document describes the architecture and runtime guarantees. Exact class and method names may vary slightly in code; when they differ, prefer consistent terminology: Event Log, Ledger Mirror, Runtime Loop, Recursive Self‑Model, Event Graph.
+- This document describes the architecture and runtime guarantees. Exact class and method names may vary slightly in code; when they differ, prefer consistent terminology: Event Log, Mirror, Runtime Loop, Recursive Self‑Model, Event Graph.
 - Replace or extend retrieval and reflection policies as your use case grows; PMM’s invariants (append‑only, replayable state, truth‑first) should remain constant.
 
 

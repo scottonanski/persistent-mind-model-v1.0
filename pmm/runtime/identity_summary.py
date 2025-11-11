@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 from pmm.core.event_log import EventLog
-from pmm.core.ledger_mirror import LedgerMirror
+from pmm.core.mirror import Mirror
 
 
 def _events_since_last(events: List[Dict], kind: str) -> List[Dict]:
@@ -30,7 +30,7 @@ def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
     since = _events_since_last(events, "summary_update")
     reflections = [e for e in since if e.get("kind") == "reflection"]
     # Derive open commitments via Mirror for canonical meta-based state
-    mirror = LedgerMirror(eventlog, listen=False)
+    mirror = Mirror(eventlog, enable_rsm=True, listen=False)
     open_commitments = len(mirror.get_open_commitment_events())
 
     # Observable ledger facts only (no psychometrics):
