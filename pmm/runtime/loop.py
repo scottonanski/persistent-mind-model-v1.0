@@ -415,7 +415,16 @@ class RuntimeLoop:
         # 6. Claims
         for claim in self._extract_claims(assistant_reply):
             ok, _msg = validate_claim(claim, self.eventlog, self.mirror)
-            if not ok:
+            if ok:
+                # Persist valid claims to ledger for future retrieval
+                import json as _json_claim
+                claim_content = f"CLAIM:{claim.type}={_json_claim.dumps(claim.data, sort_keys=True, separators=(',', ':'))}"
+                self.eventlog.append(
+                    kind="claim",
+                    content=claim_content,
+                    meta={"claim_type": claim.type, "validated": True}
+                )
+            else:
                 delta.failed_claims.append(claim)
 
         # 7. Closures

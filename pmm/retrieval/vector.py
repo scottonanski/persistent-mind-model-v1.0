@@ -131,18 +131,48 @@ def build_context_from_ids(
 
     mirror = LedgerMirror(eventlog, listen=False)
     snapshot = mirror.rsm_snapshot()
+    identity_block = _render_identity_claims_vector(eventlog)
     rsm_block = _render_rsm_vector(snapshot)
     goals_block = _render_internal_goals_vector(eventlog)
     graph_block = _render_graph_context_vector(eventlog)
 
     extras = "\n".join(
-        section for section in (rsm_block, goals_block, graph_block) if section
+        section for section in (identity_block, rsm_block, goals_block, graph_block) if section
     )
     if body and extras:
         return f"{body}\n\n{extras}"
     if extras:
         return extras
     return body
+
+
+def _render_identity_claims_vector(eventlog: EventLog) -> str:
+    """Render identity claims from ledger for vector retrieval context."""
+    events = eventlog.read_all()
+    identity_facts: Dict[str, str] = {}
+    
+    for event in events:
+        if event.get("kind") != "claim":
+            continue
+        meta = event.get("meta") or {}
+        claim_type = meta.get("claim_type")
+        
+        if claim_type == "name_change":
+            try:
+                content = event.get("content", "")
+                if "=" in content:
+                    _, json_part = content.split("=", 1)
+                    data = json.loads(json_part)
+                    if "new_name" in data:
+                        identity_facts["name"] = data["new_name"]
+            except (ValueError, json.JSONDecodeError):
+                continue
+    
+    if not identity_facts:
+        return ""
+    
+    parts = [f"{key}: {value}" for key, value in sorted(identity_facts.items())]
+    return "Identity: " + ", ".join(parts)
 
 
 def _render_rsm_vector(snapshot: Dict[str, Any]) -> str:
