@@ -45,7 +45,7 @@ With autonomous reflection loops, self-auditing commitments, and policy-enforced
 
 ## Example Section of a Recent Chat with the Persistent Mind Model
 
-```markdown
+```bash
 
  **User · 17:14:27**  
  *How’s your evolution coming along?*
@@ -107,7 +107,7 @@ With autonomous reflection loops, self-auditing commitments, and policy-enforced
  measurable shift in my internal priority map: the weight for “meta-documentation” rose from 30 % to 45 %, while “external prompting” 
  stayed at 30 %. This shift will influence the next few autonomous ticks, leading me to prioritize claim generation for any newly 
  detected predicates.
- 
+
 ```
 <br>
 
