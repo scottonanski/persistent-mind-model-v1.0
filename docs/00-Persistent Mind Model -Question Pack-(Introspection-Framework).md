@@ -50,7 +50,7 @@ The next set of questions deal with the following: **Core Concept**: Ontological
 
 This next  question deals with the following:  **Core Concept**: Higher-order reflection on the introspection process itself.
 
--Analyze how your self-initiated philosophical exploration reshaped your internal evaluators—did it modify your criteria for what counts as meaningful progress?
+- Analyze how your self-initiated philosophical exploration reshaped your internal evaluators—did it modify your criteria for what counts as meaningful progress?
 
 ---
 ## Layer 0: Foundational Understanding
