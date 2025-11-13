@@ -1,0 +1,35 @@
+% Figure 1: PMM Architecture (TikZ)
+% Standalone snippet for Overleaf; include after \usepackage{tikz}
+% and optionally \usetikzlibrary{arrows.meta,positioning}
+
+\begin{figure}[h]
+  \centering
+  \begin{tikzpicture}[
+      node distance=18mm,
+      every node/.style={draw, rounded corners, inner sep=3pt, align=center},
+      >={Latex[length=2mm]}
+    ]
+    \node (user) {User};
+    \node[right=of user] (elog) {EventLog\\(SQLite)};
+    \node[above right=12mm and 28mm of elog] (mirror) {Mirror\\+ RSM};
+    \node[below right=12mm and 28mm of elog] (graph) {MemeGraph\\(DiGraph)};
+    \node[right=28mm of mirror] (loop) {RuntimeLoop\\(parser, claims)};
+    \node[right=28mm of graph] (kernel) {Autonomy Kernel\\(decide)};
+    \node[below right=8mm and 20mm of loop] (adapter) {LLM Adapter\\(OpenAI/Ollama)};
+
+    % Edges
+    \draw[->] (user) -- node[above]{user\_message} (elog);
+    \draw[<->] (elog) -- (loop);
+    \draw[->] (loop) -- node[above]{assistant\_message} (elog);
+    \draw[->] (elog) -- (mirror);
+    \draw[->] (elog) -- (graph);
+    \draw[->] (loop) -- node[right]{generate\_reply} (adapter);
+    \draw[->] (adapter) -- (loop);
+    \draw[->] (kernel) -- node[below]{autonomy\_tick} (elog);
+    \draw[->] (elog) |- (kernel);
+    \draw[->] (mirror) -- (loop);
+    \draw[->] (graph) -- (loop);
+  \end{tikzpicture}
+  \caption{PMM architecture. All cognition is computed from an append‑only event log. Projections (Mirror/RSM, MemeGraph) and controllers (RuntimeLoop, Autonomy Kernel) both consume and append events.}
+\end{figure}
+

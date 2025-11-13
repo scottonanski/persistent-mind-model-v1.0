@@ -16,6 +16,7 @@ from .schemas import (
     generate_internal_cid,
     validate_event,
 )
+from .enhancements.commitment_evaluator import CommitmentEvaluator
 
 
 class CommitmentManager:
@@ -71,6 +72,8 @@ class CommitmentManager:
             "source": source,
             "text": text,
         }
+        impact = CommitmentEvaluator(self.eventlog).compute_impact_score(text)
+        meta["impact_score"] = impact
         validate_event({"kind": "commitment_open", "meta": meta})
         self.eventlog.append(
             kind="commitment_open",

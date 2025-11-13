@@ -28,11 +28,12 @@ def test_idempotent_closure():
         "rsm_update",
         "config",
         "summary_update",
+        "meta_summary",
     }
     kinds1 = [e["kind"] for e in events1 if e["kind"] not in ignored]
     assert kinds1.count("commitment_close") == 1
     # Allow summary_update to be interleaved; ensure at least one reflection, the close, then reflection
-    tail = [k for k in kinds1 if k != "summary_update"]
+    tail = [k for k in kinds1 if k not in {"summary_update", "meta_summary"}]
     assert tail[-3:] == ["reflection", "commitment_close", "reflection"]
     last_reflection1 = [e for e in events1 if e["kind"] == "reflection"][-1]
     assert last_reflection1["meta"].get("source") is None

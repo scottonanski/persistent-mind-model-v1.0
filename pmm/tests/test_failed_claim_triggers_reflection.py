@@ -26,6 +26,8 @@ def test_failed_claim_triggers_reflection():
             "rsm_update",
             "config",
             "embedding_add",
+            "meta_summary",
+            "summary_update",
         )
     ]
     assert kinds[0] == "user_message"

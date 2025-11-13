@@ -76,6 +76,7 @@ class EventLog:
             "user_message",
             "assistant_message",
             "reflection",
+            "meta_summary",
             "metrics_turn",
             "metric_check",
             "commitment_open",

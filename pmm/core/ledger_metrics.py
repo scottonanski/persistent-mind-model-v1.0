@@ -17,6 +17,7 @@ from pmm.core.event_log import EventLog
 from pmm.core.autonomy_tracker import AutonomyTracker
 from pmm.core.commitment_manager import CommitmentManager
 from pmm.core.mirror import Mirror
+from pmm.core.enhancements.stability_metrics import StabilityMetrics
 
 
 def compute_metrics(
@@ -94,6 +95,10 @@ def compute_metrics(
         "kernel_knowledge_gaps": kernel_knowledge_gaps,
         "replay_speed_ms": per_event_ms,
     }
+
+    meta_summaries = [event for event in canonical_events if event.get("kind") == "meta_summary"]
+    stability = StabilityMetrics().compute(canonical_events, meta_summaries)
+    metrics["stability"] = stability
 
     if tracker:
         tracker.rebuild()  # Ensure rebuild in case not done

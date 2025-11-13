@@ -164,7 +164,8 @@ def export_session():
         "total_events": len(rows),
         "event_type_counts": dict(kinds),
         "continuity_breaks": len(breaks),
-        "sha256_full_digest": sha256("".join(r[5] or "" for r in rows)),
+        # Digest over event hashes (column 6), not prev_hash
+        "sha256_full_digest": sha256("".join(r[6] or "" for r in rows)),
     }
     telemetry.append("\n## 🧾 Verification Manifest\n\n```json\n")
     telemetry.append(json.dumps(manifest, indent=2, ensure_ascii=False))

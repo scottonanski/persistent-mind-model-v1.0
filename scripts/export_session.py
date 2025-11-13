@@ -161,12 +161,16 @@ def export_session():
     # =====================
     # Phase 3: Verification Manifest (JSON block)
     # =====================
+    # JSON-safe manifest with stable fields
+    last_hash = rows[-1][6] if rows else ""
     manifest = {
         "export_timestamp": now,
         "total_events": total,
-        "event_type_counts": kinds,
+        "event_type_counts": dict(kinds),
         "continuity_breaks": len(breaks),
-        "sha256_full_digest": sha256("".join(r[5] or "" for r in rows)),
+        # Digest over the chain of event hashes (not prev_hash) for stability
+        "sha256_full_digest": sha256("".join(r[6] or "" for r in rows)),
+        "last_hash": last_hash,
     }
 
     md.append("\n## 🧾 Verification Manifest\n\n")

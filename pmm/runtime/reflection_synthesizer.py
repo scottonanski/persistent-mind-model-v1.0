@@ -10,6 +10,7 @@ import json
 from pmm.core.event_log import EventLog
 from pmm.core.mirror import Mirror
 from pmm.core.commitment_manager import CommitmentManager
+from pmm.core.enhancements.meta_reflection_engine import MetaReflectionEngine
 
 
 def _last_by_kind(events: List[Dict], kind: str) -> Optional[Dict]:
@@ -95,7 +96,25 @@ def synthesize_reflection(
             "source": meta_extra.get("source") if meta_extra else "unknown",
         }
         meta.update(meta_extra or {})
-        return eventlog.append(kind="reflection", content=content, meta=meta)
+        reflection_id = eventlog.append(
+            kind="reflection", content=content, meta=meta
+        )
+        summary = None
+        try:
+            if all("id" in ev for ev in events):
+                summary = MetaReflectionEngine(eventlog).generate()
+        except Exception:
+            summary = None
+        if summary is not None:
+            eventlog.append(
+                kind="meta_summary",
+                content=json.dumps(summary, sort_keys=True, separators=(",", ":")),
+                meta={
+                    "source": "meta_reflection_engine",
+                    "about_event": reflection_id,
+                },
+            )
+        return reflection_id
 
 
 def _has_rsm_data(snapshot: Dict[str, Any]) -> bool:

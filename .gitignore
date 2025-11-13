@@ -1,5 +1,6 @@
 # Project data and local ledgers
 .data/
+.evidence/
 *.db
 *.sqlite3
 pmm_diag_*.json
