@@ -96,9 +96,7 @@ def synthesize_reflection(
             "source": meta_extra.get("source") if meta_extra else "unknown",
         }
         meta.update(meta_extra or {})
-        reflection_id = eventlog.append(
-            kind="reflection", content=content, meta=meta
-        )
+        reflection_id = eventlog.append(kind="reflection", content=content, meta=meta)
         summary = None
         try:
             if all("id" in ev for ev in events):

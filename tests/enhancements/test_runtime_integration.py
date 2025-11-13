@@ -6,7 +6,6 @@ import hashlib
 import json
 from pathlib import Path
 
-import pytest
 
 from pmm.core.commitment_manager import CommitmentManager
 from pmm.core.event_log import EventLog

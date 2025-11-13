@@ -439,7 +439,7 @@ class RuntimeLoop:
         if not delta.is_empty():
             reflection_text = build_reflection_text(delta)
             if reflection_text:
-                reflection_event_id = self.eventlog.append(
+                self.eventlog.append(
                     kind="reflection",
                     content=reflection_text,
                     meta={"about_event": ai_event_id},

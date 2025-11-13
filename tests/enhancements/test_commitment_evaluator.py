@@ -79,7 +79,9 @@ def test_graph_weight_affects_output() -> None:
     weighted_cid = _append_commitment_open(weighted_log, weighted_text)
     _append_commitment_close(weighted_log, weighted_cid)
 
-    weighted_score = CommitmentEvaluator(weighted_log).compute_impact_score(weighted_text)
+    weighted_score = CommitmentEvaluator(weighted_log).compute_impact_score(
+        weighted_text
+    )
 
     assert weighted_score < baseline_score
     assert 0.0 <= weighted_score <= 1.0

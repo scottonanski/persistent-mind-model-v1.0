@@ -1,4 +1,1 @@
-pytest>=7.0
-networkx>=3.0
-black>=24.0.0
-ruff>=0.6.0
+-e ".[full,dev]"

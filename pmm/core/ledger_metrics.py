@@ -96,7 +96,9 @@ def compute_metrics(
         "replay_speed_ms": per_event_ms,
     }
 
-    meta_summaries = [event for event in canonical_events if event.get("kind") == "meta_summary"]
+    meta_summaries = [
+        event for event in canonical_events if event.get("kind") == "meta_summary"
+    ]
     stability = StabilityMetrics().compute(canonical_events, meta_summaries)
     metrics["stability"] = stability
 

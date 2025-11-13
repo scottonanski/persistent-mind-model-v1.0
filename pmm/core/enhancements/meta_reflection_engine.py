@@ -45,7 +45,9 @@ class MetaReflectionEngine:
             slices.append(batch)
         return slices
 
-    def _window_patterns(self, windows: Iterable[List[Dict[str, Any]]]) -> List[Dict[str, int]]:
+    def _window_patterns(
+        self, windows: Iterable[List[Dict[str, Any]]]
+    ) -> List[Dict[str, int]]:
         patterns: List[Dict[str, int]] = []
         for window in windows:
             opens = sum(1 for ev in window if ev.get("kind") == "commitment_open")
