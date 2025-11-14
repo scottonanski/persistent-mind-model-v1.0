@@ -139,7 +139,7 @@ With autonomous reflection loops, self-auditing commitments, and policy-enforced
 python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[full,dev]"
 ```
 
-### 🧠 Run
+### Run
 
 ```bash
 pmm
