@@ -269,9 +269,79 @@ class AutonomyKernel:
             self.ensure_rule_table_event()
 
     def _on_policy_event(self, event: Dict[str, Any]) -> None:
-        """Apply policy updates (placeholder for future)."""
-        # For now, just log or adjust as needed; keep simple
-        pass
+        """Apply policy updates emitted by the learning subsystem.
+
+        Policy updates are encoded as JSON objects produced by
+        build_policy_update_content(), with a shape similar to:
+
+            {
+                "type": "adaptive_learning",
+                "changes": {
+                    "reflect": "increase_frequency",
+                    "summarize": "decrease_frequency"
+                },
+                "suggestions": [...]
+            }
+
+        This handler maps these semantic changes onto the kernel's internal
+        thresholds in a deterministic, idempotent way:
+
+        - \"increase_frequency\"  => decrease the corresponding interval.
+        - \"decrease_frequency\"  => increase the corresponding interval.
+
+        Only known action_kinds are applied, and bounds are clamped to keep
+        intervals within a safe integer range.
+        """
+        if event.get("kind") != "policy_update":
+            return
+
+        try:
+            data = json.loads(event.get("content") or "{}")
+        except Exception:
+            return
+        if not isinstance(data, dict):
+            return
+        if data.get("type") != "adaptive_learning":
+            return
+
+        changes = data.get("changes")
+        if not isinstance(changes, dict):
+            return
+
+        changed = False
+
+        for action_kind, suggestion in changes.items():
+            if suggestion not in ("increase_frequency", "decrease_frequency"):
+                continue
+
+            # Map action kinds emitted by the learning subsystem to
+            # internal autonomy thresholds. Support both bare and
+            # autonomy-prefixed variants.
+            threshold_key: Optional[str]
+            if action_kind in ("reflect", "autonomy_reflect"):
+                threshold_key = "reflection_interval"
+            elif action_kind in ("summarize", "autonomy_summarize"):
+                threshold_key = "summary_interval"
+            else:
+                threshold_key = None
+
+            if threshold_key is None:
+                continue
+
+            current = self.thresholds.get(threshold_key)
+            if not isinstance(current, int):
+                continue
+
+            delta = -1 if suggestion == "increase_frequency" else 1
+            new_val = max(5, min(100, current + delta))
+            if new_val != current:
+                self.thresholds[threshold_key] = new_val
+                changed = True
+
+        if changed:
+            # Persist the updated thresholds in the rule table. The method
+            # itself is idempotent over the current threshold values.
+            self.ensure_rule_table_event()
 
     def _on_context_event(self, event: Dict[str, Any]) -> None:
         """Listen for new events to update ContextGraph incrementally."""

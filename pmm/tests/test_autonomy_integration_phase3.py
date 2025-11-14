@@ -98,6 +98,66 @@ def test_threshold_adaptation():
     assert isinstance(kernel2.thresholds["reflection_interval"], int)
 
 
+def test_policy_update_applies_to_thresholds():
+    """Test that policy_update suggestions adapt kernel thresholds."""
+    log = EventLog(":memory:")
+    kernel = AutonomyKernel(log)
+
+    baseline = kernel.thresholds["reflection_interval"]
+
+    from pmm.learning.policy_evolver import (
+        PolicyChangeSuggestion,
+        build_policy_update_content,
+    )
+
+    # Suggest increasing the frequency of reflection (shorter interval).
+    suggestion = PolicyChangeSuggestion(
+        action_kind="reflect",
+        suggested_change="increase_frequency",
+        reason="test",
+    )
+    content = build_policy_update_content([suggestion])
+    log.append(
+        kind="policy_update",
+        content=json.dumps(content, sort_keys=True, separators=(",", ":")),
+    )
+
+    # Threshold should decrease by 1 within bounds.
+    assert kernel.thresholds["reflection_interval"] == max(5, baseline - 1)
+
+
+def test_policy_update_idempotent_when_no_effect():
+    """Test that policy_update with no effective change does not break."""
+    log = EventLog(":memory:")
+    kernel = AutonomyKernel(log)
+
+    # Force reflection_interval to minimum bound to avoid further decrease.
+    kernel.thresholds["reflection_interval"] = 5
+
+    from pmm.learning.policy_evolver import (
+        PolicyChangeSuggestion,
+        build_policy_update_content,
+    )
+
+    suggestion = PolicyChangeSuggestion(
+        action_kind="reflect",
+        suggested_change="increase_frequency",
+        reason="test",
+    )
+    content = build_policy_update_content([suggestion])
+    before_events = list(log.read_all())
+    log.append(
+        kind="policy_update",
+        content=json.dumps(content, sort_keys=True, separators=(",", ":")),
+    )
+    after_events = list(log.read_all())
+
+    # No guarantee about autonomy_rule_table in this test; just ensure
+    # append did not crash and thresholds stayed at the bound.
+    assert kernel.thresholds["reflection_interval"] == 5
+    assert len(after_events) == len(before_events) + 1
+
+
 def test_no_extra_events_in_decide_next_action():
     """Test that decide_next_action emits adaptation events but no extras."""
     log = EventLog(":memory:")

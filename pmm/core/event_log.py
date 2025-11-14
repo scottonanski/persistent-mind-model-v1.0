@@ -65,9 +65,10 @@ class EventLog:
                 pass
 
     def _last_hash(self) -> Optional[str]:
-        cur = self._conn.execute("SELECT hash FROM events ORDER BY id DESC LIMIT 1")
-        row = cur.fetchone()
-        return row[0] if row and row[0] else None
+        with self._lock:
+            cur = self._conn.execute("SELECT hash FROM events ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            return row[0] if row and row[0] else None
 
     def append(
         self, *, kind: str, content: str, meta: Optional[Dict[str, Any]] = None
@@ -291,49 +292,53 @@ class EventLog:
         return out
 
     def read_up_to(self, event_id: int) -> List[Dict[str, Any]]:
-        cur = self._conn.execute(
-            "SELECT * FROM events WHERE id <= ? ORDER BY id ASC",
-            (event_id,),
-        )
-        rows = cur.fetchall()
-        out: List[Dict[str, Any]] = []
-        for row in rows:
-            out.append(
-                {
-                    "id": row["id"],
-                    "ts": row["ts"],
-                    "kind": row["kind"],
-                    "content": row["content"],
-                    "meta": json.loads(row["meta"] or "{}"),
-                    "prev_hash": row["prev_hash"],
-                    "hash": row["hash"],
-                }
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM events WHERE id <= ? ORDER BY id ASC",
+                (event_id,),
             )
+            rows = cur.fetchall()
+            out: List[Dict[str, Any]] = []
+            for row in rows:
+                out.append(
+                    {
+                        "id": row["id"],
+                        "ts": row["ts"],
+                        "kind": row["kind"],
+                        "content": row["content"],
+                        "meta": json.loads(row["meta"] or "{}"),
+                        "prev_hash": row["prev_hash"],
+                        "hash": row["hash"],
+                    }
+                )
         return out
 
     # Convenience API for validators/replay
     def get(self, event_id: int) -> Optional[Dict[str, Any]]:
-        cur = self._conn.execute("SELECT * FROM events WHERE id = ?", (event_id,))
-        row = cur.fetchone()
-        if not row:
-            return None
-        return {
-            "id": row["id"],
-            "ts": row["ts"],
-            "kind": row["kind"],
-            "content": row["content"],
-            "meta": json.loads(row["meta"] or "{}"),
-            "prev_hash": row["prev_hash"],
-            "hash": row["hash"],
-        }
+        with self._lock:
+            cur = self._conn.execute("SELECT * FROM events WHERE id = ?", (event_id,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            return {
+                "id": row["id"],
+                "ts": row["ts"],
+                "kind": row["kind"],
+                "content": row["content"],
+                "meta": json.loads(row["meta"] or "{}"),
+                "prev_hash": row["prev_hash"],
+                "hash": row["hash"],
+            }
 
     def exists(self, event_id: int) -> bool:
-        cur = self._conn.execute("SELECT 1 FROM events WHERE id = ?", (event_id,))
-        return cur.fetchone() is not None
+        with self._lock:
+            cur = self._conn.execute("SELECT 1 FROM events WHERE id = ?", (event_id,))
+            return cur.fetchone() is not None
 
     def hash_sequence(self) -> List[str]:
-        cur = self._conn.execute("SELECT hash FROM events ORDER BY id ASC")
-        return [r[0] for r in cur.fetchall()]
+        with self._lock:
+            cur = self._conn.execute("SELECT hash FROM events ORDER BY id ASC")
+            return [r[0] for r in cur.fetchall()]
 
     def has_exec_bind(self, cid: str) -> bool:
         cid = (cid or "").strip()
