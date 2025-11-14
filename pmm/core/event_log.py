@@ -97,6 +97,12 @@ class EventLog:
             "retrieval_selection",
             "checkpoint_manifest",
             "embedding_add",
+            # New kinds introduced by enhancement features
+            "stability_metrics",
+            "coherence_check",
+            "outcome_observation",
+            "policy_update",
+            "meta_policy_update",
         }
         binding_kinds = {
             "metric_check",

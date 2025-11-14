@@ -1,9 +1,9 @@
 # Project data and local ledgers
-.data/
-.evidence/
-*.db
-*.sqlite3
-pmm_diag_*.json
+# .data/
+# .evidence/
+# *.db
+# *.sqlite3
+# pmm_diag_*.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -85,5 +85,5 @@ Thumbs.db
 .ruff_cache/
 
 #Development TODOs
-TODOs/
+# TODOs/
 

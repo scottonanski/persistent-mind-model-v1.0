@@ -156,6 +156,97 @@ def export_session():
     else:
         telemetry.append("✅ **No hash continuity breaks detected.**\n")
 
+    # ============================================================
+    # 2b. Adaptive Projections & Metrics (Stability / Coherence / Policy)
+    # ============================================================
+    # Surface the latest stability/coherence metrics and adaptive policy events
+    # in a compact summary, to match the new subsystems.
+    latest_stability = None
+    latest_coherence = None
+    latest_policy_update = None
+    latest_meta_policy = None
+    for eid, ts, kind, content, meta, prev_hash, hsh in reversed(rows):
+        if kind == "stability_metrics" and latest_stability is None:
+            latest_stability = content
+        elif kind == "coherence_check" and latest_coherence is None:
+            latest_coherence = content
+        elif kind == "policy_update" and latest_policy_update is None:
+            latest_policy_update = content
+        elif kind == "meta_policy_update" and latest_meta_policy is None:
+            latest_meta_policy = content
+        if (
+            latest_stability
+            and latest_coherence
+            and latest_policy_update
+            and latest_meta_policy
+        ):
+            break
+
+    telemetry.append("\n## 🧩 Adaptive Metrics Snapshot\n\n")
+    if latest_stability:
+        try:
+            s = json.loads(latest_stability)
+        except Exception:
+            s = {}
+        telemetry.append("### Stability Metrics (latest)\n\n")
+        if isinstance(s, dict):
+            stability_score = s.get("stability_score")
+            telemetry.append(f"- **Stability Score:** `{stability_score}`\n")
+            telemetry.append(f"- **Window Size:** `{s.get('window_size')}`\n")
+            metrics = s.get("metrics") or {}
+            if isinstance(metrics, dict):
+                for key, val in metrics.items():
+                    telemetry.append(f"  - `{key}` = `{val}`\n")
+        else:
+            telemetry.append(f"- Raw content: `{latest_stability}`\n")
+        telemetry.append("\n")
+
+    if latest_coherence:
+        try:
+            c = json.loads(latest_coherence)
+        except Exception:
+            c = {}
+        telemetry.append("### Coherence Check (latest)\n\n")
+        if isinstance(c, dict):
+            telemetry.append(f"- **Coherence Score:** `{c.get('coherence_score')}`\n")
+            telemetry.append(
+                f"- **Resolution Needed:** `{c.get('resolution_needed')}`\n"
+            )
+            scope = c.get("scope") or []
+            if scope:
+                telemetry.append(f"- **Domains:** {', '.join(scope)}\n")
+            conflicts = c.get("conflicts") or []
+            telemetry.append(f"- **Conflicts:** `{len(conflicts)}`\n")
+        else:
+            telemetry.append(f"- Raw content: `{latest_coherence}`\n")
+        telemetry.append("\n")
+
+    if latest_policy_update:
+        telemetry.append("### Policy Update (latest)\n\n")
+        try:
+            p = json.loads(latest_policy_update)
+        except Exception:
+            p = {}
+        if isinstance(p, dict):
+            changes = p.get("changes") or {}
+            telemetry.append(f"- **Changes:** `{changes}`\n")
+        else:
+            telemetry.append(f"- Raw content: `{latest_policy_update}`\n")
+        telemetry.append("\n")
+
+    if latest_meta_policy:
+        telemetry.append("### Meta-Policy Update (latest)\n\n")
+        try:
+            mp = json.loads(latest_meta_policy)
+        except Exception:
+            mp = {}
+        if isinstance(mp, dict):
+            changes = mp.get("changes") or {}
+            telemetry.append(f"- **Meta Changes:** `{changes}`\n")
+        else:
+            telemetry.append(f"- Raw content: `{latest_meta_policy}`\n")
+        telemetry.append("\n")
+
     # Manifest for AI verification
     manifest = {
         "export_timestamp": now,

@@ -12,6 +12,29 @@ from pmm.core.event_log import EventLog
 from pmm.core.mirror import Mirror
 from pmm.core.commitment_manager import CommitmentManager
 from pmm.runtime.reflection_synthesizer import synthesize_kernel_reflection
+from pmm.context.context_graph import ContextGraph
+from pmm.stability.stability_monitor import (
+    calculate_stability_metrics,
+    build_stability_metrics_event_content,
+)
+from pmm.coherence.claim_parser import extract_all_claims
+from pmm.coherence.fragmentation_detector import detect_fragmentation
+from pmm.coherence.coherence_scorer import (
+    calculate_coherence_score,
+    build_coherence_check_content,
+)
+from pmm.learning.outcome_tracker import extract_outcome_observations
+from pmm.learning.learning_metrics import aggregate_outcomes
+from pmm.learning.policy_evolver import (
+    suggest_policy_changes,
+    build_policy_update_content,
+)
+from pmm.meta_learning.pattern_detector import detect_learning_patterns
+from pmm.meta_learning.efficiency_metrics import calculate_efficiency_metrics
+from pmm.meta_learning.optimization_engine import (
+    suggest_meta_policy_changes,
+    build_meta_policy_update_content,
+)
 
 
 def _last_event(events: List[Dict], kind: str) -> Optional[Dict]:
@@ -84,13 +107,27 @@ class AutonomyKernel:
         self._goal_state: Dict[str, Dict[str, int]] = {}
         self.commitment_manager = CommitmentManager(eventlog)
         self.mirror = Mirror(eventlog, enable_rsm=True, listen=True)
+        self.context_graph = ContextGraph(eventlog)
+        # Seed ContextGraph from existing events; future events are applied
+        # incrementally via the context listener.
+        self.context_graph.rebuild()
+        self._stability_window = 100
+        self._coherence_enabled = True
         self.active_gap_analysis_cid: Optional[str] = None
         # Listen for autonomy_thresholds config updates at runtime
         self.eventlog.register_listener(self._on_config_event)
+        # Listen for context events
+        self.eventlog.register_listener(self._on_context_event)
+        # Listen for meta-policy and policy updates
+        self.eventlog.register_listener(self._on_meta_policy_event)
+        self.eventlog.register_listener(self._on_policy_event)
         # Ensure immutable policy exists once
         self._ensure_policy_event()
         # Ensure retrieval config exists
         self._ensure_retrieval_config()
+        # Load subsystem configs (no-op if none exist)
+        self._load_stability_config()
+        self._load_coherence_config()
 
     def ensure_rule_table_event(self) -> None:
         """Record the kernel's rule table in the ledger exactly once."""
@@ -205,6 +242,91 @@ class AutonomyKernel:
         if changed:
             # Emit updated rule table (idempotent guard inside)
             self.ensure_rule_table_event()
+
+    def _on_meta_policy_event(self, event: Dict[str, Any]) -> None:
+        """Apply meta-policy updates to thresholds."""
+        if event.get("kind") != "meta_policy_update":
+            return
+        try:
+            data = json.loads(event.get("content") or "{}")
+        except Exception:
+            return
+        if not isinstance(data, dict) or "suggestions" not in data:
+            return
+        changed = False
+        for sugg in data["suggestions"]:
+            param = sugg.get("param")
+            change = sugg.get("suggested_change")
+            if param == "reflection_interval" and change in ("increase", "decrease"):
+                delta = 1 if change == "increase" else -1
+                new_val = max(
+                    5, min(100, self.thresholds["reflection_interval"] + delta)
+                )
+                if self.thresholds["reflection_interval"] != new_val:
+                    self.thresholds["reflection_interval"] = new_val
+                    changed = True
+        if changed:
+            self.ensure_rule_table_event()
+
+    def _on_policy_event(self, event: Dict[str, Any]) -> None:
+        """Apply policy updates (placeholder for future)."""
+        # For now, just log or adjust as needed; keep simple
+        pass
+
+    def _on_context_event(self, event: Dict[str, Any]) -> None:
+        """Listen for new events to update ContextGraph incrementally."""
+        self.context_graph.add_event(event)
+
+    def _current_stability_metrics(self) -> Dict[str, Any]:
+        """Compute current stability metrics (read-only)."""
+        return calculate_stability_metrics(self.eventlog, self._stability_window)
+
+    def _current_coherence_view(self) -> tuple[List, List, float]:
+        """Compute current coherence view (read-only)."""
+        claims = extract_all_claims(self.eventlog)
+        conflicts = detect_fragmentation(claims)
+        score = calculate_coherence_score(claims, conflicts)
+        return claims, conflicts, score
+
+    def _load_stability_config(self) -> None:
+        """Load stability config from ledger (no-op if none)."""
+        events = self.eventlog.read_all()
+        for e in reversed(events):
+            if e.get("kind") == "config":
+                try:
+                    data = json.loads(e.get("content") or "{}")
+                    if (
+                        isinstance(data, dict)
+                        and data.get("type") == "stability_monitor"
+                    ):
+                        # Update self._stability_window if present
+                        if (
+                            "window" in data
+                            and isinstance(data["window"], int)
+                            and data["window"] > 0
+                        ):
+                            self._stability_window = data["window"]
+                        break
+                except Exception:
+                    continue
+
+    def _load_coherence_config(self) -> None:
+        """Load coherence config from ledger (no-op if none)."""
+        events = self.eventlog.read_all()
+        for e in reversed(events):
+            if e.get("kind") == "config":
+                try:
+                    data = json.loads(e.get("content") or "{}")
+                    if (
+                        isinstance(data, dict)
+                        and data.get("type") == "coherence_monitor"
+                    ):
+                        # Update self._coherence_enabled if present
+                        if "enabled" in data and isinstance(data["enabled"], bool):
+                            self._coherence_enabled = data["enabled"]
+                        break
+                except Exception:
+                    continue
 
     def reflect(self, eventlog, meta_extra, staleness_threshold, auto_close_threshold):
         # Idempotent REF handling and deterministic reflection synthesis
@@ -614,7 +736,126 @@ class AutonomyKernel:
             meta={"source": "autonomy_kernel"},
         )
 
+    def _maybe_emit_stability_metrics(self) -> None:
+        """Emit stability_metrics when content changes."""
+        metrics = calculate_stability_metrics(self.eventlog, self._stability_window)
+        content = build_stability_metrics_event_content(metrics)
+        content_str = json.dumps(content, sort_keys=True, separators=(",", ":"))
+
+        # Find last stability_metrics
+        events = self.eventlog.read_all()[-200:]  # Bounded scan
+        last_stability = None
+        for e in reversed(events):
+            if e.get("kind") == "stability_metrics":
+                last_stability = e
+                break
+
+        # Idempotent: skip if identical
+        if last_stability and (last_stability.get("content") or "") == content_str:
+            return
+
+        self.eventlog.append(
+            kind="stability_metrics",
+            content=content_str,
+            meta={"source": "autonomy_kernel"},
+        )
+
+    def _maybe_emit_coherence_check(self) -> None:
+        """Emit coherence_check when content changes."""
+        if not self._coherence_enabled:
+            return
+
+        claims = extract_all_claims(self.eventlog)
+        conflicts = detect_fragmentation(claims)
+        content = build_coherence_check_content(claims, conflicts)
+        content_str = json.dumps(content, sort_keys=True, separators=(",", ":"))
+
+        # Find last coherence_check
+        events = self.eventlog.read_all()[-200:]  # Bounded scan
+        last_coherence = None
+        for e in reversed(events):
+            if e.get("kind") == "coherence_check":
+                last_coherence = e
+                break
+
+        # Idempotent: skip if identical
+        if last_coherence and (last_coherence.get("content") or "") == content_str:
+            return
+
+        self.eventlog.append(
+            kind="coherence_check",
+            content=content_str,
+            meta={"source": "autonomy_kernel"},
+        )
+
+    def _maybe_emit_meta_policy_update(self) -> None:
+        """Emit meta_policy_update when suggestions change."""
+        patterns = detect_learning_patterns(self.eventlog, window=500)
+        efficiency = calculate_efficiency_metrics(self.eventlog, patterns, window=500)
+        stability_metrics = self._current_stability_metrics()
+        stability_score = stability_metrics.get("stability_score", 1.0)
+        suggestions = suggest_meta_policy_changes(efficiency, stability_score)
+
+        if not suggestions or all(
+            s.suggested_change == "no_change" for s in suggestions
+        ):
+            return
+
+        content = build_meta_policy_update_content(suggestions)
+        content_str = json.dumps(content, sort_keys=True, separators=(",", ":"))
+
+        # Find last meta_policy_update
+        events = self.eventlog.read_all()[-200:]  # Bounded scan
+        last_meta = None
+        for e in reversed(events):
+            if e.get("kind") == "meta_policy_update":
+                last_meta = e
+                break
+
+        # Idempotent: skip if identical
+        if last_meta and (last_meta.get("content") or "") == content_str:
+            return
+
+        self.eventlog.append(
+            kind="meta_policy_update",
+            content=content_str,
+            meta={"source": "autonomy_kernel"},
+        )
+
+    def _maybe_emit_policy_update(self) -> None:
+        """Emit policy_update when suggestions change."""
+        observations = extract_outcome_observations(self.eventlog)
+        stats = aggregate_outcomes(observations)
+        suggestions = suggest_policy_changes(stats)
+
+        if not suggestions or all(
+            s.suggested_change == "no_change" for s in suggestions
+        ):
+            return
+
+        content = build_policy_update_content(suggestions)
+        content_str = json.dumps(content, sort_keys=True, separators=(",", ":"))
+
+        # Find last policy_update
+        events = self.eventlog.read_all()[-200:]  # Bounded scan
+        last_policy = None
+        for e in reversed(events):
+            if e.get("kind") == "policy_update":
+                last_policy = e
+                break
+
+        # Idempotent: skip if identical
+        if last_policy and (last_policy.get("content") or "") == content_str:
+            return
+
+        self.eventlog.append(
+            kind="policy_update",
+            content=content_str,
+            meta={"source": "autonomy_kernel"},
+        )
+
     def decide_next_action(self) -> KernelDecision:
+        """Decide the next autonomous action based on ledger state."""
         gaps = self.mirror.rsm_knowledge_gaps()
 
         # 1. OPEN GOAL IF NEEDED
@@ -667,12 +908,13 @@ class AutonomyKernel:
             and event.get("meta", {}).get("source") == "autonomy_kernel"
         ]
 
-        # Autonomous maintenance on each decision cycle
+        # Autonomous maintenance on each decision cycle (side-effect free
+        # with respect to decision semantics; metrics/telemetry emission is
+        # driven explicitly by runtime loops).
         self._maintain_embeddings()
         self._verify_recent_selections()
         self._maybe_append_checkpoint()
         self._maybe_tune_thresholds()
-        self._maybe_emit_autonomy_metrics()
 
         if (
             autonomy_reflections_since_summary
