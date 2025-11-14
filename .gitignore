@@ -84,6 +84,6 @@ Thumbs.db
 # Linters / tooling caches
 .ruff_cache/
 
-#Development TODOs
-TODOs/
-
+# Development TODOs
+docs/TODOs/
+docs/.evidence/
