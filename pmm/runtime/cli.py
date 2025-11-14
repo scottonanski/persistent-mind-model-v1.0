@@ -17,6 +17,12 @@ from pmm.core.ledger_metrics import (
 from pmm.core.commitment_manager import CommitmentManager
 from pmm.runtime.loop import RuntimeLoop
 from pmm.core.meme_graph import MemeGraph
+from pmm.core.semantic_extractor import (
+    extract_claims,
+    extract_commitments,
+    extract_closures,
+    extract_reflect,
+)
 from rich.console import Console
 from rich.theme import Theme
 from rich.table import Table
@@ -70,10 +76,20 @@ def _export_chat_session(elog: EventLog, format: str = "markdown") -> str:
                 lines.append(f"{content}\n\n")
             elif kind == "assistant_message":
                 # Filter out internal markers
-                _hidden = ("COMMIT:", "CLOSE:", "CLAIM:", "REFLECT:")
-                visible_lines = [
-                    ln for ln in content.splitlines() if not ln.startswith(_hidden)
-                ]
+                visible_lines = []
+                for ln in content.splitlines():
+                    if (
+                        extract_commitments([ln])
+                        or extract_closures([ln])
+                        or extract_reflect([ln]) is not None
+                    ):
+                        continue
+                    try:
+                        if extract_claims([ln]):
+                            continue
+                    except ValueError:
+                        pass
+                    visible_lines.append(ln)
                 visible_content = "\n".join(visible_lines).strip()
 
                 lines.append("## 🤖 Assistant\n")
@@ -97,10 +113,20 @@ def _export_chat_session(elog: EventLog, format: str = "markdown") -> str:
 
             # Filter assistant messages
             if kind == "assistant_message":
-                _hidden = ("COMMIT:", "CLOSE:", "CLAIM:", "REFLECT:")
-                visible_lines = [
-                    ln for ln in content.splitlines() if not ln.startswith(_hidden)
-                ]
+                visible_lines = []
+                for ln in content.splitlines():
+                    if (
+                        extract_commitments([ln])
+                        or extract_closures([ln])
+                        or extract_reflect([ln]) is not None
+                    ):
+                        continue
+                    try:
+                        if extract_claims([ln]):
+                            continue
+                    except ValueError:
+                        pass
+                    visible_lines.append(ln)
                 content = "\n".join(visible_lines).strip()
 
             export_data["messages"].append(
@@ -457,10 +483,20 @@ def main() -> None:  # pragma: no cover - thin wrapper
             if ai_msgs:
                 content = ai_msgs[-1].get("content") or ""
                 # Hide marker lines for conversational display
-                _hidden = ("COMMIT:", "CLOSE:", "CLAIM:", "REFLECT:")
-                visible_lines = [
-                    ln for ln in content.splitlines() if not ln.startswith(_hidden)
-                ]
+                visible_lines = []
+                for ln in content.splitlines():
+                    if (
+                        extract_commitments([ln])
+                        or extract_closures([ln])
+                        or extract_reflect([ln]) is not None
+                    ):
+                        continue
+                    try:
+                        if extract_claims([ln]):
+                            continue
+                    except ValueError:
+                        pass
+                    visible_lines.append(ln)
                 assistant_output = "\n".join(visible_lines).strip()
                 if assistant_output:
                     timestamp = datetime.now().strftime("%H:%M:%S")
@@ -468,9 +504,10 @@ def main() -> None:  # pragma: no cover - thin wrapper
                     console.print(f"[info][Assistant]:[/info] {assistant_output}\n")
                 # Optional badge: per-turn counts (derived deterministically from ledger)
                 # Count claims from this assistant message
-                claims = sum(
-                    1 for ln in content.splitlines() if ln.startswith("CLAIM:")
-                )
+                try:
+                    claims = len(extract_claims(content.splitlines()))
+                except ValueError:
+                    claims = 0
                 # Count commitment opens/closes since last_before_id
                 turn_events = [
                     e for e in events if int(e.get("id", 0)) > _last_before_id

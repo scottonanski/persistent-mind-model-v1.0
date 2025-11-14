@@ -10,7 +10,7 @@ No regex, no heuristics. Exact prefixes only.
 from __future__ import annotations
 
 import json
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 
 def extract_commitments(lines: List[str]) -> List[str]:
@@ -33,3 +33,20 @@ def extract_claims(lines: List[str]) -> List[Tuple[str, Dict]]:
             data = json.loads(raw)
             out.append((type_, data))
     return out
+
+
+def extract_closures(lines: List[str]) -> List[str]:
+    """Return CID texts for exact CLOSE: prefix lines."""
+    return [ln.split("CLOSE:", 1)[1].strip() for ln in lines if ln.startswith("CLOSE:")]
+
+
+def extract_reflect(lines: List[str]) -> Dict[str, Any] | None:
+    """Return parsed JSON for the first REFLECT: line, or None if none or invalid."""
+    for ln in lines:
+        if ln.startswith("REFLECT:"):
+            j = ln[len("REFLECT:") :]
+            try:
+                return json.loads(j)
+            except Exception:
+                return None
+    return None

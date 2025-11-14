@@ -18,7 +18,12 @@ from pmm.runtime.prompts import compose_system_prompt
 from pmm.runtime.reflection import TurnDelta, build_reflection_text
 from pmm.core.schemas import Claim
 from pmm.core.validators import validate_claim
-from pmm.core.semantic_extractor import extract_commitments, extract_claims
+from pmm.core.semantic_extractor import (
+    extract_commitments,
+    extract_claims,
+    extract_closures,
+    extract_reflect,
+)
 from pmm.commitments.binding import extract_exec_binds
 from pmm.runtime.context_builder import build_context, _last_retrieval_config
 from pmm.retrieval.vector import (
@@ -31,6 +36,7 @@ from pmm.retrieval.vector import (
 from pmm.runtime.bindings import ExecBindRouter
 from pmm.runtime.autonomy_supervisor import AutonomySupervisor
 from pmm.core.autonomy_tracker import AutonomyTracker
+from pmm.learning.outcome_tracker import build_outcome_observation_content
 import asyncio
 import threading
 import time
@@ -114,13 +120,9 @@ class RuntimeLoop:
         return extract_commitments(lines)
 
     def _extract_closures(self, text: str) -> List[str]:
-        cids: List[str] = []
-        for line in (text or "").splitlines():
-            if line.startswith("CLOSE:"):
-                candidate = line.split(":", 1)[1].strip()
-                if self._valid_cid(candidate):
-                    cids.append(candidate)
-        return cids
+        lines = (text or "").splitlines()
+        candidates = extract_closures(lines)
+        return [c for c in candidates if self._valid_cid(c)]
 
     @staticmethod
     def _valid_cid(cid: str) -> bool:
@@ -135,14 +137,8 @@ class RuntimeLoop:
         return bool((cid or "").strip())
 
     def _extract_reflect(self, text: str) -> Dict[str, Any] | None:
-        for line in (text or "").splitlines():
-            if line.startswith("REFLECT:"):
-                j = line[len("REFLECT:") :]
-                try:
-                    return json.loads(j)
-                except Exception:
-                    return None
-        return None
+        lines = (text or "").splitlines()
+        return extract_reflect(lines)
 
     def _extract_claims(self, text: str) -> List[Claim]:
         lines = (text or "").splitlines()
@@ -479,7 +475,7 @@ class RuntimeLoop:
                     lines = [
                         ln
                         for ln in (last_ai["content"] or "").splitlines()
-                        if not ln.strip().upper().startswith("COMMIT:")
+                        if not extract_commitments([ln.upper()])
                     ]
                     assistant_output = "\n".join(lines)
                     print(f"Assistant> {assistant_output}")
@@ -489,6 +485,10 @@ class RuntimeLoop:
     def run_tick(self, *, slot: int, slot_id: str) -> KernelDecision:
         if DEBUG:
             print(f"[AUTONOMY TICK] slot={slot} | id={slot_id}")
+        # Snapshot ledger before decision for outcome analysis
+        events_before = self.eventlog.read_all()
+        last_id_before = events_before[-1]["id"] if events_before else 0
+
         decision = self.autonomy.decide_next_action()
         if DEBUG:
             print(f" → DECISION: {decision.decision} | {decision.reasoning}")
@@ -533,4 +533,68 @@ class RuntimeLoop:
         if self.exec_router is not None:
             self.exec_router.tick()
 
+        # After executing the decision, emit per-tick outcome observation and
+        # invoke adaptive metrics/learning in the autonomy kernel.
+        events_after = self.eventlog.read_all()
+        self._emit_tick_outcome_and_adapt(
+            decision=decision,
+            last_id_before=last_id_before,
+            events_after=events_after,
+            slot=slot,
+            slot_id=slot_id,
+        )
+
         return decision
+
+    def _emit_tick_outcome_and_adapt(
+        self,
+        *,
+        decision: KernelDecision,
+        last_id_before: int,
+        events_after: List[Dict[str, Any]],
+        slot: int,
+        slot_id: str,
+    ) -> None:
+        """Emit outcome_observation for this autonomy tick and adapt."""
+        # Events that occurred as a result of this tick (including autonomy_tick)
+        events_since = [e for e in events_after if int(e.get("id", 0)) > last_id_before]
+
+        # Determine observed_result based on whether the intended action actually
+        # produced its corresponding ledger events.
+        observed_result = "success"
+        if decision.decision == "reflect":
+            has_reflection = any(
+                e.get("kind") == "reflection"
+                and (e.get("meta") or {}).get("source") == "autonomy_kernel"
+                for e in events_since
+            )
+            observed_result = "success" if has_reflection else "no_delta"
+        elif decision.decision == "summarize":
+            has_summary = any(e.get("kind") == "summary_update" for e in events_since)
+            observed_result = "success" if has_summary else "no_delta"
+
+        # Encode action_kind as autonomy_<decision> for learning metrics.
+        action_kind = f"autonomy_{decision.decision}"
+        commitment_id = ""
+        action_payload = f"decision={decision.decision}"
+        evidence_event_ids = [int(e.get("id", 0)) for e in events_since][-10:]
+
+        content_dict = build_outcome_observation_content(
+            commitment_id=commitment_id,
+            action_kind=action_kind,
+            action_payload=action_payload,
+            observed_result=observed_result,
+            evidence_event_ids=evidence_event_ids,
+        )
+        self.eventlog.append(
+            kind="outcome_observation",
+            content=json.dumps(content_dict, sort_keys=True, separators=(",", ":")),
+            meta={"source": "autonomy_kernel", "slot": slot, "slot_id": slot_id},
+        )
+
+        # Invoke adaptive telemetry/learning for this tick. These helpers are
+        # deterministic and idempotent over the ledger.
+        self.autonomy._maybe_emit_stability_metrics()
+        self.autonomy._maybe_emit_coherence_check()
+        self.autonomy._maybe_emit_meta_policy_update()
+        self.autonomy._maybe_emit_policy_update()

@@ -89,15 +89,15 @@ class MemeGraph:
 
     def _find_assistant_with_commit_text(self, text: str) -> int | None:
         target = (text or "").strip()
+        from pmm.core.semantic_extractor import extract_commitments
+
         for node in self.graph.nodes:
             if self.graph.nodes[node]["kind"] == "assistant_message":
                 full_event = self.eventlog.get(node)
                 content = full_event.get("content", "")
-                for line in content.splitlines():
-                    if line.startswith("COMMIT:"):
-                        remainder = line.split("COMMIT:", 1)[1].strip()
-                        if remainder == target:
-                            return node
+                commitments = extract_commitments(content.splitlines())
+                if target in commitments:
+                    return node
         return None
 
     def _find_commitment_open_by_cid(self, cid: str) -> int | None:

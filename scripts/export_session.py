@@ -90,9 +90,19 @@ def export_session():
                     "📊 **Metrics:**"
                     if "metrics" in kind
                     else (
-                        "🪞 **Reflection:**"
-                        if kind == "reflection"
-                        else "⚙️ **System:**"
+                        "🧩 **Coherence/Policy:**"
+                        if kind
+                        in {
+                            "coherence_check",
+                            "policy_update",
+                            "meta_policy_update",
+                            "stability_metrics",
+                        }
+                        else (
+                            "🪞 **Reflection:**"
+                            if kind == "reflection"
+                            else "⚙️ **System:**"
+                        )
                     )
                 )
             )
@@ -158,8 +168,60 @@ def export_session():
     else:
         md.append("✅ **No hash continuity breaks detected.**\n")
 
+    # Highlight latest adaptive metrics where available.
+    latest_stability = None
+    latest_coherence = None
+    latest_policy_update = None
+    latest_meta_policy = None
+    for eid, ts, kind, content, meta, prev_hash, hsh in reversed(rows):
+        if kind == "stability_metrics" and latest_stability is None:
+            latest_stability = content
+        elif kind == "coherence_check" and latest_coherence is None:
+            latest_coherence = content
+        elif kind == "policy_update" and latest_policy_update is None:
+            latest_policy_update = content
+        elif kind == "meta_policy_update" and latest_meta_policy is None:
+            latest_meta_policy = content
+        if (
+            latest_stability
+            and latest_coherence
+            and latest_policy_update
+            and latest_meta_policy
+        ):
+            break
+
+    md.append("\n### 🧩 Adaptive Metrics Snapshot\n\n")
+    if latest_stability:
+        try:
+            s = json.loads(latest_stability)
+        except Exception:
+            s = {}
+        if isinstance(s, dict):
+            md.append(f"- Latest stability_score: `{s.get('stability_score')}`\n")
+    if latest_coherence:
+        try:
+            c = json.loads(latest_coherence)
+        except Exception:
+            c = {}
+        if isinstance(c, dict):
+            md.append(f"- Latest coherence_score: `{c.get('coherence_score')}`\n")
+    if latest_policy_update:
+        try:
+            p = json.loads(latest_policy_update)
+        except Exception:
+            p = {}
+        if isinstance(p, dict):
+            md.append(f"- Latest policy changes: `{p.get('changes')}`\n")
+    if latest_meta_policy:
+        try:
+            mp = json.loads(latest_meta_policy)
+        except Exception:
+            mp = {}
+        if isinstance(mp, dict):
+            md.append(f"- Latest meta-policy changes: `{mp.get('changes')}`\n")
+
     # =====================
-    # Phase 3: Verification Manifest (JSON block)
+    # Phase 4: Verification Manifest (JSON block)
     # =====================
     # JSON-safe manifest with stable fields
     last_hash = rows[-1][6] if rows else ""

@@ -40,6 +40,31 @@ Per `CONTRIBUTING.md`, all enhancements must satisfy:
 
 ---
 
+## Implementation Guardrails (Aligned with CONTRIBUTING.md)
+
+This design report refines, but does **not** replace, the coding standards in `CONTRIBUTING.md`. All implementation work for these enhancements MUST treat `CONTRIBUTING.md` as the canonical source of truth for runtime behavior and testing.
+
+The key guardrails for implementing these features are:
+
+- **Structured COMMIT/CLAIM/REFLECT parsing**
+  - Route all COMMIT/CLAIM/REFLECT extraction through helpers in `pmm.core.semantic_extractor` (and any future structured parsers), never via ad‑hoc string scans in runtime code.
+  - Derive semantic tags and higher-level projections from structured outputs (`extract_commitments`, `extract_claims`, reflection parsers), not from `"COMMIT:" in content` or similar keyword checks.
+  - New schemas for COMMIT/CLAIM/REFLECT MUST use explicit JSON structures with canonical encoding/decoding, ensuring replay determinism.
+
+- **Autonomy integration without env/user gates**
+  - Wire new subsystems (learning, stability monitor, ContextGraph, coherence, meta‑learning) into the autonomy supervisor’s boot sequence so they start automatically.
+  - Express all tuning knobs as ledger `config` events, following the existing `AutonomyKernel` pattern, never as environment variables or hidden CLI toggles in runtime wiring.
+  - Any test-only overrides (e.g., constructor kwargs) MUST NOT introduce runtime behavior that cannot be reproduced from the ledger.
+
+- **Projection performance and integrity**
+  - Prefer a small number of listener-driven projections (e.g., `Mirror`, `ContextGraph`) that maintain incremental, idempotent state over the ledger, instead of multiple overlapping “partial mirrors.”
+  - For metrics and learning loops, use bounded windowed scans (e.g., `events[-N:]`) so per-event work remains O(1) or O(window), not O(total_ledger_size).
+  - Use deterministic caches keyed by the last processed event ID so replay-from-scratch and incremental runs produce bit-identical projections and stay within the per-event performance targets (< 0.01 ms/event).
+
+All new modules introduced by these enhancements MUST include direct tests asserting determinism, replay stability, and adherence to these guardrails, in addition to the requirements already enumerated in `CONTRIBUTING.md`.
+
+---
+
 ## Feature 1: Adaptive Learning Loops
 
 ### PMM Instance Request
@@ -133,21 +158,33 @@ src/pmm/learning/
   - `get_conversation_thread(thread_id)` → chronological event sequence
 
 #### 2.3 Deterministic Tagging
-**Problem**: How to assign semantic tags deterministically?
+**Problem**: How to assign semantic tags deterministically **without** violating the “no heuristics / no keyword matching” rule from `CONTRIBUTING.md`?
 
-**Solution**: Rule-based extraction from structured event content
+**Solution**: Route all COMMIT/CLAIM/REFLECT parsing through the existing semantic extractor helpers and derive tags from their structured outputs.
+
 ```python
+from pmm.core.semantic_extractor import extract_commitments, extract_claims
+
 def extract_semantic_tags(event: Event) -> List[str]:
-    tags = []
-    if "COMMIT:" in event.content:
+    tags: List[str] = []
+    lines = (event.content or "").splitlines()
+
+    # Commitments
+    if extract_commitments(lines):
         tags.append("commitment")
-    if "REFLECT:" in event.content:
-        tags.append("reflection")
-    if "CLAIM:" in event.content:
+
+    # Claims (typed, JSON-backed)
+    if extract_claims(lines):
         tags.append("claim")
-    # Parse structured JSON in REFLECT/CLAIM for deeper tags
+
+    # REFLECT blocks are structured separately; use their parser here
+    if has_reflection_block(event):  # Deterministic, non-regex helper
+        tags.append("reflection")
+
     return sorted(tags)  # Deterministic ordering
 ```
+
+All runtime code MUST avoid ad‑hoc checks like `startswith("COMMIT:")` or `"CLAIM:" in content` outside `pmm.core.semantic_extractor`. New COMMIT/CLAIM/REFLECT schemas MUST be defined as explicit JSON structures and parsed via typed helpers so behavior remains replayable and deterministic.
 
 #### 2.4 Implementation Path
 ```
@@ -557,15 +594,24 @@ The five enhancement features requested by the PMM instance are **feasible withi
 
 The proposed design preserves PMM's core identity as a **deterministic, auditable, autonomous system** while enabling the self-directed evolution capabilities the instance requested.
 
-**Next Steps**:
-1. Review this design with PMM maintainers
-2. Prototype `ContextGraph` projection (lowest risk, high value)
-3. Validate determinism with 1000-event replay tests
-4. Iterate based on real-world autonomy supervisor behavior
+**Implementation Status**:
+Features 1–5 have been implemented and integrated into `AutonomyKernel`:
+- **ContextGraph** (`pmm/context/`): Tracks thread/parent/child/contextual metadata.
+- **Stability Monitor** (`pmm/stability/`): Computes stability metrics from ledger.
+- **Coherence Subsystem** (`pmm/coherence/`): Detects conflicts, scores coherence.
+- **Learning Subsystem** (`pmm/learning/`): Tracks outcomes, suggests policy changes.
+- **Meta-Learning Subsystem** (`pmm/meta_learning/`): Analyzes patterns, suggests meta-policy adjustments.
+Autonomy integration (Phases 1–3): Telemetry emission (`stability_metrics`, `coherence_check`) and adaptive suggestions (`meta_policy_update`, `policy_update`) are wired into `AutonomyKernel.decide_next_action()`, with full determinism and ledger replayability.
+Validated via end-to-end tests ensuring no divergence on replay and bounded complexity.
+
+**Future Enhancements** (beyond current scope):
+1. Expand meta-policy suggestions to other thresholds (e.g., summary_interval).
+2. Implement outcome_observation emission in runtime loops.
+3. Add user-assisted reconciliation workflows for coherence conflicts.
 
 ---
 
-**Document Version**: 1.0  
+**Document Version**: 1.0 (Updated for Implementation)  
 **Author**: Design analysis based on PMM instance conversation (Event 3742)  
 **References**: 
 - `CONTRIBUTING.md` (PMM v2 architectural rules)
