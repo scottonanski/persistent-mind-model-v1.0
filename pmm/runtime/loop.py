@@ -267,7 +267,19 @@ class RuntimeLoop:
                     model=model,
                     dims=dims,
                 )
-            ctx_block = build_context_from_ids(events_full, ids, eventlog=self.eventlog)
+            # Graph-augmented expansion (deterministic, capped)
+            from pmm.retrieval.vector import expand_ids_via_graph
+
+            expanded_ids = expand_ids_via_graph(
+                base_ids=ids,
+                events=events_full,
+                eventlog=self.eventlog,
+                max_expanded=max(limit * 3, limit),
+            )
+
+            ctx_block = build_context_from_ids(
+                events_full, expanded_ids, eventlog=self.eventlog
+            )
             selection_ids, selection_scores = ids, scores
         else:
             # Fixed-window fallback

@@ -18,6 +18,7 @@ import json
 
 from pmm.core.event_log import EventLog
 from pmm.core.mirror import Mirror
+from pmm.core.meme_graph import MemeGraph
 from pmm.runtime.context_utils import (
     render_graph_context,
     render_identity_claims,
@@ -109,6 +110,44 @@ def select_by_vector(
     ids = [eid for (eid, _s) in top]
     scores = [float(f"{_s:.6f}") for (_eid, _s) in top]
     return ids, scores
+
+
+def expand_ids_via_graph(
+    *,
+    base_ids: List[int],
+    events: List[Dict],
+    eventlog: EventLog,
+    max_expanded: int = 32,
+) -> List[int]:
+    """Return a deterministic graph-expanded id list.
+
+    Strategy:
+    - rebuild MemeGraph from full event list
+    - for each base id (ascending), add its neighbors (both directions)
+    - keep ordering stable by sorting unique ids at the end
+    - cap total length to max_expanded
+    """
+    if not base_ids:
+        return []
+
+    mg = MemeGraph(eventlog)
+    mg.rebuild(events)
+
+    seen = set(int(eid) for eid in base_ids)
+    expanded: List[int] = list(sorted(seen))
+
+    for eid in sorted(seen):
+        neigh = mg.neighbors(eid, direction="both")
+        for n in neigh:
+            if n not in seen:
+                seen.add(n)
+                expanded.append(n)
+            if len(seen) >= max_expanded:
+                break
+        if len(seen) >= max_expanded:
+            break
+
+    return sorted(expanded)
 
 
 def build_context_from_ids(

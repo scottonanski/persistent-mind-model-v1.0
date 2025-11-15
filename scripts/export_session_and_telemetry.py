@@ -135,24 +135,18 @@ def export_session():
     telemetry.append("---\n")
 
     telemetry.append("## 📜 Event Summary\n\n")
-    telemetry.append("| ID | Kind | Meta Keys | Prev Hash | Hash |\n")
-    telemetry.append("|----|------|------------|-----------|------|\n")
+    telemetry.append("| ID | Kind | Meta Preview | Prev Hash | Hash |\n")
+    telemetry.append("|----|------|--------------|-----------|------|\n")
 
     for eid, ts, kind, content, meta, prev_hash, hsh in rows:
-        # truncate meta for readability
-        meta_display = (
-            meta.strip().replace("\n", " ")
-            if meta and meta.strip() not in ("{}", "null", "NULL")
-            else ""
-        )
-        if len(meta_display) > 500:
-            meta_display = meta_display[:500] + "…"
-        try:
-            meta_keys = list(json.loads(meta).keys()) if meta_display else []
-        except Exception:
-            meta_keys = []
+        # Single-line meta preview for readability (mirrors small_telemetry style)
+        meta_display = ""
+        if meta and meta.strip() not in ("{}", "null", "NULL"):
+            meta_str = meta.replace("\n", " ").replace("\r", " ").strip()
+            meta_display = meta_str[:300] + ("…" if len(meta_str) > 300 else "")
+
         telemetry.append(
-            f"| {eid} | {kind} | {', '.join(meta_keys) or '—'} | `{prev_hash or '∅'}` | `{hsh or '∅'}` |\n"
+            f"| {eid} | {kind} | {meta_display or '—'} | `{prev_hash or '∅'}` | `{hsh or '∅'}` |\n"
         )
 
     telemetry.append("\n## 📊 Statistics\n\n")

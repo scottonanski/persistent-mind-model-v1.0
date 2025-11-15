@@ -93,3 +93,31 @@ def test_add_event_idempotent():
 
     assert nodes1 == nodes2
     assert edges1 == edges2
+
+
+def test_neighbors_subgraph_and_frontier():
+    log = EventLog(":memory:")
+    create_sample_events(log)
+
+    meme = MemeGraph(log)
+    meme.rebuild(log.read_all())
+
+    # Neighbors around assistant_message (id=2)
+    neigh_both = meme.neighbors(2, direction="both")
+    # Expect links to user (1), commitment_open (3), reflection (5)
+    assert set(neigh_both) == {1, 3, 5}
+
+    # Neighbors filtered by kind
+    neigh_reflections = meme.neighbors(2, direction="both", kind="reflection")
+    assert neigh_reflections == [5]
+
+    # Subgraph for commitment cid
+    sub = meme.subgraph_for_cid("task1")
+    thread = meme.thread_for_cid("task1")
+    for eid in thread:
+        assert eid in sub
+
+    # Frontier should select recent nodes but return sorted ids
+    frontier = meme.recent_frontier(limit=3)
+    assert len(frontier) == 3
+    assert frontier == sorted(frontier)

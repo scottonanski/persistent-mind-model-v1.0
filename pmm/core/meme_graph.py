@@ -10,7 +10,7 @@ Append-only directed graph using NetworkX DiGraph.
 from __future__ import annotations
 
 import networkx as nx
-from typing import Dict, List
+from typing import Dict, List, Iterable, Literal, Optional, Set
 
 from .event_log import EventLog
 
@@ -121,6 +121,86 @@ class MemeGraph:
             "edges": int(self.graph.number_of_edges()),
             "counts_by_kind": kinds,
         }
+
+    def neighbors(
+        self,
+        event_id: int,
+        *,
+        direction: Literal["in", "out", "both"] = "both",
+        kind: Optional[str] = None,
+    ) -> List[int]:
+        """Return deterministic neighbor ids for an event.
+
+        - direction: "in", "out", or "both"
+        - kind: optional filter on neighbor node kind
+        """
+        if not self.graph.has_node(event_id):
+            return []
+
+        neigh: Set[int] = set()
+        if direction in ("out", "both"):
+            for succ in self.graph.successors(event_id):
+                neigh.add(int(succ))
+        if direction in ("in", "both"):
+            for pred in self.graph.predecessors(event_id):
+                neigh.add(int(pred))
+
+        if kind is not None:
+            neigh = {n for n in neigh if self.graph.nodes[n].get("kind") == kind}
+
+        return sorted(neigh)
+
+    def subgraph_for_cid(self, cid: str) -> List[int]:
+        """Return a stable list of event ids forming the commitment subgraph.
+
+        Includes:
+        - the canonical thread_for_cid() events
+        - direct neighbors (both directions) of those events
+        """
+        cid = (cid or "").strip()
+        if not cid:
+            return []
+        base = self.thread_for_cid(cid)
+        if not base:
+            return []
+
+        included: Set[int] = set(int(eid) for eid in base)
+        for eid in base:
+            for n in self.neighbors(eid, direction="both"):
+                included.add(int(n))
+
+        return sorted(included)
+
+    def recent_frontier(
+        self,
+        *,
+        limit: int = 32,
+        kinds: Optional[Iterable[str]] = None,
+    ) -> List[int]:
+        """Return a deterministic 'frontier' of recent, structurally relevant nodes.
+
+        Selection is purely ledger-ordered:
+        - start from highest event id
+        - optionally filter by node kind
+        - keep up to `limit` nodes
+        """
+        limit = max(1, int(limit))
+        if kinds is not None:
+            kind_set = {str(k) for k in kinds}
+        else:
+            kind_set = None
+
+        candidates: List[int] = []
+        # Nodes correspond 1:1 with ledger ids, so sort numerically.
+        for nid in sorted(self.graph.nodes, reverse=True):
+            if kind_set is not None:
+                k = self.graph.nodes[nid].get("kind")
+                if k not in kind_set:
+                    continue
+            candidates.append(int(nid))
+            if len(candidates) == limit:
+                break
+        return sorted(candidates)
 
     def thread_for_cid(self, cid: str) -> list[int]:
         """Return ordered event ids forming the thread for a commitment cid.
