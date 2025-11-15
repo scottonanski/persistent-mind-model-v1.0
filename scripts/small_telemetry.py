@@ -15,6 +15,20 @@ def sha256(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
 
+def _sql_literal(value: str | None) -> str:
+    """Render a Python string as a simple SQL literal for telemetry snippets.
+
+    This is intended for human/audit readability, not round‑trip exactness.
+    Newlines are compacted to spaces; single quotes are doubled.
+    """
+    if value is None:
+        return "NULL"
+    cleaned = value.replace("\n", " ").replace("\r", " ")
+    cleaned = cleaned.strip()
+    cleaned = cleaned.replace("'", "''")
+    return f"'{cleaned}'"
+
+
 def export_small():
     repo_root = Path(__file__).resolve().parent.parent
     db_path = repo_root / ".data" / "pmmdb" / "pmm.db"
@@ -29,7 +43,7 @@ def export_small():
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT id, ts, kind, meta, prev_hash, hash
+        SELECT id, ts, kind, content, meta, prev_hash, hash
         FROM events
         ORDER BY id DESC
         LIMIT 250
@@ -39,7 +53,8 @@ def export_small():
     conn.close()
 
     total = len(rows)
-    digest = sha256("".join(r[5] or "" for r in rows))
+    # r[6] = hash column in the SELECT above
+    digest = sha256("".join(r[6] or "" for r in rows))
     lines = [
         "# Persistent Mind Model — Small Telemetry Export",
         f"**Exported:** {now.replace('_',' ')} UTC",
@@ -50,7 +65,7 @@ def export_small():
         "|----|------|--------------|-----------|------|",
     ]
 
-    for eid, ts, kind, meta, prev_hash, hsh in rows:
+    for eid, ts, kind, content, meta, prev_hash, hsh in rows:
         preview = ""
         if meta and meta.strip() not in ("{}", "null", "NULL"):
             meta_str = meta.replace("\n", " ").strip()
@@ -58,6 +73,24 @@ def export_small():
         lines.append(
             f"| {eid} | {kind} | {preview or '—'} | `{prev_hash or '∅'}` | `{hsh or '∅'}` |"
         )
+
+    # Append a compact SQL-style view of the last few events for direct inspection.
+    lines.append("\n## 🔎 SQL Snippets (Last 10 Events)\n")
+    lines.append("```sql")
+    tail = rows[-10:] if len(rows) > 10 else rows
+    for eid, ts, kind, content, meta, prev_hash, hsh in tail:
+        ts_lit = _sql_literal(ts)
+        kind_lit = _sql_literal(kind)
+        content_lit = _sql_literal(content)
+        meta_lit = _sql_literal(meta)
+        prev_lit = _sql_literal(prev_hash)
+        hash_lit = _sql_literal(hsh)
+        lines.append(
+            "INSERT INTO events (id, ts, kind, content, meta, prev_hash, hash) "
+            f"VALUES({eid}, {ts_lit}, {kind_lit}, {content_lit}, "
+            f"{meta_lit}, {prev_lit}, {hash_lit});"
+        )
+    lines.append("```")
 
     lines.append("\n---\n_End of small telemetry export._\n")
 

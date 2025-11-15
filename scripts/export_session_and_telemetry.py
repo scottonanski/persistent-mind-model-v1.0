@@ -23,6 +23,20 @@ def sha256(data: str) -> str:
     return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
 
+def _sql_literal(value: str | None) -> str:
+    """Render a Python string as a simple SQL literal for telemetry snippets.
+
+    Intended for human-readable inspection; not an exact .dump re-encoder.
+    Newlines are compacted to spaces; single quotes are doubled.
+    """
+    if value is None:
+        return "NULL"
+    cleaned = value.replace("\n", " ").replace("\r", " ")
+    cleaned = cleaned.strip()
+    cleaned = cleaned.replace("'", "''")
+    return f"'{cleaned}'"
+
+
 def export_session():
     repo_root = Path(__file__).resolve().parent.parent
     db_path = repo_root / ".data" / "pmmdb" / "pmm.db"
@@ -155,6 +169,26 @@ def export_session():
             telemetry.append(f"- Event {eid}: expected `{prev}` but saw `{actual}`\n")
     else:
         telemetry.append("✅ **No hash continuity breaks detected.**\n")
+
+    # ============================================================
+    # 2a. SQL-style snippets for last few events
+    # ============================================================
+    telemetry.append("\n## 🔎 SQL Snippets (Last 10 Events)\n\n")
+    telemetry.append("```sql\n")
+    tail = rows[-10:] if len(rows) > 10 else rows
+    for eid, ts, kind, content, meta, prev_hash, hsh in tail:
+        ts_lit = _sql_literal(ts)
+        kind_lit = _sql_literal(kind)
+        content_lit = _sql_literal(content)
+        meta_lit = _sql_literal(meta)
+        prev_lit = _sql_literal(prev_hash)
+        hash_lit = _sql_literal(hsh)
+        telemetry.append(
+            "INSERT INTO events (id, ts, kind, content, meta, prev_hash, hash) "
+            f"VALUES({eid}, {ts_lit}, {kind_lit}, {content_lit}, "
+            f"{meta_lit}, {prev_lit}, {hash_lit});\n"
+        )
+    telemetry.append("```\n")
 
     # ============================================================
     # 2b. Adaptive Projections & Metrics (Stability / Coherence / Policy)
