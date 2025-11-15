@@ -12,6 +12,11 @@
 A deterministic, event-sourced cognitive architecture for persistent AI memory.
 No guesswork. No ephemeral state. Just raw, reconstructable thought.
 
+<br>
+
+📄 **White Paper (Draft):** See the detailed, publication-style description of PMM’s architecture, epistemology, and Echo case study in  
+[`file-exam/white-paper.md`](file-exam/white-paper.md).
+
 
 <br>
 
