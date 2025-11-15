@@ -211,8 +211,8 @@ Define the **open commitments** function $\mathcal{O} : E \rightarrow 2^{\text{C
 
 - Start with $\mathcal{O}_0 = \emptyset$.
 - For each event $e_i$ in order:
-  - If $\mathrm{kind}_i = \text{commitment\_open}$, then $\mathcal{O}_i = \mathcal{O}_{i-1} \cup \{\mathrm{cid}(e_i)\}$.
-  - If $\mathrm{kind}_i = \text{commitment\_close}$, then $\mathcal{O}_i = \mathcal{O}_{i-1} \setminus \{\mathrm{cid}(e_i)\}$.
+  - If `kind_i == "commitment_open"`, then $\mathcal{O}_i = \mathcal{O}_{i-1} \cup \{\mathrm{cid}(e_i)\}$.
+  - If `kind_i == "commitment_close"`, then $\mathcal{O}_i = \mathcal{O}_{i-1} \setminus \{\mathrm{cid}(e_i)\}$.
   - Otherwise, $\mathcal{O}_i = \mathcal{O}_{i-1}$.
 
 For a ledger $E = \langle e_1, \dots, e_n \rangle$, the set of open commitments at the tail is $\mathcal{O}(E) = \mathcal{O}_n$. This realizes the commitment lifecycle as a pure function of event ordering.
