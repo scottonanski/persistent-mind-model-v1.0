@@ -87,6 +87,15 @@ Reflections include graph density, enabling the autonomy kernel to:
 - Monitor complexity growth
 - Use graph metrics in decision-making
 
+In addition, the autonomy kernel now uses the MemeGraph structure directly to
+identify **stalled commitments**:
+- Open, non-internal commitments whose threads have not changed for more than
+  `commitment_staleness` events are treated as "stalled".
+- `decide_next_action()` prefers a `reflect` decision when stalled commitments
+  exist, and points its evidence at the relevant commitment thread. This keeps
+  attention focused on long-open intentions without introducing non-ledger
+  state.
+
 ## Example: Echo's Response
 
 When asked "Can you see your memegraph?", Echo responded:
@@ -105,6 +114,12 @@ Graph context appears in **both retrieval paths**:
 - ✓ Vector retrieval (when config events enable it)
 - ✓ Both paths show identical metadata structure
 
+Vector retrieval is now **graph-augmented**:
+- Top vector-selected message ids are expanded via MemeGraph neighbors
+  (both directions, deterministically capped) before context is built.
+- This keeps relevant commitment threads and nearby reflections together in the
+  prompt, improving coherence while remaining fully ledger-derived.
+
 Autonomy reflections now include:
 ```json
 {
@@ -122,6 +137,12 @@ PMM now exposes this structure to the model itself, enabling:
 - **Meta-cognitive reasoning**: "My thinking is becoming more interconnected"
 - **Pattern recognition**: "I create more edges per node when exploring new topics"
 - **Self-monitoring**: "This commitment thread is unusually deep"
+
+For human operators, the CLI also exposes structural views:
+- `/graph stats` shows node/edge counts and per-kind frequencies.
+- `/graph thread <CID>` prints the canonical commitment thread.
+- `/graph explain <CID>` prints the minimal subgraph (thread + neighbors)
+  that "explains" a commitment in terms of its local causal context.
 
 The graph was always there, tracking causality. Now the agent can **see it, reason about it, and use it for self-evolution**.
 

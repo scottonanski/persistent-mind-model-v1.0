@@ -11,6 +11,7 @@ import json
 from pmm.core.event_log import EventLog
 from pmm.core.mirror import Mirror
 from pmm.core.commitment_manager import CommitmentManager
+from pmm.core.meme_graph import MemeGraph
 from pmm.runtime.reflection_synthesizer import synthesize_kernel_reflection
 from pmm.context.context_graph import ContextGraph
 from pmm.stability.stability_monitor import (
@@ -996,6 +997,23 @@ class AutonomyKernel:
                 evidence=[last_event_id],
             )
 
+        # 3. Graph-aware attention: stalled commitments
+        stalled = self._stalled_commitments(events)
+        if stalled:
+            threshold = int(self.thresholds.get("commitment_staleness", 0))
+            primary = stalled[0]
+            thread_ids = [int(eid) for eid in primary.get("thread", [])][-10:]
+            if not thread_ids:
+                thread_ids = [last_event_id]
+            return KernelDecision(
+                decision="reflect",
+                reasoning=(
+                    f"{len(stalled)} stalled commitments "
+                    f"(age ≥ {threshold} events); prioritizing {primary['cid']}"
+                ),
+                evidence=thread_ids,
+            )
+
         return KernelDecision("idle", "no autonomous action needed", [])
 
     def _open_gap_commitments(self) -> List[Dict[str, Any]]:
@@ -1176,3 +1194,57 @@ class AutonomyKernel:
                 "reason": "rsm_stable",
             },
         )
+
+    def _stalled_commitments(
+        self, events: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Return info on open commitments whose threads appear stalled.
+
+        Staleness is measured as the difference between the last ledger event id
+        and the last event id in the commitment thread, using the configured
+        `commitment_staleness` threshold. Only non-internal commitments are
+        considered here; internal autonomy_kernel goals are handled separately.
+        """
+        if not events:
+            return []
+
+        open_events = self.commitment_manager.get_open_commitments()
+        if not open_events:
+            return []
+
+        mg = MemeGraph(self.eventlog)
+        mg.rebuild(events)
+        last_id = int(events[-1].get("id", 0))
+        try:
+            threshold = int(self.thresholds.get("commitment_staleness", 0))
+        except Exception:
+            threshold = 0
+        if threshold <= 0:
+            return []
+
+        stalled: List[Dict[str, Any]] = []
+        for ev in open_events:
+            meta = ev.get("meta") or {}
+            # Skip internal (autonomy_kernel) commitments
+            if meta.get("origin") == "autonomy_kernel":
+                continue
+            cid = (meta.get("cid") or "").strip()
+            if not cid:
+                continue
+            thread = mg.thread_for_cid(cid)
+            if not thread:
+                continue
+            last_thread_id = max(int(tid) for tid in thread)
+            age = last_id - last_thread_id
+            if age >= threshold:
+                stalled.append({"cid": cid, "age": age, "thread": thread})
+
+        # Deterministic ordering: sort by cid, then age, then thread length
+        stalled.sort(
+            key=lambda s: (
+                str(s.get("cid", "")),
+                int(s.get("age", 0)),
+                len(s.get("thread") or []),
+            )
+        )
+        return stalled

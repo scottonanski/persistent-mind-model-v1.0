@@ -9,6 +9,7 @@ from pmm.runtime.cli import (
     RSM_HELP_TEXT,
     handle_goals_command,
     handle_rsm_command,
+    handle_graph_command,
 )
 
 
@@ -90,3 +91,34 @@ def test_cli_goals_shows_mc_cid_and_goal():
 def test_goals_empty_when_none():
     log = EventLog(":memory:")
     assert handle_goals_command(log) == "No open internal goals. 0 closed."
+
+
+def _seed_graph_events(log: EventLog) -> None:
+    # Minimal graph with a commitment thread for CID "task1"
+    log.append(kind="user_message", content="hello", meta={"role": "user"})
+    log.append(
+        kind="assistant_message",
+        content="COMMIT: task1 hi",
+        meta={"role": "assistant"},
+    )
+    log.append(
+        kind="commitment_open",
+        content="Commitment opened: task1 hi",
+        meta={"source": "assistant", "cid": "task1", "text": "task1 hi"},
+    )
+    log.append(
+        kind="commitment_close",
+        content="Commitment closed: task1",
+        meta={"source": "assistant", "cid": "task1"},
+    )
+
+
+def test_graph_explain_returns_subgraph_for_cid():
+    log = EventLog(":memory:")
+    _seed_graph_events(log)
+
+    output = handle_graph_command("/graph explain task1", log)
+    assert output is not None
+    assert "Explanation for task1" in output
+    # Should include at least the commitment_open event line.
+    assert "commitment_open" in output

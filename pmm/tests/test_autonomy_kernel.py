@@ -117,3 +117,35 @@ def test_decision_replay_stability_no_side_effects():
     assert before == after
     assert d1.decision in {"idle", "reflect", "summarize"}
     assert d2.decision in {"idle", "reflect", "summarize"}
+
+
+def test_stalled_commitments_trigger_reflect_decision():
+    log = EventLog(":memory:")
+    # Seed metrics so decide_next_action can proceed past initial idle.
+    _append_metrics_turn(log)
+    # Configure a large reflection_interval so stalled commitments, not
+    # interval length, drive the reflect decision.
+    kernel = AutonomyKernel(log, thresholds={"reflection_interval": 1000})
+
+    # Open a general (non-internal) commitment that will become stale.
+    cid = kernel.commitment_manager.open_commitment("test stalled commitment")
+    assert cid
+
+    # Record an initial autonomy_kernel reflection so the kernel does not
+    # immediately reflect just because none exist yet.
+    log.append(
+        kind="reflection",
+        content='{"intent": "initial"}',
+        meta={"source": "autonomy_kernel"},
+    )
+
+    # Append enough events after the commitment thread to exceed the
+    # commitment_staleness threshold.
+    staleness = int(kernel.thresholds["commitment_staleness"])
+    for i in range(staleness + 1):
+        log.append(kind="user_message", content=f"msg {i}", meta={})
+
+    decision = kernel.decide_next_action()
+    assert decision.decision == "reflect"
+    assert "stalled commitments" in decision.reasoning
+    assert decision.evidence

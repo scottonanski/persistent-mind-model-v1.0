@@ -978,7 +978,21 @@ def handle_graph_command(command: str, eventlog: EventLog) -> Optional[str]:
             content = (ev.get("content") or "").splitlines()[0][:80]
             lines.append(f"[{eid}] {kind} | {content}")
         return "\n".join(lines)
-    return "Usage: /graph stats | /graph thread <CID>"
+    if len(parts) == 3 and parts[1].lower() == "explain":
+        cid = parts[2]
+        sub_ids = mg.subgraph_for_cid(cid)
+        if not sub_ids:
+            return f"No subgraph found for CID {cid}"
+        lines = [f"Explanation for {cid}:"]
+        for eid in sub_ids:
+            ev = eventlog.get(eid)
+            if not ev:
+                continue
+            kind = ev.get("kind")
+            content = (ev.get("content") or "").splitlines()[0][:80]
+            lines.append(f"[{eid}] {kind} | {content}")
+        return "\n".join(lines)
+    return "Usage: /graph stats | /graph thread <CID> | /graph explain <CID>"
 
 
 def _last_retrieval_config(eventlog: EventLog) -> Optional[Dict]:
