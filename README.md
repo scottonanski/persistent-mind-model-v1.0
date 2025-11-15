@@ -247,7 +247,7 @@ Both paths maintain determinism and respect the enforced policy.
 
 ## Complete LLM Transaction Flow in PMM
 
-Here's **exactly** what happens when a user sends a message, traced through the code:
+Here's **exactly** what happens when a user sends a message, traced through the runtime. Details are elaborated in [`file-exam/white-paper.md`](file-exam/white-paper.md).
 ## **Phase 1: Pre-LLM Processing**
 
 ### 1.1 User Input Logged to Ledger
@@ -255,8 +255,6 @@ Here's **exactly** what happens when a user sends a message, traced through the 
 **What happens**: User message is immediately written to the append-only ledger with SHA-256 hash chaining.
 
 ```python
-#pmm/runtime/loop.py#204:207
-
 # 1. Log user message
 user_event_id = self.eventlog.append(
     kind="user_message", content=user_input, meta={"role": "user"}
@@ -278,13 +276,11 @@ user_event_id = self.eventlog.append(
 5. **Internal goals** (autonomy kernel commitments)
 
 ```python
-#pmm/runtime/loop.py#222:285
-
 # 2. Build prompts
 history = self.eventlog.read_tail(limit=10)
 open_comms = self.mirror.get_open_commitment_events()
 
-# Deterministic retrieval: fixed (default) or vector (Phase 1)
+# Deterministic retrieval: fixed (default) or vector
 ctx_block = ""
 selection_ids: List[int] | None = None
 selection_scores: List[float] | None = None
@@ -312,7 +308,6 @@ system_prompt = f"{ctx_block}\n\n{base_prompt}" if ctx_block else base_prompt
   **Full System Message Structure**:
 
 ```python
-# pmm/adapters/openai_adapter.py#43:54
 resp = client.chat.completions.create(
     model=self.model,
     temperature=0,
@@ -392,8 +387,6 @@ Open commitments present.
 **No tool calls**. PMM doesn't use function calling. The LLM responds with structured text.
 
 ```python
-#pmm/adapters/openai_adapter.py#44:46
-
 model=self.model,
 temperature=0,
 top_p=1,
@@ -412,8 +405,6 @@ top_p=1,
 - If response is valid JSON with `intent`, `outcome`, `next`, `self_model` fields, it's also stored in normalized form in metadata
 
 ```python
-# pmm/runtime/loop.py#317:332
-
 # 4. Log assistant message (content preserved; optional structured meta)
 ai_meta: Dict[str, Any] = {"role": "assistant"}
 if structured_payload is not None:
@@ -438,8 +429,6 @@ ai_event_id = self.eventlog.append(
 #### 3.2a Commitments
 
 ```python
-#pmm/core/semantic_extractor.py#16:20
-
 def extract_commitments(lines: List[str]) -> List[str]:
     """Return commitment texts for exact COMMIT: prefix lines."""
     return [
@@ -449,8 +438,6 @@ def extract_commitments(lines: List[str]) -> List[str]:
 
   
 ```python
-#pmm/runtime/loop.py#404:408
-
 # 5. Commitments (open)
 for c in self._extract_commitments(assistant_reply):
     cid = self.commitments.open_commitment(c, source="assistant")
@@ -478,8 +465,6 @@ Extracted: ["implement authentication system", "write unit tests"]
 #### 3.2b Closures
 
 ```python
-#pmm/runtime/loop.py#116:123
-
 def _extract_closures(self, text: str) -> List[str]:
     cids: List[str] = []
     for line in (text or "").splitlines():
@@ -491,8 +476,6 @@ def _extract_closures(self, text: str) -> List[str]:
 ```
 
 ```python
-#pmm/runtime/loop.py#430:433
-
 # 7. Closures
 to_close = self._extract_closures(assistant_reply)
 actually_closed = self.commitments.apply_closures(to_close, source="assistant")
@@ -503,8 +486,6 @@ delta.closed.extend(actually_closed)
   **Claims are validated** against ledger state. Failed claims are tracked.
 
 ```python
-# pmm/core/semantic_extractor.py#23:35
-
 def extract_claims(lines: List[str]) -> List[Tuple[str, Dict]]:
     """Return (type, data) tuples for CLAIM:<type>=<json> lines.
     Raises ValueError on invalid JSON.
@@ -520,8 +501,6 @@ def extract_claims(lines: List[str]) -> List[Tuple[str, Dict]]:
 ```
 
 ```python
-# pmm/runtime/loop.py#414:428
-
 # 6. Claims
 for claim in self._extract_claims(assistant_reply):
     ok, _msg = validate_claim(claim, self.eventlog, self.mirror)
@@ -554,8 +533,6 @@ for claim in self._extract_claims(assistant_reply):
 - Graph statistics
 
 ```python
-# pmm/runtime/reflection_synthesizer.py#37:98
-
 events = eventlog.read_all()
 user = _last_by_kind(events, "user_message")
 assistant = _last_by_kind(events, "assistant_message")
@@ -623,8 +600,6 @@ return eventlog.append(kind="reflection", content=content, meta=meta)
 **Summary captures RSM state changes** for fast replay. Stored in metadata for checkpoint/resume.
 
 ```python
-# pmm/runtime/identity_summary.py#22:77
-
 def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
     """Append a deterministic identity summary when thresholds are met.
 
@@ -687,8 +662,6 @@ def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
   **Every turn logs**: provider, model, token counts, latency.
 
 ```python
-# pmm/runtime/loop.py#377:395
-
 # 4c. Per-turn diagnostics (deterministic formatting)
 prov = "dummy"
 cls = type(self.adapter).__name__.lower()
