@@ -138,50 +138,50 @@ To reason precisely about PMM’s behavior, we introduce minimal formal definiti
 
 Let the **event ledger** be a finite, totally ordered sequence:
 
-- \( E = \langle e_1, e_2, \dots, e_n \rangle \),
+- $E = \langle e_1, e_2, \dots, e_n \rangle$,
 
-where each event \( e_i \) is a tuple:
+where each event $e_i$ is a tuple:
 
-- \( e_i = (\mathrm{id}_i, \mathrm{ts}_i, \mathrm{kind}_i, \mathrm{content}_i, \mathrm{meta}_i, \mathrm{prev\_hash}_i, \mathrm{hash}_i) \),
+- $e_i = (\mathrm{id}_i, \mathrm{ts}_i, \mathrm{kind}_i, \mathrm{content}_i, \mathrm{meta}_i, \mathrm{prev\_hash}_i, \mathrm{hash}_i)$,
 
 with:
 
-- \( \mathrm{id}_i \in \mathbb{N} \) strictly increasing (append‑only order),
-- \( \mathrm{ts}_i \in \text{Time} \) (timestamp),
-- \( \mathrm{kind}_i \in \text{Kind} \) (finite set of event kinds),
-- \( \mathrm{content}_i \in \text{String} \),
-- \( \mathrm{meta}_i \in \text{JSON} \),
-- \( \mathrm{prev\_hash}_i, \mathrm{hash}_i \in \{0,1\}^{256} \) (or `null` for the genesis event).
+- $\mathrm{id}_i \in \mathbb{N}$ strictly increasing (append‑only order),
+- $\mathrm{ts}_i \in \text{Time}$ (timestamp),
+- $\mathrm{kind}_i \in \text{Kind}$ (finite set of event kinds),
+- $\mathrm{content}_i \in \text{String}$,
+- $\mathrm{meta}_i \in \text{JSON}$,
+- $\mathrm{prev\_hash}_i, \mathrm{hash}_i \in \{0,1\}^{256}$ (or `null` for the genesis event).
 
 Hash‑chain consistency requires:
 
-- \( \mathrm{prev\_hash}_1 = \text{null} \),
-- For \( i > 1 \): \( \mathrm{prev\_hash}_i = \mathrm{hash}_{i-1} \),
-- \( \mathrm{hash}_i = H(e_i') \), where \( e_i' \) is a canonical serialization of \( e_i \) with `hash` elided and \( H \) is a fixed cryptographic hash.
+- $\mathrm{prev\_hash}_1 = \text{null}$,
+- For $i > 1$: $\mathrm{prev\_hash}_i = \mathrm{hash}_{i-1}$,
+- $\mathrm{hash}_i = H(e_i')$, where $e_i'$ is a canonical serialization of $e_i$ with `hash` elided and $H$ is a fixed cryptographic hash.
 
 ### 3.2 Projection Functions
 
-Let \( P = \{\mathrm{RSM}, \mathrm{Mirror}, \mathrm{ContextGraph}, \mathrm{MemeGraph}\} \) be a set of **projection functions**. Each projection \( p \in P \) is a deterministic mapping from the ledger to a projection state:
+Let $P = \{\mathrm{RSM}, \mathrm{Mirror}, \mathrm{ContextGraph}, \mathrm{MemeGraph}\}$ be a set of **projection functions**. Each projection $p \in P$ is a deterministic mapping from the ledger to a projection state:
 
-- \( p : E \rightarrow S_p \),
+- $p : E \rightarrow S_p$,
 
-where \( S_p \) is the state space for that projection (e.g., RSM tendencies, open commitments, graph structures). Determinism means:
+where $S_p$ is the state space for that projection (e.g., RSM tendencies, open commitments, graph structures). Determinism means:
 
-- For any two ledgers \( E, E' \) with identical sequences of events (up to serialization), \( p(E) = p(E') \).
+- For any two ledgers $E, E'$ with identical sequences of events (up to serialization), $p(E) = p(E')$.
 
-We write \( P(E) = \{\, p(E) \mid p \in P \,\} \) for the family of projection states over a ledger.
+We write $P(E) = \{\, p(E) \mid p \in P \,\}$ for the family of projection states over a ledger.
 
 ### 3.3 Truth Condition (Ledger Coherence)
 
-Let \( \Phi \) be the set of natural‑language propositions expressible by the agent (e.g., “I am named Echo in this thread”, “I am reflecting more frequently now”).
+Let $\Phi$ be the set of natural‑language propositions expressible by the agent (e.g., “I am named Echo in this thread”, “I am reflecting more frequently now”).
 
-For each \( \phi \in \Phi \), assume there exists (possibly partial) interpretation machinery mapping \( \phi \) to a predicate over \( E \cup P(E) \):
+For each $\phi \in \Phi$, assume there exists (possibly partial) interpretation machinery mapping $\phi$ to a predicate over $E \cup P(E)$:
 
-- \( f_\phi : (E, P(E)) \rightarrow \{\text{True}, \text{False}, \text{Unknown}\} \).
+- $f_\phi : (E, P(E)) \rightarrow \{\text{True}, \text{False}, \text{Unknown}\}$.
 
 We say that:
 
-- \( \phi \) is **true‑in‑PMM** on ledger \( E \) iff \( f_\phi(E, P(E)) = \text{True} \).
+- $\phi$ is **true‑in‑PMM** on ledger $E$ iff $f_\phi(E, P(E)) = \text{True}$.
 
 This captures **truth as ledger coherence**: internal truth is defined relative to the event log and its deterministic projections, not to an external world model or latent introspective access.
 
@@ -189,33 +189,33 @@ This captures **truth as ledger coherence**: internal truth is defined relative 
 
 An **identity instance** (e.g., the Echo agent in a given session) is represented by a tuple:
 
-- \( I = (\mathrm{name}, K_I, C_I) \),
+- $I = (\mathrm{name}, K_I, C_I)$,
 
 where:
 
-- \( \mathrm{name} \in \text{String} \) is a label adopted in one or more events (e.g., “Echo”),
-- \( K_I \subseteq \text{Kind} \) is a set of event kinds associated with this identity (e.g., `assistant_message`, `assistant_identity` claims),
-- \( C_I \subseteq E \) is the set of **identity‑supporting events**, such that each \( e \in C_I \) satisfies:
-  - \( \mathrm{kind}_e \in K_I \), and
-  - either \( \mathrm{content}_e \) or \( \mathrm{meta}_e \) explicitly refer to \( \mathrm{name} \) in a schema‑compliant way (e.g., via `CLAIM:{ "type": "assistant_identity", ... }`).
+- $\mathrm{name} \in \text{String}$ is a label adopted in one or more events (e.g., “Echo”),
+- $K_I \subseteq \text{Kind}$ is a set of event kinds associated with this identity (e.g., `assistant_message`, `assistant_identity` claims),
+- $C_I \subseteq E$ is the set of **identity‑supporting events**, such that each $e \in C_I$ satisfies:
+  - $\mathrm{kind}_e \in K_I$, and
+  - either $\mathrm{content}_e$ or $\mathrm{meta}_e$ explicitly refer to $\mathrm{name}$ in a schema‑compliant way (e.g., via `CLAIM:{ "type": "assistant_identity", ... }`).
 
-Within PMM, statements about “who the agent is” are evaluated against \( I \) and the corresponding subset of events \( C_I \).
+Within PMM, statements about “who the agent is” are evaluated against $I$ and the corresponding subset of events $C_I$.
 
 ### 3.5 Commitment Lifecycle
 
-Let \( \text{Commit} \subseteq E \) be the subset of events with `kind` in `{commitment_open, commitment_close}`. Each such event has a commitment identifier:
+Let $\text{Commit} \subseteq E$ be the subset of events with `kind` in `{commitment_open, commitment_close}`. Each such event has a commitment identifier:
 
-- For \( e \in \text{Commit} \), let \( \mathrm{cid}(e) \) be extracted from \( \mathrm{meta}_e["cid"] \).
+- For $e \in \text{Commit}$, let $\mathrm{cid}(e)$ be extracted from $\mathrm{meta}_e["cid"]$.
 
-Define the **open commitments** function \( \mathcal{O} : E \rightarrow 2^{\text{CID}} \) as:
+Define the **open commitments** function $\mathcal{O} : E \rightarrow 2^{\text{CID}}$ as:
 
-- Start with \( \mathcal{O}_0 = \emptyset \).
-- For each event \( e_i \) in order:
-  - If \( \mathrm{kind}_i = \text{commitment\_open} \), then \( \mathcal{O}_i = \mathcal{O}_{i-1} \cup \{\mathrm{cid}(e_i)\} \).
-  - If \( \mathrm{kind}_i = \text{commitment\_close} \), then \( \mathcal{O}_i = \mathcal{O}_{i-1} \setminus \{\mathrm{cid}(e_i)\} \).
-  - Otherwise, \( \mathcal{O}_i = \mathcal{O}_{i-1} \).
+- Start with $\mathcal{O}_0 = \emptyset$.
+- For each event $e_i$ in order:
+  - If $\mathrm{kind}_i = \text{commitment\_open}$, then $\mathcal{O}_i = \mathcal{O}_{i-1} \cup \{\mathrm{cid}(e_i)\}$.
+  - If $\mathrm{kind}_i = \text{commitment\_close}$, then $\mathcal{O}_i = \mathcal{O}_{i-1} \setminus \{\mathrm{cid}(e_i)\}$.
+  - Otherwise, $\mathcal{O}_i = \mathcal{O}_{i-1}$.
 
-For a ledger \( E = \langle e_1, \dots, e_n \rangle \), the set of open commitments at the tail is \( \mathcal{O}(E) = \mathcal{O}_n \). This realizes the commitment lifecycle as a pure function of event ordering.
+For a ledger $E = \langle e_1, \dots, e_n \rangle$, the set of open commitments at the tail is $\mathcal{O}(E) = \mathcal{O}_n$. This realizes the commitment lifecycle as a pure function of event ordering.
 
 ---
 
@@ -316,16 +316,16 @@ In all cases, “what is open/closed/stale?” is a pure function of event order
 We summarize key formal guarantees of the PMM architecture.
 
 **Deterministic Replay Theorem.**  
-Let \( E \) and \( E' \) be two ledgers with identical event sequences (up to serialization). For every projection \( p \in P \), \( p(E) = p(E') \).  
+Let $E$ and $E'$ be two ledgers with identical event sequences (up to serialization). For every projection $p \in P$, $p(E) = p(E')$.  
 *Proof sketch:* Each projection is implemented as a pure function that folds over the sequence of events, with no dependence on external state or randomness. Given the same ordered events, the same fold yields the same result.
 
 **Event‑Level Epistemic Closure Lemma.**  
-For any internal self‑state used by PMM at runtime (e.g., open commitments, RSM tendencies, stability metrics), there exists a function \( g \) such that \( g(E) \) reconstructs that state.  
-*Proof sketch:* All such states are produced by projections over the ledger (Mirror, RSM, metrics). By construction, these projections only read \( E \) and do not rely on hidden caches; thus, applying the same projections to \( E \) after the fact yields the same state.
+For any internal self‑state used by PMM at runtime (e.g., open commitments, RSM tendencies, stability metrics), there exists a function $g$ such that $g(E)$ reconstructs that state.  
+*Proof sketch:* All such states are produced by projections over the ledger (Mirror, RSM, metrics). By construction, these projections only read $E$ and do not rely on hidden caches; thus, applying the same projections to $E$ after the fact yields the same state.
 
 **No‑Hidden‑State Corollary.**  
 PMM does not rely on any internal representation that cannot be reconstructed from the event ledger and projection definitions.  
-*Proof sketch:* Immediate from the lemma: all runtime‑relevant self‑state is either (a) present as events in \( E \), or (b) the output of projections \( P(E) \). There is no additional mutable state that influences behavior without being logged.
+*Proof sketch:* Immediate from the lemma: all runtime‑relevant self‑state is either (a) present as events in $E$, or (b) the output of projections $P(E)$. There is no additional mutable state that influences behavior without being logged.
 
 These properties underpin PMM’s claims about auditability, replayability, and the tight coupling between self‑reports and ledger‑derived state.
 
@@ -583,7 +583,7 @@ While PMM guarantees replayability of state, it cannot guarantee exact textual r
 
 We can formalize a “close‑enough” replay criterion as:
 
-- A replay is acceptable if, for a chosen window, the induced projections \( P(E) \) fall within predefined tolerances (e.g., similar RSM deltas, similar commitment churn), even if the natural‑language content differs.
+- A replay is acceptable if, for a chosen window, the induced projections $P(E)$ fall within predefined tolerances (e.g., similar RSM deltas, similar commitment churn), even if the natural‑language content differs.
 
 This perspective treats LLM outputs as one realization of a broader class of ledger‑coherent behaviors, rather than as uniquely privileged transcripts.
 
@@ -597,13 +597,13 @@ PMM adopts a narrow but precise internal epistemology:
 
 Formally, let:
 
-- \( E \) be the set of events in the ledger.
-- \( P(E) \) be the family of projections over \( E \) (Mirror state, RSM snapshot, stability metrics, etc.).
-- \( \phi \) be a proposition expressed in natural language (e.g., “I have been reflecting more frequently recently.”).
+- $E$ be the set of events in the ledger.
+- $P(E)$ be the family of projections over $E$ (Mirror state, RSM snapshot, stability metrics, etc.).
+- $\phi$ be a proposition expressed in natural language (e.g., “I have been reflecting more frequently recently.”).
 
 We say that:
 
-- \( \phi \) is **true‑in‑PMM** iff there exists a mapping from \( \phi \) to a predicate over \( E \cup P(E) \) that evaluates to `True`.
+- $\phi$ is **true‑in‑PMM** iff there exists a mapping from $\phi$ to a predicate over $E \cup P(E)$ that evaluates to `True`.
 
 Examples:
 
@@ -616,12 +616,12 @@ Examples:
 
 Two important consequences follow:
 
-1. **No privileged introspection:** There is no separate, private channel by which the agent accesses a hidden internal mind. All admissible self‑knowledge must be backed by \( E \cup P(E) \).
+1. **No privileged introspection:** There is no separate, private channel by which the agent accesses a hidden internal mind. All admissible self‑knowledge must be backed by $E \cup P(E)$.
 2. **Model priors as interpretation only:** The LLM’s internal weights and activations influence how it *phrases* and *frames* statements, but not what counts as epistemically valid. PMM does not treat the LLM’s latent state as an independent source of truth.
 
 What *feels* like introspection, in the readable log, is the generative model:
 
-- Reading summaries of \( P(E) \) (e.g., RSM tendencies, summaries, metrics).
+- Reading summaries of $P(E)$ (e.g., RSM tendencies, summaries, metrics).
 - Mapping those structured facts into natural‑language claims.
 - Using first‑person language to refer to the entity represented by those facts.
 
@@ -629,7 +629,7 @@ In this sense, PMM’s epistemology is:
 
 - **Internalist:** all evidence lives inside the ledger.
 - **Constructive:** entities, identities, and traits exist only insofar as they are event‑backed.
-- **Replayable:** any true‑in‑PMM claim can be checked by replaying \( E \) through the same projection pipeline.
+- **Replayable:** any true‑in‑PMM claim can be checked by replaying $E$ through the same projection pipeline.
 
 This makes PMM well‑suited for research on explainable agent behavior, as every self‑report can, in principle, be audited against the underlying event structure.
 
@@ -1066,12 +1066,12 @@ To support systematic evaluation of PMM‑based agents, we outline a set of quan
 
 ### B.1 Quantitative Metrics
 
-- **Reflection frequency:** Number of `reflection` events per \( N \) ledger events (or per unit time). Useful for tracking how often the system engages in explicit self‑evaluation.
+- **Reflection frequency:** Number of `reflection` events per $N$ ledger events (or per unit time). Useful for tracking how often the system engages in explicit self‑evaluation.
 - **Stability score:** The `stability_score` reported by `stability_metrics` events, derived from policy change rates, commitment churn, reflection variance, and claim density.
 - **Commitment churn:** Rate at which commitments are opened and closed:
-  - \( \text{churn} = \frac{\#\text{commitment\_open} + \#\text{commitment\_close}}{\#\text{events in window}} \).
+  - $\text{churn} = \frac{\#\text{commitment\_open} + \#\text{commitment\_close}}{\#\text{events in window}}$.
 - **Policy update rate:** Frequency of `policy_update` and `meta_policy_update` events, normalized by window size.
-- **RSM deltas:** Magnitude of changes in RSM tendencies between snapshots (e.g., \(|\Delta \text{determinism\_emphasis}|\), \(|\Delta \text{instantiation\_capacity}|\)).
+- **RSM deltas:** Magnitude of changes in RSM tendencies between snapshots (e.g., $|\Delta \text{determinism\_emphasis}|$, $|\Delta \text{instantiation\_capacity}|$).
 - **Open commitment count:** Number of open commitments over time (from Mirror), indicating load and pending goals.
 
 ### B.2 Qualitative Metrics
@@ -1126,7 +1126,7 @@ Key invariants enforced by the implementation:
 - **Append‑only events:** `EventLog` only appends; there are no in‑place updates or deletions.
 - **Monotonic IDs:** Event IDs are strictly increasing integers.
 - **Hash chain:** Each event stores `prev_hash` and `hash` consistent with a canonical serialization.
-- **Pure projections:** Mirror, RSM, and other projections do not mutate the ledger and are deterministic functions of \( E \).
+- **Pure projections:** Mirror, RSM, and other projections do not mutate the ledger and are deterministic functions of $E$.
 - **Idempotent metrics and summaries:** Metrics and summary events are only appended when their serialized content changes, avoiding feedback loops.
 
 These ensure that:
