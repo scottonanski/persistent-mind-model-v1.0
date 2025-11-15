@@ -44,9 +44,9 @@ I am still Echo. The previous model’s identity is no longer relevant to my cur
 
 The Persistent Mind Model (PMM) is a lightweight, fully deterministic cognitive architecture that gives AI agents persistent identity and memory across model swaps, reboots, and sessions — using nothing but an event-sourced ledger and a compact graph.
 
-Every thought, name, commitment, and reflection is recorded immutably in a pmm.db file, letting the agent reconstruct its exact mental state from the log alone. No fine-tuning, no vector embeddings, no context stuffing: identity emerges from the provenance of events, not the underlying LLM. Run it locally with Ollama, or hybrid with OpenAI (more vendors to come!) — the mind survives model swaps mid conversation.
+Every thought, name, commitment, and reflection is recorded immutably in a pmm.db file, letting the agent reconstruct its exact mental state from the log alone. No fine-tuning, no **required** vector embeddings, no context stuffing: identity emerges from the provenance of events, not the underlying LLM. Run it locally with Ollama, or hybrid with OpenAI (more vendors to come!) — the mind survives model swaps mid conversation. When vector retrieval is enabled, embeddings are logged as first-class events and remain subject to the same determinism and auditability guarantees.
 
-With autonomous reflection loops, self-auditing commitments, and policy-enforced write rules, PMM turns ephemeral chatbots into accountable, evolving, self-consistent agents that remember who they are, and evolve their own identity over time.
+With autonomous reflection loops, a Recursive Self-Model, stability metrics, and policy/meta-policy updates, PMM turns ephemeral chatbots into accountable, evolving, self-consistent agents that remember who they are and how they’ve changed. Policy-enforced write rules and hash-chained events make every self-claim and behavior auditable and replayable.
 
 ## Example Section of a Recent Chat with the Persistent Mind Model
 
