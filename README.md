@@ -1,6 +1,6 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![Model Agnostic](https://img.shields.io/badge/models-agnostic-green.svg)](https://github.com/scottonanski/persistent-mind-model-v1.0)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17620317.svg)](https://doi.org/10.5281/zenodo.17620317)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17620317.svg)](https://zenodo.org/records/17620317)
 
 ![Persistent Mind Model](pmm.png)
 
