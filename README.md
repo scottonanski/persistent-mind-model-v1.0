@@ -764,4 +764,4 @@ Admin surfaces expose state only; they do not gain write privileges. No manual p
 ## 📟 Citation
 
 Zenodo archive:
-[https://doi.org/10.5281/zenodo.17567446](https://doi.org/10.5281/zenodo.17567446)
+[https://doi.org/10.5281/zenodo.17567446](https://zenodo.org/records/17620317)
