@@ -4,6 +4,7 @@
 *.db
 *.sqlite3
 pmm_diag_*.json
+*.zip
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

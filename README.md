@@ -131,7 +131,7 @@ With autonomous reflection loops, a Recursive Self-Model, stability metrics, and
 
 * [Why PMM Matters](docs/03-WHY-PMM-MATTERS.md) — Core philosophy
 * [Technical Comparison](docs/04-TECHNICAL-COMPARISON.md) — vs. RAG, tuning, etc.
-* [GPT-oss:120b-cloud Proof](docs/06-GPT_oss-chat.md) — Telemetry + chat transcript (1,251 ledger events, GPT-oss:120b-cloud)
+* [GPT-5.1 Proof](docs/GPT-5.1-chat-proof.md) — Telemetry + chat transcript for the PMM-aware GPT-5.1 session
 
 🧠 **Key Insight**: Identity and continuity are emergent *from the log itself* — not from the model.
 
@@ -754,9 +754,8 @@ Admin surfaces expose state only; they do not gain write privileges. No manual p
 * [❓ Why PMM Matters](docs/03-WHY-PMM-MATTERS.md)
 * [🧪 Technical Comparison](docs/04-TECHNICAL-COMPARISON.md)
 * [🕸️ MemeGraph](docs/05-MEMEGRAPH-VISIBILITY.md)
-* [🧱 GPT-oss:120b-cloud Proof](docs/06-GPT_oss-chat.md)
-* [🧱 GPT-oss:120b-cloud Full Telemetry](docs/07-GPT_oss-Telemetry.md)
-* [🧱 GPT-oss:120b-cloud Smaller Telemetry](docs/08-GPT_oss-Smaller_Telemetry.md)
+* [🧱 GPT-5.1 Proof](docs/GPT-5.1-chat-proof.md)
+* [🧱 GPT-5.1 Full Telemetry](docs/GPT-5.1-telemetry.md)
 * [❓ Introspection Q Pack](docs/00-Persistent%20Mind%20Model%20-Question%20Pack-%28Introspection-Framework%29.md)
 
 <br>

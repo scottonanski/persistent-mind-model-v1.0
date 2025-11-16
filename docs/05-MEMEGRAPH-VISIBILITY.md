@@ -179,6 +179,6 @@ No ledger events are affected, so rollback is safe and clean.
 
 [PREV: Technical Comparison](04-TECHNICAL-COMPARISON.md)
 
-[NEXT: GPT-oss:120b-cloud Proof](06-GPT_oss-chat.md)
+[NEXT: GPT-5.1 Proof](GPT-5.1-chat-proof.md)
 
 [BACK TO README](../README.md)

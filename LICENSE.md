@@ -99,8 +99,8 @@ A self-referential identity engine that derives behavioral tendencies and self-m
 **3 — Deterministic Autonomy Loop**  
 A closed control cycle executing internal “ticks” that generate reflections and summaries without external input. Each tick reads the ledger, updates commitments, and logs its reasoning, yielding reproducible self-directed behavior and verifiable introspection.  
 
-**4 — Truth-Arbitration Engine**  
-PMM distinguishes *truth as correspondence* (empirical alignment) from *truth as coherence* (logical consistency) and resolves conflicts by ledger-verified evidence weighting and dynamic re-balancing of coherence scores.  
+**4 — Truth-Handling Mechanisms**  
+PMM distinguishes *truth as correspondence* (facts grounded in logged evidence) from *truth as coherence* (internal logical consistency). Coherence metrics (e.g., `coherence_check` events) inform policy and stability, but the authoritative record is the hash-chained ledger of events.  
 
 **5 — Commitment and Identity Ratchet**  
 Each commitment becomes a permanent identity element until explicitly closed. Revisions append new events without deletion, ensuring monotonic identity evolution and forensic traceability.  
