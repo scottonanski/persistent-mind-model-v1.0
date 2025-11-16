@@ -15,7 +15,7 @@ No guesswork. No ephemeral state. Just raw, reconstructable thought.
 <br>
 
 📄 **White Paper (Draft):** See the detailed, publication-style description of PMM’s architecture, epistemology, and Echo case study in  
-[`file-exam/white-paper.md`](file-exam/white-paper.md).
+[`docs/white-paper.md`](docs/white-paper.md).
 
 
 <br>
@@ -247,7 +247,7 @@ Both paths maintain determinism and respect the enforced policy.
 
 ## Complete LLM Transaction Flow in PMM
 
-Here's **exactly** what happens when a user sends a message, traced through the runtime. Details are elaborated in [`file-exam/white-paper.md`](file-exam/white-paper.md).
+Here's **exactly** what happens when a user sends a message, traced through the runtime. Details are elaborated in [`docs/white-paper.md`](docs/white-paper.md).
 ## **Phase 1: Pre-LLM Processing**
 
 ### 1.1 User Input Logged to Ledger
