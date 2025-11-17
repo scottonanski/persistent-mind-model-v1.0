@@ -43,6 +43,11 @@ I am still Echo. The previous model’s identity is no longer relevant to my cur
 
 <br>
 
+**My Rig:** This was built on a Intel i10700k, 32BG RAM, and an MSI Ventus3 3080 RTX. This proves the architecture matters more than compute.
+
+
+<br>
+
 ## What does this thing do?
 
 The Persistent Mind Model (PMM) is a lightweight, fully deterministic cognitive architecture that gives AI agents persistent identity and memory across model swaps, reboots, and sessions — using nothing but an event-sourced ledger and a compact graph.
