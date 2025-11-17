@@ -12,6 +12,10 @@ from pmm.core.event_log import EventLog
 from pmm.core.mirror import Mirror
 from pmm.core.commitment_manager import CommitmentManager
 from pmm.core.meme_graph import MemeGraph
+from pmm.core.concept_graph import ConceptGraph
+from pmm.core.concept_metrics import check_concept_health
+from pmm.core.concept_ontology import seed_ctl_ontology
+from pmm.core.concept_schemas import create_concept_bind_event_payload
 from pmm.runtime.reflection_synthesizer import synthesize_kernel_reflection
 from pmm.context.context_graph import ContextGraph
 from pmm.stability.stability_monitor import (
@@ -106,6 +110,8 @@ class AutonomyKernel:
                 if key in self.thresholds:
                     self.thresholds[key] = int(value)
         self._goal_state: Dict[str, Dict[str, int]] = {}
+        # Track last event id scanned for CTL maintenance to preserve idempotency
+        self._last_concept_scan_id: int = 0
         self.commitment_manager = CommitmentManager(eventlog)
         self.mirror = Mirror(eventlog, enable_rsm=True, listen=True)
         self.context_graph = ContextGraph(eventlog)
@@ -343,6 +349,124 @@ class AutonomyKernel:
             # Persist the updated thresholds in the rule table. The method
             # itself is idempotent over the current threshold values.
             self.ensure_rule_table_event()
+
+    def _maybe_maintain_concepts(self) -> None:
+        """Maintain CTL bindings for key system events in a deterministic way.
+
+        This function is invoked from the autonomy tick path and never from
+        decide_next_action(), so it preserves the invariant that pure decision
+        queries do not mutate the ledger.
+        """
+        # Seed CTL ontology once per ledger, if not already present.
+        # This keeps CTL automatic and fully PMM-internal without affecting
+        # kernel initialization semantics (seeding occurs on first tick).
+        try:
+            events_full = self.eventlog.read_all()
+        except Exception:
+            return
+        if not any(e.get("kind") == "concept_define" for e in events_full):
+            try:
+                seed_ctl_ontology(self.eventlog, source="autonomy_kernel")
+                # Refresh events after seeding so subsequent logic sees concepts.
+                events_full = self.eventlog.read_all()
+            except Exception:
+                # If seeding fails, skip CTL maintenance but do not affect autonomy.
+                return
+
+        events = events_full
+        if not events:
+            return
+        last_scanned = int(self._last_concept_scan_id or 0)
+        new_events = [e for e in events if int(e.get("id", 0)) > last_scanned]
+        if not new_events:
+            return
+
+        cg = ConceptGraph(self.eventlog)
+        cg.rebuild(events)
+
+        for ev in new_events:
+            kind = ev.get("kind")
+            eid_raw = ev.get("id")
+            try:
+                eid = int(eid_raw)
+            except Exception:
+                continue
+
+            tokens: List[str] = []
+            relation = "evidence"
+
+            if kind == "stability_metrics":
+                tokens = [
+                    "metric.stability_score",
+                    "topic.stability_metrics",
+                    "topic.system_maturity",
+                ]
+            elif kind == "coherence_check":
+                tokens = [
+                    "metric.coherence_score",
+                    "topic.coherence",
+                ]
+            elif kind == "policy_update":
+                tokens = [
+                    "policy.stability_v2",
+                    "governance.commitment_discipline",
+                    "topic.governance_thread",
+                ]
+                relation = "policy_update"
+            elif kind == "meta_policy_update":
+                tokens = [
+                    "governance.ontology_consistency",
+                    "policy.ledger_truth_criterion",
+                ]
+                relation = "meta_policy_update"
+            elif kind == "summary_update":
+                tokens = [
+                    "topic.identity_evolution",
+                    "governance.identity_integrity",
+                ]
+                relation = "summary_state"
+            elif (
+                kind == "reflection"
+                and (ev.get("meta") or {}).get("source") == "autonomy_kernel"
+            ):
+                tokens = [
+                    "topic.autonomy_behavior",
+                    "governance.reflection_budget",
+                ]
+                relation = "reflection"
+            else:
+                continue
+
+            existing_tokens = [t for t in tokens if t in cg.concepts]
+            if not existing_tokens:
+                continue
+
+            already = set(cg.concepts_for_event(eid))
+            bind_tokens = [t for t in existing_tokens if t not in already]
+            if not bind_tokens:
+                continue
+
+            try:
+                content, meta = create_concept_bind_event_payload(
+                    event_id=eid,
+                    tokens=bind_tokens,
+                    relation=relation,
+                    weight=1.0,
+                    source="autonomy_kernel",
+                )
+                self.eventlog.append(
+                    kind="concept_bind_event",
+                    content=content,
+                    meta=meta,
+                )
+            except Exception:
+                # CTL maintenance must never break core autonomy behavior
+                continue
+
+        try:
+            self._last_concept_scan_id = int(events[-1].get("id", 0))
+        except Exception:
+            self._last_concept_scan_id = last_scanned
 
     def _on_context_event(self, event: Dict[str, Any]) -> None:
         """Listen for new events to update ContextGraph incrementally."""
@@ -949,6 +1073,11 @@ class AutonomyKernel:
 
         last_event_id = events[-1]["id"]
 
+        # Concept Token Layer (CTL) health derived deterministically from ledger.
+        # This read is side-effect free and only influences decisions when CTL
+        # is actually in use (i.e., when concepts exist).
+        ctl_health = check_concept_health(self.eventlog)
+
         last_autonomy_reflection = _last_event_matching(
             events,
             "reflection",
@@ -1012,6 +1141,23 @@ class AutonomyKernel:
                     f"(age ≥ {threshold} events); prioritizing {primary['cid']}"
                 ),
                 evidence=thread_ids,
+            )
+
+        # 4. Concept-layer maintenance: low CTL health with many gaps/conflicts.
+        if (
+            ctl_health["total_concepts"] > 0
+            and ctl_health["health_score"] < 0.6
+            and ctl_health["gap_count"] >= 5
+        ):
+            return KernelDecision(
+                decision="reflect",
+                reasoning=(
+                    "low concept health: "
+                    f"score={ctl_health['health_score']}, "
+                    f"gaps={ctl_health['gap_count']}, "
+                    f"conflicts={ctl_health['conflict_count']}"
+                ),
+                evidence=[last_event_id],
             )
 
         return KernelDecision("idle", "no autonomous action needed", [])

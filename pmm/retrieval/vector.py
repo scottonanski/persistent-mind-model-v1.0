@@ -24,6 +24,7 @@ from pmm.runtime.context_utils import (
     render_identity_claims,
     render_internal_goals,
     render_rsm,
+    render_concept_context,
 )
 
 
@@ -155,7 +156,7 @@ def build_context_from_ids(
 ) -> str:
     """Build context from selected event IDs with metadata blocks.
 
-    Includes RSM, goals, and graph context when eventlog is provided,
+    Includes RSM, goals, graph context, and concept context when eventlog is provided,
     matching the behavior of fixed-window context building.
     """
     # Order chronologically for readability
@@ -179,10 +180,17 @@ def build_context_from_ids(
     rsm_block = render_rsm(snapshot)
     goals_block = render_internal_goals(eventlog)
     graph_block = render_graph_context(eventlog)
+    concept_block = render_concept_context(eventlog, limit=5)
 
     extras = "\n".join(
         section
-        for section in (identity_block, rsm_block, goals_block, graph_block)
+        for section in (
+            identity_block,
+            rsm_block,
+            goals_block,
+            graph_block,
+            concept_block,
+        )
         if section
     )
     if body and extras:
@@ -294,3 +302,48 @@ def ensure_embedding_for_event(
         event_id=event_id, text=text, model=model, dims=dims
     )
     eventlog.append(kind="embedding_add", content=content, meta={})
+
+
+def select_by_concepts(
+    *,
+    concept_tokens: List[str],
+    concept_graph,
+    events: List[Dict],
+    limit: int = 10,
+    relation: str | None = None,
+) -> List[int]:
+    """Return event IDs seeded by concept tokens via ConceptGraph.
+
+    Deterministic concept-aware retrieval:
+    1. For each concept token, get bound event IDs from ConceptGraph
+    2. Merge and deduplicate event IDs
+    3. Sort by recency (descending) and cap to limit
+    4. Return deterministic, stable list
+
+    Args:
+        concept_tokens: List of concept tokens to seed retrieval
+        concept_graph: ConceptGraph instance (must be synced with events)
+        events: Full event list for validation
+        limit: Maximum number of event IDs to return
+        relation: Optional relation filter (e.g., "exemplifies", "discusses")
+
+    Returns:
+        Sorted list of event IDs (most recent first, capped to limit)
+    """
+    if not concept_tokens:
+        return []
+
+    # Collect all event IDs bound to these concepts
+    event_ids: set[int] = set()
+    for token in concept_tokens:
+        # Resolve aliases to canonical tokens
+        canonical = concept_graph.canonical_token(token)
+        # Get bound events for this concept
+        bound = concept_graph.events_for_concept(canonical, relation=relation)
+        event_ids.update(bound)
+
+    # Validate against actual events and sort by recency
+    valid_ids = [eid for eid in event_ids if any(e.get("id") == eid for e in events)]
+    # Sort descending (most recent first), then cap
+    valid_ids.sort(reverse=True)
+    return valid_ids[:limit]

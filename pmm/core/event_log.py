@@ -104,6 +104,12 @@ class EventLog:
             "outcome_observation",
             "policy_update",
             "meta_policy_update",
+            # Concept Token Layer (CTL) event kinds
+            "concept_define",
+            "concept_alias",
+            "concept_bind_event",
+            "concept_relate",
+            "concept_state_snapshot",
         }
         binding_kinds = {
             "metric_check",

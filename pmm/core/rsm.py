@@ -10,6 +10,7 @@ import json
 from typing import Any, Deque, Dict, Iterable, List, Optional, Tuple
 
 from .event_log import EventLog
+from .concept_metrics import compute_concept_metrics
 
 
 class RecursiveSelfModel:
@@ -151,12 +152,21 @@ class RecursiveSelfModel:
 
     def snapshot(self) -> Dict[str, Any]:
         """Return serialized snapshot for reflections or diagnostics."""
+        # Concept-level metrics are derived deterministically from the ledger.
+        concept_metrics: Dict[str, Any] = {}
+        if self.eventlog is not None:
+            try:
+                concept_metrics = compute_concept_metrics(self.eventlog)
+            except Exception:
+                # RSM snapshot must remain robust even if CTL is unused or misconfigured.
+                concept_metrics = {}
         return {
             "behavioral_tendencies": dict(self.behavioral_tendencies),
             "knowledge_gaps": list(self.knowledge_gaps),
             "interaction_meta_patterns": list(self.interaction_meta_patterns),
             "intents": dict(self._gap_counts),
             "reflections": [{"intent": i} for i in self.reflection_intents],
+            "concept_metrics": concept_metrics,
         }
 
     def load_snapshot(self, snapshot: Dict[str, Any]) -> None:

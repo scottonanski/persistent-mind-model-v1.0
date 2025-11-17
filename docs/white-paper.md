@@ -264,6 +264,7 @@ PMM never stores hidden state. Instead, it computes projections as pure function
     - `intents` and `reflections` (intents extracted from `reflection` events).
 - **ContextGraph** (`pmm/context/context_graph.py`) builds threads, parent/child links, and semantic tags from structured markers.
 - **MemeGraph** (`pmm/core/meme_graph.py`) constructs a causal graph and summary statistics (nodes, edges, counts by kind).
+- **Concept Token Layer (CTL)** (`pmm/core/concept_graph.py`, `pmm/core/concept_ontology.py`) defines a stable ontology of semantic tokens (identity, policy, governance, topic, ontology) and binds key system events (e.g., `stability_metrics`, `coherence_check`, `policy_update`, `summary_update`, autonomy reflections) to those concepts via `concept_bind_event`. CTL is maintained automatically by the autonomy loop and is fully reconstructable from the ledger.
 
 These structures are periodically serialized into `summary_update` and `meta_summary` events, making them visible to the LLM.
 

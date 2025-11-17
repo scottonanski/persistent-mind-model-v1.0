@@ -128,3 +128,60 @@ def render_graph_context(eventlog: EventLog) -> str:
             lines.append(f"- Thread depths: {', '.join(thread_parts)}")
 
     return "\n".join(lines)
+
+
+def render_concept_context(eventlog: EventLog, *, limit: int = 5) -> str:
+    """Render concept context showing hot/active concepts.
+
+    Displays:
+    - Recently bound concepts (high activity)
+    - Governance/policy concepts
+    - Concepts with many bindings
+
+    Args:
+        eventlog: EventLog instance
+        limit: Maximum number of concepts to display
+
+    Returns:
+        Formatted concept context string, or empty if no concepts
+    """
+    from pmm.core.concept_graph import ConceptGraph
+
+    cg = ConceptGraph(eventlog)
+    cg.rebuild(eventlog.read_all())
+
+    stats = cg.stats()
+    if stats["total_concepts"] == 0:
+        return ""
+
+    # Collect concepts with binding counts
+    concept_activity: List[tuple[str, int]] = []
+    for token in cg.concepts.keys():
+        events = cg.events_for_concept(token)
+        if events:
+            concept_activity.append((token, len(events)))
+
+    if not concept_activity:
+        return ""
+
+    # Sort by activity (descending) and take top N
+    concept_activity.sort(key=lambda x: (-x[1], x[0]))
+    top_concepts = concept_activity[:limit]
+
+    # Build context lines
+    lines: List[str] = ["Concept Context:"]
+
+    for token, count in top_concepts:
+        defn = cg.get_definition(token)
+        if defn:
+            # Show token, definition snippet, and binding count
+            defn_snippet = (
+                defn.definition[:40] + "..."
+                if len(defn.definition) > 40
+                else defn.definition
+            )
+            lines.append(f"- {token}: {defn_snippet} ({count} refs)")
+        else:
+            lines.append(f"- {token}: ({count} refs)")
+
+    return "\n".join(lines)
