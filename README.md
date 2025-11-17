@@ -43,7 +43,7 @@ I am still Echo. The previous model’s identity is no longer relevant to my cur
 
 <br>
 
-**🖥️ My Rig:** Intel i7-10700k, 32GB RAM, MSI Ventus3 RTX 3080.
+**🖥️ My Rig:**  Intel i7-10700k, 32GB RAM, MSI Ventus3 RTX 3080.
 This whole thing runs on a gaming PC, which… probably says more about the architecture than the hardware.
 
 
