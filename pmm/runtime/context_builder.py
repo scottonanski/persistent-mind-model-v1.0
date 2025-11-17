@@ -10,6 +10,7 @@ from typing import List
 from pmm.core.event_log import EventLog
 from pmm.core.mirror import Mirror
 from pmm.runtime.context_utils import (
+    render_concept_context,
     render_graph_context,
     render_identity_claims,
     render_internal_goals,
@@ -65,10 +66,17 @@ def build_context(eventlog: EventLog, limit: int = 5) -> str:
     rsm_block = render_rsm(snapshot)
     goals_block = render_internal_goals(eventlog)
     graph_block = render_graph_context(eventlog) if not tail else ""
+    concept_block = render_concept_context(eventlog, limit=5)
 
     extras = "\n".join(
         section
-        for section in (identity_block, rsm_block, goals_block, graph_block)
+        for section in (
+            identity_block,
+            rsm_block,
+            goals_block,
+            graph_block,
+            concept_block,
+        )
         if section
     )
     if body and extras:

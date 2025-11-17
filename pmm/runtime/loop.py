@@ -285,7 +285,10 @@ class RuntimeLoop:
             )
 
             ctx_block = build_context_from_ids(
-                events_full, expanded_ids, eventlog=self.eventlog
+                events_full,
+                expanded_ids,
+                eventlog=self.eventlog,
+                concept_graph=self.concept_graph,
             )
             selection_ids, selection_scores = ids, scores
         else:

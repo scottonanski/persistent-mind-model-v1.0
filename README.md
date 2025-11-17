@@ -289,7 +289,9 @@ selection_ids: List[int] | None = None
 selection_scores: List[float] | None = None
 if retrieval_cfg and retrieval_cfg.get("strategy") == "vector":
     # ... vector retrieval logic ...
-    ctx_block = build_context_from_ids(events_full, ids, eventlog=self.eventlog)
+    ctx_block = build_context_from_ids(
+        events_full, ids, eventlog=self.eventlog, concept_graph=self.concept_graph
+    )
     selection_ids, selection_scores = ids, scores
 else:
     # Fixed-window fallback

@@ -6,11 +6,14 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from pmm.core.commitment_manager import CommitmentManager
 from pmm.core.event_log import EventLog
 from pmm.core.meme_graph import MemeGraph
+
+if TYPE_CHECKING:
+    from pmm.core.concept_graph import ConceptGraph
 
 
 def render_identity_claims(eventlog: EventLog) -> str:
@@ -130,7 +133,12 @@ def render_graph_context(eventlog: EventLog) -> str:
     return "\n".join(lines)
 
 
-def render_concept_context(eventlog: EventLog, *, limit: int = 5) -> str:
+def render_concept_context(
+    eventlog: EventLog,
+    *,
+    limit: int = 5,
+    concept_graph: Optional["ConceptGraph"] = None,
+) -> str:
     """Render concept context showing hot/active concepts.
 
     Displays:
@@ -147,8 +155,11 @@ def render_concept_context(eventlog: EventLog, *, limit: int = 5) -> str:
     """
     from pmm.core.concept_graph import ConceptGraph
 
-    cg = ConceptGraph(eventlog)
-    cg.rebuild(eventlog.read_all())
+    if concept_graph is not None:
+        cg = concept_graph
+    else:
+        cg = ConceptGraph(eventlog)
+        cg.rebuild(eventlog.read_all())
 
     stats = cg.stats()
     if stats["total_concepts"] == 0:

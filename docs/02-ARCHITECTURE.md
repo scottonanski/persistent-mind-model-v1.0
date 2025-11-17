@@ -33,7 +33,7 @@ The Persistent Mind Model (PMM) is an event‑sourced architecture that treats a
 - Runtime Loop: the turn engine that reads state, invokes the model, applies policies, and appends new events.
 - Recursive Self‑Model (RSM): reflection layer that summarizes tendencies, knowledge gaps, and identity; updated by replay.
 - Event Graph (aka MemeGraph): causal links between events (e.g., replies_to, comments_on, closes), keeping threads traceable over time. When vector retrieval is active, the resulting graph statistics may appear in the system prompt so the model is aware of structural context (see [MemeGraph Visibility](05-MEMEGRAPH-VISIBILITY.md)).
-- Concept Token Layer (CTL): a concept graph built over semantic tokens (e.g., identity, policy, governance, topic concepts) that are automatically defined once per ledger and bound to events by the autonomy loop. CTL is fully rebuildable from `concept_define`, `concept_bind_event`, and `concept_relate` events and is used to track high‑level notions like system maturity, autonomy behavior, and governance threads.
+- Concept Token Layer (CTL): a concept graph built over semantic tokens (e.g., identity, policy, governance, topic concepts) that are automatically defined once per ledger and bound to events by the autonomy loop. CTL is fully rebuildable from `concept_define`, `concept_bind_event`, and `concept_relate` events and is maintained incrementally in the runtime loop while remaining rebuildable on demand for context rendering. It is used to track high‑level notions like system maturity, autonomy behavior, and governance threads.
 
 Entities derived from replay:
 - Belief: derived knowledge/convictions reconstructed from events and summaries.

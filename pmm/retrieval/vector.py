@@ -19,6 +19,7 @@ import json
 from pmm.core.event_log import EventLog
 from pmm.core.mirror import Mirror
 from pmm.core.meme_graph import MemeGraph
+from pmm.core.concept_graph import ConceptGraph
 from pmm.runtime.context_utils import (
     render_graph_context,
     render_identity_claims,
@@ -152,7 +153,11 @@ def expand_ids_via_graph(
 
 
 def build_context_from_ids(
-    events: List[Dict], ids: List[int], *, eventlog: EventLog | None = None
+    events: List[Dict],
+    ids: List[int],
+    *,
+    eventlog: EventLog | None = None,
+    concept_graph: ConceptGraph | None = None,
 ) -> str:
     """Build context from selected event IDs with metadata blocks.
 
@@ -180,7 +185,9 @@ def build_context_from_ids(
     rsm_block = render_rsm(snapshot)
     goals_block = render_internal_goals(eventlog)
     graph_block = render_graph_context(eventlog)
-    concept_block = render_concept_context(eventlog, limit=5)
+    concept_block = render_concept_context(
+        eventlog, limit=5, concept_graph=concept_graph
+    )
 
     extras = "\n".join(
         section
