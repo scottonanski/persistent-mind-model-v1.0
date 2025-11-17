@@ -627,5 +627,6 @@ class RuntimeLoop:
         self.autonomy._maybe_emit_meta_policy_update()
         self.autonomy._maybe_emit_policy_update()
         # Maintain CTL bindings as part of autonomy maintenance, keeping CTL
-        # fully automatic and PMM-internal.
-        self.autonomy._maybe_maintain_concepts()
+        # fully automatic and PMM-internal while reusing the shared
+        # ConceptGraph projection instead of rebuilding from scratch.
+        self.autonomy._maybe_maintain_concepts(events_after, self.concept_graph)

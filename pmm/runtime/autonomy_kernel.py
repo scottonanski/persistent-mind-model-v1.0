@@ -350,7 +350,9 @@ class AutonomyKernel:
             # itself is idempotent over the current threshold values.
             self.ensure_rule_table_event()
 
-    def _maybe_maintain_concepts(self) -> None:
+    def _maybe_maintain_concepts(
+        self, events: List[Dict[str, Any]], concept_graph: ConceptGraph
+    ) -> None:
         """Maintain CTL bindings for key system events in a deterministic way.
 
         This function is invoked from the autonomy tick path and never from
@@ -360,29 +362,19 @@ class AutonomyKernel:
         # Seed CTL ontology once per ledger, if not already present.
         # This keeps CTL automatic and fully PMM-internal without affecting
         # kernel initialization semantics (seeding occurs on first tick).
-        try:
-            events_full = self.eventlog.read_all()
-        except Exception:
-            return
-        if not any(e.get("kind") == "concept_define" for e in events_full):
+        if not any(e.get("kind") == "concept_define" for e in events):
             try:
                 seed_ctl_ontology(self.eventlog, source="autonomy_kernel")
-                # Refresh events after seeding so subsequent logic sees concepts.
-                events_full = self.eventlog.read_all()
             except Exception:
                 # If seeding fails, skip CTL maintenance but do not affect autonomy.
                 return
 
-        events = events_full
         if not events:
             return
         last_scanned = int(self._last_concept_scan_id or 0)
         new_events = [e for e in events if int(e.get("id", 0)) > last_scanned]
         if not new_events:
             return
-
-        cg = ConceptGraph(self.eventlog)
-        cg.rebuild(events)
 
         for ev in new_events:
             kind = ev.get("kind")
@@ -437,11 +429,11 @@ class AutonomyKernel:
             else:
                 continue
 
-            existing_tokens = [t for t in tokens if t in cg.concepts]
+            existing_tokens = [t for t in tokens if t in concept_graph.concepts]
             if not existing_tokens:
                 continue
 
-            already = set(cg.concepts_for_event(eid))
+            already = set(concept_graph.concepts_for_event(eid))
             bind_tokens = [t for t in existing_tokens if t not in already]
             if not bind_tokens:
                 continue
