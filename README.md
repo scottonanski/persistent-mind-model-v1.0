@@ -43,7 +43,8 @@ I am still Echo. The previous model’s identity is no longer relevant to my cur
 
 <br>
 
-**My Rig:** This was built on a Intel i10700k, 32BG RAM, and an MSI Ventus3 3080 RTX. This proves the architecture matters more than compute.
+**🖥️ My Rig:** Intel i7-10700k, 32GB RAM, MSI Ventus3 RTX 3080.
+This whole thing runs on a gaming PC, which… probably says more about the architecture than the hardware.
 
 
 <br>
