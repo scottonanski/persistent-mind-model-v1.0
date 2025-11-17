@@ -12,10 +12,7 @@ from typing import Any, Dict, List, Optional
 from pmm.core.event_log import EventLog
 from pmm.core.mirror import Mirror
 from pmm.core.meme_graph import MemeGraph
-from pmm.runtime.autonomy_kernel import AutonomyKernel, KernelDecision
 from pmm.core.commitment_manager import CommitmentManager
-from pmm.runtime.prompts import compose_system_prompt
-from pmm.runtime.reflection import TurnDelta, build_reflection_text
 from pmm.core.schemas import Claim
 from pmm.core.validators import validate_claim
 from pmm.core.semantic_extractor import (
@@ -24,7 +21,12 @@ from pmm.core.semantic_extractor import (
     extract_closures,
     extract_reflect,
 )
+from pmm.core.concept_graph import ConceptGraph
+from pmm.core.concept_ops_compiler import compile_assistant_message_concepts
 from pmm.commitments.binding import extract_exec_binds
+from pmm.runtime.autonomy_kernel import AutonomyKernel, KernelDecision
+from pmm.runtime.prompts import compose_system_prompt
+from pmm.runtime.reflection import TurnDelta, build_reflection_text
 from pmm.runtime.context_builder import build_context, _last_retrieval_config
 from pmm.retrieval.vector import (
     select_by_vector,
@@ -61,6 +63,11 @@ class RuntimeLoop:
         # wire event listeners
         self.eventlog.register_listener(self.mirror.sync)
         self.eventlog.register_listener(self.memegraph.add_event)
+        # ConceptGraph projection for CTL (rebuildable and listener-backed)
+        self.concept_graph = ConceptGraph(eventlog)
+        # Seed from existing events (if any), then listen for updates
+        self.concept_graph.rebuild()
+        self.eventlog.register_listener(self.concept_graph.sync)
         self.commitments = CommitmentManager(eventlog)
         self.adapter = adapter
         self.replay = replay
@@ -338,6 +345,15 @@ class RuntimeLoop:
             content=assistant_reply,
             meta=ai_meta,
         )
+        # Compile any structured CTL concept_ops from this assistant message.
+        # This is deterministic and no-op when concept_ops is absent.
+        assistant_event = self.eventlog.get(ai_event_id)
+        if assistant_event is not None:
+            compile_assistant_message_concepts(
+                self.eventlog,
+                self.concept_graph,
+                assistant_event,
+            )
         # If vector retrieval, append embedding for assistant message (idempotent)
         if retrieval_cfg and retrieval_cfg.get("strategy") == "vector":
             model = str(retrieval_cfg.get("model", "hash64"))
@@ -610,3 +626,6 @@ class RuntimeLoop:
         self.autonomy._maybe_emit_coherence_check()
         self.autonomy._maybe_emit_meta_policy_update()
         self.autonomy._maybe_emit_policy_update()
+        # Maintain CTL bindings as part of autonomy maintenance, keeping CTL
+        # fully automatic and PMM-internal.
+        self.autonomy._maybe_maintain_concepts()

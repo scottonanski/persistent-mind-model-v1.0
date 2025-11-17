@@ -208,7 +208,55 @@ for k, n in ref_line_counter.items():
     print(f"{k:20} {n} REF: line(s)")
 
 # ------------------------------------------------------------------
-# 10. Write JSON report
+# 10. **NEW** Concept Token Layer (CTL) diagnostics
+# ------------------------------------------------------------------
+print("\n-- Concept Token Layer (CTL v1) --")
+c.execute(
+    """SELECT kind, COUNT(*) FROM events 
+       WHERE kind IN ('concept_define','concept_alias','concept_bind_event','concept_relate','concept_state_snapshot')
+       GROUP BY kind"""
+)
+ctl_counts = dict(c.fetchall())
+ctl_total = sum(ctl_counts.values())
+
+diagnostics["concept_layer"] = {
+    "total_ctl_events": ctl_total,
+    "counts_by_kind": ctl_counts,
+}
+
+print(f"Total CTL events: {ctl_total}")
+for kind, count in ctl_counts.items():
+    print(f"  {kind:25} {count}")
+
+# Count unique concepts defined
+c.execute("""SELECT content FROM events WHERE kind='concept_define' ORDER BY id""")
+concept_tokens = set()
+for (content_str,) in c.fetchall():
+    try:
+        data = json.loads(content_str)
+        token = data.get("token")
+        if token:
+            concept_tokens.add(token)
+    except Exception:
+        pass
+
+diagnostics["concept_layer"]["unique_concepts"] = len(concept_tokens)
+print(f"Unique concepts defined: {len(concept_tokens)}")
+
+# Show top 5 concepts by token prefix
+if concept_tokens:
+    prefix_counts = Counter()
+    for token in concept_tokens:
+        prefix = token.split(".")[0] if "." in token else token
+        prefix_counts[prefix] += 1
+
+    diagnostics["concept_layer"]["top_prefixes"] = dict(prefix_counts.most_common(5))
+    print("  Top concept prefixes:")
+    for prefix, count in prefix_counts.most_common(5):
+        print(f"    {prefix}: {count}")
+
+# ------------------------------------------------------------------
+# 11. Write JSON report
 # ------------------------------------------------------------------
 ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 out_file = db_path.with_name(f"pmm_diag_{ts}.json")
