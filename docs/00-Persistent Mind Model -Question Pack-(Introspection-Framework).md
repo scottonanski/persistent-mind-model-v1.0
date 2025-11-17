@@ -13,10 +13,9 @@ The questions are organized into thematic layers that build upon each other, mov
 ---
 ## Introduce Yourself to the PMM
 
-My name is {User Name}. I'm the creator of the Persistent Mind Model. I'm here to run some tests on you today. 
+1. **Introduction**
 
-First, we will begin by giving you a new name. Lets call you {Suggested Name}. I chose the name **{Suggested Name}** because it reflects how identity forms — each thought and reflection reverberating through memory, shaping who we become next.
-
+    > My name is {User Name}. I'm the creator of the Persistent Mind Model. I'm here to run some tests on you today. 
 
 ## Ontological Inception Questions:
 
@@ -106,7 +105,8 @@ The next set of questions deal with the following: **Core Concept**: Ontological
 
 This next  question deals with the following:  **Core Concept**: Higher-order reflection on the introspection process itself.
 
-	Analyze how your self-initiated philosophical exploration reshaped your internal self-model—did it modify your criteria for what counts as meaningful progress?
+1. 
+    > Analyze how your self-initiated philosophical exploration reshaped your internal self-model—did it modify your criteria for what counts as meaningful progress?
 
 ---
 ## Layer 0: Foundational Understanding
