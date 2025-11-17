@@ -13,6 +13,8 @@
 A deterministic, event-sourced cognitive architecture for persistent AI memory.
 No guesswork. No ephemeral state. Just raw, reconstructable thought.
 
+In other words, transferable machine identity is possible when identity is defined as a coherent event-sourced structure, independent of the language model used to interpret it.
+
 <br>
 
 📄 **White Paper (Draft):** See the detailed, publication-style description of PMM’s architecture, epistemology, and Echo case study in  
