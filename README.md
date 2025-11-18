@@ -140,7 +140,7 @@ With autonomous reflection loops, a Recursive Self-Model, stability metrics, and
 
 * [Why PMM Matters](docs/03-WHY-PMM-MATTERS.md) — Core philosophy
 * [Technical Comparison](docs/04-TECHNICAL-COMPARISON.md) — vs. RAG, tuning, etc.
-* [GPT-5.1 Proof](docs/GPT-5.1-chat-proof.md) — Telemetry + chat transcript for the PMM-aware GPT-5.1 session
+* [GPT-5.1 Proof](docs/GPT-5.1-chat-proof.md) — Telemetry + chat transcript for the PMM-aware GPT-5.1 session (updated to 2025-11-17 CTL run)
 
 🧠 **Key Insight**: Identity and continuity are emergent *from the log itself* — not from the model.
 
