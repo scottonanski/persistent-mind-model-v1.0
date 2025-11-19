@@ -193,7 +193,7 @@ In-chat commands:
 | `/rsm [id \| diff <a> <b>]` | Inspect or diff the Recursive Self-Model snapshot |
 | `/graph stats` | Show MemeGraph statistics |
 | `/graph thread <CID>` | Render the thread for a specific commitment |
-| `/config retrieval fixed limit <N>` | Set fixed-window retrieval limits |
+| `/config retrieval fixed limit <N>` | Configure Hybrid CTL+Graph retrieval without vector search (recency-bounded) |
 | `/rebuild-fast` | Verify the fast RSM rebuild path |
 | `/pm …` | Admin namespace (graph, retrieval, checkpoint, config) |
 | `/raw` | Show the last assistant message including control markers |
@@ -270,41 +270,76 @@ user_event_id = self.eventlog.append(
 )
 ```
 
-### 1.2 Context Building (State Reconstruction)
+### 1.2 Context Building (Hybrid Retrieval + CTL)
 
-**What gets built**:
+**What gets built** (the 4-section context block):
 
-1. **Recent conversation history** (last N messages from ledger)
+1. **CTL Story (Concepts)**  active concept tokens and their definitions/relations from the Concept Token Layer.
 
-2. **Recursive Self-Model snapshot** (behavioral tendencies, knowledge gaps)
+2. **Threads / Projects**  relevant commitment threads via MemeGraph, annotated with CTL concepts.
 
-3. **Open commitments** (from ledger state)
+3. **State & Self-Model**  identity claims, Recursive Self-Model snapshot, and open commitments from the Mirror.
 
-4. **Graph context** (meme graph structure if ≥5 nodes)
+4. **Evidence Window**  chronological raw events backing the above sections.
 
-5. **Internal goals** (autonomy kernel commitments)
+All four sections are produced by a **deterministic Hybrid Retrieval pipeline** that combines:
+
+- Concept seeding from user input + retrieval config (CTL)
+- Thread expansion via MemeGraph
+- Optional vector search when the retrieval strategy is `vector`
 
 ```python
-# 2. Build prompts
+# 2. Build prompts (Hybrid CTL + Graph + Vector pipeline)
 history = self.eventlog.read_tail(limit=10)
 open_comms = self.mirror.get_open_commitment_events()
+retrieval_cfg = _last_retrieval_config(self.eventlog)
 
-# Deterministic retrieval: fixed (default) or vector
-ctx_block = ""
-selection_ids: List[int] | None = None
-selection_scores: List[float] | None = None
-if retrieval_cfg and retrieval_cfg.get("strategy") == "vector":
-    # ... vector retrieval logic ...
-    ctx_block = build_context_from_ids(
-        events_full, ids, eventlog=self.eventlog, concept_graph=self.concept_graph
-    )
-    selection_ids, selection_scores = ids, scores
-else:
-    # Fixed-window fallback
-    ctx_block = build_context(self.eventlog, limit=5)
+from pmm.retrieval.pipeline import RetrievalConfig, run_retrieval_pipeline
+from pmm.runtime.context_renderer import render_context
 
-# Check if graph context is actually present
-context_has_graph = "Graph Context:" in ctx_block
+# Configure deterministic retrieval
+pipeline_config = RetrievalConfig()
+if retrieval_cfg:
+    # Apply ledger-backed limits and strategy
+    try:
+        limit_val = int(retrieval_cfg.get("limit", 20))
+        if limit_val > 0:
+            pipeline_config.limit_total_events = limit_val
+    except (ValueError, TypeError):
+        pass
+
+    if retrieval_cfg.get("strategy") == "vector":
+        pipeline_config.enable_vector_search = True
+    elif retrieval_cfg.get("strategy") == "fixed":
+        # "fixed" == concept/graph + recency, but no vector search
+        pipeline_config.enable_vector_search = False
+
+user_event = self.eventlog.get(user_event_id)
+
+# 2a. Run Hybrid Retrieval pipeline
+retrieval_result = run_retrieval_pipeline(
+    query_text=user_input,
+    eventlog=self.eventlog,
+    concept_graph=self.concept_graph,
+    meme_graph=self.memegraph,
+    config=pipeline_config,
+    user_event=user_event,
+)
+
+# 2b. Render 4-section context (Concepts, Threads, State, Evidence)
+ctx_block = render_context(
+    result=retrieval_result,
+    eventlog=self.eventlog,
+    concept_graph=self.concept_graph,
+    meme_graph=self.memegraph,
+    mirror=self.mirror,
+)
+
+selection_ids = retrieval_result.event_ids
+selection_scores = [0.0] * len(selection_ids)
+
+# Check if graph/CTL context is actually present
+context_has_graph = "## Threads" in ctx_block or "## Concepts" in ctx_block
 base_prompt = compose_system_prompt(
     history, open_comms, context_has_graph=context_has_graph
 )
@@ -705,7 +740,7 @@ self.eventlog.append(kind="metrics_turn", content=diag, meta={})
 
 4. ✅ **Open commitments** (from ledger state)
 
-5. ✅ **Graph context** (meme graph structure)
+5. ✅ **Concept & graph context** (CTL concepts + MemeGraph-based threads)
 
 6. ✅ **Internal goals** (autonomy kernel commitments)
 

@@ -60,7 +60,7 @@ graph TD
 ```
 
 - Input: append the user’s message as `user_message`.
-- Recall: reconstruct a short working history (fixed window or vector retrieval) and the current open commitments; surface an RSM snapshot.
+- Recall: run a deterministic **Hybrid Retrieval pipeline** that seeds concepts from CTL, expands relevant commitment threads via MemeGraph (and, when configured, applies vector search), then reconstructs a short working context (concepts, threads, state, and evidence) alongside an RSM snapshot.
 - Reflect (Plan): the model performs iterated self‑evaluation based on current goals, traits, and context.
 - Consolidate: validate planned assertions against mirror state; stage corrections for conflicts.
 - Commit: parse protocol markers to open/close commitments deterministically.
@@ -109,7 +109,8 @@ Parsing is line‑oriented; markers are case‑sensitive and must start a line. 
 
 ## Algorithms and Policies
 
-- Retrieval: vector retrieval is seeded as the default strategy (`autonomy_kernel` appends the config). If no vector data is available, the runtime falls back to fixed-window recall alongside the RSM snapshot.
+- Retrieval: a **Hybrid Concept-Graph pipeline** is seeded as the default strategy (the `autonomy_kernel` appends a `retrieval` config event). The pipeline always uses CTL concepts and MemeGraph threads as seeds; when `strategy == "vector"`, it adds deterministic vector search on top. When embeddings are absent or `strategy == "fixed"`, retrieval still uses CTL + MemeGraph + recency but skips vector scoring, preserving determinism and replayability.
+- Retrieval verification: the `AutonomyKernel` cross-checks recent retrieval selections against the top vector candidates, requiring a non-empty intersection while tolerating deterministic tie-break differences in candidate ordering.
 - Reflection cadence: synthesize a `reflection` whenever commitments open/close, claims fail validation, or a REFLECT block appears. Append `summary_update` when thresholds are met (≥3 reflections since the last summary, >10 events) or when the RSM shows significant change.
 - Belief consolidation: open/close commitments update active goals; stable tendencies and knowledge gaps update the RSM.
 - Conflict surfacing: failed claims are called out in reflections so discrepancies remain visible; the hash chain prevents tampering.
