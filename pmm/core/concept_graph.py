@@ -11,9 +11,12 @@ and relationships between concepts. Fully rebuildable from EventLog.read_all().
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 from .event_log import EventLog
+
+if TYPE_CHECKING:
+    from .meme_graph import MemeGraph
 
 
 class ConceptDefinition:
@@ -334,6 +337,30 @@ class ConceptGraph:
                     neighbors_set.add(from_tok)
 
         return sorted(neighbors_set)
+
+    def concepts_for_thread(self, meme_graph: MemeGraph, cid: str) -> List[str]:
+        """Get sorted list of concepts associated with a thread (via MemeGraph).
+
+        Aggregates concepts from all events in the thread.
+        """
+        thread_events = meme_graph.thread_for_cid(cid)
+        concepts: Set[str] = set()
+        for eid in thread_events:
+            concepts.update(self.concepts_for_event(eid))
+        return sorted(concepts)
+
+    def threads_for_concept(
+        self, meme_graph: MemeGraph, token: str, relation: Optional[str] = None
+    ) -> List[str]:
+        """Get sorted list of CIDs associated with a concept.
+
+        Finds events bound to the concept, then looks up their threads via MemeGraph.
+        """
+        event_ids = self.events_for_concept(token, relation)
+        cids: Set[str] = set()
+        for eid in event_ids:
+            cids.update(meme_graph.cids_for_event(eid))
+        return sorted(cids)
 
     def stats(self) -> Dict[str, Any]:
         """Get statistics about the ConceptGraph."""

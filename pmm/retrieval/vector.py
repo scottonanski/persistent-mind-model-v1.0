@@ -16,18 +16,6 @@ from hashlib import sha256
 import math
 import json
 
-from pmm.core.event_log import EventLog
-from pmm.core.mirror import Mirror
-from pmm.core.meme_graph import MemeGraph
-from pmm.core.concept_graph import ConceptGraph
-from pmm.runtime.context_utils import (
-    render_graph_context,
-    render_identity_claims,
-    render_internal_goals,
-    render_rsm,
-    render_concept_context,
-)
-
 
 class DeterministicEmbedder:
     def __init__(self, *, model: str = "hash64", dims: int = 64) -> None:
@@ -112,99 +100,6 @@ def select_by_vector(
     ids = [eid for (eid, _s) in top]
     scores = [float(f"{_s:.6f}") for (_eid, _s) in top]
     return ids, scores
-
-
-def expand_ids_via_graph(
-    *,
-    base_ids: List[int],
-    events: List[Dict],
-    eventlog: EventLog,
-    max_expanded: int = 32,
-) -> List[int]:
-    """Return a deterministic graph-expanded id list.
-
-    Strategy:
-    - rebuild MemeGraph from full event list
-    - for each base id (ascending), add its neighbors (both directions)
-    - keep ordering stable by sorting unique ids at the end
-    - cap total length to max_expanded
-    """
-    if not base_ids:
-        return []
-
-    mg = MemeGraph(eventlog)
-    mg.rebuild(events)
-
-    seen = set(int(eid) for eid in base_ids)
-    expanded: List[int] = list(sorted(seen))
-
-    for eid in sorted(seen):
-        neigh = mg.neighbors(eid, direction="both")
-        for n in neigh:
-            if n not in seen:
-                seen.add(n)
-                expanded.append(n)
-            if len(seen) >= max_expanded:
-                break
-        if len(seen) >= max_expanded:
-            break
-
-    return sorted(expanded)
-
-
-def build_context_from_ids(
-    events: List[Dict],
-    ids: List[int],
-    *,
-    eventlog: EventLog | None = None,
-    concept_graph: ConceptGraph | None = None,
-) -> str:
-    """Build context from selected event IDs with metadata blocks.
-
-    Includes RSM, goals, graph context, and concept context when eventlog is provided,
-    matching the behavior of fixed-window context building.
-    """
-    # Order chronologically for readability
-    idset = set(ids)
-    chosen = [e for e in events if int(e.get("id", 0)) in idset]
-    chosen.sort(key=lambda e: int(e.get("id", 0)))
-    lines: List[str] = []
-    for e in chosen:
-        kind = e.get("kind")
-        content = e.get("content") or ""
-        lines.append(f"{kind}: {content}")
-    body = "\n".join(lines)
-
-    # Add metadata blocks if eventlog provided
-    if eventlog is None:
-        return body
-
-    mirror = Mirror(eventlog, enable_rsm=True, listen=False)
-    snapshot = mirror.rsm_snapshot()
-    identity_block = render_identity_claims(eventlog)
-    rsm_block = render_rsm(snapshot)
-    goals_block = render_internal_goals(eventlog)
-    graph_block = render_graph_context(eventlog)
-    concept_block = render_concept_context(
-        eventlog, limit=5, concept_graph=concept_graph
-    )
-
-    extras = "\n".join(
-        section
-        for section in (
-            identity_block,
-            rsm_block,
-            goals_block,
-            graph_block,
-            concept_block,
-        )
-        if section
-    )
-    if body and extras:
-        return f"{body}\n\n{extras}"
-    if extras:
-        return extras
-    return body
 
 
 def selection_digest(

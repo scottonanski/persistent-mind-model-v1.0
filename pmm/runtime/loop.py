@@ -27,13 +27,12 @@ from pmm.commitments.binding import extract_exec_binds
 from pmm.runtime.autonomy_kernel import AutonomyKernel, KernelDecision
 from pmm.runtime.prompts import compose_system_prompt
 from pmm.runtime.reflection import TurnDelta, build_reflection_text
-from pmm.runtime.context_builder import build_context, _last_retrieval_config
+from pmm.runtime.context_builder import _last_retrieval_config
+from pmm.retrieval.pipeline import run_retrieval_pipeline, RetrievalConfig
+from pmm.runtime.context_renderer import render_context
 from pmm.retrieval.vector import (
-    select_by_vector,
-    build_context_from_ids,
     selection_digest,
     ensure_embedding_for_event,
-    build_index,
 )
 from pmm.runtime.bindings import ExecBindRouter
 from pmm.runtime.autonomy_supervisor import AutonomySupervisor
@@ -225,78 +224,54 @@ class RuntimeLoop:
         # 2. Build prompts
         history = self.eventlog.read_tail(limit=10)
         open_comms = self.mirror.get_open_commitment_events()
-        # Deterministic retrieval: fixed (default) or vector (Phase 1)
-        ctx_block = ""
-        selection_ids: List[int] | None = None
-        selection_scores: List[float] | None = None
-        if retrieval_cfg and retrieval_cfg.get("strategy") == "vector":
+
+        # Configure and run Retrieval Pipeline
+        pipeline_config = RetrievalConfig()
+        if retrieval_cfg:
             try:
-                limit = int(retrieval_cfg.get("limit", 5))
-            except Exception:
-                limit = 5
-            model = str(retrieval_cfg.get("model", "hash64"))
-            dims_raw = retrieval_cfg.get("dims", 64)
-            try:
-                dims = int(dims_raw)
-            except Exception:
-                dims = 64
-            events_full = self.eventlog.read_all()
-            # Prefer stored embeddings when present; fall back to on-the-fly
-            index = build_index(events_full, model=model, dims=dims)
-            if index:
-                from pmm.retrieval.vector import (
-                    DeterministicEmbedder,
-                    cosine,
-                    candidate_messages,
-                )
+                limit_val = int(retrieval_cfg.get("limit", 20))
+                if limit_val > 0:
+                    pipeline_config.limit_total_events = limit_val
+            except (ValueError, TypeError):
+                pass
 
-                qv = DeterministicEmbedder(model=model, dims=dims).embed(user_input)
-                cands = candidate_messages(events_full)
-                scored: List[tuple[int, float]] = []
-                for ev in cands:
-                    eid = int(ev.get("id", 0))
-                    vec = index.get(eid)
-                    if vec is None:
-                        vec = DeterministicEmbedder(model=model, dims=dims).embed(
-                            ev.get("content") or ""
-                        )
-                    s = cosine(qv, vec)
-                    scored.append((eid, s))
-                scored.sort(key=lambda t: (-t[1], t[0]))
-                top = scored[:limit]
-                ids = [eid for (eid, _s) in top]
-                scores = [float(f"{_s:.6f}") for (_eid, _s) in top]
-            else:
-                ids, scores = select_by_vector(
-                    events=events_full,
-                    query_text=user_input,
-                    limit=limit,
-                    model=model,
-                    dims=dims,
-                )
-            # Graph-augmented expansion (deterministic, capped)
-            from pmm.retrieval.vector import expand_ids_via_graph
+            if retrieval_cfg.get("strategy") == "vector":
+                pipeline_config.enable_vector_search = True
+            elif retrieval_cfg.get("strategy") == "fixed":
+                # "fixed" implies relying on limit, usually no vector?
+                # But fixed means "fixed window".
+                # The new pipeline is always graph/concept aware.
+                # If we want to support pure fixed window, we would need to bypass.
+                # But the proposal says "Consolidate CTL... Legacy cleanup".
+                # So we can interpret "fixed" as just limiting size but still using concepts.
+                # Or we can disable vector search for fixed.
+                pipeline_config.enable_vector_search = False
 
-            expanded_ids = expand_ids_via_graph(
-                base_ids=ids,
-                events=events_full,
-                eventlog=self.eventlog,
-                max_expanded=max(limit * 3, limit),
-            )
+        user_event = self.eventlog.get(user_event_id)
 
-            ctx_block = build_context_from_ids(
-                events_full,
-                expanded_ids,
-                eventlog=self.eventlog,
-                concept_graph=self.concept_graph,
-            )
-            selection_ids, selection_scores = ids, scores
-        else:
-            # Fixed-window fallback
-            ctx_block = build_context(self.eventlog, limit=5)
+        retrieval_result = run_retrieval_pipeline(
+            query_text=user_input,
+            eventlog=self.eventlog,
+            concept_graph=self.concept_graph,
+            meme_graph=self.memegraph,
+            config=pipeline_config,
+            user_event=user_event,
+        )
 
-        # Check if graph context is actually present
-        context_has_graph = "Graph Context:" in ctx_block
+        ctx_block = render_context(
+            result=retrieval_result,
+            eventlog=self.eventlog,
+            concept_graph=self.concept_graph,
+            meme_graph=self.memegraph,
+            mirror=self.mirror,
+        )
+
+        selection_ids = retrieval_result.event_ids
+        # We don't calculate vector scores in pipeline result yet, so pass empty/dummy
+        selection_scores = [0.0] * len(selection_ids)
+
+        # Check if graph context is actually present (Threads or Concepts sections)
+        context_has_graph = "## Threads" in ctx_block or "## Concepts" in ctx_block
         base_prompt = compose_system_prompt(
             history, open_comms, context_has_graph=context_has_graph
         )

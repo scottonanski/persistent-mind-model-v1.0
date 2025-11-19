@@ -275,6 +275,29 @@ def export_session():
             telemetry.append(f"- Raw content: `{latest_meta_policy}`\n")
         telemetry.append("\n")
 
+    # Concept Graph Snapshot (computed from full history)
+    # We can't easily import pmm.core.concept_graph here if we want this script to be standalone-ish,
+    # but we can do a quick scan of concept_define events.
+    concept_defs = [r for r in rows if r[2] == "concept_define"]
+    concept_binds = [r for r in rows if r[2] == "concept_bind_event"]
+
+    telemetry.append("### Concept Graph Snapshot\n\n")
+    telemetry.append(f"- **Total Definitions:** `{len(concept_defs)}`\n")
+    telemetry.append(f"- **Total Bindings:** `{len(concept_binds)}`\n")
+    if concept_defs:
+        # Show last 3 defined concepts
+        last_3 = concept_defs[-3:]
+        telemetry.append("- **Recent Definitions:**\n")
+        for _, _, _, content, _, _, _ in last_3:
+            try:
+                d = json.loads(content)
+                token = d.get("token", "unknown")
+                kind = d.get("concept_kind", "unknown")
+                telemetry.append(f"  - `{token}` ({kind})\n")
+            except Exception:
+                pass
+    telemetry.append("\n")
+
     # Manifest for AI verification
     manifest = {
         "export_timestamp": now,

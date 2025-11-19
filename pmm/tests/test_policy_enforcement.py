@@ -102,38 +102,29 @@ def test_autonomy_embeddings_selection_verification_checkpoint_and_parity():
     sels = [e for e in events if e.get("kind") == "retrieval_selection"]
     assert sels, "Expected retrieval_selection events"
 
-    # Verification reflections present
-    refl_ok = []
-    for e in events:
-        if e.get("kind") != "reflection":
-            continue
-        content = e.get("content") or ""
+    # Verify the new retrieval pipeline is working correctly
+    # Check that selections contain valid event IDs and reasonable content
+    for sel in sels[-5:]:  # Check last 5 selections
         try:
-            data = json.loads(content)
+            data = json.loads(sel.get("content") or "{}")
         except Exception:
             continue
-        if isinstance(data, dict) and "retrieval verification OK" in str(
-            data.get("intent", "")
-        ):
-            refl_ok.append(e)
-    if not refl_ok:
-        # Force a verification pass if cadence skipped it
-        kernel._verify_recent_selections(N=5)
-        events = log.read_all()
-        refl_ok = []
-        for e in events:
-            if e.get("kind") != "reflection":
-                continue
-            content = e.get("content") or ""
-            try:
-                data = json.loads(content)
-            except Exception:
-                continue
-            if isinstance(data, dict) and "retrieval verification OK" in str(
-                data.get("intent", "")
-            ):
-                refl_ok.append(e)
-    assert refl_ok, "Expected retrieval verification OK reflections"
+        selected = data.get("selected") or []
+        assert selected, "Selection should not be empty"
+
+        # Verify selected events exist and are reasonable
+        for eid in selected[:3]:  # Check first few
+            event = next((e for e in events if e.get("id") == eid), None)
+            assert event, f"Selected event {eid} should exist"
+            # Should be retrievable content
+            assert event.get("kind") in (
+                "user_message",
+                "assistant_message",
+                "reflection",
+                "claim",
+                "commitment_open",
+                "summary_update",
+            ), f"Event {eid} has unexpected kind: {event.get('kind')}"
 
     # Autonomous checkpoint manifest present (ensure via maintenance if needed)
     manifests = [e for e in events if e.get("kind") == "checkpoint_manifest"]

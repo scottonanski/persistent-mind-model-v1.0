@@ -248,3 +248,55 @@ class MemeGraph:
         ordered.extend(close_nodes)
         ordered.extend(reflection_nodes)
         return ordered
+
+    def cids_for_event(self, event_id: int) -> List[str]:
+        """Return stable list of CIDs that this event participates in.
+
+        Logic:
+        - commitment_open/close: direct meta.cid
+        - assistant_message: if an open points to it via commits_to, use that open's cid
+        - reflection: if it points to an assistant via reflects_on, use that assistant's cids
+        """
+        if not self.graph.has_node(event_id):
+            return []
+
+        node = self.graph.nodes[event_id]
+        kind = node.get("kind")
+        full_event = self.eventlog.get(event_id)
+        meta = full_event.get("meta", {})
+        cids: Set[str] = set()
+
+        if kind in ("commitment_open", "commitment_close"):
+            cid = meta.get("cid")
+            if cid:
+                cids.add(cid)
+
+        elif kind == "assistant_message":
+            # Find opens that point to this assistant
+            for pred in self.graph.predecessors(event_id):
+                edge = self.graph.get_edge_data(pred, event_id)
+                if (edge or {}).get("label") == "commits_to":
+                    # pred is the open event
+                    open_event = self.eventlog.get(pred)
+                    cid = (open_event.get("meta") or {}).get("cid")
+                    if cid:
+                        cids.add(cid)
+
+        elif kind == "reflection":
+            # Find assistant it reflects on
+            for succ in self.graph.successors(event_id):
+                edge = self.graph.get_edge_data(event_id, succ)
+                if (edge or {}).get("label") == "reflects_on":
+                    # succ is the assistant
+                    # Recursively get cids for that assistant
+                    # (Manual recursion to avoid infinite loops, though graph is acyclic-ish here)
+                    # We just duplicate the assistant logic for safety and clarity
+                    for pred_of_succ in self.graph.predecessors(succ):
+                        edge_pos = self.graph.get_edge_data(pred_of_succ, succ)
+                        if (edge_pos or {}).get("label") == "commits_to":
+                            open_event = self.eventlog.get(pred_of_succ)
+                            cid = (open_event.get("meta") or {}).get("cid")
+                            if cid:
+                                cids.add(cid)
+
+        return sorted(cids)

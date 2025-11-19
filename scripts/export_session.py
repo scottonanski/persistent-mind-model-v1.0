@@ -99,9 +99,13 @@ def export_session():
                             "stability_metrics",
                         }
                         else (
-                            "🪞 **Reflection:**"
-                            if kind == "reflection"
-                            else "⚙️ **System:**"
+                            "🧠 **Concept:**"
+                            if kind.startswith("concept_")
+                            else (
+                                "🪞 **Reflection:**"
+                                if kind == "reflection"
+                                else "⚙️ **System:**"
+                            )
                         )
                     )
                 )
@@ -219,6 +223,13 @@ def export_session():
             mp = {}
         if isinstance(mp, dict):
             md.append(f"- Latest meta-policy changes: `{mp.get('changes')}`\n")
+
+    # Concept Graph Stats
+    concept_defs = [r for r in rows if r[2] == "concept_define"]
+    concept_binds = [r for r in rows if r[2] == "concept_bind_event"]
+    md.append("\n### 🧠 Concept Graph Snapshot\n\n")
+    md.append(f"- Total Concept Definitions: `{len(concept_defs)}`\n")
+    md.append(f"- Total Bindings: `{len(concept_binds)}`\n")
 
     # =====================
     # Phase 4: Verification Manifest (JSON block)

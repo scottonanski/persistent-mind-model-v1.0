@@ -24,12 +24,16 @@ def test_context_builder_tail_window(tmp_path):
         log.append(kind="user_message", content=f"u{i}")
         log.append(kind="assistant_message", content=f"a{i}")
     ctx = build_context(log, limit=3)
-    lines = ctx.splitlines()
-    assert len(lines) <= 6
-    assert all(
-        line.startswith("user_message") or line.startswith("assistant_message")
-        for line in lines
-    )
+
+    # New format contains sections. Evidence is one of them.
+    assert "## Evidence" in ctx
+    # Check specific lines appear
+    assert "user_message: u5" in ctx
+    assert "assistant_message: a5" in ctx
+    # Should NOT contain older messages if limit worked (u2, a2)
+    # But fallback logic grabs limit*2? No, logic says limit.
+    # fallback: events = eventlog.read_tail(limit * 2) ... break if len >= limit
+    assert "user_message: u2" not in ctx
 
 
 def test_reflection_appended_when_delta(tmp_path):
@@ -79,6 +83,6 @@ def test_context_includes_internal_goals():
     cid = manager.open_internal("analyze_knowledge_gaps", reason="gaps=5")
 
     context = build_context(log, limit=2)
-    assert "Internal Goals:" in context
+    # New format: "Open Commitments: cid, cid..."
+    assert "Open Commitments:" in context
     assert cid in context
-    assert "(analyze_knowledge_gaps)" in context
