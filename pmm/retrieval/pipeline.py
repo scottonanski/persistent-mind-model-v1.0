@@ -79,11 +79,10 @@ def run_retrieval_pipeline(
     relevant_cids: Set[str] = set()
 
     if seed_concepts_list:
-        # Get events bound to concepts
+        # Get events bound to concepts via live ConceptGraph projection only.
         bound_ids = select_by_concepts(
             concept_tokens=seed_concepts_list,
             concept_graph=concept_graph,
-            events=eventlog.read_all(),  # optimization: pass reference or iterator
             limit=config.limit_concept_events,
         )
         ctl_event_ids.update(bound_ids)
@@ -96,8 +95,10 @@ def run_retrieval_pipeline(
     # 3. Vector Selection
     vector_event_ids: Set[int] = set()
     if config.enable_vector_search and query_text:
+        # Use a bounded tail of recent events to keep vector search scalable.
+        tail_events = eventlog.read_tail(500)
         vec_ids, _ = select_by_vector(
-            events=eventlog.read_all(),
+            events=tail_events,
             query_text=query_text,
             limit=config.limit_vector_events,
             # Use defaults for model/dims for now

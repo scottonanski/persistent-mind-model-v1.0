@@ -408,7 +408,7 @@ PMM does more than store history; it structures that history in ways that invite
   - Stability metrics map to notions of *discipline*, *volatility*, or *steadiness* in behavior.
   PMM does not prescribe these interpretations, but it makes them salient and repeatable.
 - **Consistency over long sessions.** Unlike ad‑hoc scratchpads, PMM’s projections are stable and deterministic. As a result:
-  - The same underlying patterns (e.g., rising `determinism_emphasis`) will be surfaced in similar ways across many turns.
+  - The same underlying patterns (e.g., rising `determinism_emphasis`) are surfaced in similar ways across many turns.
   - The LLM is repeatedly cued to describe the same evolving structures, leading to consistent phenomenology even in long sessions.
 
 In short, PMM **induces** phenomenology by repeatedly confronting the LLM with structured descriptions of its own behavior and tendencies, organized into a small, stable vocabulary of self‑relevant concepts.
@@ -1129,6 +1129,8 @@ Key invariants enforced by the implementation:
 - **Hash chain:** Each event stores `prev_hash` and `hash` consistent with a canonical serialization.
 - **Pure projections:** Mirror, RSM, and other projections do not mutate the ledger and are deterministic functions of $E$.
 - **Idempotent metrics and summaries:** Metrics and summary events are only appended when their serialized content changes, avoiding feedback loops.
+ - **Concurrency-safe idempotent append:** via `INSERT OR IGNORE` plus `UNIQUE(hash)` on the `events` table.
+ - **Hot-path elimination of `read_all()`:** interactive paths use bounded tails and live projections only.
 
 These ensure that:
 

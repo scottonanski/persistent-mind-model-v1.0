@@ -27,7 +27,6 @@ from pmm.commitments.binding import extract_exec_binds
 from pmm.runtime.autonomy_kernel import AutonomyKernel, KernelDecision
 from pmm.runtime.prompts import compose_system_prompt
 from pmm.runtime.reflection import TurnDelta, build_reflection_text
-from pmm.runtime.context_builder import _last_retrieval_config
 from pmm.retrieval.pipeline import run_retrieval_pipeline, RetrievalConfig
 from pmm.runtime.context_renderer import render_context
 from pmm.retrieval.vector import (
@@ -208,12 +207,12 @@ class RuntimeLoop:
             kind="user_message", content=user_input, meta={"role": "user"}
         )
         # If vector retrieval is enabled, append embedding_add for the user message (idempotent)
-        retrieval_cfg = _last_retrieval_config(self.eventlog)
+        retrieval_cfg = self.mirror.current_retrieval_config or {}
         if retrieval_cfg and retrieval_cfg.get("strategy") == "vector":
             model = str(retrieval_cfg.get("model", "hash64"))
             dims = int(retrieval_cfg.get("dims", 64))
             ensure_embedding_for_event(
-                events=self.eventlog.read_all(),
+                events=[],
                 eventlog=self.eventlog,
                 event_id=user_event_id,
                 text=user_input,
@@ -337,7 +336,7 @@ class RuntimeLoop:
             model = str(retrieval_cfg.get("model", "hash64"))
             dims = int(retrieval_cfg.get("dims", 64))
             ensure_embedding_for_event(
-                events=self.eventlog.read_all(),
+                events=[],
                 eventlog=self.eventlog,
                 event_id=ai_event_id,
                 text=assistant_reply,
@@ -527,6 +526,7 @@ class RuntimeLoop:
                 meta_extra=meta_extra,
                 staleness_threshold=int(meta_extra["staleness_threshold"]),
                 auto_close_threshold=int(meta_extra["auto_close_threshold"]),
+                autonomy=self.autonomy,
             )
             if reflection_id:
                 target_event = self.eventlog.get(reflection_id)

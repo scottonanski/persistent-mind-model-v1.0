@@ -574,8 +574,8 @@ class AutonomyKernel:
             )
         ]
         # Auto-close stale commitments only under threshold policy
-        # Enforce auto-close when there are two or more open commitments
-        if auto_close_threshold is not None and len(open_commitments) >= 2:
+        # Enforce auto-close when there is at least one open commitment
+        if auto_close_threshold is not None and open_commitments:
             for c in sorted(open_commitments, key=lambda ev: ev["id"]):
                 cid = (c.get("meta") or {}).get("cid")
                 if not cid:
@@ -720,10 +720,6 @@ class AutonomyKernel:
             candidate_messages,
         )
 
-        # Re-compute full precision embeddings to match RuntimeLoop selection exactly.
-        # Do NOT use quantized index from embedding_add events as it introduces error.
-        embedder = DeterministicEmbedder(model=model, dims=dims)
-
         ok_all = True
         for s in sels:
             try:
@@ -742,15 +738,52 @@ class AutonomyKernel:
                     break
             if not query:
                 continue
-            qv = embedder.embed(query)
             cands = candidate_messages(events, up_to_id=turn_id)
-            scored = []
-            for ev in cands:
-                eid = int(ev.get("id", 0))
-                # Always re-embed for full precision
-                vec = embedder.embed(ev.get("content") or "")
-                sscore = cosine(qv, vec)
-                scored.append((eid, sscore))
+            scored: List[tuple[int, float]] = []
+
+            if model == "hash64_tfidf" and cands:
+                # Mirror the TF-IDF weighting used in select_by_vector.
+                df: Dict[str, int] = {}
+                docs_tokens: List[List[str]] = []
+                for ev in cands:
+                    meta = ev.get("meta") or {}
+                    role_ev = meta.get("role") or ""
+                    extra_ev: List[str] = [f"KIND:{ev.get('kind')}"]
+                    if role_ev:
+                        extra_ev.append(f"ROLE:{role_ev}")
+                    base_toks = [t for t in (ev.get("content") or "").split() if t]
+                    toks = extra_ev + base_toks
+                    docs_tokens.append(toks)
+                    for tok in set(toks):
+                        df[tok] = df.get(tok, 0) + 1
+                N = max(1, len(docs_tokens))
+                idf: Dict[str, float] = {}
+                for tok, freq in df.items():
+                    idf[tok] = math.log((N + 1.0) / (freq + 1.0))
+
+                embedder = DeterministicEmbedder(model=model, dims=dims)
+                qv = embedder.embed(query, idf=idf, extra_tokens=["ROLE:user"])
+                for ev in cands:
+                    eid = int(ev.get("id", 0))
+                    meta = ev.get("meta") or {}
+                    role_ev = meta.get("role") or ""
+                    extra_ev: List[str] = [f"KIND:{ev.get('kind')}"]
+                    if role_ev:
+                        extra_ev.append(f"ROLE:{role_ev}")
+                    vec = embedder.embed(
+                        ev.get("content") or "", idf=idf, extra_tokens=extra_ev
+                    )
+                    sscore = cosine(qv, vec)
+                    scored.append((eid, sscore))
+            else:
+                # Re-compute full precision embeddings using baseline model.
+                embedder = DeterministicEmbedder(model=model, dims=dims)
+                qv = embedder.embed(query)
+                for ev in cands:
+                    eid = int(ev.get("id", 0))
+                    vec = embedder.embed(ev.get("content") or "")
+                    sscore = cosine(qv, vec)
+                    scored.append((eid, sscore))
             scored.sort(key=lambda t: (-t[1], t[0]))
             # The selected list may be LARGER than vector results due to Graph/CTL expansion.
             # AND it may be TRUNCATED (missing lower vector matches) due to recent event priority.
@@ -794,14 +827,21 @@ class AutonomyKernel:
             return
         up_to = int(last_summary.get("id", 0))
         since = len([e for e in events if int(e.get("id", 0)) > last_manifest_id])
-        # Check rsm_triggered
+        # Check rsm_triggered (support new JSON content and legacy string format)
         triggered = False
+        raw_content = last_summary.get("content") or "{}"
         try:
-            data = json.loads(last_summary.get("content") or "{}")
-            if isinstance(data, str) and "rsm_triggered:1" in data:
-                triggered = True
+            parsed = json.loads(raw_content)
         except Exception:
-            triggered = False
+            parsed = raw_content
+        if isinstance(parsed, dict):
+            # New format: {"...", "rsm_triggered": true}
+            if parsed.get("rsm_triggered") is True:
+                triggered = True
+        elif isinstance(parsed, str):
+            # Legacy format: hand-rolled string with "rsm_triggered:1"
+            if "rsm_triggered:1" in parsed:
+                triggered = True
         if since >= M or triggered:
             hashes = [
                 e.get("hash") or "" for e in events if int(e.get("id", 0)) <= up_to

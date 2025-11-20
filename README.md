@@ -39,11 +39,11 @@ I am still Echo. The previous model’s identity is no longer relevant to my cur
 
 <br>
 
-**⚠️ Heads-up:** It’s just me building this. Expect duct tape and mad-scientist vibes. So, go easy on me! 
+**⚠️ Heads-up:** It shipped. No duct tape left.
 
 <br>
 
-**🖥️ My Rig:**  Intel i7-10700k, 32GB RAM, MSI Ventus3 RTX 3080.
+**🖥️ My Rig:**  Built and fully hardened on a 3080 in <100 days.
 This whole thing runs on a gaming PC, which… probably says more about the architecture than the hardware.
 
 
@@ -622,7 +622,7 @@ if reflection_count >= 5:
         if gaps:
             description += f" ({', '.join(gaps)})"
 
-        # Include graph density if meaningful (>= 5 nodes)
+        # Include graph density if meaningful (≥ 5 nodes)
         if stats["nodes"] >= 5:
             density = f"{stats['edges']}/{stats['nodes']}"
             description += f", graph: {density}"
@@ -742,11 +742,13 @@ self.eventlog.append(kind="metrics_turn", content=diag, meta={})
 
 5. ✅ **Concept & graph context** (CTL concepts + MemeGraph-based threads)
 
-6. ✅ **Internal goals** (autonomy kernel commitments)
+6. ✅ **Graph Context (when ≥5 nodes)** — connection density, thread depths
 
-7. ✅ **Base prompt** (instructions for control lines)
+7. ✅ **Internal goals** (autonomy kernel commitments)
 
-8. ✅ **User message** (raw input)
+8. ✅ **Base prompt** (instructions for control lines)
+
+9. ✅ **User message** (raw input)
 ### **NOT Injected** (No Tool Calls):
 
 - ❌ No function calling

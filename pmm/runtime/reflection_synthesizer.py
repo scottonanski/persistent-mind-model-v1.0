@@ -4,13 +4,16 @@
 # Path: pmm/runtime/reflection_synthesizer.py
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, List, Tuple
+from typing import Any, Dict, Optional, List, Tuple, TYPE_CHECKING
 import json
 
 from pmm.core.event_log import EventLog
 from pmm.core.mirror import Mirror
 from pmm.core.commitment_manager import CommitmentManager
 from pmm.core.enhancements.meta_reflection_engine import MetaReflectionEngine
+
+if TYPE_CHECKING:
+    from pmm.runtime.autonomy_kernel import AutonomyKernel
 
 
 def _last_by_kind(events: List[Dict], kind: str) -> Optional[Dict]:
@@ -26,11 +29,13 @@ def synthesize_reflection(
     source: str = "user_turn",
     staleness_threshold: Optional[int] = None,
     auto_close_threshold: Optional[int] = None,
+    autonomy: "AutonomyKernel" | None = None,
 ) -> Optional[int]:
     if meta_extra and meta_extra.get("source") == "autonomy_kernel":
-        from pmm.runtime.autonomy_kernel import AutonomyKernel
+        if autonomy is None:
+            from pmm.runtime.autonomy_kernel import AutonomyKernel
 
-        autonomy = AutonomyKernel(eventlog)
+            autonomy = AutonomyKernel(eventlog)
         return autonomy.reflect(
             eventlog, meta_extra, staleness_threshold, auto_close_threshold
         )
