@@ -50,6 +50,16 @@ class EventLog:
                 );
                 """
             )
+            # Index to support efficient tail queries (ORDER BY id DESC LIMIT ?).
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_id_desc ON events(id DESC);"
+            )
+            # Index to support efficient kind-based scans.
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_kind ON events(kind);")
+            # Unique index on hash to support idempotent append with INSERT OR IGNORE.
+            self._conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_hash ON events(hash);"
+            )
 
     def register_listener(self, callback) -> None:
         """Register a callback(event_dict) when an event is appended."""
@@ -210,48 +220,48 @@ class EventLog:
                 # Fail-open if policy unreadable
                 pass
 
-        # Soft idempotency guard: if the computed digest equals the last
-        # row's hash, return the existing last id instead of inserting a
-        # duplicate row. This preserves replay determinism without a DB
-        # UNIQUE constraint and avoids accidental duplicate writes.
-        with self._lock:
-            cur_last = self._conn.execute(
-                "SELECT id, hash FROM events ORDER BY id DESC LIMIT 1"
-            )
-            last_row = cur_last.fetchone()
-            if last_row is not None:
-                last_id, last_hash = int(last_row[0]), last_row[1]
-                if last_hash == digest:
-                    # Emit to listeners to preserve live projections, since
-                    # downstream code may rely on the callback side‑effects
-                    # during append paths. Listeners should be idempotent.
-                    ev = {
-                        "id": last_id,
-                        "ts": "",  # unknown here; listeners should not rely on ts
-                        "kind": kind,
-                        "content": content,
-                        "meta": meta,
-                        "prev_hash": prev_hash,
-                        "hash": digest,
-                    }
-                    self._emit(ev)
-                    return last_id
-
         with self._lock, self._conn:
+            # Idempotent append using UNIQUE(hash) and INSERT OR IGNORE:
+            # - On first insert, a new row is created.
+            # - On conflict, no new row is created; we look up the existing row
+            #   and emit it to listeners, returning its id.
             cur = self._conn.execute(
-                "INSERT INTO events (ts, kind, content, meta, prev_hash, hash) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO events (ts, kind, content, meta, prev_hash, hash) VALUES (?, ?, ?, ?, ?, ?)",
                 (ts, kind, content, _canonical_json(meta), prev_hash, digest),
             )
-            ev_id = int(cur.lastrowid)
+            if cur.rowcount == 0:
+                # Row with identical hash already exists; fetch canonical row.
+                cur_row = self._conn.execute(
+                    "SELECT id, ts, kind, content, meta, prev_hash, hash FROM events WHERE hash = ?",
+                    (digest,),
+                )
+                row = cur_row.fetchone()
+                if row is None:
+                    raise RuntimeError("Invariant violation: hash conflict without row")
+                ev_id = int(row["id"])
+                ts_db = row["ts"]
+                kind_db = row["kind"]
+                content_db = row["content"]
+                meta_db = json.loads(row["meta"] or "{}")
+                prev_hash_db = row["prev_hash"]
+                hash_db = row["hash"]
+            else:
+                ev_id = int(cur.lastrowid)
+                ts_db = ts
+                kind_db = kind
+                content_db = content
+                meta_db = meta
+                prev_hash_db = prev_hash
+                hash_db = digest
 
         ev = {
             "id": ev_id,
-            "ts": ts,
-            "kind": kind,
-            "content": content,
-            "meta": meta,
-            "prev_hash": prev_hash,
-            "hash": digest,
+            "ts": ts_db,
+            "kind": kind_db,
+            "content": content_db,
+            "meta": meta_db,
+            "prev_hash": prev_hash_db,
+            "hash": hash_db,
         }
         self._emit(ev)
         return ev_id

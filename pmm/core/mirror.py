@@ -32,6 +32,9 @@ class Mirror:
         self.stale_flags: Dict[str, bool] = {}
         self.reflection_counts: Dict[str, int] = {"user": 0, "autonomy_kernel": 0}
         self.last_event_id: int = 0
+        # Last seen retrieval config (content JSON with type=="retrieval"),
+        # maintained incrementally from config events.
+        self.current_retrieval_config: Optional[Dict[str, Any]] = None
         self._rsm: Optional[RecursiveSelfModel] = None
         if enable_rsm:
             self._rsm = RecursiveSelfModel(eventlog=self.eventlog)
@@ -45,6 +48,7 @@ class Mirror:
         self.stale_flags.clear()
         self.reflection_counts = {"user": 0, "autonomy_kernel": 0}
         self.last_event_id = 0
+        self.current_retrieval_config = None
         events_list = list(events if events is not None else self.eventlog.read_all())
         for event in events_list:
             self._process_event(event)
@@ -87,6 +91,14 @@ class Mirror:
             if source not in self.reflection_counts:
                 self.reflection_counts[source] = 0
             self.reflection_counts[source] += 1
+        elif kind == "config":
+            # Track latest retrieval config content for fast access
+            try:
+                data = json.loads(event.get("content") or "{}")
+            except Exception:
+                data = None
+            if isinstance(data, dict) and data.get("type") == "retrieval":
+                self.current_retrieval_config = data
         # Update stale flags
         current_id = event["id"]
         for cid, data in list(self.open_commitments.items()):

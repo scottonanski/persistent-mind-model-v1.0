@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from typing import Dict, List, Optional
+import json
 
 from pmm.core.event_log import EventLog
 from pmm.core.mirror import Mirror
@@ -43,7 +44,6 @@ def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
     last_rsm_state = (
         (last_summary.get("meta") or {}).get("rsm_state") if last_summary else None
     )
-
     rsm_delta_info = _compute_rsm_trend(current_snapshot, last_rsm_state)
     threshold_reflections = len(reflections) >= 3
     threshold_events = len(since) > 10
@@ -60,18 +60,16 @@ def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
         else:
             return None
 
-    content_parts = [
-        "{",
-        f"open_commitments:{open_commitments}",
-        f",reflections_since_last:{reflections_since}",
-        f",last_event_id:{last_event_id}",
-    ]
+    content_dict: Dict[str, object] = {
+        "open_commitments": int(open_commitments),
+        "reflections_since_last": int(reflections_since),
+        "last_event_id": int(last_event_id),
+    }
     if rsm_delta_info["description"]:
-        content_parts.append(f',rsm_trend:"{rsm_delta_info["description"]}"')
+        content_dict["rsm_trend"] = rsm_delta_info["description"]
     if rsm_forced:
-        content_parts.append(",rsm_triggered:1")
-    content_parts.append("}")
-    content = "".join(content_parts)
+        content_dict["rsm_triggered"] = True
+    content = json.dumps(content_dict, sort_keys=True, separators=(",", ":"))
     # Include full snapshot to preserve fast-rebuild parity
     meta = {"synth": "pmm", "rsm_state": current_snapshot}
     return eventlog.append(kind="summary_update", content=content, meta=meta)

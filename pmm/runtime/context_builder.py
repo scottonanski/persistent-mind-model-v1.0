@@ -4,28 +4,9 @@
 # Path: pmm/runtime/context_builder.py
 from __future__ import annotations
 
-import json
 
 from pmm.core.event_log import EventLog
 from pmm.core.mirror import Mirror
-
-
-def _last_retrieval_config(eventlog: EventLog) -> dict | None:
-    """Return last retrieval config from ledger config events, if any.
-
-    Expected content JSON: {"type":"retrieval", "strategy":"fixed", "limit": N}
-    """
-    cfg = None
-    for e in eventlog.read_all():
-        if e.get("kind") != "config":
-            continue
-        try:
-            data = json.loads(e.get("content") or "{}")
-        except Exception:
-            continue
-        if isinstance(data, dict) and data.get("type") == "retrieval":
-            cfg = data
-    return cfg
 
 
 def build_context(eventlog: EventLog, limit: int = 5) -> str:
@@ -34,7 +15,8 @@ def build_context(eventlog: EventLog, limit: int = 5) -> str:
     Compatibility wrapper: uses the new pmm.retrieval.pipeline and pmm.runtime.context_renderer.
     """
     # Override limit from ledger-backed retrieval config if present
-    cfg_json = _last_retrieval_config(eventlog)
+    mirror = Mirror(eventlog, enable_rsm=True, listen=False)
+    cfg_json = mirror.current_retrieval_config
     if cfg_json and cfg_json.get("strategy") == "fixed":
         try:
             lim = int(cfg_json.get("limit"))
@@ -53,7 +35,6 @@ def build_context(eventlog: EventLog, limit: int = 5) -> str:
     cg.rebuild(eventlog.read_all())
     mg = MemeGraph(eventlog)
     mg.rebuild(eventlog.read_all())
-    mirror = Mirror(eventlog, enable_rsm=True, listen=False)
 
     # Configure pipeline to mimic fixed window (no vector, just recency)
     # By default pipeline does graph expansion, but if we set concepts=[], it relies on

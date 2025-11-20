@@ -34,15 +34,28 @@ class DeterministicEmbedder:
             vec.append(x)
         return vec
 
-    def embed(self, text: str) -> List[float]:
-        toks = [t for t in (text or "").split() if t]
+    def embed(
+        self,
+        text: str,
+        *,
+        idf: Dict[str, float] | None = None,
+        extra_tokens: List[str] | None = None,
+    ) -> List[float]:
+        toks: List[str] = []
+        if extra_tokens:
+            toks.extend(extra_tokens)
+        toks.extend([t for t in (text or "").split() if t])
         if not toks:
             return [0.0] * self.dims
         agg = [0.0] * self.dims
         for t in toks:
             v = self._tok_vec(t)
+            weight = 1.0
+            # Optional TF-IDF-style weighting for the hash64_tfidf model.
+            if self.model == "hash64_tfidf" and idf is not None:
+                weight = float(idf.get(t, 1.0))
             for i in range(self.dims):
-                agg[i] += v[i]
+                agg[i] += weight * v[i]
         # L2 normalize
         norm = math.sqrt(sum(x * x for x in agg))
         if norm == 0.0:
@@ -84,16 +97,54 @@ def select_by_vector(
     Deterministic, local-only scoring over recent candidate messages.
     """
     limit = max(1, int(limit))
-    embedder = DeterministicEmbedder(model=model, dims=dims)
-    q = embedder.embed(query_text)
     cands = candidate_messages(events, up_to_id=up_to_id)
     scored: List[Tuple[int, float]] = []
-    for ev in cands:
-        eid = int(ev.get("id", 0))
-        text = ev.get("content") or ""
-        v = embedder.embed(text)
-        s = cosine(q, v)
-        scored.append((eid, s))
+
+    if model == "hash64_tfidf" and cands:
+        # Compute simple DF/IDF over candidate messages with synthetic KIND/ROLE tokens.
+        df: Dict[str, int] = {}
+        docs_tokens: List[List[str]] = []
+        for ev in cands:
+            meta = ev.get("meta") or {}
+            role = meta.get("role") or ""
+            extra: List[str] = [f"KIND:{ev.get('kind')}"]
+            if role:
+                extra.append(f"ROLE:{role}")
+            base_toks = [t for t in (ev.get("content") or "").split() if t]
+            toks = extra + base_toks
+            docs_tokens.append(toks)
+            for tok in set(toks):
+                df[tok] = df.get(tok, 0) + 1
+        N = max(1, len(docs_tokens))
+        idf: Dict[str, float] = {}
+        for tok, freq in df.items():
+            # Standard smoothed IDF: log((N+1)/(df+1))
+            idf[tok] = math.log((N + 1.0) / (freq + 1.0))
+
+        embedder = DeterministicEmbedder(model=model, dims=dims)
+        # Treat query as user role for weighting purposes
+        q = embedder.embed(query_text, idf=idf, extra_tokens=["ROLE:user"])
+        for ev, toks in zip(cands, docs_tokens):
+            eid = int(ev.get("id", 0))
+            meta = ev.get("meta") or {}
+            role = meta.get("role") or ""
+            extra: List[str] = [f"KIND:{ev.get('kind')}"]
+            if role:
+                extra.append(f"ROLE:{role}")
+            # extra tokens are already included in toks for DF; we reuse the
+            # same idf map here.
+            v = embedder.embed(ev.get("content") or "", idf=idf, extra_tokens=extra)
+            s = cosine(q, v)
+            scored.append((eid, s))
+    else:
+        embedder = DeterministicEmbedder(model=model, dims=dims)
+        q = embedder.embed(query_text)
+        for ev in cands:
+            eid = int(ev.get("id", 0))
+            text = ev.get("content") or ""
+            v = embedder.embed(text)
+            s = cosine(q, v)
+            scored.append((eid, s))
     # Sort by score desc, tiebreak by id asc
     scored.sort(key=lambda t: (-t[1], t[0]))
     top = scored[:limit]
@@ -210,7 +261,7 @@ def select_by_concepts(
     *,
     concept_tokens: List[str],
     concept_graph,
-    events: List[Dict],
+    events: List[Dict] | None = None,
     limit: int = 10,
     relation: str | None = None,
 ) -> List[int]:
@@ -242,10 +293,15 @@ def select_by_concepts(
         canonical = concept_graph.canonical_token(token)
         # Get bound events for this concept
         bound = concept_graph.events_for_concept(canonical, relation=relation)
-        event_ids.update(bound)
+        # Ensure IDs are integers for deterministic sorting
+        event_ids.update(int(eid) for eid in bound)
 
-    # Validate against actual events and sort by recency
-    valid_ids = [eid for eid in event_ids if any(e.get("id") == eid for e in events)]
-    # Sort descending (most recent first), then cap
-    valid_ids.sort(reverse=True)
+    # If no events list is provided, trust ConceptGraph bindings directly.
+    ids_sorted = sorted(event_ids, reverse=True)
+    if events is None:
+        return ids_sorted[:limit]
+
+    # When events are provided (e.g., tests), validate against actual events list.
+    valid_set = {int(e.get("id", 0)) for e in events}
+    valid_ids = [eid for eid in ids_sorted if eid in valid_set]
     return valid_ids[:limit]

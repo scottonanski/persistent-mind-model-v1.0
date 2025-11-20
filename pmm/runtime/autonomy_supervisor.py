@@ -21,6 +21,15 @@ class AutonomySupervisor:
         self.epoch = epoch
         self.interval_s = interval_s
         self._running = False
+        # In-memory cache of slot_ids that already have autonomy_stimulus events
+        self.seen_slot_ids: set[str] = set()
+        for ev in self.eventlog.read_all():
+            if ev.get("kind") != "autonomy_stimulus":
+                continue
+            meta = ev.get("meta") or {}
+            sid = meta.get("slot_id")
+            if isinstance(sid, str) and sid:
+                self.seen_slot_ids.add(sid)
 
     def _epoch_timestamp(self) -> float:
         """Parse epoch RFC3339 to Unix timestamp."""
@@ -40,14 +49,7 @@ class AutonomySupervisor:
 
     def _stimulus_exists(self, slot_id: str) -> bool:
         """Check if autonomy_stimulus for this slot_id already exists."""
-        events = self.eventlog.read_all()
-        for event in events:
-            if (
-                event.get("kind") == "autonomy_stimulus"
-                and event.get("meta", {}).get("slot_id") == slot_id
-            ):
-                return True
-        return False
+        return slot_id in self.seen_slot_ids
 
     def emit_stimulus_if_needed(self) -> None:
         """Emit autonomy_stimulus for current slot if not already present."""
@@ -60,6 +62,7 @@ class AutonomySupervisor:
                 content=content,
                 meta={"source": "autonomy_supervisor", "slot_id": slot_id},
             )
+            self.seen_slot_ids.add(slot_id)
 
     async def run_forever(self) -> None:
         """Run the supervisor loop indefinitely."""
