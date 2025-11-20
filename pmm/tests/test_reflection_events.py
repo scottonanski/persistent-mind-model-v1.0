@@ -11,10 +11,17 @@ from pmm.adapters.dummy_adapter import DummyAdapter
 from pmm.runtime.loop import RuntimeLoop
 
 
-def test_primer_contains_required_terms():
-    assert "deterministic" in SYSTEM_PRIMER
-    assert "ledger" in SYSTEM_PRIMER
-    assert "Prefer citing concrete ledger event IDs" in SYSTEM_PRIMER
+def test_primer_enforces_native_execution_and_ledger_fidelity():
+    primer = SYSTEM_PRIMER.lower()
+    required_phrases = [
+        "persistent mind model (pmm)",
+        "every message, reflection, commitment, and claim is recorded",
+        "never invent data",
+        "cite concrete ledger event ids when possible",
+    ]
+    for phrase in required_phrases:
+        assert phrase in primer, f"Primer missing required phrase: {phrase}"
+
 
 
 def test_context_builder_tail_window(tmp_path):
