@@ -58,7 +58,9 @@ def get_ontological_meditation(event_id: int) -> str | None:
     """Return a specific meditation by historical index (for debugging/replay only)."""
     # The old list is kept only for exact historical replay if anyone ever needs it.
     # It is NOT injected automatically anymore.
-    _LEGACY_MEDITATIONS = [...]  # paste old list here if you want perfect replay fidelity
+    _LEGACY_MEDITATIONS = [
+        ...
+    ]  # paste old list here if you want perfect replay fidelity
     if 0 <= event_id < len(_LEGACY_MEDITATIONS):
         return _LEGACY_MEDITATIONS[event_id]
     return None

@@ -18,6 +18,9 @@ class MockEventLog:
     def read_all(self):
         return self.events
 
+    def read_tail(self, limit):
+        return self.events[-limit:]
+
     def append(self, **kwargs):
         event_id = len(self.events) + 1
         event = {"id": event_id, **kwargs}
@@ -56,6 +59,7 @@ def test_autonomous_reflection_diff():
         {"kind": "commitment_open", "meta": {"cid": "c2"}, "content": "commit 2"},
     ]
     mock_eventlog.read_all.return_value = events
+    mock_eventlog.read_tail.return_value = events
     mock_eventlog.append.return_value = 123
 
     # Test user-turn reflection

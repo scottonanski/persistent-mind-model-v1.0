@@ -27,7 +27,7 @@ def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
     - at least 3 reflections since last summary, OR
     - more than 10 events since last summary
     """
-    events = eventlog.read_all()
+    events = eventlog.read_tail(limit=500)
     since = _events_since_last(events, "summary_update")
     reflections = [e for e in since if e.get("kind") == "reflection"]
     # Derive open commitments via Mirror for canonical meta-based state

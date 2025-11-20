@@ -14,7 +14,8 @@ The Persistent Mind Model (PMM) is an event‑sourced architecture that treats a
 - Identity continuity: the self-model evolves from history and never “resets” silently.
 - Exportability: the canonical store is a standard SQLite file that can be backed up, migrated, or inspected.
 - Replayable state: mirror state is a pure function of the log; replays converge to the same state.
- - Zero full ledger scans in interactive path (1 GB+ viable).
+- Zero full ledger scans in interactive path (1 GB+ viable).
+- Explicit ledger/context separation: every turn makes the distinction between the **ledger so far** (e.g., "Ledger so far: events 1..N (total N)") and the **retrieval window this turn** (e.g., "Retrieval window this turn: events A..B (K events selected)"), with only that small selected set forming the model’s active context.
 
 ### Invariants
 - No hidden state: durable decisions are captured in the event log; intermediate scoring happens in memory but the resulting choices are persisted.

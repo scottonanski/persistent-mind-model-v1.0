@@ -396,7 +396,7 @@ class RuntimeLoop:
         self.eventlog.append(kind="metrics_turn", content=diag, meta={})
 
         # 4d. Synthesize deterministic reflection and maybe append summary
-        synthesize_reflection(self.eventlog)
+        synthesize_reflection(self.eventlog, mirror=self.mirror)
         maybe_append_summary(self.eventlog)
 
         delta = TurnDelta()
@@ -447,7 +447,7 @@ class RuntimeLoop:
                 )
                 self._parse_ref_lines(reflection_text)
 
-        return self.eventlog.read_all()
+        return self.eventlog.read_tail(limit=200)
 
     def run_interactive(self) -> None:  # pragma: no cover - simple IO wrapper
         try:
@@ -491,7 +491,7 @@ class RuntimeLoop:
         if DEBUG:
             print(f"[AUTONOMY TICK] slot={slot} | id={slot_id}")
         # Snapshot ledger before decision for outcome analysis
-        events_before = self.eventlog.read_all()
+        events_before = self.eventlog.read_tail(limit=200)
         last_id_before = events_before[-1]["id"] if events_before else 0
 
         decision = self.autonomy.decide_next_action()
@@ -541,7 +541,7 @@ class RuntimeLoop:
 
         # After executing the decision, emit per-tick outcome observation and
         # invoke adaptive metrics/learning in the autonomy kernel.
-        events_after = self.eventlog.read_all()
+        events_after = self.eventlog.read_tail(limit=200)
         self._emit_tick_outcome_and_adapt(
             decision=decision,
             last_id_before=last_id_before,

@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 import json
+import math
 
 from pmm.core.event_log import EventLog
 from pmm.core.mirror import Mirror

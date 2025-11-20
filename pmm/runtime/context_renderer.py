@@ -44,7 +44,7 @@ def render_context(
         sections.append(threads_section)
 
     # 3. State & Self-Model
-    state_section = _render_state_model(eventlog, mirror)
+    state_section = _render_state_model(eventlog, mirror, result)
     if state_section:
         sections.append(state_section)
 
@@ -133,9 +133,24 @@ def _render_threads(
     return "\n".join(lines)
 
 
-def _render_state_model(eventlog: EventLog, mirror: Mirror) -> str:
+def _render_state_model(
+    eventlog: EventLog, mirror: Mirror, result: RetrievalResult
+) -> str:
     """Render identity, RSM, and open commitments (from Mirror)."""
     parts = []
+
+    last_id = mirror.last_event_id
+    if isinstance(last_id, int) and last_id > 0:
+        parts.append(f"Ledger so far: events 1..{last_id} (total {last_id})")
+
+    event_ids = result.event_ids or []
+    if event_ids:
+        start = min(event_ids)
+        end = max(event_ids)
+        count = len(event_ids)
+        parts.append(
+            f"Retrieval window this turn: events {start}..{end} ({count} events selected)"
+        )
 
     # Identity
     ident = render_identity_claims(eventlog)
@@ -160,11 +175,9 @@ def _render_state_model(eventlog: EventLog, mirror: Mirror) -> str:
     # For now, let's reuse render_internal_goals logic but maybe generic?
     # Or just skip if not strictly required by prompt.
     # The proposal says "Section 3 ... Open commitments, stale flags".
-    # Let's use CommitmentManager for now.
-    from pmm.core.commitment_manager import CommitmentManager
+    # Let's use Mirror for now.
 
-    cm = CommitmentManager(eventlog)
-    open_comms = cm.get_open_commitments()
+    open_comms = mirror.get_open_commitment_events()
     if open_comms:
         cids = [
             e.get("meta", {}).get("cid")

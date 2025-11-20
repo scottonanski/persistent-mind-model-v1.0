@@ -30,6 +30,7 @@ def synthesize_reflection(
     staleness_threshold: Optional[int] = None,
     auto_close_threshold: Optional[int] = None,
     autonomy: "AutonomyKernel" | None = None,
+    mirror: Mirror | None = None,
 ) -> Optional[int]:
     if meta_extra and meta_extra.get("source") == "autonomy_kernel":
         if autonomy is None:
@@ -40,7 +41,7 @@ def synthesize_reflection(
             eventlog, meta_extra, staleness_threshold, auto_close_threshold
         )
     else:
-        events = eventlog.read_all()
+        events = eventlog.read_tail(limit=500)
         user = _last_by_kind(events, "user_message")
         assistant = _last_by_kind(events, "assistant_message")
         metrics = _last_by_kind(events, "metrics_turn")
@@ -51,9 +52,16 @@ def synthesize_reflection(
         outcome = (assistant.get("content") or "").strip()[:256]
         payload = {"intent": intent, "outcome": outcome, "next": "continue"}
 
-        internal = CommitmentManager(eventlog).get_open_commitments(
-            origin="autonomy_kernel"
-        )
+        if mirror is not None:
+            internal = [
+                e
+                for e in mirror.get_open_commitment_events()
+                if (e.get("meta") or {}).get("origin") == "autonomy_kernel"
+            ]
+        else:
+            internal = CommitmentManager(eventlog).get_open_commitments(
+                origin="autonomy_kernel"
+            )
         if internal:
             payload["internal_goals"] = [
                 f"{c.get('meta', {}).get('cid')} ({c.get('meta', {}).get('goal')})"

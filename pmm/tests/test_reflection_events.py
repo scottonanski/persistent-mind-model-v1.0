@@ -23,7 +23,6 @@ def test_primer_enforces_native_execution_and_ledger_fidelity():
         assert phrase in primer, f"Primer missing required phrase: {phrase}"
 
 
-
 def test_context_builder_tail_window(tmp_path):
     db = tmp_path / "ctx.db"
     log = EventLog(str(db))

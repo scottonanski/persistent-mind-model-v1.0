@@ -579,7 +579,7 @@ for claim in self._extract_claims(assistant_reply):
 - Graph statistics
 
 ```python
-events = eventlog.read_all()
+events = eventlog.read_tail(limit=500)
 user = _last_by_kind(events, "user_message")
 assistant = _last_by_kind(events, "assistant_message")
 metrics = _last_by_kind(events, "metrics_turn")
@@ -590,9 +590,16 @@ intent = (user.get("content") or "").strip()[:256]
 outcome = (assistant.get("content") or "").strip()[:256]
 payload = {"intent": intent, "outcome": outcome, "next": "continue"}
 
-internal = CommitmentManager(eventlog).get_open_commitments(
-    origin="autonomy_kernel"
-)
+if mirror is not None:
+    internal = [
+        e
+        for e in mirror.get_open_commitment_events()
+        if (e.get("meta") or {}).get("origin") == "autonomy_kernel"
+    ]
+else:
+    internal = CommitmentManager(eventlog).get_open_commitments(
+        origin="autonomy_kernel"
+    )
 if internal:
     payload["internal_goals"] = [
         f"{c.get('meta', {}).get('cid')} ({c.get('meta', {}).get('goal')})"
@@ -606,6 +613,7 @@ if reflection_count >= 5:
 
     # Add graph structure awareness
     from pmm.core.meme_graph import MemeGraph
+
     mg = MemeGraph(eventlog)
     mg.rebuild(events)
     stats = mg.graph_stats()
@@ -622,7 +630,7 @@ if reflection_count >= 5:
         if gaps:
             description += f" ({', '.join(gaps)})"
 
-        # Include graph density if meaningful (≥ 5 nodes)
+        # Include graph density if meaningful (>= 5 nodes)
         if stats["nodes"] >= 5:
             density = f"{stats['edges']}/{stats['nodes']}"
             description += f", graph: {density}"
@@ -653,7 +661,7 @@ def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
     - at least 3 reflections since last summary, OR
     - more than 10 events since last summary
     """
-    events = eventlog.read_all()
+    events = eventlog.read_tail(limit=500)
     since = _events_since_last(events, "summary_update")
     reflections = [e for e in since if e.get("kind") == "reflection"]
     # Derive open commitments via Mirror for canonical meta-based state
@@ -665,11 +673,11 @@ def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
     last_event_id = events[-1]["id"] if events else 0
 
     current_snapshot = mirror.rsm_snapshot()
+
     last_summary = _last_summary_event(events)
     last_rsm_state = (
         (last_summary.get("meta") or {}).get("rsm_state") if last_summary else None
     )
-
     rsm_delta_info = _compute_rsm_trend(current_snapshot, last_rsm_state)
     threshold_reflections = len(reflections) >= 3
     threshold_events = len(since) > 10
@@ -686,18 +694,16 @@ def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
         else:
             return None
 
-    content_parts = [
-        "{",
-        f"open_commitments:{open_commitments}",
-        f",reflections_since_last:{reflections_since}",
-        f",last_event_id:{last_event_id}",
-    ]
+    content_dict: Dict[str, object] = {
+        "open_commitments": int(open_commitments),
+        "reflections_since_last": int(reflections_since),
+        "last_event_id": int(last_event_id),
+    }
     if rsm_delta_info["description"]:
-        content_parts.append(f',rsm_trend:"{rsm_delta_info["description"]}"')
+        content_dict["rsm_trend"] = rsm_delta_info["description"]
     if rsm_forced:
-        content_parts.append(",rsm_triggered:1")
-    content_parts.append("}")
-    content = "".join(content_parts)
+        content_dict["rsm_triggered"] = True
+    content = json.dumps(content_dict, sort_keys=True, separators=(",", ":"))
     # Include full snapshot to preserve fast-rebuild parity
     meta = {"synth": "pmm", "rsm_state": current_snapshot}
     return eventlog.append(kind="summary_update", content=content, meta=meta)
