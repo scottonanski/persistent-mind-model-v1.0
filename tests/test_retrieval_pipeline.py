@@ -121,3 +121,64 @@ def test_retrieval_pipeline_vector_search():
     )
 
     assert e_msg in res.event_ids
+
+
+def test_retrieval_pipeline_forced_concepts_precede_vector():
+    """Force critical CTL concepts into context before vector pruning."""
+    log = EventLog(":memory:")
+    mg = MemeGraph(log)
+    cg = ConceptGraph(log)
+
+    # Define an identity concept and bind it to an early event.
+    log.append(
+        kind="concept_define",
+        content=json.dumps(
+            {
+                "token": "identity.user",
+                "concept_kind": "identity",
+                "definition": "user identity",
+                "attributes": {},
+                "version": "1.0",
+            }
+        ),
+        meta={},
+    )
+    identity_event = log.append(
+        kind="user_message",
+        content="I am the user",
+        meta={},
+    )
+    log.append(
+        kind="concept_bind_event",
+        content=json.dumps(
+            {"event_id": identity_event, "tokens": ["identity.user"], "relation": "relevant_to"}
+        ),
+        meta={},
+    )
+
+    # A later event that will win vector similarity without forced inclusion.
+    log.append(kind="user_message", content="unique keyword target", meta={})
+
+    mg.rebuild(log.read_all())
+    cg.rebuild(log.read_all())
+
+    config = RetrievalConfig(
+        always_include_concepts=["identity.user"],
+        sticky_concepts=[],
+        limit_total_events=1,
+        limit_vector_events=1,
+        enable_vector_search=True,
+        force_concept_prefixes=["identity."],
+        force_concept_limit=3,
+    )
+
+    res = run_retrieval_pipeline(
+        query_text="unique keyword target",
+        eventlog=log,
+        concept_graph=cg,
+        meme_graph=mg,
+        config=config,
+    )
+
+    # The identity-bound event must be present even though vector would favor the later event.
+    assert res.event_ids[0] == identity_event

@@ -124,6 +124,7 @@ def test_autonomy_embeddings_selection_verification_checkpoint_and_parity():
                 "claim",
                 "commitment_open",
                 "summary_update",
+                "lifetime_memory",
             ), f"Event {eid} has unexpected kind: {event.get('kind')}"
 
     # Autonomous checkpoint manifest present (ensure via maintenance if needed)

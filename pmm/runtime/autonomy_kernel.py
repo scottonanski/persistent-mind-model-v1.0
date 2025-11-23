@@ -119,6 +119,11 @@ class AutonomyKernel:
         # Seed ContextGraph from existing events; future events are applied
         # incrementally via the context listener.
         self.context_graph.rebuild()
+        # ConceptGraph for indexing decisions
+        self.concept_graph = ConceptGraph(eventlog)
+        self.concept_graph.rebuild()
+        self.eventlog.register_listener(self.concept_graph.sync)
+        self.ticks_since_last_index = self._init_ticks_counter()
         self._stability_window = 100
         self._coherence_enabled = True
         self.active_gap_analysis_cid: Optional[str] = None
@@ -136,6 +141,50 @@ class AutonomyKernel:
         # Load subsystem configs (no-op if none exist)
         self._load_stability_config()
         self._load_coherence_config()
+
+    def _init_ticks_counter(self) -> int:
+        """Reconstruct ticks since last index decision from ledger."""
+        events = self.eventlog.read_all()
+        ticks = 0
+        for e in reversed(events):
+            if e.get("kind") == "autonomy_tick":
+                try:
+                    content = json.loads(e.get("content") or "{}")
+                    if content.get("decision") == "index":
+                        return ticks
+                except (json.JSONDecodeError, TypeError):
+                    pass
+                ticks += 1
+        return ticks
+
+    def _should_index(self, events: List[Dict[str, Any]]) -> bool:
+        """Check if we should run the background indexer."""
+        # CONSTRAINT A: Threshold of unindexed events
+        # Look at last 50 messages (user/assistant)
+        scan_window = 50
+        candidates = [
+            e
+            for e in events[-scan_window:]
+            if e.get("kind") in ("user_message", "assistant_message")
+        ]
+
+        if not candidates:
+            return False
+
+        # Count how many have NO concept bindings in the graph
+        unindexed_count = 0
+        for e in candidates:
+            if not self.concept_graph.concepts_for_event(e["id"]):
+                unindexed_count += 1
+
+        if unindexed_count < 2:  # INDEX_THRESHOLD_MIN
+            return False
+
+        # CONSTRAINT B: Idle Gap (using deterministic counter)
+        if self.ticks_since_last_index < 4:  # INDEX_IDLE_GAP
+            return False
+
+        return True
 
     def ensure_rule_table_event(self) -> None:
         """Record the kernel's rule table in the ledger exactly once."""
@@ -250,6 +299,19 @@ class AutonomyKernel:
         if changed:
             # Emit updated rule table (idempotent guard inside)
             self.ensure_rule_table_event()
+
+    def _on_autonomy_tick(self, event: Dict[str, Any]) -> None:
+        """Update ticks_since_last_index based on autonomy_tick events."""
+        if event.get("kind") != "autonomy_tick":
+            return
+        try:
+            content = json.loads(event.get("content") or "{}")
+            if content.get("decision") == "index":
+                self.ticks_since_last_index = 0
+            else:
+                self.ticks_since_last_index += 1
+        except Exception:
+            self.ticks_since_last_index += 1
 
     def _on_meta_policy_event(self, event: Dict[str, Any]) -> None:
         """Apply meta-policy updates to thresholds."""
@@ -1094,6 +1156,11 @@ class AutonomyKernel:
 
     def decide_next_action(self) -> KernelDecision:
         """Decide the next autonomous action based on ledger state."""
+        events = self.eventlog.read_all()
+        if not events:
+            return KernelDecision("idle", "no events recorded", [])
+
+        last_event_id = events[-1]["id"]
         gaps = self.mirror.rsm_knowledge_gaps()
 
         # 1. OPEN GOAL IF NEEDED
@@ -1103,18 +1170,37 @@ class AutonomyKernel:
                 reason=f"{gaps} unresolved singleton intents",
             )
 
+        # Update tick counter (simulating a tick passing since we are deciding now)
+        # Note: The counter is reset to 0 if we decide to index, otherwise increments.
+        # But wait, this method is called *to decide*. The tick happens *after*.
+        # We should base decision on *current* state.
+        # The counter tracks ticks *between* index operations.
+
+        # 5. Background Indexing: Fill coverage gaps
+        # Check this BEFORE other idle tasks but AFTER urgent goals
+        if self._should_index(self.eventlog.read_all()):
+            # Reset counter effectively by the act of indexing (handled in _init_ticks_counter on reload)
+            # We don't manually reset self.ticks_since_last_index here because
+            # the next _init_ticks_counter() or explicit increment in the loop will handle it?
+            # No, we need to manage the in-memory counter.
+            # But this method returns a decision. It doesn't execute it.
+            # However, to ensure the decision loop works, we rely on the fact that
+            # 'index' decision will result in an autonomy_tick with 'index'.
+            # Our _init_ticks_counter counts from that tick.
+            # So we rely on the *next* call to see the reset.
+            return KernelDecision(
+                decision="index",
+                reasoning="detected unindexed events in recent history",
+                evidence=[last_event_id],
+            )
+
         # 2. EXECUTE EXISTING GOAL
         self.execute_internal_goal(self.INTERNAL_GOAL_ANALYZE_GAPS)
         self.execute_internal_goal(self.INTERNAL_GOAL_MONITOR_RSM)
-        events = self.eventlog.read_all()
-        if not events:
-            return KernelDecision("idle", "no events recorded", [])
 
         last_metrics = _last_event(events, "metrics_turn")
         if not last_metrics:
             return KernelDecision("idle", "no metrics_turn recorded yet", [])
-
-        last_event_id = events[-1]["id"]
 
         # Concept Token Layer (CTL) health derived deterministically from ledger.
         # This read is side-effect free and only influences decisions when CTL

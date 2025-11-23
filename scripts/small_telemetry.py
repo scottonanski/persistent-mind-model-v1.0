@@ -45,25 +45,46 @@ def export_small():
         """
         SELECT id, ts, kind, content, meta, prev_hash, hash
         FROM events
-        ORDER BY id DESC
-        LIMIT 250
+        ORDER BY id ASC
     """
     )
-    rows = list(reversed(cur.fetchall()))
+    all_rows = cur.fetchall()
     conn.close()
 
-    total = len(rows)
+    # Calculate Archivist stats from full history
+    async_binds = sum(1 for r in all_rows if r[2] == "concept_bind_async")
+    async_claims = sum(1 for r in all_rows if r[2] == "claim_from_text")
+
+    # Use last 250 for display
+    rows = list(reversed(all_rows[-250:]))
+
+    total = len(all_rows)
     # r[6] = hash column in the SELECT above
-    digest = sha256("".join(r[6] or "" for r in rows))
+    digest = sha256("".join(r[6] or "" for r in all_rows))
     lines = [
         "# Persistent Mind Model — Small Telemetry Export",
         f"**Exported:** {now.replace('_',' ')} UTC",
         f"**Total Events:** {total}",
         f"**SHA256 Digest:** `{digest}`",
         "---",
-        "| ID | Kind | Meta Preview | Prev Hash | Hash |",
-        "|----|------|--------------|-----------|------|",
     ]
+
+    if async_binds or async_claims:
+        lines.extend(
+            [
+                "### 📚 Archivist Activity",
+                f"- Async Concept Bindings: {async_binds}",
+                f"- Async Claims Extracted: {async_claims}",
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
+            "| ID | Kind | Meta Preview | Prev Hash | Hash |",
+            "|----|------|--------------|-----------|------|",
+        ]
+    )
 
     for eid, ts, kind, content, meta, prev_hash, hsh in rows:
         preview = ""

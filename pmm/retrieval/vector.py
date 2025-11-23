@@ -11,7 +11,7 @@ events from the ledger.
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 from hashlib import sha256
 import math
 import json
@@ -71,15 +71,25 @@ def cosine(a: List[float], b: List[float]) -> float:
 
 
 def candidate_messages(
-    events: List[Dict], cap: int = 100, *, up_to_id: int | None = None
+    events: List[Dict],
+    cap: int = 100,
+    *,
+    up_to_id: int | None = None,
+    kinds: Optional[Iterable[str]] = None,
 ) -> List[Dict]:
+    allowed = (
+        {"user_message", "assistant_message"}
+        if kinds is None
+        else {str(k) for k in kinds}
+    )
     msgs = [
         e
         for e in events
-        if e.get("kind") in ("user_message", "assistant_message")
+        if e.get("kind") in allowed
         and (up_to_id is None or int(e.get("id", 0)) < int(up_to_id))
     ]
     # Keep the most recent `cap` messages
+    cap = max(1, int(cap))
     return msgs[-cap:]
 
 
@@ -91,13 +101,16 @@ def select_by_vector(
     model: str = "hash64",
     dims: int = 64,
     up_to_id: int | None = None,
+    kinds: Optional[Iterable[str]] = None,
+    cap: Optional[int] = None,
 ) -> Tuple[List[int], List[float]]:
     """Return (selected_ids, scores) by cosine similarity to query.
 
     Deterministic, local-only scoring over recent candidate messages.
     """
     limit = max(1, int(limit))
-    cands = candidate_messages(events, up_to_id=up_to_id)
+    cap_val = cap if cap is not None else 100
+    cands = candidate_messages(events, cap=cap_val, up_to_id=up_to_id, kinds=kinds)
     scored: List[Tuple[int, float]] = []
 
     if model == "hash64_tfidf" and cands:

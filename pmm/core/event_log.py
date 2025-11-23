@@ -108,6 +108,7 @@ class EventLog:
             "retrieval_selection",
             "checkpoint_manifest",
             "embedding_add",
+            "lifetime_memory",
             # New kinds introduced by enhancement features
             "stability_metrics",
             "coherence_check",
@@ -120,6 +121,9 @@ class EventLog:
             "concept_bind_event",
             "concept_relate",
             "concept_state_snapshot",
+            # New kinds for Indexer/Archivist
+            "claim_from_text",
+            "concept_bind_async",
         }
         binding_kinds = {
             "metric_check",
@@ -306,6 +310,105 @@ class EventLog:
                     }
                 )
         return out
+
+    def read_since(self, event_id: int, limit: int) -> List[Dict[str, Any]]:
+        """Return events with id > event_id ordered ASC, capped by limit."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM events WHERE id > ? ORDER BY id ASC LIMIT ?",
+                (int(event_id), int(limit)),
+            )
+            rows = cur.fetchall()
+            out: List[Dict[str, Any]] = []
+            for row in rows:
+                out.append(
+                    {
+                        "id": row["id"],
+                        "ts": row["ts"],
+                        "kind": row["kind"],
+                        "content": row["content"],
+                        "meta": json.loads(row["meta"] or "{}"),
+                        "prev_hash": row["prev_hash"],
+                        "hash": row["hash"],
+                    }
+                )
+        return out
+
+    def read_range(
+        self, start_id: int, end_id: int, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Return events between ids inclusive, ordered ASC."""
+        params: List[Any] = [int(start_id), int(end_id)]
+        sql = "SELECT * FROM events WHERE id >= ? AND id <= ? ORDER BY id ASC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+        with self._lock:
+            cur = self._conn.execute(sql, tuple(params))
+            rows = cur.fetchall()
+            out: List[Dict[str, Any]] = []
+            for row in rows:
+                out.append(
+                    {
+                        "id": row["id"],
+                        "ts": row["ts"],
+                        "kind": row["kind"],
+                        "content": row["content"],
+                        "meta": json.loads(row["meta"] or "{}"),
+                        "prev_hash": row["prev_hash"],
+                        "hash": row["hash"],
+                    }
+                )
+        return out
+
+    def read_by_kind(
+        self, kind: str, limit: Optional[int] = None, reverse: bool = False
+    ) -> List[Dict[str, Any]]:
+        """Return events filtered by kind, ordered by id."""
+        sql = "SELECT * FROM events WHERE kind = ? ORDER BY id ASC"
+        params: List[Any] = [kind]
+        if reverse:
+            sql = "SELECT * FROM events WHERE kind = ? ORDER BY id DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+        with self._lock:
+            cur = self._conn.execute(sql, tuple(params))
+            rows = cur.fetchall()
+            out: List[Dict[str, Any]] = []
+            for row in rows:
+                out.append(
+                    {
+                        "id": row["id"],
+                        "ts": row["ts"],
+                        "kind": row["kind"],
+                        "content": row["content"],
+                        "meta": json.loads(row["meta"] or "{}"),
+                        "prev_hash": row["prev_hash"],
+                        "hash": row["hash"],
+                    }
+                )
+        return out
+
+    def last_of_kind(self, kind: str) -> Optional[Dict[str, Any]]:
+        """Return the most recent event of a given kind."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM events WHERE kind = ? ORDER BY id DESC LIMIT 1",
+                (kind,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            return {
+                "id": row["id"],
+                "ts": row["ts"],
+                "kind": row["kind"],
+                "content": row["content"],
+                "meta": json.loads(row["meta"] or "{}"),
+                "prev_hash": row["prev_hash"],
+                "hash": row["hash"],
+            }
 
     def read_up_to(self, event_id: int) -> List[Dict[str, Any]]:
         with self._lock:

@@ -118,6 +118,9 @@ class ConceptGraph:
             self._process_concept_alias(event)
         elif kind == "concept_bind_event":
             self._process_concept_bind_event(event)
+        elif kind == "concept_bind_async":
+            # Async bindings follow the same basic schema (event_id, tokens)
+            self._process_concept_bind_event(event)
         elif kind == "concept_relate":
             self._process_concept_relate(event)
         # concept_state_snapshot is passive/observational, doesn't affect graph state

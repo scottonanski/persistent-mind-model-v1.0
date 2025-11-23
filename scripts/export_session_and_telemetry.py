@@ -279,11 +279,20 @@ def export_session():
     # We can't easily import pmm.core.concept_graph here if we want this script to be standalone-ish,
     # but we can do a quick scan of concept_define events.
     concept_defs = [r for r in rows if r[2] == "concept_define"]
-    concept_binds = [r for r in rows if r[2] == "concept_bind_event"]
+    concept_binds = [
+        r for r in rows if r[2] in ("concept_bind_event", "concept_bind_async")
+    ]
+    async_binds = [r for r in rows if r[2] == "concept_bind_async"]
+    async_claims = [r for r in rows if r[2] == "claim_from_text"]
 
     telemetry.append("### Concept Graph Snapshot\n\n")
     telemetry.append(f"- **Total Definitions:** `{len(concept_defs)}`\n")
     telemetry.append(f"- **Total Bindings:** `{len(concept_binds)}`\n")
+    if async_binds or async_claims:
+        telemetry.append("\n### 📚 Archivist Activity\n\n")
+        telemetry.append(f"- Async Concept Bindings: `{len(async_binds)}`\n")
+        telemetry.append(f"- Async Claims Extracted: `{len(async_claims)}`\n")
+
     if concept_defs:
         # Show last 3 defined concepts
         last_3 = concept_defs[-3:]

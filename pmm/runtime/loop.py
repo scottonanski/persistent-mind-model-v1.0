@@ -37,6 +37,8 @@ from pmm.runtime.bindings import ExecBindRouter
 from pmm.runtime.autonomy_supervisor import AutonomySupervisor
 from pmm.core.autonomy_tracker import AutonomyTracker
 from pmm.learning.outcome_tracker import build_outcome_observation_content
+from pmm.runtime.indexer import Indexer
+from pmm.runtime.ctl_injector import CTLLookupInjector
 import asyncio
 import threading
 import time
@@ -71,6 +73,8 @@ class RuntimeLoop:
         self.replay = replay
         self.autonomy = AutonomyKernel(eventlog, thresholds=thresholds)
         self.tracker = AutonomyTracker(eventlog)
+        self.indexer = Indexer(eventlog)
+        self.ctl_injector = CTLLookupInjector(self.concept_graph)
         self.exec_router: ExecBindRouter | None = None
         if self.replay:
             self.mirror.rebuild()
@@ -201,6 +205,7 @@ class RuntimeLoop:
 
         from pmm.runtime.reflection_synthesizer import synthesize_reflection
         from pmm.runtime.identity_summary import maybe_append_summary
+        from pmm.runtime.lifetime_memory import maybe_append_lifetime_memory
 
         # 1. Log user message
         user_event_id = self.eventlog.append(
@@ -226,6 +231,11 @@ class RuntimeLoop:
 
         # Configure and run Retrieval Pipeline
         pipeline_config = RetrievalConfig()
+
+        # CTL Lookup Injection: Identify concepts in query and force their inclusion
+        injected_tokens = self.ctl_injector.extract_tokens(user_input)
+        pipeline_config.sticky_concepts.extend(injected_tokens)
+
         if retrieval_cfg:
             try:
                 limit_val = int(retrieval_cfg.get("limit", 20))
@@ -283,30 +293,47 @@ class RuntimeLoop:
         )
         t1 = time.perf_counter()
 
-        # 3a. If assistant_reply is valid JSON with required string fields,
-        #     record a deterministic, normalized payload in meta. Do NOT change
-        #     the assistant message content to preserve existing control lines
-        #     (e.g., COMMIT:/CLOSE:) and downstream behavior.
+        # 3a. Try to parse optional structured JSON header (intent/outcome/etc. + concepts).
+        #     Expected pattern in test mode: first line is a JSON object, followed
+        #     by normal free-text. We leave assistant_reply unchanged and only
+        #     record a normalized payload + concepts for CTL indexing.
         structured_payload: Optional[str] = None
+        active_concepts: List[str] = []
         try:
-            parsed = json.loads(assistant_reply)
-            if (
-                isinstance(parsed, dict)
-                and all(
+            reply_str = assistant_reply or ""
+            # Prefer a JSON header on the first line if present; fall back to
+            # parsing the whole reply when there is a single-line payload.
+            if "\n" in reply_str:
+                # split once into leading line + remainder
+                parts = reply_str.split("\n", 1)
+                header_line = parts[0]
+            else:
+                header_line = reply_str
+            parsed = json.loads(header_line)
+            if isinstance(parsed, dict):
+                # Structured control payload
+                if all(
                     k in parsed for k in ("intent", "outcome", "next", "self_model")
-                )
-                and all(
+                ) and all(
                     isinstance(parsed[k], str)
                     for k in ("intent", "outcome", "next", "self_model")
-                )
-            ):
-                structured_payload = json.dumps(
-                    parsed, sort_keys=True, separators=(",", ":")
-                )
+                ):
+                    structured_payload = json.dumps(
+                        parsed, sort_keys=True, separators=(",", ":")
+                    )
+                # Optional Active Concepts for CTL indexing
+                concepts_val = parsed.get("concepts")
+                if isinstance(concepts_val, list):
+                    active_concepts = [
+                        str(c).strip()
+                        for c in concepts_val
+                        if isinstance(c, str) and str(c).strip()
+                    ]
         except (TypeError, json.JSONDecodeError):
             structured_payload = None
+            active_concepts = []
 
-        # 4. Log assistant message (content preserved; optional structured meta)
+        # 4. Log assistant message (content preserved; optional structured/concept meta)
         ai_meta: Dict[str, Any] = {"role": "assistant"}
         if structured_payload is not None:
             ai_meta["assistant_structured"] = True
@@ -322,6 +349,30 @@ class RuntimeLoop:
             content=assistant_reply,
             meta=ai_meta,
         )
+
+        # 4a. Active Indexing: bind this turn's events to any model-emitted concepts.
+        if active_concepts:
+            turn_event_ids = [user_event_id, ai_event_id]
+            for token in active_concepts:
+                # Idempotent binding via ConceptGraph projection.
+                existing = set(self.concept_graph.events_for_concept(token))
+                for eid in turn_event_ids:
+                    if eid in existing:
+                        continue
+                    bind_content = json.dumps(
+                        {
+                            "event_id": eid,
+                            "tokens": [token],
+                            "relation": "relevant_to",
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    self.eventlog.append(
+                        kind="concept_bind_event",
+                        content=bind_content,
+                        meta={"source": "active_indexing"},
+                    )
         # Compile any structured CTL concept_ops from this assistant message.
         # This is deterministic and no-op when concept_ops is absent.
         assistant_event = self.eventlog.get(ai_event_id)
@@ -398,6 +449,7 @@ class RuntimeLoop:
         # 4d. Synthesize deterministic reflection and maybe append summary
         synthesize_reflection(self.eventlog, mirror=self.mirror)
         maybe_append_summary(self.eventlog)
+        maybe_append_lifetime_memory(self.eventlog, self.concept_graph)
 
         delta = TurnDelta()
 
@@ -420,11 +472,31 @@ class RuntimeLoop:
                     f"CLAIM:{claim.type}="
                     f"{json.dumps(claim.data, sort_keys=True, separators=(',', ':'))}"
                 )
-                self.eventlog.append(
+                claim_event_id = self.eventlog.append(
                     kind="claim",
                     content=claim_content,
                     meta={"claim_type": claim.type, "validated": True},
                 )
+                # Auto-bind all validated claims into CTL for long-term recall
+                target_token = claim.type
+                already_bound = claim_event_id in self.concept_graph.events_for_concept(
+                    target_token
+                )
+                if not already_bound:
+                    bind_content = json.dumps(
+                        {
+                            "event_id": claim_event_id,
+                            "tokens": [target_token],
+                            "relation": "describes",
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    self.eventlog.append(
+                        kind="concept_bind_event",
+                        content=bind_content,
+                        meta={"source": "auto_binder"},
+                    )
             else:
                 delta.failed_claims.append(claim)
 
@@ -535,6 +607,8 @@ class RuntimeLoop:
             from pmm.runtime.identity_summary import maybe_append_summary
 
             maybe_append_summary(self.eventlog)
+        elif decision.decision == "index":
+            self.indexer.run_indexing_cycle()
 
         if self.exec_router is not None:
             self.exec_router.tick()
@@ -578,6 +652,12 @@ class RuntimeLoop:
         elif decision.decision == "summarize":
             has_summary = any(e.get("kind") == "summary_update" for e in events_since)
             observed_result = "success" if has_summary else "no_delta"
+        elif decision.decision == "index":
+            has_index = any(
+                e.get("kind") in ("claim_from_text", "concept_bind_async")
+                for e in events_since
+            )
+            observed_result = "success" if has_index else "no_delta"
 
         # Encode action_kind as autonomy_<decision> for learning metrics.
         action_kind = f"autonomy_{decision.decision}"

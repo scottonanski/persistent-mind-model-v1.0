@@ -213,4 +213,15 @@ def synthesize_kernel_reflection(
         "relevance": "all_active",
         "action": "maintain",
     }
+
+    # Inject ontological meditation periodically
+    total_events = len(ledger_slice)
+    if total_events > 50 and total_events % 47 == 0:  # Every 47 events after 50
+        from pmm.runtime.prompts import get_ontological_meditation
+
+        meditation_index = (total_events // 47) % 11
+        meditation = get_ontological_meditation(meditation_index)
+        if meditation:
+            payload["ontological_inquiry"] = meditation
+
     return payload, delta_hash

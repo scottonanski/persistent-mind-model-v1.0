@@ -101,10 +101,15 @@ def export_session():
                         else (
                             "🧠 **Concept:**"
                             if kind.startswith("concept_")
+                            or kind == "concept_bind_async"
                             else (
                                 "🪞 **Reflection:**"
                                 if kind == "reflection"
-                                else "⚙️ **System:**"
+                                else (
+                                    "🗂️ **Claim:**"
+                                    if kind in ("claim", "claim_from_text")
+                                    else "⚙️ **System:**"
+                                )
                             )
                         )
                     )
@@ -226,10 +231,19 @@ def export_session():
 
     # Concept Graph Stats
     concept_defs = [r for r in rows if r[2] == "concept_define"]
-    concept_binds = [r for r in rows if r[2] == "concept_bind_event"]
+    concept_binds = [
+        r for r in rows if r[2] in ("concept_bind_event", "concept_bind_async")
+    ]
+    async_binds = [r for r in rows if r[2] == "concept_bind_async"]
+    async_claims = [r for r in rows if r[2] == "claim_from_text"]
+
     md.append("\n### 🧠 Concept Graph Snapshot\n\n")
     md.append(f"- Total Concept Definitions: `{len(concept_defs)}`\n")
     md.append(f"- Total Bindings: `{len(concept_binds)}`\n")
+    if async_binds or async_claims:
+        md.append("\n### 📚 Archivist Activity\n\n")
+        md.append(f"- Async Concept Bindings: `{len(async_binds)}`\n")
+        md.append(f"- Async Claims Extracted: `{len(async_claims)}`\n")
 
     # =====================
     # Phase 4: Verification Manifest (JSON block)
