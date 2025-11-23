@@ -279,8 +279,8 @@ class RuntimeLoop:
         # We don't calculate vector scores in pipeline result yet, so pass empty/dummy
         selection_scores = [0.0] * len(selection_ids)
 
-        # Check if graph context is actually present (Threads or Concepts sections)
-        context_has_graph = "## Threads" in ctx_block or "## Concepts" in ctx_block
+        # Check if graph context is actually present
+        context_has_graph = "## Graph" in ctx_block
         base_prompt = compose_system_prompt(
             history, open_comms, context_has_graph=context_has_graph
         )

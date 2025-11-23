@@ -18,7 +18,11 @@ from pmm.core.concept_graph import ConceptGraph
 from pmm.core.meme_graph import MemeGraph
 from pmm.core.mirror import Mirror
 from pmm.retrieval.pipeline import RetrievalResult
-from pmm.runtime.context_utils import render_identity_claims, render_rsm
+from pmm.runtime.context_utils import (
+    render_identity_claims,
+    render_rsm,
+    render_graph_context,
+)
 
 
 def render_context(
@@ -42,6 +46,11 @@ def render_context(
     threads_section = _render_threads(result, meme_graph, concept_graph, eventlog)
     if threads_section:
         sections.append(threads_section)
+
+    # 2b. Graph structure (conditional; only when graph has structure)
+    graph_section = render_graph_context(eventlog, meme_graph=meme_graph)
+    if graph_section:
+        sections.append(graph_section)
 
     # 3. State & Self-Model
     state_section = _render_state_model(eventlog, mirror, result)

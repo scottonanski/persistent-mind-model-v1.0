@@ -403,10 +403,10 @@ Recursive Self-Model:
 
 Internal Goals: mc_000123 (verify_retrieval_determinism)
 
+## Graph
+
 Graph Context:
-
 - Connections: 12 edges, 8 nodes
-
 - Thread depths: mc_000123:4, mc_000124:2
 
 

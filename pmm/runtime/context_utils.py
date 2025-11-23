@@ -92,16 +92,17 @@ def render_internal_goals(eventlog: EventLog) -> str:
     return f"Internal Goals: {', '.join(parts)}"
 
 
-def render_graph_context(eventlog: EventLog) -> str:
+def render_graph_context(eventlog: EventLog, meme_graph: Optional[MemeGraph] = None) -> str:
     """Render memegraph structural context for model introspection."""
-    mg = MemeGraph(eventlog)
-    mg.rebuild(eventlog.read_all())
+    mg = meme_graph or MemeGraph(eventlog)
+    if meme_graph is None:
+        mg.rebuild(eventlog.read_all())
     stats = mg.graph_stats()
 
     if stats["nodes"] < 5:
         return ""
 
-    lines: List[str] = []
+    lines: List[str] = ["## Graph"]
 
     if stats["nodes"] <= 8:
         lines.append(f"Graph: {stats['nodes']} nodes, {stats['edges']} edges")

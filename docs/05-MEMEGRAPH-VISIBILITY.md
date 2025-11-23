@@ -14,7 +14,7 @@ PMM now includes **Graph Context** in the model's input when the graph has suffi
 
 ### What the Model Sees
 
-When graph context is present, the model receives:
+When graph context is present, the model receives a dedicated `## Graph` section in the prompt:
 
 ```
 Graph Context:
@@ -30,34 +30,10 @@ This tells the model:
 
 **Files modified:**
 
-1. **`pmm/runtime/context_utils.py`** (shared rendering helpers)
-   - Added `render_graph_context()` for both fixed-window and vector retrieval
-   - Rebuilds graph from ledger, exposes stats when nodes ≥ 5
-   - Shared by both `context_builder.py` and `vector.py`
-
-2. **`pmm/runtime/context_builder.py`**
-   - Imports `render_graph_context()` from `context_utils`
-   - Uses shared helper for fixed-window retrieval
-
-3. **`pmm/retrieval/vector.py`**
-   - Imports `render_graph_context()` from `context_utils`
-   - Extended `build_context_from_ids()` to accept optional `eventlog` parameter
-   - Vector retrieval now includes metadata blocks (matching fixed-window behavior)
-
-4. **`pmm/runtime/loop.py`**
-   - Passes `eventlog=self.eventlog` to enable metadata in vector path
-   - Detects if "Graph Context:" is present
-   - Conditionally mentions graph in system prompt (prevents hallucination)
-
-5. **`pmm/runtime/prompts.py`**
-   - Added `context_has_graph` parameter to `compose_system_prompt()`
-   - Only tells model about graph when actually present
-   - Critical for awareness without false priming
-
-6. **`pmm/runtime/reflection_synthesizer.py`**
-   - Autonomy kernel reflections now include graph density
-   - Format: `"RSM: X determinism refs, Y knowledge gaps, graph: E/N"`
-   - Enables structural self-monitoring over time
+1. **`pmm/runtime/context_utils.py`** — `render_graph_context()` emits the `## Graph` section when the MemeGraph has ≥5 nodes (threads + connection density).
+2. **`pmm/runtime/context_renderer.py`** — inserts the graph section into the context block alongside Concepts/Threads/State/Evidence.
+3. **`pmm/runtime/loop.py` + `pmm/runtime/prompts.py`** — only tell the model about graph context when that section is actually present, preventing hallucinated graph awareness.
+4. **`pmm/runtime/reflection_synthesizer.py`** — autonomy reflections still include graph density for self-monitoring.
 
 ## Design Principles
 
