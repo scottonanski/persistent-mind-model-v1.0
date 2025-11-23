@@ -27,3 +27,7 @@ full = [
 
 [project.scripts]
 pmm = "pmm.runtime.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["pmm", "pmm.*"]
+exclude = ["comparative_results", "comparative_results.*"]
