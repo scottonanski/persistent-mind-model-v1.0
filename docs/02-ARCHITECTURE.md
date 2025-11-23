@@ -131,7 +131,7 @@ Parsing is line‑oriented; markers are case‑sensitive and must start a line. 
 
 ## Error Handling and Idempotency
 
-- Idempotency (recommended): dedup by event hash is a recommended policy; the current database schema does not enforce a UNIQUE constraint yet.
+- Idempotency: dedup by event hash is enforced via a UNIQUE index on `events.hash` (INSERT OR IGNORE), keeping appends deterministic and replayable.
 - Partial failures: the runtime appends explicit error or correction events; it never rewrites history.
 - Tool/adapter errors: captured in event metadata or as dedicated error events for later diagnosis.
 

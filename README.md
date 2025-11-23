@@ -173,7 +173,7 @@ python3 scripts/export_session.py
 python3 scripts/export_session_and_telemetry.py
 
 #This exports a smaller snapshot of the ledger telemetry
-python3 scrips/small_telemetry.py
+python3 scripts/small_telemetry.py
 ```
 
 
@@ -235,17 +235,25 @@ pytest -q
 
 ## 🔧 Admin + Config
 
-| Command              | Description                            |
-| -------------------- | -------------------------------------- |
-| `/pm`                | Show admin tools overview              |
-| `/pm retrieval last` | Show most recent retrieval hits        |
-| `/pm graph stats`    | MemeGraph stats                        |
-| `/pm checkpoint`     | Attempt to emit a checkpoint manifest (policy-guarded) |
-| `/pm rebuild fast`   | Fast rebuild for consistency testing   |
-| `/raw`               | Show last assistant message w/ markers |
+| Command                                   | Description                                                   |
+| ----------------------------------------- | ------------------------------------------------------------- |
+| `/pm`                                     | Show admin tools overview                                    |
+| `/pm graph stats`                         | MemeGraph stats                                              |
+| `/pm graph thread <CID>`                  | Canonical thread for a commitment                            |
+| `/pm graph explain <CID>`                 | Minimal subgraph (thread + neighbors)                        |
+| `/pm retrieval config fixed limit <N>`    | Set Hybrid CTL+Graph window (no vector)                      |
+| `/pm retrieval config vector …`           | Set vector strategy (limit/model/dims/quant)                 |
+| `/pm retrieval index backfill <N>`        | Backfill embeddings for last N messages                      |
+| `/pm retrieval status`                    | Show message/embedding coverage for current vector config    |
+| `/pm retrieval verify <turn_id>`          | Re-score a turn’s selection for audit                        |
+| `/pm retrieval last`                      | Show most recent retrieval_selection event                   |
+| `/pm checkpoint`                          | Attempt to emit a checkpoint manifest (policy-guarded)       |
+| `/pm rebuild fast`                        | Fast RSM rebuild consistency check                           |
+| `/pm config autonomy key=value …`         | Update autonomy thresholds (policy blocks `source=cli`)      |
+| `/raw`                                    | Show last assistant message w/ markers                       |
 
 📏 **Autonomy Settings**
-Reflection cadence, summary windows, and staleness intervals live in ledger-backed `config` events. The runtime seeds defaults (and keeps an immutable rule table) at boot. Because policy forbids the CLI from writing `config`, `/pm config autonomy …` will raise a policy violation. To change thresholds you must either:
+Reflection cadence, summary windows, and staleness intervals live in ledger-backed `config` events. The runtime seeds defaults (and keeps an immutable rule table) at boot. Policy forbids writes from `meta.source="cli"`, so `/pm config autonomy …` is blocked. The shorter `/config retrieval fixed …` command writes with an empty `meta` and will succeed unless you tighten policy. To change thresholds or retrieval strategy deterministically:
 
 1. Pass `thresholds={...}` when instantiating `RuntimeLoop` programmatically, or
 2. Append an autonomy_thresholds `config` event via a trusted actor (e.g., script emitting with `meta.source="runtime"`).
