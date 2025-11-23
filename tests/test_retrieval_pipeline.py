@@ -151,7 +151,11 @@ def test_retrieval_pipeline_forced_concepts_precede_vector():
     log.append(
         kind="concept_bind_event",
         content=json.dumps(
-            {"event_id": identity_event, "tokens": ["identity.user"], "relation": "relevant_to"}
+            {
+                "event_id": identity_event,
+                "tokens": ["identity.user"],
+                "relation": "relevant_to",
+            }
         ),
         meta={},
     )

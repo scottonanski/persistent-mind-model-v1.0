@@ -38,7 +38,13 @@ class RetrievalConfig:
 
     # Force-inclusion of critical CTL concepts (identity/roles/commitments/policies)
     force_concept_prefixes: List[str] = field(
-        default_factory=lambda: ["identity.", "role.", "policy.", "commitment.", "governance."]
+        default_factory=lambda: [
+            "identity.",
+            "role.",
+            "policy.",
+            "commitment.",
+            "governance.",
+        ]
     )
     force_concept_limit: int = 6
 
@@ -228,7 +234,9 @@ def run_retrieval_pipeline(
 
     forced_sorted = sorted(forced_event_ids, reverse=True)
     sticky_sorted = [
-        eid for eid in sorted(sticky_event_ids, reverse=True) if eid not in forced_event_ids
+        eid
+        for eid in sorted(sticky_event_ids, reverse=True)
+        if eid not in forced_event_ids
     ]
     context_candidates = sorted(
         expanded_ids - forced_event_ids - sticky_event_ids, reverse=True
