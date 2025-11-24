@@ -227,6 +227,8 @@ class RuntimeLoop:
 
         # 2. Build prompts
         history = self.eventlog.read_tail(limit=10)
+        total_events = self.eventlog.count()
+        meditation_active = total_events > 20 and total_events % 37 == 0
         open_comms = self.mirror.get_open_commitment_events()
 
         # Configure and run Retrieval Pipeline
@@ -282,7 +284,10 @@ class RuntimeLoop:
         # Check if graph context is actually present
         context_has_graph = "## Graph" in ctx_block
         base_prompt = compose_system_prompt(
-            history, open_comms, context_has_graph=context_has_graph
+            history,
+            open_comms,
+            context_has_graph=context_has_graph,
+            history_len=total_events,
         )
         system_prompt = f"{ctx_block}\n\n{base_prompt}" if ctx_block else base_prompt
 
@@ -332,6 +337,12 @@ class RuntimeLoop:
         except (TypeError, json.JSONDecodeError):
             structured_payload = None
             active_concepts = []
+
+        # Deterministic ontological concept seeding fallback during meditations
+        if meditation_active and not active_concepts:
+            active_concepts.extend(
+                ["ontology.structure", "identity.evolution", "awareness.loop"]
+            )
 
         # 4. Log assistant message (content preserved; optional structured/concept meta)
         ai_meta: Dict[str, Any] = {"role": "assistant"}

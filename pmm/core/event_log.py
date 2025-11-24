@@ -459,6 +459,14 @@ class EventLog:
             cur = self._conn.execute("SELECT hash FROM events ORDER BY id ASC")
             return [r[0] for r in cur.fetchall()]
 
+    def count(self) -> int:
+        """Return total event count using MAX(id) (append-only, no deletes)."""
+        with self._lock:
+            cur = self._conn.execute("SELECT MAX(id) FROM events")
+            row = cur.fetchone()
+            max_id = row[0] if row and row[0] is not None else 0
+            return int(max_id)
+
     def has_exec_bind(self, cid: str) -> bool:
         cid = (cid or "").strip()
         if not cid:
