@@ -20,7 +20,7 @@ def calculate_stability_metrics(log: EventLog, window: int = 100) -> Dict[str, A
 
     Uses bounded window for performance; deterministic.
     """
-    recent = log.read_all()[-window:]
+    recent = log.read_tail(max(1, int(window)))
     # Exclude prior stability_metrics events from calculation to avoid
     # feedback effects and preserve idempotency on repeated emission.
     recent = [e for e in recent if e.get("kind") != "stability_metrics"]

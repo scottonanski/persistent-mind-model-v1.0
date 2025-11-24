@@ -33,3 +33,42 @@ def test_ctl_injector_maps_creator_to_user_identity():
     tokens = injector.extract_tokens("Who is the creator of this system?")
 
     assert "user.identity" in tokens
+
+
+def test_ctl_injector_tokenizer_and_suffix_matching_are_deterministic():
+    log = EventLog(":memory:")
+    log.append(
+        kind="concept_define",
+        content=json.dumps(
+            {
+                "token": "topic.deep-learning",
+                "concept_kind": "topic",
+                "definition": "dl",
+                "attributes": {},
+                "version": "1.0",
+            }
+        ),
+        meta={},
+    )
+    log.append(
+        kind="concept_define",
+        content=json.dumps(
+            {
+                "token": "identity.user",
+                "concept_kind": "identity",
+                "definition": "user identity",
+                "attributes": {},
+                "version": "1.0",
+            }
+        ),
+        meta={},
+    )
+    cg = ConceptGraph(log)
+    cg.rebuild(log.read_all())
+    injector = CTLLookupInjector(cg)
+
+    toks = injector.extract_tokens("Deep learning systems")
+    assert "topic.deep-learning" in toks
+
+    toks2 = injector.extract_tokens("identity? user!")
+    assert "identity.user" in toks2

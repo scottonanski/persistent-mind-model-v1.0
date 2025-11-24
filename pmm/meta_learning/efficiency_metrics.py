@@ -27,7 +27,7 @@ def calculate_efficiency_metrics(
     window: int = 500,
 ) -> EfficiencyMetrics:
     """Calculate efficiency metrics."""
-    events = log.read_all()[-window:]
+    events = log.read_tail(max(1, int(window)))
     total_events = len(events)
 
     # Avg lag from patterns

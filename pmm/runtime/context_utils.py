@@ -92,7 +92,9 @@ def render_internal_goals(eventlog: EventLog) -> str:
     return f"Internal Goals: {', '.join(parts)}"
 
 
-def render_graph_context(eventlog: EventLog, meme_graph: Optional[MemeGraph] = None) -> str:
+def render_graph_context(
+    eventlog: EventLog, meme_graph: Optional[MemeGraph] = None
+) -> str:
     """Render memegraph structural context for model introspection."""
     mg = meme_graph or MemeGraph(eventlog)
     if meme_graph is None:

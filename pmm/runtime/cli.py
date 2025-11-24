@@ -49,10 +49,9 @@ def _export_chat_session(elog: EventLog, format: str = "markdown") -> str:
     from datetime import datetime
 
     # Get all user and assistant messages
-    events = elog.read_all()
-    messages = [
-        e for e in events if e.get("kind") in {"user_message", "assistant_message"}
-    ]
+    user_events = elog.read_by_kind("user_message")
+    assistant_events = elog.read_by_kind("assistant_message")
+    messages = sorted(user_events + assistant_events, key=lambda ev: int(ev["id"]))
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -756,36 +755,27 @@ def handle_pm_command(command: str, eventlog: EventLog) -> Optional[str]:
 
 
 def _last_autonomy_cfg(eventlog: EventLog) -> Optional[Dict]:
-    cfg = None
-    for ev in eventlog.read_all():
-        if ev.get("kind") != "config":
-            continue
+    for ev in eventlog.read_by_kind("config", reverse=True):
         try:
             data = json.loads(ev.get("content") or "{}")
         except Exception:
             continue
         if isinstance(data, dict) and data.get("type") == "autonomy_thresholds":
-            cfg = data
-    return cfg
+            return data
+    return None
 
 
 def _policy_forbids(eventlog: EventLog, *, source: str, kind: str) -> bool:
-    policy = None
-    for ev in eventlog.read_all()[::-1]:
-        if ev.get("kind") != "config":
-            continue
+    for ev in eventlog.read_by_kind("config", reverse=True):
         try:
             data = json.loads(ev.get("content") or "{}")
         except Exception:
             continue
         if isinstance(data, dict) and data.get("type") == "policy":
-            policy = data
-            break
-    if not policy:
-        return False
-    fs = policy.get("forbid_sources") or {}
-    kinds = fs.get(source)
-    return isinstance(kinds, list) and kind in kinds
+            fs = data.get("forbid_sources") or {}
+            kinds = fs.get(source)
+            return isinstance(kinds, list) and kind in kinds
+    return False
 
 
 def _message_events(events):
@@ -816,7 +806,8 @@ def _handle_retrieval_backfill(eventlog: EventLog, n: int) -> str:
         return "Retrieval strategy is not 'vector'"
     model = str(cfg.get("model", "hash64"))
     dims = int(cfg.get("dims", 64))
-    events = eventlog.read_all()
+    window = max(1, int(max(n * 4, 500)))
+    events = eventlog.read_tail(window)
     msgs = _message_events(events)[-max(1, n) :]
     existing = _embedding_map(events, model=model, dims=dims)
     from pmm.retrieval.vector import build_embedding_content
@@ -839,24 +830,25 @@ def _handle_retrieval_status(eventlog: EventLog) -> str:
     cfg = _last_retrieval_config(eventlog) or {}
     model = str(cfg.get("model", "hash64"))
     dims = int(cfg.get("dims", 64))
-    events = eventlog.read_all()
-    msgs = _message_events(events)
-    embs = _embedding_map(events, model=model, dims=dims)
+    msgs = eventlog.read_by_kind("user_message") + eventlog.read_by_kind(
+        "assistant_message"
+    )
+    emb_events = eventlog.read_by_kind("embedding_add")
+    embs = _embedding_map(emb_events, model=model, dims=dims)
     return f"messages:{len(msgs)} embeddings:{len(embs)} model:{model} dims:{dims}"
 
 
 def _handle_retrieval_verify(eventlog: EventLog, turn_id: int) -> str:
     # Find the retrieval_selection for this turn
     target = None
-    for e in reversed(eventlog.read_all()):
-        if e.get("kind") == "retrieval_selection":
-            try:
-                data = json.loads(e.get("content") or "{}")
-            except Exception:
-                continue
-            if int(data.get("turn_id", 0)) == int(turn_id):
-                target = data
-                break
+    for e in eventlog.read_by_kind("retrieval_selection", reverse=True, limit=500):
+        try:
+            data = json.loads(e.get("content") or "{}")
+        except Exception:
+            continue
+        if int(data.get("turn_id", 0)) == int(turn_id):
+            target = data
+            break
     if target is None:
         return "No retrieval_selection for that turn"
     cfg = _last_retrieval_config(eventlog) or {}
@@ -864,7 +856,8 @@ def _handle_retrieval_verify(eventlog: EventLog, turn_id: int) -> str:
     dims = int(cfg.get("dims", 64))
     selected = target.get("selected") or []
     # Find the last user_message before turn_id
-    events = eventlog.read_all()
+    window_start = max(1, int(turn_id) - 2000)
+    events = eventlog.read_range(window_start, int(turn_id))
     query_text = ""
     for e in reversed(events):
         if int(e.get("id", 0)) >= int(turn_id):
@@ -904,18 +897,15 @@ def _handle_retrieval_verify(eventlog: EventLog, turn_id: int) -> str:
 
 
 def _handle_checkpoint(eventlog: EventLog) -> str:
-    events = eventlog.read_all()
-    if not events:
-        return "No events to checkpoint."
-    # Find last summary_update to anchor manifest
-    last_summary = None
-    for ev in reversed(events):
-        if ev.get("kind") == "summary_update":
-            last_summary = ev
-            break
+    last_summary = next(
+        iter(eventlog.read_by_kind("summary_update", reverse=True, limit=1)), None
+    )
     if not last_summary:
         return "No summary_update found to anchor checkpoint."
     up_to = int(last_summary.get("id", 0))
+    events = eventlog.read_up_to(up_to)
+    if up_to > 100000:
+        return "Checkpoint creation blocked: ledger too large for unbounded hash. Use segmented checkpoints."
     # Compute root hash over hash sequence up to anchor
     hashes = [e.get("hash") or "" for e in events if int(e.get("id", 0)) <= up_to]
     root_blob = json.dumps(hashes, separators=(",", ":"))
@@ -923,11 +913,10 @@ def _handle_checkpoint(eventlog: EventLog) -> str:
 
     digest = _hl.sha256(root_blob.encode("utf-8")).hexdigest()
     # Idempotent: check last manifest
-    last_manifest = None
-    for ev in reversed(events):
-        if ev.get("kind") == "checkpoint_manifest":
-            last_manifest = ev
-            break
+    last_manifest = next(
+        iter(eventlog.read_by_kind("checkpoint_manifest", reverse=True, limit=1)),
+        None,
+    )
     if last_manifest:
         try:
             data = json.loads(last_manifest.get("content") or "{}")
@@ -952,8 +941,20 @@ def handle_graph_command(command: str, eventlog: EventLog) -> Optional[str]:
     parts = command.strip().split()
     if not parts or parts[0].lower() != "/graph":
         return None
+    # Large-ledger guardrail: block unbounded graph stats/rebuilds without explicit consent
+    # by limiting the rebuild to tracked kinds only (already bounded) and refusing if the
+    # ledger is extremely large.
+    latest_id = _latest_event_id(eventlog)
+    if latest_id > 100000:
+        return (
+            "Graph stats disabled on large ledgers; use checkpoints or filtered tools."
+        )
     mg = MemeGraph(eventlog)
-    mg.rebuild(eventlog.read_all())
+    tracked_events = []
+    for k in MemeGraph.TRACKED_KINDS:
+        tracked_events.extend(eventlog.read_by_kind(k))
+    tracked_events.sort(key=lambda ev: int(ev["id"]))
+    mg.rebuild(tracked_events)
     if len(parts) == 2 and parts[1].lower() == "stats":
         stats = mg.graph_stats()
         lines = [
@@ -996,18 +997,14 @@ def handle_graph_command(command: str, eventlog: EventLog) -> Optional[str]:
 
 
 def _last_retrieval_config(eventlog: EventLog) -> Optional[Dict]:
-    cfg = None
-    for ev in eventlog.read_all():
-        if ev.get("kind") != "config":
-            continue
+    for ev in eventlog.read_by_kind("config", reverse=True):
         try:
             data = json.loads(ev.get("content") or "{}")
         except Exception:
             continue
         if isinstance(data, dict) and data.get("type") == "retrieval":
-            cfg = data
-            break
-    return cfg
+            return data
+    return None
 
 
 def handle_config_command(command: str, eventlog: EventLog) -> Optional[str]:
@@ -1056,9 +1053,8 @@ def handle_goals_command(eventlog: EventLog) -> str:
 
     closed_count = sum(
         1
-        for event in eventlog.read_all()
-        if event.get("kind") == "commitment_close"
-        and (event.get("meta") or {}).get("origin") == "autonomy_kernel"
+        for event in eventlog.read_by_kind("commitment_close")
+        if (event.get("meta") or {}).get("origin") == "autonomy_kernel"
     )
 
     if not open_internal:

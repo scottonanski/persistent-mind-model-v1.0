@@ -16,16 +16,24 @@ from pmm.core.event_log import EventLog
 class AutonomySupervisor:
     """Deterministic slot-based supervisor for autonomy stimuli."""
 
-    def __init__(self, eventlog: EventLog, epoch: str, interval_s: int) -> None:
+    def __init__(
+        self, eventlog: EventLog, epoch: str, interval_s: int, seed_limit: int = 2000
+    ) -> None:
         self.eventlog = eventlog
         self.epoch = epoch
         self.interval_s = interval_s
         self._running = False
         # In-memory cache of slot_ids that already have autonomy_stimulus events
         self.seen_slot_ids: set[str] = set()
-        for ev in self.eventlog.read_all():
-            if ev.get("kind") != "autonomy_stimulus":
-                continue
+        # Bounded seeding to avoid full-ledger scans on startup; retain determinism
+        # by using a stable slice of the most recent autonomy_stimulus events.
+        try:
+            seed_events = self.eventlog.read_by_kind(
+                "autonomy_stimulus", limit=max(1, int(seed_limit)), reverse=True
+            )
+        except Exception:
+            seed_events = []
+        for ev in seed_events:
             meta = ev.get("meta") or {}
             sid = meta.get("slot_id")
             if isinstance(sid, str) and sid:

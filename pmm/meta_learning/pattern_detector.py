@@ -21,7 +21,7 @@ class LearningPattern:
 
 def detect_learning_patterns(log: EventLog, window: int = 500) -> List[LearningPattern]:
     """Detect learning patterns from recent events."""
-    events = log.read_all()[-window:]
+    events = log.read_tail(max(1, int(window)))
     reflections = [e for e in events if e.get("kind") == "reflection"]
     policy_updates = [e for e in events if e.get("kind") == "policy_update"]
 

@@ -11,7 +11,6 @@ This module implements the 'CTL Lookup Injector' pattern:
 """
 
 from typing import Dict, List, Set
-import re
 from pmm.core.concept_graph import ConceptGraph
 
 
@@ -29,13 +28,30 @@ class CTLLookupInjector:
             "founder": ["user.identity"],
         }
 
+    @staticmethod
+    def _tokenize(query_text: str) -> List[str]:
+        """Deterministic alphanumeric tokenization (lowercase)."""
+        toks: List[str] = []
+        buf = []
+        for ch in query_text:
+            if ch.isalnum():
+                buf.append(ch.lower())
+            else:
+                if buf:
+                    toks.append("".join(buf))
+                    buf = []
+        if buf:
+            toks.append("".join(buf))
+        return toks
+
     def extract_tokens(self, query_text: str) -> List[str]:
         """Identify concept tokens relevant to the query text.
 
-        Uses a heuristic matching strategy:
-        - Tokenizes query into words (ignoring punctuation).
-        - Checks if the *suffix* (last part) of any known concept token appears in the query.
-        - Checks if the *full token* appears in the query.
+        Deterministic strategy without regex heuristics:
+        - Lowercase alphanumeric tokenization
+        - Direct full-token match
+        - Exact suffix match against token tail (minus ignored generic suffixes)
+        - Deterministic synonym triggers
 
         Args:
             query_text: The raw user prompt.
@@ -47,8 +63,7 @@ class CTLLookupInjector:
             return []
 
         query_lower = query_text.lower()
-        # Use regex to extract alphanumeric words only
-        query_words = set(re.findall(r"\w+", query_lower))
+        query_words = set(self._tokenize(query_text))
 
         candidates = self.concept_graph.all_tokens()
         matched_tokens: Set[str] = set()
@@ -71,7 +86,11 @@ class CTLLookupInjector:
             if suffix in ignored_suffixes:
                 continue
 
-            if suffix in query_words:
+            # Match if the full suffix appears or all suffix sub-tokens appear
+            suffix_tokens = self._tokenize(suffix)
+            if suffix in query_words or (
+                suffix_tokens and all(st in query_words for st in suffix_tokens)
+            ):
                 matched_tokens.add(token)
                 # Optimization: if suffix matches, we might want to verify context?
                 # For now, aggressive recall is preferred over precision loss.

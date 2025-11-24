@@ -134,6 +134,8 @@ class Indexer:
         # We need a local ConceptGraph projection to know what's already indexed
         self.concept_graph = ConceptGraph(eventlog)
         self.concept_graph.rebuild()
+        # Track progress for embedding backfill to stay incremental
+        self._last_embedded_id: int = 0
 
     def run_indexing_cycle(self, limit: int = 50) -> int:
         """Scan recent unindexed events and apply async bindings.
@@ -144,12 +146,11 @@ class Indexer:
         self.concept_graph.rebuild()
         # (Optimization: could use sync, but rebuild ensures full consistency for the batch)
 
-        events = self.eventlog.read_all()
-        # Filter for user/assistant messages in the recent window
+        # Bounded scan over recent events to avoid full-ledger reads.
+        events = self.eventlog.read_tail(max(1, int(limit)))
+        # Filter for user/assistant messages in the recent window (ordered ASC by read_tail)
         candidates = [
-            e
-            for e in events[-limit:]
-            if e.get("kind") in ("user_message", "assistant_message")
+            e for e in events if e.get("kind") in ("user_message", "assistant_message")
         ]
 
         processed_count = 0
@@ -227,3 +228,52 @@ class Indexer:
             processed_count += 1
 
         return processed_count
+
+    def backfill_embeddings(
+        self, *, model: str = "hash64", dims: int = 64, batch: int = 200
+    ) -> int:
+        """Backfill missing embedding_add events beyond the usual vector tail.
+
+        Deterministic and incremental: scans forward from the last processed id.
+        """
+        start_id = max(0, int(self._last_embedded_id))
+        candidates = self.eventlog.read_range(start_id + 1, start_id + batch)
+        if not candidates:
+            return 0
+
+        # Build existing embedding set for this model/dims
+        existing = set()
+        for ev in self.eventlog.read_by_kind("embedding_add"):
+            try:
+                data = json.loads(ev.get("content") or "{}")
+            except Exception:
+                continue
+            if (data or {}).get("model") == model and int(
+                (data or {}).get("dims", 0)
+            ) == int(dims):
+                try:
+                    existing.add(int((data or {}).get("event_id", 0)))
+                except Exception:
+                    continue
+
+        from pmm.retrieval.vector import build_embedding_content
+
+        appended = 0
+        for ev in candidates:
+            eid = int(ev.get("id", 0))
+            if ev.get("kind") not in ("user_message", "assistant_message"):
+                continue
+            if eid in existing:
+                continue
+            payload = build_embedding_content(
+                event_id=eid, text=ev.get("content") or "", model=model, dims=dims
+            )
+            self.eventlog.append(
+                kind="embedding_add",
+                content=payload,
+                meta={"source": "indexer.backfill"},
+            )
+            appended += 1
+
+        self._last_embedded_id = candidates[-1]["id"]
+        return appended

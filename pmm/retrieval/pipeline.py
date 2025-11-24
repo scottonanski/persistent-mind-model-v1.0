@@ -32,6 +32,8 @@ class RetrievalConfig:
     summary_event_scan_limit: Optional[int] = None
     vector_candidate_cap: int = 400
     sticky_concepts: List[str] = field(default_factory=lambda: ["user.identity"])
+    include_summary_events: bool = True
+    summary_pin_limit: int = 2
 
     # Concepts to always include in seeding
     always_include_concepts: List[str] = field(default_factory=list)
@@ -146,6 +148,7 @@ def run_retrieval_pipeline(
     vector_event_ids: Set[int] = set()
     summary_vector_ids: Set[int] = set()
     summary_expanded_ids: Set[int] = set()
+    summary_pinned_ids: Set[int] = set()
     if config.enable_vector_search and query_text:
         # Use a bounded tail of recent events to keep vector search scalable.
         tail_events = eventlog.read_tail(config.recent_event_tail)
@@ -190,10 +193,32 @@ def run_retrieval_pipeline(
                             continue
                         if eventlog.exists(mid_int):
                             summary_expanded_ids.add(mid_int)
+    # Always pin recent summary/lifetime_memory events if configured
+    if config.include_summary_events and config.summary_event_kinds:
+        for kind in config.summary_event_kinds:
+            pinned = eventlog.read_by_kind(
+                kind,
+                limit=max(1, int(config.summary_pin_limit)),
+                reverse=True,
+            )
+            for ev in pinned:
+                eid = int(ev.get("id", 0))
+                summary_pinned_ids.add(eid)
+                # Expand evidence tail via sample_ids when present
+                meta = ev.get("meta") or {}
+                for sid in meta.get("sample_ids", []) or []:
+                    try:
+                        sid_int = int(sid)
+                    except Exception:
+                        continue
+                    if eventlog.exists(sid_int):
+                        summary_expanded_ids.add(sid_int)
 
     # 4. Graph Expansion (MemeGraph)
     # We want to expand around the seed events (CTL + Vector).
     # AND include full threads for any relevant CIDs.
+
+    thread_expanded_ids: Set[int] = set()
 
     base_ids = (
         ctl_event_ids.union(vector_event_ids)
@@ -220,36 +245,61 @@ def run_retrieval_pipeline(
     for cid in relevant_cids:
         thread_events = meme_graph.thread_for_cid(cid)
         expanded_ids.update(thread_events)
+        thread_expanded_ids.update(thread_events)
         # Also expand around thread events?
         # "Use MemeGraph to expand/shape those threads."
         # MemeGraph.subgraph_for_cid does exactly this (thread + neighbors)
         subgraph = meme_graph.subgraph_for_cid(cid)
         expanded_ids.update(subgraph)
+        thread_expanded_ids.update(subgraph)
 
     # 5. Finalize
-    # Filter valid IDs (sanity check) and sort
-    # all_events_map = {e["id"]: e for e in eventlog.read_all()}  # expensive?
-    # Actually we just need IDs to be valid.
-    # If we trust MemeGraph/ConceptGraph/Vector, they return valid IDs.
-
+    # Bucketed allocation: pinned (forced+sticky) > concept > thread > summary > vector > residual
     forced_sorted = sorted(forced_event_ids, reverse=True)
     sticky_sorted = [
         eid
         for eid in sorted(sticky_event_ids, reverse=True)
         if eid not in forced_event_ids
     ]
-    context_candidates = sorted(
-        expanded_ids - forced_event_ids - sticky_event_ids, reverse=True
-    )
-    context_limit = max(
-        config.limit_total_events - len(forced_sorted) - len(sticky_sorted), 0
-    )
-    context_final = context_candidates[:context_limit]
+    summary_sorted = [
+        eid
+        for eid in sorted(summary_pinned_ids, reverse=True)
+        if eid not in forced_event_ids and eid not in sticky_event_ids
+    ]
+    pinned_ids = forced_sorted + sticky_sorted + summary_sorted
+    pinned_ids = pinned_ids[: config.limit_total_events]
+    pinned_set = set(pinned_ids)
 
-    # Combine with forced first to guarantee inclusion, then sticky anchors.
-    final_ids = forced_sorted + sticky_sorted + context_final
-    if len(final_ids) > config.limit_total_events:
-        final_ids = final_ids[: config.limit_total_events]
+    concept_set = ctl_event_ids - pinned_set
+    thread_set = thread_expanded_ids - pinned_set - concept_set
+    summary_set = summary_expanded_ids - pinned_set - concept_set - thread_set
+    vector_set = vector_event_ids - pinned_set - concept_set - thread_set - summary_set
+    residual_set = (
+        expanded_ids - pinned_set - concept_set - thread_set - summary_set - vector_set
+    )
+
+    concept_bucket = sorted(concept_set, reverse=True)
+    thread_bucket = sorted(thread_set, reverse=True)
+    summary_bucket = sorted(summary_set, reverse=True)
+    vector_bucket = sorted(vector_set, reverse=True)
+    residual_bucket = sorted(residual_set, reverse=True)
+
+    final_ids = list(pinned_ids)
+    remaining = max(config.limit_total_events - len(final_ids), 0)
+
+    def _take(bucket: List[int]) -> None:
+        nonlocal remaining
+        if remaining <= 0:
+            return
+        take = bucket[:remaining]
+        final_ids.extend(take)
+        remaining -= len(take)
+
+    _take(concept_bucket)
+    _take(thread_bucket)
+    _take(summary_bucket)
+    _take(vector_bucket)
+    _take(residual_bucket)
 
     # For active_concepts, we return the seed concepts.
     # We could also verify which concepts are actually present in the final selection.
