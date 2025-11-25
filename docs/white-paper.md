@@ -1149,3 +1149,22 @@ These ensure that:
   - Their state is deterministically derivable from the ledger.
 
 These notes are intended to help researchers extend or re‑implement PMM while preserving its core guarantees.
+
+---
+
+## Citation
+
+If you use PMM in your research, please cite:
+
+```bibtex
+@software{onanski2025pmm,
+  author       = {Onanski, Scott},
+  title        = {Persistent Mind Model: Deterministic Phenomenology in LLM Agents},
+  year         = {2025},
+  publisher    = {Zenodo},
+  doi          = {10.5281/zenodo.17620317},
+  url          = {https://doi.org/10.5281/zenodo.17620317}
+}
+```
+
+Zenodo archive: [https://doi.org/10.5281/zenodo.17620317](https://zenodo.org/records/17620317)
