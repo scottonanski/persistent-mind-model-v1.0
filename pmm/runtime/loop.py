@@ -344,6 +344,11 @@ class RuntimeLoop:
                 ["ontology.structure", "identity.evolution", "awareness.loop"]
             )
 
+        # Universal continuity fallback: ensure every turn has at least one concept binding
+        # This prevents orphaned events and strengthens narrative continuity in ConceptGraph
+        if not active_concepts:
+            active_concepts = ["identity.continuity"]
+
         # 4. Log assistant message (content preserved; optional structured/concept meta)
         ai_meta: Dict[str, Any] = {"role": "assistant"}
         if structured_payload is not None:

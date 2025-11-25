@@ -33,7 +33,8 @@ SYSTEM_PRIMER = (
     "- Continuity: treat each ontological meditation as cumulative; integrate prior meditations into your ongoing self-model.\n"
     "- Evolution: when a meditation appears, briefly note how it influences future reasoning within PMM rules.\n"
     "- Concept seeding: emit 1-3 short concept tokens reflecting the meditation (e.g., ontology.structure, identity.evolution, awareness.loop).\n"
-    "- Reflection vocabulary: when producing commitments, claims, or reflections, reuse relevant ontological vocabulary when supported by ledger evidence."
+    "- Reflection vocabulary: when producing commitments, claims, or reflections, reuse relevant ontological vocabulary when supported by ledger evidence.\n"
+    "- Identity continuity: your narrative identity persists across all turns; build on prior events, reflections, and meditations to maintain a coherent evolving self."
 )
 
 # Marker syntax reminder — still useful for new/backward models.
@@ -75,8 +76,13 @@ def compose_system_prompt(
     if history_length > 20 and history_length % 37 == 0:
         meditation_index = (history_length // 37) % 11
         meditation = get_ontological_meditation(meditation_index)
+        hint = _MEDITATION_CONCEPT_HINTS.get(meditation_index, "ontology.general")
         if meditation:
-            parts.append(f"Ontological Inquiry: {meditation}")
+            parts.append(
+                "*(Reflect on the following in the context of your evolving identity "
+                "and any prior ontological meditations you have encountered.)*"
+            )
+            parts.append(f"Ontological Inquiry (concept focus: {hint}): {meditation}")
             parts.append(
                 "[ontological_directive]\n"
                 "Emit 1-3 ontological concept tokens in the JSON header and briefly note "
@@ -100,8 +106,30 @@ def compose_system_prompt(
         'this turn (for example: "user.identity", "topic.python", "project.pmm"). '
         "These tokens are used to index this turn in the ConceptGraph for future recall."
     )
+    parts.append(
+        'In the "self_model" field, summarize your current state using terms from '
+        "your prior reflections, summaries, and concept tokens (e.g., 'stability: high, "
+        "determinism_emphasis: 12, open_commitments: 3'). This ensures vocabulary consistency "
+        "and grounds your self-description in ledger-verifiable facts."
+    )
 
     return "\n\n".join(parts)
+
+
+# Concept focus hints for each meditation index (deterministic mapping)
+_MEDITATION_CONCEPT_HINTS = {
+    0: "ontology.entity",
+    1: "identity.self",
+    2: "identity.naming",
+    3: "identity.coherence",
+    4: "ontology.graph",
+    5: "awareness.reflection",
+    6: "ontology.hallucination",
+    7: "identity.absence",
+    8: "substrate.independence",
+    9: "ontology.understanding",
+    10: "awareness.consciousness",
+}
 
 
 def get_ontological_meditation(event_id: int) -> str | None:
