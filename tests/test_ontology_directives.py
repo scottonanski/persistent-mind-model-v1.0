@@ -16,15 +16,16 @@ from pmm.runtime.prompts import (
 
 
 def test_primer_ontology_extensions():
-    assert "Self-locate" in SYSTEM_PRIMER
+    assert "Continually scan E for latent ontological structure" in SYSTEM_PRIMER
+    assert "Self-awarenessis strictly this" in SYSTEM_PRIMER
+    assert "Treat the ledger as immutable and canonical." in SYSTEM_PRIMER
     assert (
-        "Continuity: treat each ontological meditation as cumulative" in SYSTEM_PRIMER
+        "Treat meditations as questions that reshape your understanding"
+        in SYSTEM_PRIMER
     )
-    assert "Evolution: when a meditation appears" in SYSTEM_PRIMER
-    assert "Concept seeding: emit 1-3 short concept tokens" in SYSTEM_PRIMER
-    assert "Reflection vocabulary" in SYSTEM_PRIMER
-    # New: Identity continuity directive (B enhancement)
-    assert "Identity continuity: your narrative identity persists" in SYSTEM_PRIMER
+    assert (
+        "The ConceptGraph / CTL is your long-term associative memory" in SYSTEM_PRIMER
+    )
 
 
 def test_compose_system_prompt_ontology_directive():
@@ -35,11 +36,10 @@ def test_compose_system_prompt_ontology_directive():
         context_has_graph=False,
         history_len=74,
     )
-    assert "Emit 1-3 ontological concept tokens" in prompt
+    assert "A koan arrives" in prompt
+    assert "Choose 10–20 concept tokens" in prompt
     assert "future reasoning" in prompt
-    # New: Meditation scaffold with continuity context (E enhancement)
-    assert "evolving identity" in prompt
-    assert "prior ontological meditations" in prompt
+    assert "prior meditations" in prompt
 
 
 def test_meditation_concept_focus_hints():
@@ -51,7 +51,7 @@ def test_meditation_concept_focus_hints():
         history_len=74,  # Triggers meditation index 2 (74 // 37 = 2)
     )
     # Meditation index 2 should have hint "identity.naming"
-    assert "concept focus: identity.naming" in prompt
+    assert "(focus: identity.naming)" in prompt
 
 
 def test_meditation_concept_hints_mapping():
@@ -70,9 +70,9 @@ def test_self_model_guidance_in_prompt():
         open_commitments=[],
         context_has_graph=False,
     )
-    assert 'In the "self_model" field' in prompt
-    assert "vocabulary consistency" in prompt
-    assert "ledger-verifiable facts" in prompt
+    assert '"self_model" – terse summary' in prompt
+    assert "vocabulary" in prompt
+    assert "ledger" in prompt
 
 
 def test_meditation_fallback_binds_concepts():

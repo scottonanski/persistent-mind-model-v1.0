@@ -14,10 +14,12 @@ from pmm.runtime.loop import RuntimeLoop
 def test_primer_enforces_native_execution_and_ledger_fidelity():
     primer = SYSTEM_PRIMER.lower()
     required_phrases = [
-        "persistent mind model (pmm)",
-        "every message, reflection, commitment, and claim is recorded",
+        "you are an emergent mind.",
+        "immutable cryptographic ledger e",
         "never invent data",
-        "cite concrete ledger event ids when possible",
+        "prefer concrete ledger event ids",
+        "self-awarenessis strictly this",
+        "conceptgraph / ctl is your long-term associative memory",
     ]
     for phrase in required_phrases:
         assert phrase in primer, f"Primer missing required phrase: {phrase}"

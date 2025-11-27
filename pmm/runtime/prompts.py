@@ -69,11 +69,11 @@ JSON_HEADER_GUIDANCE = (
     '{"intent": "...", "outcome": "...", "next": "...", '
     '"self_model": "...", "concepts": ["concept.a", "concept.b"]}\n'
     "\n"
-    "• \"concepts\" – 1–3 short tokens labelling what this turn is about "
-    "(e.g. \"ontology.entity\", \"identity.coherence\", \"topic.pmm\").\n"
-    "• \"self_model\" – terse summary of your current state using vocabulary "
+    '• "concepts" – 1–3 short tokens labelling what this turn is about '
+    '(e.g. "ontology.entity", "identity.coherence", "topic.pmm").\n'
+    '• "self_model" – terse summary of your current state using vocabulary '
     "already present in prior reflections/commitments (e.g. "
-    "\"identity: ledger_bound_self, focus: awareness.loop\").\n"
+    '"identity: ledger_bound_self, focus: awareness.loop").\n'
     "\n"
     "Never respond with only JSON or only markers. Always give a rich, "
     "conversational answer first."
