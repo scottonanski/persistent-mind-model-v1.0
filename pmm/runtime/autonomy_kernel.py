@@ -15,7 +15,6 @@ from pmm.core.commitment_manager import CommitmentManager
 from pmm.core.meme_graph import MemeGraph
 from pmm.core.concept_graph import ConceptGraph
 from pmm.core.concept_metrics import check_concept_health
-from pmm.core.concept_ontology import seed_ctl_ontology
 from pmm.core.concept_schemas import create_concept_bind_event_payload
 from pmm.runtime.reflection_synthesizer import synthesize_kernel_reflection
 from pmm.context.context_graph import ContextGraph
@@ -420,17 +419,8 @@ class AutonomyKernel:
 
         This function is invoked from the autonomy tick path and never from
         decide_next_action(), so it preserves the invariant that pure decision
-        queries do not mutate the ledger.
+        queries do not mutate the ledger beyond explicit CTL bindings.
         """
-        # Seed CTL ontology once per ledger, if not already present.
-        # This keeps CTL automatic and fully PMM-internal without affecting
-        # kernel initialization semantics (seeding occurs on first tick).
-        if not any(e.get("kind") == "concept_define" for e in events):
-            try:
-                seed_ctl_ontology(self.eventlog, source="autonomy_kernel")
-            except Exception:
-                # If seeding fails, skip CTL maintenance but do not affect autonomy.
-                return
 
         if not events:
             return

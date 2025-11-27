@@ -146,7 +146,9 @@ class TestOntologySeeding:
         assert "identity.PMM_Core" in neighbors
 
         # policy.stability_v2 should supersede policy.stability_v1
-        neighbors = graph.outgoing_neighbors("policy.stability_v2", relation="supersedes")
+        neighbors = graph.outgoing_neighbors(
+            "policy.stability_v2", relation="supersedes"
+        )
         assert "policy.stability_v1" in neighbors
 
         # ontology.Self(x) should depend_on ontology.Identity(x)
@@ -154,7 +156,9 @@ class TestOntologySeeding:
         assert "ontology.Identity(x)" in neighbors
 
         # topic.system_maturity should influence policy.stability_v2
-        neighbors = graph.outgoing_neighbors("topic.system_maturity", relation="influences")
+        neighbors = graph.outgoing_neighbors(
+            "topic.system_maturity", relation="influences"
+        )
         assert "policy.stability_v2" in neighbors
 
     def test_ontology_stats(self):

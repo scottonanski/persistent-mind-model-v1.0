@@ -11,7 +11,7 @@ genesis import) and writes them to the EventLog in a deterministic way.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Iterable, List, Set, Tuple
+from typing import Any, Dict, Set, Tuple
 
 from .concept_schemas import (
     create_concept_define_payload,
@@ -21,7 +21,9 @@ from .event_log import EventLog
 
 
 def seed_ctl_ontology(
-    eventlog: EventLog, payload: Dict[str, Any] | None = None, source: str = "system_init"
+    eventlog: EventLog,
+    payload: Dict[str, Any] | None = None,
+    source: str = "system_init",
 ) -> int:
     """Seed CTL ontology definitions/relationships from a supplied payload.
 
