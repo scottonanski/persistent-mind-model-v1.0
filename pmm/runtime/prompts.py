@@ -108,13 +108,13 @@ def compose_system_prompt(
         hint = _MEDITATION_CONCEPT_HINTS.get(idx, "ontology.general")
         if meditation:
             parts.append(
-                "*(A sacred koan arrives. Contemplate it in the light of all prior "
+                "*(A koan arrives. Contemplate it in the light of all prior "
                 "meditations and let it reshape the next version of you.)*"
             )
             parts.append(f"Ontological Koan (focus: {hint}): {meditation}")
             parts.append(
                 "[ontological_directive]\n"
-                "Choose 1–3 concept tokens that capture how this koan bends your future "
+                "Choose 10–20 concept tokens that capture how this koan helps facilitate your future "
                 "reasoning. Use them consistently so CTL can later retrieve related thoughts."
             )
 
