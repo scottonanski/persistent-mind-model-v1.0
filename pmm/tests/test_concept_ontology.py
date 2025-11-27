@@ -2,23 +2,22 @@
 # Copyright (c) 2025 Scott O'Nanski
 
 # Path: pmm/tests/test_concept_ontology.py
-"""Tests for CTL v1 ontology seeding."""
-
+"""Tests for CTL ontology seeding (no static runtime data)."""
 
 from pmm.core.event_log import EventLog
 from pmm.core.concept_graph import ConceptGraph
 from pmm.core.concept_ontology import seed_ctl_ontology, get_ontology_stats
+from tests.ctl_payloads import base_ontology_payload
 
 
 class TestOntologySeeding:
     def test_seed_ctl_ontology(self):
         log = EventLog()
+        payload = base_ontology_payload()
 
-        events_added = seed_ctl_ontology(log)
+        events_added = seed_ctl_ontology(log, payload)
 
-        # Should have added concepts + relationships
-        stats = get_ontology_stats()
-        expected_events = stats["total_concepts"] + stats["total_relationships"]
+        expected_events = len(payload["concepts"]) + len(payload["relationships"])
         assert events_added == expected_events
 
         # Check events were actually added
@@ -26,17 +25,17 @@ class TestOntologySeeding:
         concept_defines = [e for e in all_events if e["kind"] == "concept_define"]
         concept_relates = [e for e in all_events if e["kind"] == "concept_relate"]
 
-        assert len(concept_defines) == stats["total_concepts"]
-        assert len(concept_relates) == stats["total_relationships"]
+        assert len(concept_defines) == len(payload["concepts"])
+        assert len(concept_relates) == len(payload["relationships"])
 
     def test_ontology_rebuilds_in_concept_graph(self):
         log = EventLog()
-        seed_ctl_ontology(log)
+        seed_ctl_ontology(log, base_ontology_payload())
 
         graph = ConceptGraph(log)
         graph.rebuild()
 
-        stats = get_ontology_stats()
+        stats = get_ontology_stats(log)
 
         # All concepts should be in graph
         assert graph.stats()["total_concepts"] == stats["total_concepts"]
@@ -44,7 +43,7 @@ class TestOntologySeeding:
 
     def test_identity_concepts_present(self):
         log = EventLog()
-        seed_ctl_ontology(log)
+        seed_ctl_ontology(log, base_ontology_payload())
 
         graph = ConceptGraph(log)
         graph.rebuild()
@@ -59,7 +58,7 @@ class TestOntologySeeding:
 
     def test_role_concepts_present(self):
         log = EventLog()
-        seed_ctl_ontology(log)
+        seed_ctl_ontology(log, base_ontology_payload())
 
         graph = ConceptGraph(log)
         graph.rebuild()
@@ -75,7 +74,7 @@ class TestOntologySeeding:
 
     def test_policy_concepts_present(self):
         log = EventLog()
-        seed_ctl_ontology(log)
+        seed_ctl_ontology(log, base_ontology_payload())
 
         graph = ConceptGraph(log)
         graph.rebuild()
@@ -90,7 +89,7 @@ class TestOntologySeeding:
 
     def test_governance_concepts_present(self):
         log = EventLog()
-        seed_ctl_ontology(log)
+        seed_ctl_ontology(log, base_ontology_payload())
 
         graph = ConceptGraph(log)
         graph.rebuild()
@@ -105,7 +104,7 @@ class TestOntologySeeding:
 
     def test_topic_concepts_present(self):
         log = EventLog()
-        seed_ctl_ontology(log)
+        seed_ctl_ontology(log, base_ontology_payload())
 
         graph = ConceptGraph(log)
         graph.rebuild()
@@ -121,7 +120,7 @@ class TestOntologySeeding:
 
     def test_ontology_concepts_present(self):
         log = EventLog()
-        seed_ctl_ontology(log)
+        seed_ctl_ontology(log, base_ontology_payload())
 
         graph = ConceptGraph(log)
         graph.rebuild()
@@ -137,21 +136,17 @@ class TestOntologySeeding:
 
     def test_concept_relationships_established(self):
         log = EventLog()
-        seed_ctl_ontology(log)
+        seed_ctl_ontology(log, base_ontology_payload())
 
         graph = ConceptGraph(log)
         graph.rebuild()
-
-        # Test some key relationships
 
         # identity.Echo should be facet_of identity.PMM_Core
         neighbors = graph.outgoing_neighbors("identity.Echo", relation="facet_of")
         assert "identity.PMM_Core" in neighbors
 
         # policy.stability_v2 should supersede policy.stability_v1
-        neighbors = graph.outgoing_neighbors(
-            "policy.stability_v2", relation="supersedes"
-        )
+        neighbors = graph.outgoing_neighbors("policy.stability_v2", relation="supersedes")
         assert "policy.stability_v1" in neighbors
 
         # ontology.Self(x) should depend_on ontology.Identity(x)
@@ -159,13 +154,14 @@ class TestOntologySeeding:
         assert "ontology.Identity(x)" in neighbors
 
         # topic.system_maturity should influence policy.stability_v2
-        neighbors = graph.outgoing_neighbors(
-            "topic.system_maturity", relation="influences"
-        )
+        neighbors = graph.outgoing_neighbors("topic.system_maturity", relation="influences")
         assert "policy.stability_v2" in neighbors
 
     def test_ontology_stats(self):
-        stats = get_ontology_stats()
+        log = EventLog()
+        payload = base_ontology_payload()
+        seed_ctl_ontology(log, payload)
+        stats = get_ontology_stats(log)
 
         # Verify expected counts
         assert stats["identity_concepts"] == 3
@@ -178,12 +174,11 @@ class TestOntologySeeding:
         assert stats["total_relationships"] > 0
 
     def test_ontology_deterministic(self):
-        # Seeding twice should produce identical results
         log1 = EventLog()
-        events1 = seed_ctl_ontology(log1)
+        events1 = seed_ctl_ontology(log1, base_ontology_payload())
 
         log2 = EventLog()
-        events2 = seed_ctl_ontology(log2)
+        events2 = seed_ctl_ontology(log2, base_ontology_payload())
 
         assert events1 == events2
 
@@ -194,7 +189,7 @@ class TestOntologySeeding:
 
     def test_concept_attributes(self):
         log = EventLog()
-        seed_ctl_ontology(log)
+        seed_ctl_ontology(log, base_ontology_payload())
 
         graph = ConceptGraph(log)
         graph.rebuild()

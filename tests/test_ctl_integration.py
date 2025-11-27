@@ -10,6 +10,7 @@ from pmm.core.concept_ontology import seed_ctl_ontology
 from pmm.retrieval.vector import select_by_concepts
 from pmm.runtime.context_utils import render_concept_context
 from pmm.core.concept_metrics import check_concept_health, compute_concept_metrics
+from tests.ctl_payloads import base_ontology_payload
 
 
 def test_ctl_full_workflow():
@@ -17,7 +18,7 @@ def test_ctl_full_workflow():
     log = EventLog(":memory:")
 
     # Step 1: Seed ontology
-    seed_ctl_ontology(log)
+    seed_ctl_ontology(log, base_ontology_payload())
 
     # Verify ontology was seeded
     cg = ConceptGraph(log)
@@ -69,7 +70,7 @@ def test_ctl_determinism_across_rebuilds():
     log = EventLog(":memory:")
 
     # Seed ontology
-    seed_ctl_ontology(log)
+    seed_ctl_ontology(log, base_ontology_payload())
 
     # Add events and bindings
     e1 = log.append(kind="user_message", content="test1", meta={})
@@ -109,7 +110,7 @@ def _test_ctl_concept_ops_compilation():
     log = EventLog(":memory:")
 
     # Seed ontology first
-    seed_ctl_ontology(log)
+    seed_ctl_ontology(log, base_ontology_payload())
 
     # Create an assistant message with concept_ops
     e1 = log.append(kind="user_message", content="test", meta={})
@@ -200,7 +201,7 @@ def test_ctl_with_vector_retrieval():
     log = EventLog(":memory:")
 
     # Seed ontology
-    seed_ctl_ontology(log)
+    seed_ctl_ontology(log, base_ontology_payload())
 
     # Create events
     e1 = log.append(kind="user_message", content="stability discussion", meta={})
@@ -247,7 +248,7 @@ def test_ctl_metrics_integration():
     log = EventLog(":memory:")
 
     # Seed ontology
-    seed_ctl_ontology(log)
+    seed_ctl_ontology(log, base_ontology_payload())
 
     # Create events and bindings
     events = []
@@ -292,7 +293,7 @@ def test_ctl_replay_safety():
     log = EventLog(":memory:")
 
     # Seed ontology
-    seed_ctl_ontology(log)
+    seed_ctl_ontology(log, base_ontology_payload())
 
     # Add events and bindings incrementally
     e1 = log.append(kind="user_message", content="test1", meta={})
@@ -331,7 +332,7 @@ def test_ctl_context_rendering_determinism():
     log = EventLog(":memory:")
 
     # Seed ontology
-    seed_ctl_ontology(log)
+    seed_ctl_ontology(log, base_ontology_payload())
 
     # Add bindings
     e1 = log.append(kind="user_message", content="test", meta={})
