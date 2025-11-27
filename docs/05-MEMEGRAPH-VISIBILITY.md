@@ -97,9 +97,11 @@ Vector retrieval is now **graph-augmented**:
   prompt, improving coherence while remaining fully ledger-derived.
 
 Separately, the Concept Token Layer (CTL) maintains a **concept graph** over
-stable semantic tokens (identity, policy, governance, topic, ontology), and
-binds relevant ledger events to those concepts via `concept_bind_event`
-entries. CTL is maintained automatically by the autonomy loop as an incremental
+semantic tokens (identity, policy, governance, topic, ontology) that appear in
+the ledger. CTL has no static ontology or runtime seeding; tokens become
+concepts only when events introduce them and they are recorded as
+`concept_define`, `concept_bind_event`, or `concept_relate` entries.
+CTL is maintained automatically by the autonomy loop as an incremental
 projection in the runtime loop and remains fully reconstructable from the
 ledger, giving PMM a symbolic view of stability, governance, and autonomy
 behavior that complements the event-level MemeGraph.

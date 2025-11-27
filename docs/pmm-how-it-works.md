@@ -1,6 +1,6 @@
 # Persistent Mind Model (PMM) — Code-Level Overview
 
-PMM is a deterministic scaffold for LLMs: an append-only ledger plus replayable projections that externalize “self” into data the model must read. In practice, this yields two repeatable facts we’ve observed across runs: the ontology (41 Concept Token Layer entries) converges identically across substrates, while the phenomenology (how the model narrates itself) diverges according to the underlying weights. This document walks the code paths, the evidence from the GPT-5.1 long run and the three-model comparison, and how to use the system in real workflows (from day-to-day execution to reflective domains like psychotherapy).
+PMM is a deterministic scaffold for LLMs: an append-only ledger plus replayable projections that externalize “self” into data the model must read. In practice, this yields two repeatable facts we’ve observed across runs: the Concept Token Layer (CTL) **emerges from ledger events rather than static code**, and the phenomenology (how the model narrates itself) diverges according to the underlying weights. This document walks the code paths, the evidence from the GPT-5.1 long run and the three-model comparison, and how to use the system in real workflows (from day-to-day execution to reflective domains like psychotherapy).
 
 ## How it works (from the code)
 
@@ -8,7 +8,7 @@ PMM is a deterministic scaffold for LLMs: an append-only ledger plus replayable 
 - **Live projections over the ledger**:
   - `Mirror` (`pmm/core/mirror.py`) keeps open commitments, stale flags, reflection counts, retrieval config, and an optional recursive self-model (RSM) derived from reflections.
   - `MemeGraph` (`pmm/core/meme_graph.py`) builds a causal graph linking user/assistant turns, commitments, closures, and reflections.
-  - `ConceptGraph` (`pmm/core/concept_graph.py`) maintains the Concept Token Layer (CTL): defined concepts, aliases, event bindings, and inter-concept relations, compiled from structured `concept_ops`.
+  - `ConceptGraph` (`pmm/core/concept_graph.py`) maintains the Concept Token Layer (CTL): defined concepts, aliases, event bindings, and inter-concept relations, derived purely from ledger events (`concept_define`, `concept_bind_event`, `concept_relate`) and structured `concept_ops`—with **no built-in ontology or runtime seeding**.
 - **Turn loop** (`pmm/runtime/loop.py`):
   1. Append the user message to the ledger.
   2. Run deterministic retrieval (`pmm/retrieval/pipeline.py`) combining concept-seeded context, local vector similarity (hash-based embeddings in `pmm/retrieval/vector.py`), and MemeGraph expansion.
