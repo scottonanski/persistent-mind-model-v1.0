@@ -8,7 +8,7 @@ PMM is a deterministic scaffold for LLMs: an append-only ledger plus replayable 
 - **Live projections over the ledger**:
   - `Mirror` (`pmm/core/mirror.py`) keeps open commitments, stale flags, reflection counts, retrieval config, and an optional recursive self-model (RSM) derived from reflections.
   - `MemeGraph` (`pmm/core/meme_graph.py`) builds a causal graph linking user/assistant turns, commitments, closures, and reflections.
-  - `ConceptGraph` (`pmm/core/concept_graph.py`) maintains the Concept Token Layer (CTL): defined concepts, aliases, event bindings, and inter-concept relations, derived purely from ledger events (`concept_define`, `concept_bind_event`, `concept_relate`) and structured `concept_ops`—with **no built-in ontology or runtime seeding**.
+  - `ConceptGraph` (`pmm/core/concept_graph.py`) maintains the Concept Token Layer (CTL): defined concepts, aliases, event bindings, and inter-concept relations, derived purely from ledger events (`concept_define`, `concept_bind_event`, `concept_relate`) and structured `concept_ops`. There is **no built-in static ontology**; concepts exist only when ledger events (from the model, scripts, or autonomy kernel) introduce tokens. CTL bindings for key system events (stability/coherence metrics, summaries, autonomy reflections) are created deterministically via explicit ledger events.
 - **Turn loop** (`pmm/runtime/loop.py`):
   1. Append the user message to the ledger.
   2. Run deterministic retrieval (`pmm/retrieval/pipeline.py`) combining concept-seeded context, local vector similarity (hash-based embeddings in `pmm/retrieval/vector.py`), and MemeGraph expansion.

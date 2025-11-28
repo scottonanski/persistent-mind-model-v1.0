@@ -107,7 +107,7 @@ def test_autonomous_reflection_diff():
 
 
 def test_autonomous_reflection_auto_close_stale():
-    """Auto-close engages only when >2 open and staleness exceeds threshold."""
+    """Auto-close engages when stale commitments exceed the threshold (respecting exec binds)."""
     events = [
         {"kind": "user_message", "id": 1, "content": "hi"},
         {"kind": "assistant_message", "id": 2, "content": "hello"},

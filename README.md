@@ -289,8 +289,9 @@ All four sections are produced by a **deterministic Hybrid Retrieval pipeline** 
 ```python
 # 2. Build prompts (Hybrid CTL + Graph + Vector pipeline)
 history = self.eventlog.read_tail(limit=10)
+total_events = self.eventlog.count()
 open_comms = self.mirror.get_open_commitment_events()
-retrieval_cfg = _last_retrieval_config(self.eventlog)
+retrieval_cfg = self.mirror.current_retrieval_config or {}
 
 from pmm.retrieval.pipeline import RetrievalConfig, run_retrieval_pipeline
 from pmm.runtime.context_renderer import render_context
@@ -336,10 +337,13 @@ ctx_block = render_context(
 selection_ids = retrieval_result.event_ids
 selection_scores = [0.0] * len(selection_ids)
 
-# Check if graph/CTL context is actually present
-context_has_graph = "## Threads" in ctx_block or "## Concepts" in ctx_block
+# Check if graph context is actually present
+context_has_graph = "## Graph" in ctx_block
 base_prompt = compose_system_prompt(
-    history, open_comms, context_has_graph=context_has_graph
+    history,
+    open_comms,
+    context_has_graph=context_has_graph,
+    history_len=total_events,
 )
 
 system_prompt = f"{ctx_block}\n\n{base_prompt}" if ctx_block else base_prompt
@@ -788,10 +792,13 @@ The LLM **never sees** the post-processing. It just outputs text with control li
 ## 🔐 Policy Enforcement
 
 **Immutable runtime policies.**
-Writes like `checkpoint`, `retrieval_selection`, `embedding_add` are locked to:
-
-* `autonomy_kernel`, `assistant`, `user`, or `runtime`
-  Attempts from unauthorized sources (like `cli`) are auto-blocked and logged.
+Sensitive kinds like `config` (policy/thresholds), `checkpoint_manifest`,
+`embedding_add`, and `retrieval_selection` are guarded by a ledger-backed
+policy (`config` event with `type:"policy"`). The default policy forbids
+writes from `meta.source="cli"` for these kinds, so admin commands can inspect
+state but cannot mutate core configuration, embeddings, or retrieval provenance
+directly. Runtime components (`autonomy_kernel`, indexers, etc.) emit their
+own events and remain subject to the same hash-chained ledger model.
 
 If a forbidden actor attempts a write, the runtime appends a `violation` event and raises a deterministic `PermissionError`. Admin commands surface the failure but never bypass policy.
 

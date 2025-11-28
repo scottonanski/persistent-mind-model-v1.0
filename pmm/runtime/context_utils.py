@@ -18,12 +18,12 @@ if TYPE_CHECKING:
 
 def render_identity_claims(eventlog: EventLog) -> str:
     """Render identity claims (e.g., name) from ledger claim events."""
-    events = eventlog.read_all()
+    # Use kind-indexed scan instead of full ledger read to keep the
+    # interactive path bounded on large ledgers.
+    events = eventlog.read_by_kind("claim")
     identity_facts: Dict[str, str] = {}
 
     for event in events:
-        if event.get("kind") != "claim":
-            continue
         meta = event.get("meta") or {}
         claim_type = meta.get("claim_type")
 

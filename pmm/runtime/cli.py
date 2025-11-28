@@ -319,7 +319,7 @@ def main() -> None:  # pragma: no cover - thin wrapper
     console.print()
     # Brief autonomy note about idle optimization (deterministic behavior)
     console.print(
-        "[prompt]Note: Autonomy auto-closes stale commitments when >2 are open and staleness exceeds the threshold.[/prompt]"
+        "[prompt]Note: Autonomy may auto-close stale commitments when they have been idle longer than the configured threshold (and have no exec binding).[/prompt]"
     )
     choice_raw = input(f"Choice [1-{len(models)}]: ").strip()
     # Allow immediate exit at selection prompt
