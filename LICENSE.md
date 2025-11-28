@@ -88,6 +88,8 @@ The following constitutes a **formal disclosure of prior art**, establishing pub
 > immutable ledger that serves as the system’s memory, audit trail, and identity.   
 > The ledger records both each commitment *and the reasoning behind it*, enabling full reconstruction of the agent’s cognitive lineage and preventing infinite regress by verifying the **chain of reasoning** itself.  
 
+This disclosure also covers any system that maintains AI identity, memory, or agency through append-only cryptographic event logs, hash-chained reasoning traces, or commitment-based self-model evolution.
+
 ### Core Architectural Innovations  
 
 **1 — Cryptographic Reasoning Ledger**  
@@ -117,13 +119,25 @@ Together, these mechanisms form a **unified, ledger-based cognitive substrate** 
 
 ---
 
-## 6. Limitations & Warranty Disclaimer  
+## 6. Patent Grant for Non-Commercial Licensees
+
+Licensor covenants not to assert any patent claims against Non-Commercial Licensees for implementations compliant with this License. This covenant applies only to Non-Commercial Use as defined in Section 1 and does not extend to Commercial Use, for which separate agreements are required.
+
+---
+
+## 7. Limitations & Warranty Disclaimer  
 
 PMM is provided “as is” without warranty of any kind, express or implied, including but not limited to merchantability, fitness for a particular purpose, or non-infringement. The Licensor shall not be liable for any claim, damages, or liability arising from use or inability to use PMM, whether in contract, tort, or otherwise.
 
 ---
 
-## 7. Acceptance & Jurisdiction
+## 8. Contributor License and Pull Requests
+
+Contributions (including pull requests, patches, or other code submissions) are only accepted from contributors who have agreed to the project’s Contributor License Agreement (CLA). A link to the current individual and entity CLA is provided in the project documentation and/or repository contribution guidelines. By submitting a contribution under the CLA, the contributor grants the Licensor and Licensees the rights necessary to use, modify, and distribute the contribution under this License, while preserving the project’s defensive IP posture.
+
+---
+
+## 9. Acceptance & Jurisdiction
 
 Use of PMM in any form constitutes acceptance of this License. All disputes shall be governed by the laws of Canada, under exclusive jurisdiction of its courts. The Licensor reserves the right to amend this License for future versions; existing Licensees retain rights under the version accepted at time of acquisition.
 
