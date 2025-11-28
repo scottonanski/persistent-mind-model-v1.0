@@ -183,11 +183,7 @@ def synthesize_kernel_reflection(
             for ev in ledger_slice[last_ref_index + 1 :]
         ):
             return None
-    # If hashes match (when computable), skip
-    if last_delta and last_delta == delta_hash:
-        return None
-
-    # Build content from slice facts
+    # Build content from slice facts (used by both skip guard and payload)
     open_commitments = [e for e in ledger_slice if e.get("kind") == "commitment_open"]
     oldest = min(open_commitments, key=lambda e: e.get("id", 0), default=None)
     events_since = 0
@@ -196,6 +192,28 @@ def synthesize_kernel_reflection(
             1 for e in ledger_slice if int(e.get("id", 0)) > int(oldest.get("id", 0))
         )
     stale_flag = 1 if (oldest is not None and events_since > staleness_threshold) else 0
+    total_events = len(ledger_slice)
+
+    # If hashes match (when computable), skip unless meditation is due
+    if last_delta and last_delta == delta_hash:
+        if total_events > 50 and total_events % 47 == 0:
+            from pmm.runtime.prompts import get_ontological_meditation
+
+            meditation_index = (total_events // 47) % 11
+            meditation = get_ontological_meditation(meditation_index)
+            if meditation:
+                payload = {
+                    "intent": "ontological_meditation",
+                    "outcome": "periodic existential inquiry triggered",
+                    "next": "monitor",
+                    "ontological_inquiry": meditation,
+                    "action": "maintain",
+                    "commitments_reviewed": len(open_commitments),
+                    "relevance": "all_active",
+                    "stale": stale_flag,
+                }
+                return payload, delta_hash
+        return None
 
     # Dominant kind heuristic from slice
     kinds = {}
@@ -215,7 +233,6 @@ def synthesize_kernel_reflection(
     }
 
     # Inject ontological meditation periodically
-    total_events = len(ledger_slice)
     if total_events > 50 and total_events % 47 == 0:  # Every 47 events after 50
         from pmm.runtime.prompts import get_ontological_meditation
 
