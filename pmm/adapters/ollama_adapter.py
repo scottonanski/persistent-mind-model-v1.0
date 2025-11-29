@@ -52,7 +52,7 @@ class OllamaAdapter:
             method="POST",
         )
         with request.urlopen(
-            req, timeout=60
+            req, timeout=180
         ) as resp:  # pragma: no cover (network in CI)
             payload = json.loads(resp.read().decode("utf-8"))
             return payload.get("response", "")

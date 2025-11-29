@@ -41,12 +41,14 @@ def extract_closures(lines: List[str]) -> List[str]:
 
 
 def extract_reflect(lines: List[str]) -> Dict[str, Any] | None:
-    """Return parsed JSON for the first REFLECT: line, or None if none or invalid."""
+    """Return parsed JSON dict for the first REFLECT: line, or None if none or invalid."""
     for ln in lines:
         if ln.startswith("REFLECT:"):
             j = ln[len("REFLECT:") :]
             try:
-                return json.loads(j)
+                parsed = json.loads(j)
+                # Must be a dict; reject strings, lists, etc.
+                return parsed if isinstance(parsed, dict) else None
             except Exception:
                 return None
     return None
