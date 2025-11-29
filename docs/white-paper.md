@@ -1165,9 +1165,9 @@ If you use PMM in your research, please cite:
   title        = {Persistent Mind Model: Deterministic Phenomenology in LLM Agents},
   year         = {2025},
   publisher    = {Zenodo},
-  doi          = {10.5281/zenodo.17620317},
-  url          = {https://doi.org/10.5281/zenodo.17620317}
+  doi          = {10.5281/zenodo.17746471},
+  url          = {https://doi.org/10.5281/zenodo.17746471}
 }
 ```
 
-Zenodo archive: [https://doi.org/10.5281/zenodo.17620317](https://zenodo.org/records/17620317)
+Zenodo archive: [https://zenodo.org/records/17746471](https://zenodo.org/records/17746471)

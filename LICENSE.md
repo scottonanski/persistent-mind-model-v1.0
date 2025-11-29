@@ -79,7 +79,7 @@ Unauthorized commercial deployment constitutes copyright infringement.
 
 ## 5. Prior-Art Disclosure 
 
-[https://zenodo.org/records/17567446](https://zenodo.org/records/17567446)
+[https://zenodo.org/records/17746471](https://zenodo.org/records/17746471)
 
 The following constitutes a **formal disclosure of prior art**, establishing public record of the Persistent Mind Model as an original architecture for deterministic, self-referential AI systems.  
 
