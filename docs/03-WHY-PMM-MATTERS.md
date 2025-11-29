@@ -14,7 +14,7 @@ Current AI memory solutions add computational overhead:
 - Event log is **external to model** (SQLite, not weights)
 - Model sees **compressed context** from the hybrid CTL + MemeGraph retrieval pipeline (default ~120 events, optional vector search), not a fixed “last 5 turns”
 - Full history available via **deterministic replay**
-- **Result**: 1.9GB model operates with 275+ event memory
+- **Result**: 3.8GB model operates with 8,000+ event memory
 
 ### Comparison Table
 
