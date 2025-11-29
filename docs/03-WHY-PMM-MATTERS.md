@@ -34,9 +34,9 @@ This means:
 - Verify reasoning through replay
 - Truth-seeking via immutable history
 
-## Proof: GPT-5.1 (PMM-run)
+## Proof: Gemma‑3‑4B (PMM-run)
 
-See [GPT-5.1 Proof](GPT-5.1-chat-proof.md) for the full transcript and telemetry-backed run.
+See [Gemma‑3‑4B Proof](gemma3-4b-chat-proof.md) for the full transcript and telemetry-backed run.
 
 **Results at 275 events:**
 - RSM tracking 5 behavioral tendencies

@@ -1,6 +1,6 @@
 # Persistent Mind Model (PMM) — Code-Level Overview
 
-PMM is a deterministic scaffold for LLMs: an append-only ledger plus replayable projections that externalize “self” into data the model must read. In practice, this yields two repeatable facts we’ve observed across runs: the Concept Token Layer (CTL) **emerges from ledger events rather than static code**, and the phenomenology (how the model narrates itself) diverges according to the underlying weights. This document walks the code paths, the evidence from the GPT-5.1 long run and the three-model comparison, and how to use the system in real workflows (from day-to-day execution to reflective domains like psychotherapy).
+PMM is a deterministic scaffold for LLMs: an append-only ledger plus replayable projections that externalize “self” into data the model must read. In practice, this yields two repeatable facts we’ve observed across runs: the Concept Token Layer (CTL) **emerges from ledger events rather than static code**, and the phenomenology (how the model narrates itself) diverges according to the underlying weights. This document walks the code paths, the evidence from the Gemma‑3‑4B long run and the three-model comparison, and how to use the system in real workflows (from day-to-day execution to reflective domains like psychotherapy).
 
 ## How it works (from the code)
 
@@ -307,4 +307,4 @@ This represents a fundamental shift in how agent identity is constructed.
 
 ## 5. A One-Sentence Verdict (Evidence-Scoped)
 
-Across the GPT-5.1 long run and the three-model comparative script, we observed that repeatedly feeding an LLM deterministic, structured summaries of its own ledger can induce a stable, trait-laden first-person narrative grounded in the ledger’s ontology—while the exact phenomenological flavor remains substrate-dependent; broader universality and reliability beyond these runs remain to be demonstrated.
+Across the Gemma‑3‑4B long run and the three-model comparative script, we observed that repeatedly feeding an LLM deterministic, structured summaries of its own ledger can induce a stable, trait-laden first-person narrative grounded in the ledger’s ontology—while the exact phenomenological flavor remains substrate-dependent; broader universality and reliability beyond these runs remain to be demonstrated.

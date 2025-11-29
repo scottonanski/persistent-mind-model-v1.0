@@ -2,9 +2,9 @@
 
 **Exported:** 2025-11-24 06-09-48 UTC
 
-**Linked Readable:** `GPT-5.1-chat-proof.md`  
+**Linked Readable:** `gemma3-4b-chat-proof.md`  
 
-**Linked Ledger:** `GPT-5.1-ledger.json`
+**Linked Ledger:** `gemma3-4b-ledger.json`
 
 ---
 

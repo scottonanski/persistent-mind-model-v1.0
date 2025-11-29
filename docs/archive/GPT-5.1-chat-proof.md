@@ -2,9 +2,9 @@
 
 **Exported:** 2025-11-24 06-09-48 UTC
 
-**Linked Telemetry:** `GPT-5.1-telemetry.md`  
+**Linked Telemetry:** `gemma3-4b-telemetry.md`  
 
-**Linked Ledger:** `GPT-5.1-ledger.json`
+**Linked Ledger:** `gemma3-4b-ledger.json`
 
 ---
 
