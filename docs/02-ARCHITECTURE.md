@@ -35,7 +35,7 @@ The Persistent Mind Model (PMM) is an event‑sourced architecture that treats a
 - Runtime Loop: the turn engine that reads state, invokes the model, applies policies, and appends new events.
 - Recursive Self‑Model (RSM): reflection layer that summarizes tendencies, knowledge gaps, and identity; updated by replay.
 - Event Graph (aka MemeGraph): causal links between events (e.g., replies_to, comments_on, closes), keeping threads traceable over time. When vector retrieval is active, the resulting graph statistics may appear in the system prompt so the model is aware of structural context (see [MemeGraph Visibility](05-MEMEGRAPH-VISIBILITY.md)).
-- Concept Token Layer (CTL): a concept graph built purely from ledger events over semantic tokens (e.g., identity, policy, governance, topic concepts). CTL has **no built‑in static ontology**; concepts exist only when ledger events (often driven by `prompts.py` or the autonomy kernel) introduce tokens via `concept_define`, `concept_bind_event`, or `concept_relate`. The runtime may deterministically bind certain system events (e.g., stability/coherence metrics, summaries, autonomy reflections) into CTL, but all such bindings are themselves explicit ledger events. CTL is maintained incrementally in the runtime loop and is fully rebuildable on demand for context rendering. It is used to track high‑level notions like system maturity, autonomy behavior, and governance threads.
+- Concept Token Layer (CTL): a concept graph built purely from ledger events over semantic tokens (e.g., identity, policy, governance, topic concepts). CTL has **no built‑in static ontology**; concepts exist only when ledger events (often driven by `prompts.py` or the autonomy kernel) introduce tokens via `concept_define`, `concept_bind_event`, `concept_bind_thread`, or `concept_relate`. Thread bindings attach concepts directly to commitment CIDs, allowing CTL to refer to *stories* (threads) as well as individual events. CTL is maintained incrementally in the runtime loop and is fully rebuildable on demand for context rendering. It is used to track high‑level notions like system maturity, autonomy behavior, and governance threads.
 
 Entities derived from replay:
 - Belief: derived knowledge/convictions reconstructed from events and summaries.
@@ -68,6 +68,8 @@ graph TD
 - Commit: parse protocol markers to open/close commitments deterministically.
 - Respond: append `assistant_message` with any `COMMIT/CLAIM/REFLECT` lines.
 - Update: append `metrics_turn`, `reflection`, and (if thresholds met) `summary_update` events; listeners update mirror and event graph.
+
+- Recall: run a deterministic **Hybrid Retrieval pipeline** that seeds concepts from CTL, resolves them to commitment CIDs via CTL’s `concept_bind_thread` bindings, slices those threads via MemeGraph into bounded “story” windows, and (when configured) refines the selection with vector search. The result is a short working context (concepts, threads, state, and evidence) alongside an RSM snapshot.
 
 
 ## Determinism and Reproducibility

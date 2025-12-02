@@ -282,9 +282,9 @@ user_event_id = self.eventlog.append(
 
 All four sections are produced by a **deterministic Hybrid Retrieval pipeline** that combines:
 
-- Concept seeding from user input + retrieval config (CTL)
-- Thread expansion via MemeGraph
-- Optional vector search when the retrieval strategy is `vector`
+- Concept seeding from user input + retrieval config (CTL), including CTL’s `concept_bind_thread` bindings from concepts to commitment CIDs.
+- Thread‑first retrieval via MemeGraph: concepts → CIDs → bounded thread slices (“stories”).
+- Optional vector search when the retrieval strategy is `vector`, used as a deterministic refiner over the selected slices (not as a separate global scan).
 
 ```python
 # 2. Build prompts (Hybrid CTL + Graph + Vector pipeline)
