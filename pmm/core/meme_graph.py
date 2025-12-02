@@ -258,6 +258,29 @@ class MemeGraph:
             ordered.extend(reflection_nodes)
             return ordered
 
+    def get_thread_slice(self, cid: str, *, limit: int = 12) -> List[int]:
+        """Return a deterministic slice of a thread, capped by limit.
+
+        Ordering within slice (deterministic):
+        1) event_id descending
+        2) kind ascending
+        3) cid ascending (for stability when shared ids are present)
+        """
+        limit = max(1, int(limit))
+        cid = (cid or "").strip()
+        if not cid:
+            return []
+        full_thread = self.thread_for_cid(cid)
+        if not full_thread:
+            return []
+
+        def _sort_key(eid: int) -> tuple:
+            ev = self.eventlog.get(eid) or {}
+            return (-int(eid), str(ev.get("kind") or ""), cid)
+
+        ordered = sorted((int(eid) for eid in full_thread), key=_sort_key)
+        return ordered[:limit]
+
     def cids_for_event(self, event_id: int) -> List[str]:
         """Return stable list of CIDs that this event participates in.
 
@@ -309,4 +332,25 @@ class MemeGraph:
                                 if cid:
                                     cids.add(cid)
 
+            return sorted(cids)
+
+    def cids_containing_event(self, event_id: int) -> List[str]:
+        """Return all CIDs whose threads include the event_id (deterministic)."""
+        with self._lock:
+            # Shortcut via direct mapping first
+            direct = self.cids_for_event(event_id)
+            if direct:
+                return direct
+            # Fallback scan over known opens (bounded by graph size)
+            cids: Set[str] = set()
+            for node in self.graph.nodes:
+                node_kind = self.graph.nodes[node].get("kind")
+                if node_kind != "commitment_open":
+                    continue
+                open_event = self.eventlog.get(int(node)) or {}
+                cid_val = (open_event.get("meta") or {}).get("cid")
+                if not cid_val:
+                    continue
+                if event_id in self.thread_for_cid(cid_val):
+                    cids.add(cid_val)
             return sorted(cids)

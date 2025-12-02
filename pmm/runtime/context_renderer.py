@@ -106,7 +106,7 @@ def _render_threads(
     lines = ["## Threads"]
 
     for cid in sorted(result.relevant_cids):
-        thread_ids = mg.thread_for_cid(cid)
+        thread_ids = mg.get_thread_slice(cid, limit=12)
         if not thread_ids:
             continue
 
@@ -131,7 +131,10 @@ def _render_threads(
                 status = "Closed"
 
         # Concepts bound to this thread
-        thread_concepts = cg.concepts_for_thread(mg, cid)
+        bound_concepts = cg.resolve_concepts_for_cid(cid) or []
+        # Fallback to event-derived concepts when no explicit CID binding exists
+        event_concepts = cg.concepts_for_thread(mg, cid)
+        thread_concepts = sorted(set(bound_concepts).union(event_concepts))
         concepts_str = ""
         if thread_concepts:
             # Only show top 3

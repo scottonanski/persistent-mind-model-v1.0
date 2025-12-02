@@ -465,7 +465,7 @@ class RuntimeLoop:
         # 4d. Synthesize deterministic reflection and maybe append summary
         synthesize_reflection(self.eventlog, mirror=self.mirror)
         maybe_append_summary(self.eventlog)
-        maybe_append_lifetime_memory(self.eventlog, self.concept_graph)
+        maybe_append_lifetime_memory(self.eventlog, self.concept_graph, self.memegraph)
 
         delta = TurnDelta()
 
@@ -475,6 +475,29 @@ class RuntimeLoop:
             if cid:
                 delta.opened.append(cid)
                 extract_exec_binds(self.eventlog, c, cid)
+
+                # Bind concepts to this thread/CID for thread-first retrieval.
+                if active_concepts:
+                    existing = set(
+                        self.concept_graph.resolve_cids_for_concepts(active_concepts)
+                    )
+                    for token in active_concepts:
+                        if cid in existing:
+                            continue
+                        bind_content = json.dumps(
+                            {
+                                "cid": cid,
+                                "tokens": [token],
+                                "relation": "relevant_to",
+                            },
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                        self.eventlog.append(
+                            kind="concept_bind_thread",
+                            content=bind_content,
+                            meta={"source": "loop"},
+                        )
 
         if self.exec_router is not None:
             self.exec_router.tick()

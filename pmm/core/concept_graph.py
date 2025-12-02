@@ -75,6 +75,9 @@ class ConceptGraph:
         self.event_to_concepts: Dict[int, Set[str]] = {}  # event_id -> set of tokens
         # Track relations for event bindings: (token, event_id, relation)
         self.event_binding_relations: Set[Tuple[str, int, str]] = set()
+        # Thread bindings (concept -> cid, cid -> concepts)
+        self.concept_cid_bindings: Dict[str, Set[str]] = {}
+        self.cid_to_concepts: Dict[str, Set[str]] = {}
 
         # Metadata for stats
         self.last_event_id: int = 0
@@ -88,6 +91,8 @@ class ConceptGraph:
         self.concept_event_bindings.clear()
         self.event_to_concepts.clear()
         self.event_binding_relations.clear()
+        self.concept_cid_bindings.clear()
+        self.cid_to_concepts.clear()
         self.last_event_id = 0
 
         events_list = events if events is not None else self.eventlog.read_all()
@@ -123,6 +128,8 @@ class ConceptGraph:
             self._process_concept_bind_event(event)
         elif kind == "concept_relate":
             self._process_concept_relate(event)
+        elif kind == "concept_bind_thread":
+            self._process_concept_bind_thread(event)
         # concept_state_snapshot is passive/observational, doesn't affect graph state
 
     def _process_concept_define(self, event: Dict[str, Any]) -> None:
@@ -228,6 +235,37 @@ class ConceptGraph:
         # Add edge (deduplicated by set)
         self.concept_edges.add((from_canonical, to_canonical, relation))
 
+    def _process_concept_bind_thread(self, event: Dict[str, Any]) -> None:
+        """Process concept_bind_thread event."""
+        try:
+            data = json.loads(event.get("content") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return
+
+        cid = data.get("cid")
+        tokens = data.get("tokens", [])
+        relation = data.get("relation", "")
+
+        if not cid or not isinstance(tokens, list):
+            return
+
+        for token in tokens:
+            if not isinstance(token, str):
+                continue
+            canonical = self.canonical_token(token)
+
+            if canonical not in self.concept_cid_bindings:
+                self.concept_cid_bindings[canonical] = set()
+            if cid not in self.cid_to_concepts:
+                self.cid_to_concepts[cid] = set()
+
+            self.concept_cid_bindings[canonical].add(cid)
+            self.cid_to_concepts[cid].add(canonical)
+
+            if relation:
+                # Track relation in event_binding_relations for symmetry with event bindings
+                self.event_binding_relations.add((canonical, -1, relation))
+
     # --- Query API ---
 
     def canonical_token(self, token: str) -> str:
@@ -257,6 +295,20 @@ class ConceptGraph:
         """Get all historical versions of a concept token."""
         canonical = self.canonical_token(token)
         return self.concept_history.get(canonical, [])
+
+    def resolve_cids_for_concepts(self, tokens: List[str]) -> Set[str]:
+        """Return all CIDs bound to any of the provided concepts."""
+        cids: Set[str] = set()
+        for tok in tokens or []:
+            canonical = self.canonical_token(tok)
+            cids.update(self.concept_cid_bindings.get(canonical, set()))
+        return cids
+
+    def resolve_concepts_for_cid(self, cid: str) -> Set[str]:
+        """Return all concepts bound to a CID."""
+        if not cid:
+            return set()
+        return set(self.cid_to_concepts.get(cid, set()))
 
     def events_for_concept(
         self, token: str, relation: Optional[str] = None
@@ -344,10 +396,10 @@ class ConceptGraph:
     def concepts_for_thread(self, meme_graph: MemeGraph, cid: str) -> List[str]:
         """Get sorted list of concepts associated with a thread (via MemeGraph).
 
-        Aggregates concepts from all events in the thread.
+        Aggregates concepts from CID bindings and event bindings.
         """
+        concepts: Set[str] = set(self.cid_to_concepts.get(cid, set()))
         thread_events = meme_graph.thread_for_cid(cid)
-        concepts: Set[str] = set()
         for eid in thread_events:
             concepts.update(self.concepts_for_event(eid))
         return sorted(concepts)
