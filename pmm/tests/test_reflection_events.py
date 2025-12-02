@@ -58,7 +58,10 @@ def test_reflection_appended_when_delta(tmp_path):
     ]
     assert "assistant_message" in kinds
     assert kinds.count("reflection") == 2
-    assert kinds[-2] == "commitment_open"
+    # concept_bind_thread now follows commitment_open; ensure both are present
+    assert "commitment_open" in kinds
+    assert "concept_bind_thread" in kinds
+    assert kinds[-1] == "reflection"
     assert kinds[-1] == "reflection"
     last_reflection = [e for e in events if e["kind"] == "reflection"][-1]
     assert last_reflection["meta"].get("source") is None

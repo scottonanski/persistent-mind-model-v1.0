@@ -30,7 +30,9 @@ def test_single_turn_with_commitment_and_reflection():
     assert kinds[1] == "assistant_message"
     assert "commitment_open" in kinds
     assert kinds.count("reflection") == 2
-    assert kinds[-2] == "commitment_open"
+    # concept_bind_thread now follows commitment_open; ensure both are present
+    assert "concept_bind_thread" in kinds
+    assert kinds[-1] == "reflection"
     assert kinds[-1] == "reflection"
     last_reflection = [e for e in events if e["kind"] == "reflection"][-1]
     assert last_reflection["meta"].get("source") is None

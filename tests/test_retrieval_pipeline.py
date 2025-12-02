@@ -106,6 +106,13 @@ def test_retrieval_pipeline_vector_search():
 
     # Add a distinct message
     e_msg = log.append(kind="user_message", content="unique_keyword", meta={})
+    # Bind to sticky concept so it is selectable
+    bind_payload = json.dumps(
+        {"event_id": e_msg, "tokens": ["user.identity"], "relation": "relevant_to"},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    log.append(kind="concept_bind_event", content=bind_payload, meta={})
 
     mg.rebuild(log.read_all())
     cg.rebuild(log.read_all())

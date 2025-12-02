@@ -15,6 +15,7 @@ from typing import Any, Dict, List
 
 from pmm.core.event_log import EventLog
 from pmm.core.concept_graph import ConceptGraph
+from pmm.core.meme_graph import MemeGraph
 
 
 class SemanticExtractor:
@@ -136,6 +137,7 @@ class Indexer:
         self.concept_graph.rebuild()
         # Track progress for embedding backfill to stay incremental
         self._last_embedded_id: int = 0
+        self._last_cbt_id: int = 0  # concept_bind_thread backfill cursor
 
     def run_indexing_cycle(self, limit: int = 50) -> int:
         """Scan recent unindexed events and apply async bindings.
@@ -277,3 +279,61 @@ class Indexer:
 
         self._last_embedded_id = candidates[-1]["id"]
         return appended
+
+    def backfill_concept_thread_bindings(self, *, batch: int = 400) -> int:
+        """Emit concept_bind_thread events by mapping existing event bindings to threads.
+
+        Deterministic and idempotent: skips bindings already present.
+        """
+        # Rebuild projections for deterministic state
+        self.concept_graph.rebuild()
+        meme_graph = MemeGraph(self.eventlog)
+        meme_graph.rebuild(self.eventlog.read_all())
+
+        # Build a stable list of (event_id, concepts) to process
+        events = self.eventlog.read_range(
+            self._last_cbt_id + 1, self._last_cbt_id + batch
+        )
+        if not events:
+            return 0
+
+        emitted = 0
+        for ev in events:
+            eid = int(ev.get("id", 0))
+            # Skip events that have no concepts
+            concepts = self.concept_graph.concepts_for_event(eid)
+            if not concepts:
+                continue
+
+            # Map to cids via MemeGraph
+            cids = meme_graph.cids_containing_event(eid)
+            if not cids:
+                continue
+
+            for cid in cids:
+                for token in concepts:
+                    # Skip if already bound
+                    already = cid in self.concept_graph.concept_cid_bindings.get(
+                        self.concept_graph.canonical_token(token), set()
+                    )
+                    if already:
+                        continue
+                    bind_content = json.dumps(
+                        {
+                            "cid": cid,
+                            "tokens": [token],
+                            "relation": "relevant_to",
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    self.eventlog.append(
+                        kind="concept_bind_thread",
+                        content=bind_content,
+                        meta={"source": "indexer.backfill"},
+                    )
+                    emitted += 1
+
+            self._last_cbt_id = eid
+
+        return emitted

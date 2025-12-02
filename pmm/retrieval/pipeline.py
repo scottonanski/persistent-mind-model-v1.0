@@ -9,6 +9,7 @@ relevant context for a turn.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
@@ -25,6 +26,8 @@ class RetrievalConfig:
     limit_total_events: int = 120
     limit_vector_events: int = 10
     limit_concept_events: int = 30
+    thread_event_limit: int = 12
+    concept_thread_limit: int = 8
     graph_expansion_depth: int = 1
     recent_event_tail: int = 500
     summary_event_kinds: List[str] = field(default_factory=lambda: ["lifetime_memory"])
@@ -34,6 +37,9 @@ class RetrievalConfig:
     sticky_concepts: List[str] = field(default_factory=lambda: ["user.identity"])
     include_summary_events: bool = True
     summary_pin_limit: int = 2
+    dynamic_cap_growth: bool = True
+    cap_growth_factor: float = 0.05
+    cap_total_max: int = 240
 
     # Concepts to always include in seeding
     always_include_concepts: List[str] = field(default_factory=list)
@@ -82,6 +88,24 @@ def run_retrieval_pipeline(
     4. Graph Expansion: expand selection via MemeGraph.
     5. Merge & Sort: produce final stable list.
     """
+    total_events = eventlog.count() if hasattr(eventlog, "count") else 0
+
+    def _grow_cap(base: int, max_cap: int) -> int:
+        if not config.dynamic_cap_growth:
+            return base
+        factor = float(config.cap_growth_factor)
+        return min(
+            int(max_cap),
+            int(base + math.log1p(max(total_events, 0)) * factor * base),
+        )
+
+    limit_total_events = min(
+        _grow_cap(config.limit_total_events, config.cap_total_max),
+        config.cap_total_max,
+    )
+    thread_event_limit = _grow_cap(config.thread_event_limit, config.cap_total_max)
+    concept_thread_limit = max(1, int(config.concept_thread_limit))
+
     # 1. Concept Seeding
     seed_concepts: Set[str] = set(config.always_include_concepts)
     sticky_tokens: Set[str] = set(config.sticky_concepts or [])
@@ -117,6 +141,13 @@ def run_retrieval_pipeline(
             cids = concept_graph.threads_for_concept(meme_graph, token)
             relevant_cids.update(cids)
 
+        # Prefer explicit concept->CID bindings over event-only bindings
+        bound_cids = concept_graph.resolve_cids_for_concepts(seed_concepts_list)
+        if bound_cids:
+            # Respect per-concept cap by truncating sorted bound_cids
+            sorted_cids = sorted(bound_cids)
+            relevant_cids.update(sorted_cids[:concept_thread_limit])
+
     if sticky_tokens:
         sticky_bound = select_by_concepts(
             concept_tokens=sorted(sticky_tokens),
@@ -149,50 +180,85 @@ def run_retrieval_pipeline(
     summary_vector_ids: Set[int] = set()
     summary_expanded_ids: Set[int] = set()
     summary_pinned_ids: Set[int] = set()
-    if config.enable_vector_search and query_text:
-        # Use a bounded tail of recent events to keep vector search scalable.
-        tail_events = eventlog.read_tail(config.recent_event_tail)
-        vec_ids, _ = select_by_vector(
-            events=tail_events,
-            query_text=query_text,
-            limit=config.limit_vector_events,
-            # Use defaults for model/dims for now
-            cap=config.vector_candidate_cap,
-        )
-        vector_event_ids.update(vec_ids)
 
-        if config.enable_summary_vector_search and config.summary_event_kinds:
-            summary_events: List[Dict] = []
-            for kind in config.summary_event_kinds:
-                summary_events.extend(
-                    eventlog.read_by_kind(
-                        kind,
-                        limit=config.summary_event_scan_limit,
-                        reverse=False,
+    # Vector stage becomes a refiner over already selected slices only
+    def _refine_with_vector(candidate_ids: Set[int], limit: int) -> Set[int]:
+        if not config.enable_vector_search or not query_text:
+            return set()
+        if not candidate_ids:
+            return set()
+        events_data: List[Dict] = []
+        for eid in sorted(candidate_ids):
+            ev = eventlog.get(int(eid)) or {}
+            ev["id"] = int(eid)
+            events_data.append(ev)
+        vec_ids, _ = select_by_vector(
+            events=events_data,
+            query_text=query_text,
+            limit=min(limit, len(events_data)),
+            cap=len(events_data),
+        )
+        return set(vec_ids)
+
+    # 3a. Thread-first selection (concept -> CID -> slices)
+    thread_expanded_ids: Set[int] = set()
+    if relevant_cids:
+        for cid in sorted(relevant_cids):
+            slice_ids = meme_graph.get_thread_slice(cid, limit=thread_event_limit)
+            thread_expanded_ids.update(slice_ids)
+
+    # 3b. Optional vector refinement over thread slices
+    if config.enable_vector_search and query_text:
+        refined_ids = _refine_with_vector(
+            thread_expanded_ids.union(ctl_event_ids).union(sticky_event_ids),
+            config.limit_vector_events,
+        )
+        vector_event_ids.update(refined_ids)
+
+    # 3c. Summary vector search (unchanged but bounded to summaries)
+    if (
+        config.enable_vector_search
+        and config.enable_summary_vector_search
+        and query_text
+    ):
+        summary_events: List[Dict] = []
+        for kind in config.summary_event_kinds:
+            summary_events.extend(
+                eventlog.read_by_kind(
+                    kind,
+                    limit=config.summary_event_scan_limit,
+                    reverse=False,
+                )
+            )
+        summary_events = sorted(summary_events, key=lambda ev: int(ev.get("id", 0)))
+        if summary_events:
+            s_vec_ids, _ = select_by_vector(
+                events=summary_events,
+                query_text=query_text,
+                limit=config.summary_vector_limit,
+                kinds=config.summary_event_kinds,
+                cap=len(summary_events),
+            )
+            summary_vector_ids.update(s_vec_ids)
+            summary_expanded_ids.update(summary_vector_ids)
+            for sid in s_vec_ids:
+                ev = eventlog.get(sid) or {}
+                meta = ev.get("meta") or {}
+                sample_ids = meta.get("sample_ids") or []
+                cids = meta.get("cids") or []
+                for mid in sample_ids:
+                    try:
+                        mid_int = int(mid)
+                    except Exception:
+                        continue
+                    if eventlog.exists(mid_int):
+                        summary_expanded_ids.add(mid_int)
+                # Expand via cids to pull deterministic slices
+                for cid in cids:
+                    slice_ids = meme_graph.get_thread_slice(
+                        cid, limit=thread_event_limit
                     )
-                )
-            summary_events = sorted(summary_events, key=lambda ev: int(ev.get("id", 0)))
-            if summary_events:
-                s_vec_ids, _ = select_by_vector(
-                    events=summary_events,
-                    query_text=query_text,
-                    limit=config.summary_vector_limit,
-                    kinds=config.summary_event_kinds,
-                    cap=len(summary_events),
-                )
-                summary_vector_ids.update(s_vec_ids)
-                summary_expanded_ids.update(summary_vector_ids)
-                for sid in s_vec_ids:
-                    ev = eventlog.get(sid) or {}
-                    meta = ev.get("meta") or {}
-                    sample_ids = meta.get("sample_ids") or []
-                    for mid in sample_ids:
-                        try:
-                            mid_int = int(mid)
-                        except Exception:
-                            continue
-                        if eventlog.exists(mid_int):
-                            summary_expanded_ids.add(mid_int)
+                    summary_expanded_ids.update(slice_ids)
     # Always pin recent summary/lifetime_memory events if configured
     if config.include_summary_events and config.summary_event_kinds:
         for kind in config.summary_event_kinds:
@@ -225,6 +291,7 @@ def run_retrieval_pipeline(
         .union(summary_expanded_ids)
         .union(sticky_event_ids)
         .union(forced_event_ids)
+        .union(thread_expanded_ids)
     )
     expanded_ids: Set[int] = set(base_ids)
 
@@ -267,7 +334,7 @@ def run_retrieval_pipeline(
         if eid not in forced_event_ids and eid not in sticky_event_ids
     ]
     pinned_ids = forced_sorted + sticky_sorted + summary_sorted
-    pinned_ids = pinned_ids[: config.limit_total_events]
+    pinned_ids = pinned_ids[:limit_total_events]
     pinned_set = set(pinned_ids)
 
     concept_set = ctl_event_ids - pinned_set
@@ -285,7 +352,7 @@ def run_retrieval_pipeline(
     residual_bucket = sorted(residual_set, reverse=True)
 
     final_ids = list(pinned_ids)
-    remaining = max(config.limit_total_events - len(final_ids), 0)
+    remaining = max(limit_total_events - len(final_ids), 0)
 
     def _take(bucket: List[int]) -> None:
         nonlocal remaining

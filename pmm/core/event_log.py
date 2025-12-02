@@ -121,6 +121,7 @@ class EventLog:
             "concept_bind_event",
             "concept_relate",
             "concept_state_snapshot",
+            "concept_bind_thread",
             # New kinds for Indexer/Archivist
             "claim_from_text",
             "concept_bind_async",

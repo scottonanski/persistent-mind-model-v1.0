@@ -31,7 +31,9 @@ def test_commit_open_triggers_reflection():
     assert kinds[0] == "user_message"
     assert kinds[1] == "assistant_message"
     assert "commitment_open" in kinds
-    assert kinds[-2] == "commitment_open"
+    # concept_bind_thread now follows commitment_open; ensure both are present
+    assert "concept_bind_thread" in kinds
+    assert kinds[-1] == "reflection"
     assert kinds[-1] == "reflection"
     last_reflection = [e for e in events if e["kind"] == "reflection"][-1]
     assert last_reflection["meta"].get("source") is None

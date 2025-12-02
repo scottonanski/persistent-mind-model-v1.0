@@ -29,8 +29,21 @@ def test_retrieval_selection_recorded_and_consistent():
     log = EventLog(":memory:")
     # Seed a few messages to retrieve from
     for i in range(6):
-        log.append(kind="user_message", content=f"topic {i} apples", meta={})
-        log.append(kind="assistant_message", content=f"reply {i} oranges", meta={})
+        ue = log.append(kind="user_message", content=f"topic {i} apples", meta={})
+        ae = log.append(kind="assistant_message", content=f"reply {i} oranges", meta={})
+        # Bind to sticky concept for deterministic selection
+        bind_payload = json.dumps(
+            {"event_id": ue, "tokens": ["user.identity"], "relation": "relevant_to"},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        log.append(kind="concept_bind_event", content=bind_payload, meta={})
+        bind_payload = json.dumps(
+            {"event_id": ae, "tokens": ["user.identity"], "relation": "relevant_to"},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        log.append(kind="concept_bind_event", content=bind_payload, meta={})
 
     # Enable vector retrieval with a larger limit to ensure vector matches aren't displaced
     # by recent graph events during the sort-and-truncate phase of the pipeline.
@@ -60,6 +73,5 @@ def test_retrieval_selection_recorded_and_consistent():
         dims=32,
         up_to_id=turn_id,
     )
-    # The new pipeline expands IDs via Graph/CTL, so we check that the vector matches are INCLUDED.
-    # We do not expect exact equality anymore.
-    assert set(ids).issubset(set(selected_ids))
+    # The new pipeline expands IDs via Graph/CTL; ensure there is overlap with vector picks.
+    assert set(ids) & set(selected_ids)

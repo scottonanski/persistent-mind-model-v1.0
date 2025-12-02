@@ -16,6 +16,7 @@ from typing import Dict, List, Optional
 
 from pmm.core.concept_graph import ConceptGraph
 from pmm.core.event_log import EventLog
+from pmm.core.meme_graph import MemeGraph
 from pmm.retrieval.vector import ensure_embedding_for_event
 
 
@@ -47,6 +48,7 @@ def _sample_messages(events: List[Dict], max_samples: int) -> List[Dict]:
 def maybe_append_lifetime_memory(
     eventlog: EventLog,
     concept_graph: ConceptGraph,
+    meme_graph: Optional[MemeGraph] = None,
     *,
     chunk_size: int = DEFAULT_CHUNK_EVENTS,
     message_samples: int = DEFAULT_MESSAGE_SAMPLES,
@@ -92,15 +94,24 @@ def maybe_append_lifetime_memory(
     # Capture commitment openings/closures for continuity.
     opened: List[str] = []
     closed: List[str] = []
+    cids_in_span: set[str] = set()
+
     for ev in span:
         meta = ev.get("meta") or {}
         if ev.get("kind") == "commitment_open":
             cid = meta.get("cid") or ""
             text = meta.get("text") or ev.get("content") or ""
             opened.append(f"{cid}:{_truncate(text, 120)}")
+            if cid:
+                cids_in_span.add(cid)
         elif ev.get("kind") == "commitment_close":
             cid = meta.get("cid") or ""
             closed.append(cid)
+            if cid:
+                cids_in_span.add(cid)
+        if meme_graph is not None:
+            for cid in meme_graph.cids_for_event(int(ev["id"])):
+                cids_in_span.add(cid)
 
     lines: List[str] = [
         f"Span {span_start}..{span_end} ({len(span)} events)",
@@ -126,6 +137,7 @@ def maybe_append_lifetime_memory(
         "sample_ids": sample_ids,
         "concepts": top_tokens,
         "summary_kind": "lifetime_memory",
+        "cids": sorted(cids_in_span),
     }
 
     eid = eventlog.append(
