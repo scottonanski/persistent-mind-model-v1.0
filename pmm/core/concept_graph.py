@@ -79,6 +79,14 @@ class ConceptGraph:
         self.concept_cid_bindings: Dict[str, Set[str]] = {}
         self.cid_to_concepts: Dict[str, Set[str]] = {}
 
+        # Topological metadata for concepts (all rebuildable)
+        # - concept_roots: earliest evidence binding for a concept token
+        # - concept_tails: latest evidence binding for a concept token
+        # - concept_kinds: concept_kind from concept_define (e.g. identity, policy)
+        self.concept_roots: Dict[str, int] = {}
+        self.concept_tails: Dict[str, int] = {}
+        self.concept_kinds: Dict[str, str] = {}
+
         # Metadata for stats
         self.last_event_id: int = 0
 
@@ -93,6 +101,9 @@ class ConceptGraph:
         self.event_binding_relations.clear()
         self.concept_cid_bindings.clear()
         self.cid_to_concepts.clear()
+        self.concept_roots.clear()
+        self.concept_tails.clear()
+        self.concept_kinds.clear()
         self.last_event_id = 0
 
         events_list = events if events is not None else self.eventlog.read_all()
@@ -166,6 +177,10 @@ class ConceptGraph:
             self.concept_history[token] = []
         self.concept_history[token].append(concept_def)
 
+        # Cache concept kind for topology-aware queries
+        if concept_def.concept_kind:
+            self.concept_kinds[token] = concept_def.concept_kind
+
     def _process_concept_alias(self, event: Dict[str, Any]) -> None:
         """Process concept_alias event."""
         try:
@@ -209,6 +224,15 @@ class ConceptGraph:
             if event_id not in self.event_to_concepts:
                 self.event_to_concepts[event_id] = set()
             self.event_to_concepts[event_id].add(canonical)
+
+            # Maintain topological roots/tails for this concept token.
+            current_root = self.concept_roots.get(canonical)
+            if current_root is None or event_id < current_root:
+                self.concept_roots[canonical] = event_id
+
+            current_tail = self.concept_tails.get(canonical)
+            if current_tail is None or event_id > current_tail:
+                self.concept_tails[canonical] = event_id
 
             # Track relation if present
             if relation:
@@ -457,3 +481,18 @@ class ConceptGraph:
             if concept_def.concept_kind == concept_kind
         ]
         return sorted(tokens)
+
+    def root_event_id(self, token: str) -> Optional[int]:
+        """Return earliest evidence event_id bound to a concept token, if any."""
+        canonical = self.canonical_token(token)
+        return self.concept_roots.get(canonical)
+
+    def tail_event_id(self, token: str) -> Optional[int]:
+        """Return latest evidence event_id bound to a concept token, if any."""
+        canonical = self.canonical_token(token)
+        return self.concept_tails.get(canonical)
+
+    def concept_kind(self, token: str) -> str:
+        """Return concept_kind recorded for a token via concept_define, if any."""
+        canonical = self.canonical_token(token)
+        return self.concept_kinds.get(canonical, "")

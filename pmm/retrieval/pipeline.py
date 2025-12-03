@@ -175,6 +175,39 @@ def run_retrieval_pipeline(
             )
         )
 
+    # Topological boost based on ConceptGraph roots/tails.
+    # For seeded concepts, ensure that the earliest and/or latest evidence
+    # bound to those tokens is available in the forced bucket.
+    if seed_concepts_list:
+        topology_budget = max(4, min(12, limit_total_events // 10))
+        added_from_topology = 0
+        for tok in seed_concepts_list:
+            if added_from_topology >= topology_budget:
+                break
+
+            root_eid = concept_graph.root_event_id(tok)
+            tail_eid = concept_graph.tail_event_id(tok)
+            kind = concept_graph.concept_kind(tok)
+
+            ids_to_add: List[int] = []
+            # For identity/policy/governance/ontology kinds, prefer both origin and state.
+            if kind in ("identity", "policy", "governance", "ontology"):
+                if isinstance(root_eid, int):
+                    ids_to_add.append(root_eid)
+                if isinstance(tail_eid, int) and tail_eid != root_eid:
+                    ids_to_add.append(tail_eid)
+            elif kind:
+                # For other concept kinds, a tail binding is usually enough for continuity.
+                if isinstance(tail_eid, int):
+                    ids_to_add.append(tail_eid)
+
+            for eid in ids_to_add:
+                if added_from_topology >= topology_budget:
+                    break
+                if eventlog.exists(eid):
+                    forced_event_ids.add(eid)
+                    added_from_topology += 1
+
     # 3. Vector Selection
     vector_event_ids: Set[int] = set()
     summary_vector_ids: Set[int] = set()
@@ -259,6 +292,7 @@ def run_retrieval_pipeline(
                         cid, limit=thread_event_limit
                     )
                     summary_expanded_ids.update(slice_ids)
+
     # Always pin recent summary/lifetime_memory events if configured
     if config.include_summary_events and config.summary_event_kinds:
         for kind in config.summary_event_kinds:
@@ -279,6 +313,35 @@ def run_retrieval_pipeline(
                         continue
                     if eventlog.exists(sid_int):
                         summary_expanded_ids.add(sid_int)
+
+    # Structural lifetime_memory recall: for seeded concepts, also pin the
+    # earliest lifetime_memory chunk that references them, if configurable.
+    if config.summary_event_kinds and "lifetime_memory" in config.summary_event_kinds:
+        lm_events = eventlog.read_by_kind("lifetime_memory", reverse=False)
+        if lm_events and seed_concepts_list:
+            # Map canonical tokens to earliest lifetime_memory id that mentions them
+            earliest_lm_for_concept: Dict[str, int] = {}
+            canonical_seeds = {
+                concept_graph.canonical_token(tok) for tok in seed_concepts_list
+            }
+            for ev in lm_events:
+                meta = ev.get("meta") or {}
+                chunk_concepts = meta.get("concepts") or []
+                if not chunk_concepts:
+                    continue
+                canonical_chunk = {
+                    concept_graph.canonical_token(tok) for tok in chunk_concepts
+                }
+                overlap = canonical_seeds & canonical_chunk
+                if not overlap:
+                    continue
+                ev_id = int(ev.get("id", 0))
+                for canon in overlap:
+                    if canon not in earliest_lm_for_concept:
+                        earliest_lm_for_concept[canon] = ev_id
+            for ev_id in earliest_lm_for_concept.values():
+                if ev_id:
+                    summary_pinned_ids.add(ev_id)
 
     # 4. Graph Expansion (MemeGraph)
     # We want to expand around the seed events (CTL + Vector).
