@@ -55,9 +55,10 @@ def test_meditation_concept_focus_hints():
 
 
 def test_meditation_concept_hints_mapping():
-    """Test that all 11 meditations have concept hints defined."""
-    assert len(_MEDITATION_CONCEPT_HINTS) == 11
-    for i in range(11):
+    """Test that all meditations have concept hints defined."""
+    # Keep this in sync with the number of ontological meditations.
+    assert len(_MEDITATION_CONCEPT_HINTS) == 21
+    for i in range(21):
         assert i in _MEDITATION_CONCEPT_HINTS
         assert isinstance(_MEDITATION_CONCEPT_HINTS[i], str)
         assert "." in _MEDITATION_CONCEPT_HINTS[i]  # Format: category.subcategory
