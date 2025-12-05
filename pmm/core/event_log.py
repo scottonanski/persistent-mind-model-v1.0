@@ -87,6 +87,7 @@ class EventLog:
             "user_message",
             "assistant_message",
             "reflection",
+            "identity_adoption",
             "meta_summary",
             "metrics_turn",
             "metric_check",

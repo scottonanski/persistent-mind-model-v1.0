@@ -137,6 +137,8 @@ class ConceptGraph:
         elif kind == "concept_bind_async":
             # Async bindings follow the same basic schema (event_id, tokens)
             self._process_concept_bind_event(event)
+        elif kind == "identity_adoption":
+            self._process_identity_adoption(event)
         elif kind == "concept_relate":
             self._process_concept_relate(event)
         elif kind == "concept_bind_thread":
@@ -180,6 +182,50 @@ class ConceptGraph:
         # Cache concept kind for topology-aware queries
         if concept_def.concept_kind:
             self.concept_kinds[token] = concept_def.concept_kind
+
+    def _process_identity_adoption(self, event: Dict[str, Any]) -> None:
+        """Process identity_adoption event as implicit evidence for an identity concept.
+
+        Binds the adopted identity token (e.g., "identity.Echo") to the
+        identity_adoption event id, updating concept_event_bindings and
+        event_to_concepts. Concept kind is recorded as "identity" if not
+        already present from a prior concept_define.
+        """
+        try:
+            data = json.loads(event.get("content") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return
+
+        token = data.get("token")
+        if not isinstance(token, str) or not token.strip():
+            return
+        canonical = self.canonical_token(token.strip())
+
+        event_id = event.get("id")
+        if not isinstance(event_id, int):
+            return
+
+        # Bind concept to this identity_adoption event.
+        if canonical not in self.concept_event_bindings:
+            self.concept_event_bindings[canonical] = set()
+        self.concept_event_bindings[canonical].add(event_id)
+
+        if event_id not in self.event_to_concepts:
+            self.event_to_concepts[event_id] = set()
+        self.event_to_concepts[event_id].add(canonical)
+
+        # Maintain topological roots/tails for this concept token.
+        current_root = self.concept_roots.get(canonical)
+        if current_root is None or event_id < current_root:
+            self.concept_roots[canonical] = event_id
+
+        current_tail = self.concept_tails.get(canonical)
+        if current_tail is None or event_id > current_tail:
+            self.concept_tails[canonical] = event_id
+
+        # If no explicit concept_kind has been defined yet, record identity.
+        if canonical not in self.concept_kinds:
+            self.concept_kinds[canonical] = "identity"
 
     def _process_concept_alias(self, event: Dict[str, Any]) -> None:
         """Process concept_alias event."""

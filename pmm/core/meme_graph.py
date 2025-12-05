@@ -22,6 +22,7 @@ class MemeGraph:
         "assistant_message",
         "commitment_open",
         "commitment_close",
+        "identity_adoption",
         "reflection",
         "summary_update",
     }
@@ -58,6 +59,12 @@ class MemeGraph:
             last_user = self._find_last("user_message")
             if last_user is not None:
                 self.graph.add_edge(event_id, last_user, label="replies_to")
+        elif kind == "identity_adoption":
+            # Link identity adoption to the most recent assistant_message or
+            # reflection to form explicit identity threads.
+            anchor = self._find_last_of_kinds(("assistant_message", "reflection"))
+            if anchor is not None:
+                self.graph.add_edge(event_id, anchor, label="adopts_identity_for")
         elif kind == "commitment_open":
             # Link open → assistant_message that emitted a matching COMMIT line by meta.text
             text = (meta or {}).get("text")
@@ -80,6 +87,14 @@ class MemeGraph:
     def _find_last(self, kind: str) -> int | None:
         candidates = [
             n for n in self.graph.nodes if self.graph.nodes[n]["kind"] == kind
+        ]
+        return max(candidates) if candidates else None
+
+    def _find_last_of_kinds(self, kinds: Iterable[str]) -> int | None:
+        """Return the most recent node id whose kind is in kinds, if any."""
+        kind_set = {str(k) for k in kinds}
+        candidates = [
+            n for n in self.graph.nodes if self.graph.nodes[n].get("kind") in kind_set
         ]
         return max(candidates) if candidates else None
 
