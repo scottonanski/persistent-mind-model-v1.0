@@ -79,6 +79,14 @@ class ConceptGraph:
         self.concept_cid_bindings: Dict[str, Set[str]] = {}
         self.cid_to_concepts: Dict[str, Set[str]] = {}
 
+        # Topological metadata for concepts (all rebuildable)
+        # - concept_roots: earliest evidence binding for a concept token
+        # - concept_tails: latest evidence binding for a concept token
+        # - concept_kinds: concept_kind from concept_define (e.g. identity, policy)
+        self.concept_roots: Dict[str, int] = {}
+        self.concept_tails: Dict[str, int] = {}
+        self.concept_kinds: Dict[str, str] = {}
+
         # Metadata for stats
         self.last_event_id: int = 0
 
@@ -93,6 +101,9 @@ class ConceptGraph:
         self.event_binding_relations.clear()
         self.concept_cid_bindings.clear()
         self.cid_to_concepts.clear()
+        self.concept_roots.clear()
+        self.concept_tails.clear()
+        self.concept_kinds.clear()
         self.last_event_id = 0
 
         events_list = events if events is not None else self.eventlog.read_all()
@@ -126,6 +137,8 @@ class ConceptGraph:
         elif kind == "concept_bind_async":
             # Async bindings follow the same basic schema (event_id, tokens)
             self._process_concept_bind_event(event)
+        elif kind == "identity_adoption":
+            self._process_identity_adoption(event)
         elif kind == "concept_relate":
             self._process_concept_relate(event)
         elif kind == "concept_bind_thread":
@@ -165,6 +178,54 @@ class ConceptGraph:
         if token not in self.concept_history:
             self.concept_history[token] = []
         self.concept_history[token].append(concept_def)
+
+        # Cache concept kind for topology-aware queries
+        if concept_def.concept_kind:
+            self.concept_kinds[token] = concept_def.concept_kind
+
+    def _process_identity_adoption(self, event: Dict[str, Any]) -> None:
+        """Process identity_adoption event as implicit evidence for an identity concept.
+
+        Binds the adopted identity token (e.g., "identity.Echo") to the
+        identity_adoption event id, updating concept_event_bindings and
+        event_to_concepts. Concept kind is recorded as "identity" if not
+        already present from a prior concept_define.
+        """
+        try:
+            data = json.loads(event.get("content") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return
+
+        token = data.get("token")
+        if not isinstance(token, str) or not token.strip():
+            return
+        canonical = self.canonical_token(token.strip())
+
+        event_id = event.get("id")
+        if not isinstance(event_id, int):
+            return
+
+        # Bind concept to this identity_adoption event.
+        if canonical not in self.concept_event_bindings:
+            self.concept_event_bindings[canonical] = set()
+        self.concept_event_bindings[canonical].add(event_id)
+
+        if event_id not in self.event_to_concepts:
+            self.event_to_concepts[event_id] = set()
+        self.event_to_concepts[event_id].add(canonical)
+
+        # Maintain topological roots/tails for this concept token.
+        current_root = self.concept_roots.get(canonical)
+        if current_root is None or event_id < current_root:
+            self.concept_roots[canonical] = event_id
+
+        current_tail = self.concept_tails.get(canonical)
+        if current_tail is None or event_id > current_tail:
+            self.concept_tails[canonical] = event_id
+
+        # If no explicit concept_kind has been defined yet, record identity.
+        if canonical not in self.concept_kinds:
+            self.concept_kinds[canonical] = "identity"
 
     def _process_concept_alias(self, event: Dict[str, Any]) -> None:
         """Process concept_alias event."""
@@ -209,6 +270,15 @@ class ConceptGraph:
             if event_id not in self.event_to_concepts:
                 self.event_to_concepts[event_id] = set()
             self.event_to_concepts[event_id].add(canonical)
+
+            # Maintain topological roots/tails for this concept token.
+            current_root = self.concept_roots.get(canonical)
+            if current_root is None or event_id < current_root:
+                self.concept_roots[canonical] = event_id
+
+            current_tail = self.concept_tails.get(canonical)
+            if current_tail is None or event_id > current_tail:
+                self.concept_tails[canonical] = event_id
 
             # Track relation if present
             if relation:
@@ -457,3 +527,18 @@ class ConceptGraph:
             if concept_def.concept_kind == concept_kind
         ]
         return sorted(tokens)
+
+    def root_event_id(self, token: str) -> Optional[int]:
+        """Return earliest evidence event_id bound to a concept token, if any."""
+        canonical = self.canonical_token(token)
+        return self.concept_roots.get(canonical)
+
+    def tail_event_id(self, token: str) -> Optional[int]:
+        """Return latest evidence event_id bound to a concept token, if any."""
+        canonical = self.canonical_token(token)
+        return self.concept_tails.get(canonical)
+
+    def concept_kind(self, token: str) -> str:
+        """Return concept_kind recorded for a token via concept_define, if any."""
+        canonical = self.canonical_token(token)
+        return self.concept_kinds.get(canonical, "")

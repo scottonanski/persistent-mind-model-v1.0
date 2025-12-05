@@ -26,6 +26,7 @@ from pmm.core.concept_ops_compiler import compile_assistant_message_concepts
 from pmm.commitments.binding import extract_exec_binds
 from pmm.runtime.autonomy_kernel import AutonomyKernel, KernelDecision
 from pmm.runtime.prompts import compose_system_prompt
+from pmm.core.identity_manager import maybe_append_identity_adoptions
 from pmm.runtime.reflection import TurnDelta, build_reflection_text
 from pmm.retrieval.pipeline import run_retrieval_pipeline, RetrievalConfig
 from pmm.runtime.context_renderer import render_context
@@ -538,6 +539,10 @@ class RuntimeLoop:
                     )
             else:
                 delta.failed_claims.append(claim)
+
+        # 6a. Identity adoption – derive from validated identity_* CLAIMs.
+        # This is ledger-only, deterministic, and idempotent.
+        maybe_append_identity_adoptions(self.eventlog)
 
         # 7. Closures
         to_close = self._extract_closures(assistant_reply)
