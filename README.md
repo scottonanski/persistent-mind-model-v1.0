@@ -32,9 +32,6 @@ To ensure the claims about PMM are independently verifiable across model familie
 
 <br>
 
----
-<br>
-
 ### **Human Readable Transcript**
 
 _(full human‑legible conversation showing PMM behavior reproduced on Granite‑4)_
