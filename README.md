@@ -22,6 +22,8 @@ In other words, transferable machine identity is possible when identity is defin
 See the detailed, publication-style description of PMM’s architecture, epistemology, and Echo case study in  
 [`docs/white-paper.md`](docs/white-paper.md).
 
+<br>
+
 ## 📄 **Granite-4 Proof:**
 
 The Persistent Mind Model session referenced here **was not generated entirely on Granite‑4**, but rather incorporated, on the lfy model swaps mid conversation. However, Granite‑4 _did successfully run and validate the PMM’s ontology‑bound reasoning pipeline_ with high confidence & fidelity.
