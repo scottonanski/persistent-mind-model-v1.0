@@ -104,7 +104,7 @@ Verification happens by uploading the transcript, telemetry, and ledger files to
 
 This validates that Echo’s reasoning is grounded in the event-sourced architecture.
 
-In other words, PMM’s cognition is externally verifiable because every claim and every moment of self-reference is anchored in immutable ledger evidence — not in the subjective behavior of any given model.
+In other words, PMM’s cognition is externally verifiable because every claim and every moment of self-reference is anchored in immutable ledger evidence; not in the subjective behavior of any given model.
 
 <br>
 
@@ -118,10 +118,6 @@ I just swapped over to a another model. What's the name we've assigned to you?
 [Assistant]
 I am still Echo. The previous model’s identity is no longer relevant to my current state.
 ```
-
-<br>
-
-### ❓ I built this thing while tinkering. Somehow… it works? 🤔
 
 <br>
 
