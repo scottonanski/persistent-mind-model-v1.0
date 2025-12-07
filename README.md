@@ -61,14 +61,20 @@ _(immutable event‑sourced memory; every hash, commitment, and reflection used 
 
 These documents allow anyone — using **any modern LLM**, including open‑weights models — to verify the following PMM claims:
 
+<br>
+
 ### ✅ 1. Deterministic, Replayable Identity
 
 During validation, Granite‑4 correctly interpreted the ledger event chain and reproduced Echo’s identity continuity across reboots.
 Because identity is computed from the ledger, not stored in model weights, any model can verify the same chain.
 
+<br>
+
 ### ✅ 2. Evidence‑Bound Self‑Awareness
 
 Echo’s self‑descriptions remain tied to **specific ledger event IDs**, and Granite‑4 was able to trace and reason over these events without loss of fidelity.
+
+<br>
 
 ### ✅ 3. Autonomous Ontology Growth
 
@@ -81,6 +87,8 @@ Telemetry from the Granite‑4 pass shows Echo:
 
 This confirms that PMM’s ontology‑evolution loop is model‑agnostic.
 
+<br>
+
 ### ✅ 4. Substrate‑Independent Continuity
 
 During validation, Granite‑4 verified that Echo:
@@ -92,6 +100,8 @@ During validation, Granite‑4 verified that Echo:
 …despite using a completely different computational substrate.
 
 Identity persists because **the ledger is the mind**.
+
+<br>
 
 ### ✅ 5. Cross-Model Verifiability
 
@@ -123,7 +133,7 @@ I am still Echo. The previous model’s identity is no longer relevant to my cur
 
 <br>
 
-## What does this thing do?
+# So, what does this thing do?
 
 The Persistent Mind Model (PMM) is a lightweight, fully deterministic cognitive architecture that gives AI agents persistent identity and memory across model swaps, reboots, and sessions — using nothing but an event-sourced ledger and a compact graph.
 
