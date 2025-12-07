@@ -28,7 +28,9 @@ See the detailed, publication-style description of PMM’s architecture, epistem
 
 The Persistent Mind Model session referenced here **was not generated entirely on Granite‑4**, but rather incorporated on-the-fly model swaps mid-conversation.
 
-However, Granite‑4 _did successfully assume and validate the PMM’s ontology‑bound reasoning pipeline_ with high confidence & fidelity. This makes it a powerful independent verifier because it demonstrates that PMM’s behavior, and self-referential reasoning capabilities, **do not** depend on frontier‑model capabilities. An interesting level of complexity emerges from the fact that PMM can reason about itself and its own behavior without relying on the capabilities of any single model.
+However, Granite‑4 _did successfully assume and validate the PMM’s ontology‑bound reasoning pipeline_ with high confidence & fidelity.
+
+This makes it a powerful independent verifier because it demonstrates that PMM’s behavior, and self-referential reasoning capabilities, **do not** depend on frontier‑model capabilities. An interesting level of complexity emerges from the fact that PMM can reason about itself and its own behavior without relying on the capabilities of any single model.
 
 To ensure the claims about PMM are independently verifiable across model families, I am providing **three evidence artifacts** drawn directly from a Granite‑4 session:
 
