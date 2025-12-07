@@ -28,16 +28,16 @@ This makes it a powerful independent verifier because it demonstrates that PMM�
 
 To ensure the claims about PMM are independently verifiable across model families, I am providing **three evidence artifacts** drawn directly from the Granite‑4 validation run:
 
----
+<br>
 
+---
+<br>
 ### **Readable Transcript**
 
 _(full human‑legible conversation showing PMM behavior reproduced on Granite‑4)_
 
 **granite-4-proof**
 [`granite-4-proof.md`](docs/granite-4-proof.md)
-
----
 
 ### **Telemetry Log**
 
@@ -46,7 +46,6 @@ _(full autonomy‑kernel + reflection pipeline output during the Granite‑4 val
 **granite-4-telemetry**
 [`granite-4-telemetry.md`](docs/granite-4-telemetry.md)
 
----
 
 ### **Ledger File**
 
@@ -55,7 +54,6 @@ _(immutable event‑sourced memory; every hash, commitment, and reflection used 
 **full event log**
 [`granite-4-telemetry.md`](docs/granite-4-telemetry.md)
 
----
 
 These documents allow anyone — using **any modern LLM**, including open‑weights models — to verify the following PMM claims:
 
