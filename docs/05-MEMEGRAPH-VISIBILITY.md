@@ -170,6 +170,6 @@ No ledger events are affected, so rollback is safe and clean.
 
 [PREV: Technical Comparison](04-TECHNICAL-COMPARISON.md)
 
-[NEXT: Gemma‑3‑4B Proof](gemma3-4b-chat-proof.md)
+[NEXT: Granite-4 Proof](granite-4-proof.md)
 
 [BACK TO README](../README.md)

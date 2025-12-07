@@ -34,9 +34,9 @@ This means:
 - Verify reasoning through replay
 - Truth-seeking via immutable history
 
-## Proof: Gemma‑3‑4B (PMM-run)
+## Proof: Granite‑4 (PMM-run)
 
-See [Gemma‑3‑4B Proof](gemma3-4b-chat-proof.md) for the full transcript and telemetry-backed run.
+See [Granite‑4 Proof](granite-4-proof.md) for the full transcript and telemetry-backed run.
 
 **Results at 275 events:**
 - RSM tracking 5 behavioral tendencies

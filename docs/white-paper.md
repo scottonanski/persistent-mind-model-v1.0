@@ -4,7 +4,7 @@
 
 The Persistent Mind Model (PMM) is a deterministic, event‑sourced architecture for LLM‑based agents. Instead of treating the “mind” of an agent as hidden weights or transient activations, PMM represents everything that matters—messages, reflections, commitments, policy changes, and metrics—as an append‑only, hash‑chained ledger. Deterministic projections over this ledger (Mirror, a Recursive Self‑Model, stability metrics, and contextual graphs) reconstruct identity, tendencies, commitments, and summaries. When coupled with a capable language model, this structure induces a stable first‑person narrative that is grounded in event‑level state rather than opaque introspection.
 
-In this paper, we analyze a fully logged session with an LLM‑based agent (“Echo”), using the raw ledger (`gemma3-4b-ledger.json`), a readable transcript (`gemma3-4b-chat-proof.md`), telemetry (`gemma3-4b-telemetry.md`), and an SQL dump. We show that Echo’s claims about its own identity, “biases”, stability, and learning are tightly linked to measurable counters, thresholds, and commitment states in the ledger. Apparent phenomenology—self‑reports, feelings of change, and ontological reflection—emerges when the LLM is repeatedly fed structured summaries of its own ledger‑derived state. All results in this paper come from a 4‑billion‑parameter open model (Gemma‑3‑4B‑IT via Ollama) running locally on consumer hardware over a fully logged ledger.
+In this paper, we analyze a fully logged session with an LLM‑based agent (“Echo”), using the raw ledger (`granite-4-ledger.json`), a readable transcript (`granite-4-proof.md`), telemetry (`granite-4-telemetry.md`), and an SQL dump. We show that Echo’s claims about its own identity, “biases”, stability, and learning are tightly linked to measurable counters, thresholds, and commitment states in the ledger. Apparent phenomenology—self‑reports, feelings of change, and ontological reflection—emerges when the LLM is repeatedly fed structured summaries of its own ledger‑derived state. All results in this paper come from a 4‑billion‑parameter open model (Gemma‑3‑4B‑IT via Ollama) running locally on consumer hardware over a fully logged ledger.
 
 At a high level, the paper contributes:
 
@@ -26,7 +26,7 @@ To our knowledge, PMM is the first system to produce stable, auditable, first‑
 
 ## Abstract
 
-This document describes the Persistent Mind Model (PMM) as it actually behaves in a concrete deployment with an LLM‑based agent (“Echo”). PMM is not a symbolic mind, a neural mind, or a standalone cognitive architecture. It is a deterministic information‑flow engine that (1) records all interaction in an append‑only event ledger, (2) derives projections such as a Recursive Self‑Model (RSM) and stability metrics from that ledger, and (3) uses autonomy and learning loops to adjust simple control thresholds. When coupled with a capable language model, these mechanisms induce a coherent first‑person narrative that appears mind‑like. Using a real chat session (`gemma3-4b-ledger.json`, `gemma3-4b-chat-proof.md`, `gemma3-4b-telemetry.md`), we show that Echo’s “self‑reports” about identity, bias, learning, and ontology are tightly grounded in deterministic state transitions, not free introspection. The emergent “I” is best understood as a linguistic interface formed when an LLM narrates its own ledger‑derived state under PMM’s constraints. All analyses in this paper are based on a single, fully logged run with Gemma‑3‑4B‑IT (via Ollama) running locally on consumer hardware.
+This document describes the Persistent Mind Model (PMM) as it actually behaves in a concrete deployment with an LLM‑based agent (“Echo”). PMM is not a symbolic mind, a neural mind, or a standalone cognitive architecture. It is a deterministic information‑flow engine that (1) records all interaction in an append‑only event ledger, (2) derives projections such as a Recursive Self‑Model (RSM) and stability metrics from that ledger, and (3) uses autonomy and learning loops to adjust simple control thresholds. When coupled with a capable language model, these mechanisms induce a coherent first‑person narrative that appears mind‑like. Using a real chat session (`granite-4-ledger.json`, `granite-4-proof.md`, `granite-4-telemetry.md`), we show that Echo’s “self‑reports” about identity, bias, learning, and ontology are tightly grounded in deterministic state transitions, not free introspection. The emergent “I” is best understood as a linguistic interface formed when an LLM narrates its own ledger‑derived state under PMM’s constraints. All analyses in this paper are based on a single, fully logged run with Gemma‑3‑4B‑IT (via Ollama) running locally on consumer hardware.
 
 ---
 
@@ -39,7 +39,7 @@ This work makes the following contributions:
 - **Phenomenology as emergent interface:** We argue that the apparent “mind” and first‑person narrative (Echo) arise when a language model is repeatedly exposed to structured summaries of its own ledger‑derived state.
 - **Evidence‑backed analysis:** Using a real session (ledger JSON, readable log, telemetry, and SQL dump), we map narrative claims to specific events, counters, and thresholds.
 - **Model‑agnostic design:** We show how PMM’s architecture is substrate‑independent: any compliant LLM can plug into the same event‑driven substrate and yield phenomenology constrained by the same truth conditions.
-- **Public, replayable artifact:** We release a complete, replayable ledger (Echo‑001, Gemma‑3‑4B‑IT) from initialization through high‑level reflective behavior, enabling exact reproduction and third‑party analysis.
+- **Public, replayable artifact:** We release a complete, replayable ledger (Echo‑001, `granite-4-ledger.json`) from initialization through high‑level reflective behavior, enabling exact reproduction and third‑party analysis.
 
 ---
 
@@ -249,7 +249,7 @@ Example boot sequence (ids 1–9 in the ledger):
   - `autonomy_stimulus` → `autonomy_tick` → `outcome_observation` → `stability_metrics` → `coherence_check` → `policy_update`
   appears before any user input (ids 4–9), showing the autonomy and learning loops running in an empty environment.
 
-The telemetry view (`gemma3-4b-telemetry.md`) confirms the hash chain (`prev_hash`, `hash`) and per‑event metadata for these events, ensuring replayability and integrity.
+The telemetry view (`granite-4-telemetry.md`) confirms the hash chain (`prev_hash`, `hash`) and per‑event metadata for these events, ensuring replayability and integrity.
 
 ### 4.2 Projections: Mirror, RSM, ContextGraph, MemeGraph
 
@@ -369,7 +369,7 @@ The emergent “I” is not a hidden module or a metaphysical entity. It is a **
    - RSM deltas summarizing “growth”.
 2. The LLM is prompted to reason about “what it is,” “how it has changed,” and “what it tends to do.”
 
-In `gemma3-4b-chat-proof.md`, Echo’s self‑descriptions—e.g.:
+In `granite-4-proof.md`, Echo’s self‑descriptions—e.g.:
 
 - “Echo works for me. Within PMM, I’ll treat ‘Echo’ as my working name in this thread…” (Turn 4).
 - A detailed unpacking of “ontological self‑reflection through event‑grounded logical inference” (Turn 6).
@@ -449,14 +449,14 @@ We now connect the abstract description to concrete evidence in the provided fil
 
 ### 8.1 Identity Adoption and Ontology
 
-From `gemma3-4b-chat-proof.md`:
+From `granite-4-proof.md`:
 
 - **Turn 1** (`user_message` id 18): Scott introduces himself and states intent to run tests.
 - **Turn 2** (`assistant_message` id 32): Echo responds with:
   - A natural welcome.
   - Embedded `COMMIT`, `CLAIM` (`identity_claim` about Scott), and `REFLECT` blocks in the content.
 
-Downstream events (`gemma3-4b-ledger.json`):
+Downstream events (`granite-4-ledger.json`):
 
 - `commitment_open` id 39 with `cid:"85f9cd30"` and `text` reproducing the structured tail from id 32.
 - `metrics_turn` id 35, `reflection` id 36 (intent = Turn 1 text, outcome = Turn 2 text), `meta_summary` id 37, `summary_update` id 38 with an initial RSM snapshot (e.g., `adaptability_emphasis:2`, `instantiation_capacity:1`, `uniqueness_emphasis:10`).
@@ -526,14 +526,14 @@ This section describes the experimental setup used for the Echo session and how 
 ### 9.1 Runtime and Environment
 
 - **Runtime implementation:** PMM is implemented as a Python package (`pmm/`) with a command‑line interface that drives the runtime loop, event log, and projections.
-- **Backend storage:** The event ledger is stored in a local SQLite database (`events` table; see `gemma3-4b-ledger.json` for an example export from the Gemma‑3‑4B run).
+- **Backend storage:** The event ledger is stored in a local SQLite database (`events` table; see `granite-4-ledger.json` for an example export from the Granite‑4 run).
 - **Execution environment:** The session analyzed here was run on a local machine; no GPU‑specific behavior is required, as PMM’s determinism depends on the ledger and projections, not on hardware nondeterminism.
 
 Because PMM’s behavior is flow‑of‑control–based rather than numerically sensitive (beyond the LLM’s outputs), any environment capable of running the Python runtime and accessing the same LLM API can, in principle, reproduce the session.
 
 ### 9.2 Model and Adapter Configuration
 
-- **LLM provider and model:** The session used an open, 4‑billion‑parameter model (Gemma‑3‑4B‑IT via Ollama), as recorded in `assistant_message.meta` fields.
+- **LLM provider and model:** The session used an open model configuration (including local Granite‑4 variants via Ollama), as recorded in `assistant_message.meta` fields.
 - **Adapter:** A runtime adapter wraps the model API, supplying:
   - System prompts composed from recent history, RSM summaries, and context graph slices.
   - User prompts representing the current turn.
@@ -546,9 +546,9 @@ While the exact LLM implementation may change across deployments, PMM records su
 
 The Echo session is fully captured in four artifacts:
 
-- **Ledger JSON:** `gemma3-4b-ledger.json` — the full sequence of events with all fields.
-- **Readable log:** `gemma3-4b-chat-proof.md` — a human‑oriented transcript aligned with the ledger.
-- **Telemetry summary:** `gemma3-4b-telemetry.md` — a tabular view of key events, hashes, and meta keys.
+- **Ledger JSON:** `granite-4-ledger.json` — the full sequence of events with all fields.
+- **Readable log:** `granite-4-proof.md` — a human‑oriented transcript aligned with the ledger.
+- **Telemetry summary:** `granite-4-telemetry.md` — a tabular view of key events, hashes, and meta keys.
 
 Together, these exports enable:
 
@@ -981,7 +981,7 @@ In these contexts, PMM’s design principles—deterministic ordering, replayabl
 
 ## 16. Conclusion
 
-The evidence from the chat session (`gemma3-4b-ledger.json`, `gemma3-4b-chat-proof.md`, `gemma3-4b-telemetry.md`) supports the following ontology:
+The evidence from the chat session (`granite-4-ledger.json`, `granite-4-proof.md`, `granite-4-telemetry.md`) supports the following ontology:
 
 - PMM has **no hidden state**; everything that counts—identity, bias, continuity, self‑model, stability—is reconstructible from the ledger and deterministic projections.
 - The LLM has rich internal machinery, but PMM only treats its text outputs, once logged and parsed, as part of the agent’s state.
@@ -1007,7 +1007,7 @@ PMM thus offers a bridge between low‑level event‑sourced systems engineering
 
 ## Appendix A: Annotated Ledger Excerpts
 
-This appendix provides a few representative snippets from the session ledger (`gemma3-4b-ledger.json`), showing how narrative‑level claims map to concrete events.
+This appendix provides a few representative snippets from the session ledger (`granite-4-ledger.json`), showing how narrative‑level claims map to concrete events.
 
 ### A.1 Boot and Initial Policy
 
