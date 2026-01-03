@@ -185,12 +185,18 @@ def _gather_models() -> list[str]:
             pass
 
     if os.environ.get("OPENAI_API_KEY"):
-        default_openai_model = (
-            os.environ.get("PMM_OPENAI_MODEL")
-            or os.environ.get("OPENAI_MODEL")
-            or "gpt-4o-mini"
-        )
-        models.append(f"openai:{default_openai_model}")
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+            openai_models = [m.id for m in client.models.list()]
+            models.extend([f"openai:{m}" for m in openai_models])
+        except Exception:
+            default_openai_model = (
+                os.environ.get("PMM_OPENAI_MODEL")
+                or os.environ.get("OPENAI_MODEL")
+                or "gpt-4o-mini"
+            )
+            models.append(f"openai:{default_openai_model}")
 
     return models
 
