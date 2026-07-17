@@ -10,7 +10,7 @@ No regex or heuristics; only direct checks against the ledger/mirror.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Any, Iterable, List, Tuple
 
 from .schemas import Claim
 from .event_log import EventLog
@@ -22,6 +22,85 @@ class ClaimValidationResult:
     ok: bool
     code: str
     message: str
+
+
+def validate_evidence_designations(
+    value: Any, selected_event_ids: Iterable[int]
+) -> Tuple[ClaimValidationResult, List[dict]]:
+    """Validate formal evidence designations against this turn's retrieval."""
+
+    if not isinstance(value, list):
+        return (
+            ClaimValidationResult(
+                False,
+                "INVALID_EVIDENCE_DESIGNATION_STRUCTURE",
+                "evidence_designations must be a list",
+            ),
+            [],
+        )
+
+    canonical: List[dict] = []
+    seen = set()
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"event_id", "supports"}:
+            return (
+                ClaimValidationResult(
+                    False,
+                    "INVALID_EVIDENCE_DESIGNATION_STRUCTURE",
+                    "each evidence designation must contain only event_id and supports",
+                ),
+                [],
+            )
+        event_id = item["event_id"]
+        supports = item["supports"]
+        if (
+            not isinstance(event_id, int)
+            or isinstance(event_id, bool)
+            or event_id <= 0
+        ):
+            return (
+                ClaimValidationResult(
+                    False,
+                    "INVALID_EVIDENCE_DESIGNATION_STRUCTURE",
+                    "evidence designation event_id must be a positive integer",
+                ),
+                [],
+            )
+        if not isinstance(supports, str) or not supports.strip():
+            return (
+                ClaimValidationResult(
+                    False,
+                    "INVALID_EVIDENCE_DESIGNATION_STRUCTURE",
+                    "evidence designation supports must be a non-empty string",
+                ),
+                [],
+            )
+        pair = (event_id, supports.strip())
+        if pair in seen:
+            return (
+                ClaimValidationResult(
+                    False,
+                    "INVALID_EVIDENCE_DESIGNATION_STRUCTURE",
+                    "duplicate evidence designation",
+                ),
+                [],
+            )
+        seen.add(pair)
+        canonical.append({"event_id": event_id, "supports": supports.strip()})
+
+    selected = set(selected_event_ids)
+    unselected = sorted({item["event_id"] for item in canonical} - selected)
+    if unselected:
+        ids = ",".join(str(event_id) for event_id in unselected)
+        return (
+            ClaimValidationResult(
+                False,
+                "EVIDENCE_NOT_SELECTED",
+                f"designated evidence events were not selected for this turn: {ids}",
+            ),
+            [],
+        )
+    return ClaimValidationResult(True, "VALID", "evidence designations valid"), canonical
 
 
 def _validate_evidence_references(
@@ -80,7 +159,10 @@ def _validate_identity_claim_structure(claim: Claim) -> Tuple[bool, str]:
 
 
 def validate_claim_detailed(
-    claim: Claim, ledger: EventLog, mirror: Mirror
+    claim: Claim,
+    ledger: EventLog,
+    mirror: Mirror,
+    selected_event_ids: Iterable[int] | None = None,
 ) -> ClaimValidationResult:
     evidence_ok, evidence_message = _validate_evidence_references(claim, ledger)
     if not evidence_ok:
@@ -90,6 +172,20 @@ def validate_claim_detailed(
             else "INVALID_EVIDENCE_STRUCTURE"
         )
         return ClaimValidationResult(False, code, evidence_message)
+    if (
+        selected_event_ids is not None
+        and isinstance(claim.data, dict)
+        and "evidence_events" in claim.data
+    ):
+        selected = set(selected_event_ids)
+        unselected = sorted(set(claim.data["evidence_events"]) - selected)
+        if unselected:
+            ids = ",".join(str(event_id) for event_id in unselected)
+            return ClaimValidationResult(
+                False,
+                "EVIDENCE_NOT_SELECTED",
+                f"evidence events were not selected for this turn: {ids}",
+            )
     if claim.type in {"identity_proposal", "identity_ratify"}:
         ok, message = _validate_identity_claim_structure(claim)
         return ClaimValidationResult(

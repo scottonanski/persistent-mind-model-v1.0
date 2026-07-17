@@ -15,7 +15,11 @@ from pmm.core.mirror import Mirror
 from pmm.core.meme_graph import MemeGraph
 from pmm.core.commitment_manager import CommitmentManager
 from pmm.core.schemas import Claim
-from pmm.core.validators import validate_claim_detailed
+from pmm.core.validators import (
+    ClaimValidationResult,
+    validate_claim_detailed,
+    validate_evidence_designations,
+)
 from pmm.core.semantic_extractor import (
     extract_commitments,
     extract_claims,
@@ -331,6 +335,9 @@ class RuntimeLoop:
         #     record a normalized payload + concepts for CTL indexing.
         structured_payload: Optional[str] = None
         active_concepts: List[str] = []
+        designation_validation: ClaimValidationResult | None = None
+        evidence_designations: List[dict] = []
+        attempted_evidence_designations: Any = None
         try:
             reply_str = assistant_reply or ""
             # Prefer a JSON header on the first line if present; fall back to
@@ -343,6 +350,13 @@ class RuntimeLoop:
                 header_line = reply_str
             parsed = json.loads(header_line)
             if isinstance(parsed, dict):
+                if "evidence_designations" in parsed:
+                    attempted_evidence_designations = parsed["evidence_designations"]
+                    designation_validation, evidence_designations = (
+                        validate_evidence_designations(
+                            attempted_evidence_designations, selection_ids
+                        )
+                    )
                 # Structured control payload
                 if all(
                     k in parsed for k in ("intent", "outcome", "next", "self_model")
@@ -386,11 +400,38 @@ class RuntimeLoop:
         if isinstance(generation_result.meta, dict):
             for k, v in generation_result.meta.items():
                 ai_meta[k] = v
+        if designation_validation is not None and designation_validation.ok:
+            # Validated runtime metadata is authoritative over provider metadata.
+            ai_meta["evidence_designations_validated"] = True
+            ai_meta["evidence_designations"] = evidence_designations
         ai_event_id = self.eventlog.append(
             kind="assistant_message",
             content=assistant_reply,
             meta=ai_meta,
         )
+
+        if designation_validation is not None and not designation_validation.ok:
+            failure_content = json.dumps(
+                {
+                    "validation_type": "evidence_designation",
+                    "data": {
+                        "evidence_designations": attempted_evidence_designations
+                    },
+                    "reason_code": designation_validation.code,
+                    "reason": designation_validation.message,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            self.eventlog.append(
+                kind="validation_failure",
+                content=failure_content,
+                meta={
+                    "source": "evidence_designation_validator",
+                    "about_event": ai_event_id,
+                    "reason_code": designation_validation.code,
+                },
+            )
 
         # 4a. Active Indexing: bind this turn's events to any model-emitted concepts.
         if active_concepts:
@@ -539,7 +580,12 @@ class RuntimeLoop:
 
         # 6. Claims
         for claim in self._extract_claims(assistant_reply):
-            validation = validate_claim_detailed(claim, self.eventlog, self.mirror)
+            validation = validate_claim_detailed(
+                claim,
+                self.eventlog,
+                self.mirror,
+                selected_event_ids=selection_ids,
+            )
             if validation.ok:
                 # Persist valid claims to ledger for future retrieval
                 claim_content = (
