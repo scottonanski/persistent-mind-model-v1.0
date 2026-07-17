@@ -6,6 +6,20 @@
 pmm_diag_*.json
 *.zip
 
+# Generated PMM session exports may contain private conversation and ledger data
+/chat_session_*_ledger.json.gz
+/chat_session_*_readable.md
+/chat_session_*_telemetry.md
+/chat_session_*_small_telemetry.md
+
+# Local secrets and credentials
+.secrets/
+secrets*.json
+credentials*.json
+*.pem
+*.p12
+*.pfx
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -64,6 +78,7 @@ coverage.xml
 # Environments
 .env
 .env.*
+!.env.example
 .venv/
 venv/
 ENV/
