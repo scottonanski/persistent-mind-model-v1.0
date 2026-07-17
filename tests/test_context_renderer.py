@@ -117,3 +117,31 @@ def test_render_context_full():
         result=result, eventlog=log, concept_graph=cg, meme_graph=mg, mirror=mirror
     )
     assert ctx == ctx2
+
+
+def test_render_context_reports_empty_retrieval_selection():
+    """An empty retrieval result must be explicit model-visible context."""
+    log = EventLog(":memory:")
+    mg = MemeGraph(log)
+    cg = ConceptGraph(log)
+    mirror = Mirror(log)
+    result = RetrievalResult(event_ids=[], relevant_cids=[], active_concepts=[])
+
+    ctx = render_context(
+        result=result, eventlog=log, concept_graph=cg, meme_graph=mg, mirror=mirror
+    )
+
+    expected = (
+        "No ledger evidence events were selected for this turn. Do not describe "
+        "unseen event IDs as DIRECT_LEDGER_EVIDENCE. Information supplied in "
+        "the current user prompt is user-provided context, not retrieved ledger "
+        "evidence."
+    )
+    assert "## Retrieval Selection Mechanics" in ctx
+    assert expected in ctx
+    assert "## Evidence" not in ctx
+
+    ctx2 = render_context(
+        result=result, eventlog=log, concept_graph=cg, meme_graph=mg, mirror=mirror
+    )
+    assert ctx == ctx2

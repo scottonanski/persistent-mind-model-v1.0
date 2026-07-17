@@ -211,9 +211,6 @@ def _render_state_model(
 def _render_retrieval_provenance(result: RetrievalResult) -> str:
     """Explain deterministic selection mechanics without implying authority."""
 
-    if not result.event_ids or not result.provenance:
-        return ""
-
     lines = [
         "## Retrieval Selection Mechanics",
         (
@@ -222,6 +219,15 @@ def _render_retrieval_provenance(result: RetrievalResult) -> str:
             "measure retrieval relevance only."
         ),
     ]
+    if not result.event_ids:
+        lines.append(
+            "No ledger evidence events were selected for this turn. Do not describe "
+            "unseen event IDs as DIRECT_LEDGER_EVIDENCE. Information supplied in "
+            "the current user prompt is user-provided context, not retrieved ledger "
+            "evidence."
+        )
+        return "\n".join(lines)
+
     for event_id in sorted(result.event_ids):
         item = result.provenance.get(event_id) or {}
         reasons = item.get("reasons") or []
