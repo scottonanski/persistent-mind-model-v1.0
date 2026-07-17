@@ -294,7 +294,7 @@ Unavailable reasoning counts remain `null`, including for Ollama. PMM does not i
 
 The implementation is recorded in commit `7490928` (`Enforce provider output budgets`). An isolated real-provider test used `granite4.1:8b-q5_K_M` with a budget of eight tokens and a deliberately long prompt. Ollama returned `done_reason: length` and `eval_count: 8`. PMM persisted exactly `user_message → embedding_add → generation_failure`, linked the truncated outcome to the managed turn, retained the partial response diagnostically, and created no assistant message or semantic mutations. The isolated ledger is `/tmp/pmm-output-budget.Uo8WYB/pmm.db`.
 
-Operational configuration begins with `PMM_OUTPUT_BUDGET_TOKENS=2048` for normal Granite use. A 4096-token value is available for unusually long consultations. Changing the MCP environment requires relaunching the STDIO server.
+The current implementation exposes an explicit override but leaves the budget unset by default. That is technically backward compatible but not the intended zero-configuration product behavior. The next design step is a deterministic automatic budget for built-in capable adapters, while retaining explicit overrides only as advanced escape hatches.
 
 ## Model name and identity separation
 
@@ -548,6 +548,6 @@ The consultation prompt should require the model to distinguish:
 
 The formal evidence-availability branch, prompt telemetry, duplicate-primer correction, managed-turn terminal accounting, and provider output budgets are complete. Do not begin semantic grounding, identity conflict policy, retries, or automatic context truncation.
 
-Operate PMM normally with a 2048-token Granite budget and observe multi-turn behavior before selecting another change. Keep retries, partial-response acceptance, automatic budget increases, and context-window budgeting deferred. Let the next bounded defect be established by operational evidence rather than adding another speculative feature.
+Before further ordinary operation, design a zero-configuration automatic output budget for built-in capable adapters. Keep explicit CLI, MCP, and environment values as advanced overrides rather than normal setup requirements. Keep retries, partial-response acceptance, automatic budget increases, and context-window budgeting deferred.
 
 The current system has stronger transport integrity, claim integrity, identity-transition ordering, evidence referential integrity, evidence-availability enforcement, retrieval auditability, and diagnostic visibility than it had at the start of this cycle. Semantic support remains explicitly unresolved: availability is auditable, but entailment is not.

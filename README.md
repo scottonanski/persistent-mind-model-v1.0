@@ -286,13 +286,12 @@ Add an MCP server in the Codex IDE extension with these fields:
 | Argument 2 | `pmm.runtime.mcp_server` |
 | Environment variable | `PMM_MCP_DB=<ABSOLUTE_DB_PATH>` |
 | Optional environment variable | `PMM_MCP_MODEL=<MODEL_NAME>` |
-| Recommended environment variable | `PMM_OUTPUT_BUDGET_TOKENS=2048` |
 | Working directory | `<REPO_ROOT>` |
 | Environment-variable passthrough | Leave empty unless the selected provider requires additional variables |
 
 Enter `-m` and `pmm.runtime.mcp_server` as two separate argument entries. Use absolute paths for the Python executable, repository working directory, and database. Replace every angle-bracketed placeholder with a real value; do not include the angle brackets.
 
-`PMM_MCP_DB` is required. `PMM_MCP_MODEL` is optional: when it is omitted and the tool call does not provide a model override, the MCP server uses its built-in default model. An unprefixed model name is routed through Ollama. A recognized provider prefix such as `openai:` selects that provider. `PMM_OUTPUT_BUDGET_TOKENS` is optional but recommended; `2048` is a practical starting point for Granite, while `4096` can be used for unusually long consultations. When unset, provider output behavior remains unchanged and no explicit budget is enforced.
+`PMM_MCP_DB` is required. `PMM_MCP_MODEL` is optional: when it is omitted and the tool call does not provide a model override, the MCP server uses its built-in default model. An unprefixed model name is routed through Ollama. A recognized provider prefix such as `openai:` selects that provider.
 
 If the provider needs credentials or other environment configuration, make those variables available to the server through the Codex environment-variable settings or passthrough facility.
 
@@ -310,10 +309,9 @@ cwd = "<REPO_ROOT>"
 [mcp_servers.pmm.env]
 PMM_MCP_DB = "<ABSOLUTE_DB_PATH>"
 PMM_MCP_MODEL = "<MODEL_NAME>"
-PMM_OUTPUT_BUDGET_TOKENS = "2048"
 ```
 
-Remove the `PMM_MCP_MODEL` line if the built-in default is intended. Keep `PMM_MCP_DB` and all path values absolute. Restart Codex or create a fresh Codex agent after changing MCP environment variables so the STDIO server is relaunched with the new budget.
+Remove the `PMM_MCP_MODEL` line if the built-in default is intended. Keep `PMM_MCP_DB` and all path values absolute.
 
 #### Verify the integration
 
@@ -335,7 +333,6 @@ Be explicit when asking Codex to route a prompt through PMM. Without wording suc
 - Calls routed through one MCP server process are serialized so event ranges do not overlap. Do not run multiple independent server processes against the same ledger without external serialization.
 - `PMM_MCP_DB` is required. The parent directory is created when needed, but the value should be a valid absolute database path that the server can read and write.
 - `PMM_MCP_MODEL` is optional. If it and the per-call `model` argument are absent, the current MCP implementation selects its built-in default model.
-- `PMM_OUTPUT_BUDGET_TOKENS` is optional. A positive value is enforced by capable adapters; if the selected adapter cannot enforce a configured budget, the turn fails before its user event is written.
 
 #### Troubleshooting
 
