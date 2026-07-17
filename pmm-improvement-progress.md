@@ -1,7 +1,7 @@
 # PMM Improvement Progress and Remaining Work
 
 **Status date:** 2026-07-17  
-**Current verification:** 375 tests passing; `git diff --check` passing  
+**Current verification:** 390 tests passing; `git diff --check` passing
 **Scope:** Incremental integrity, continuity, diagnostics, and retrieval improvements developed through model consultation and source-level review.
 
 ## Purpose
@@ -12,7 +12,7 @@ The work follows one rule: implement one small, observable, testable change at a
 
 ## Current status
 
-The two model-generated roadmaps used during this cycle are complete. Seven related improvements have been implemented, and no item remains on the currently approved docket.
+The two model-generated roadmaps used during this cycle are complete. Eight related improvements have been implemented. The evidence-availability branch is complete, and prompt-growth telemetry is the next planned area.
 
 The remaining items listed later in this document are backlog candidates. They require another consultation and explicit prioritization before implementation.
 
@@ -140,6 +140,61 @@ Current reason codes include:
 
 Rejected claims remain excluded from claim persistence, ConceptGraph binding, and identity adoption. Existing narrative reflection behavior remains for compatibility; the typed event is the authoritative diagnostic.
 
+### 8. Formal evidence-availability validation
+
+PMM now distinguishes between an event that exists in the ledger and an event that was actually available to the model during the turn in which it made a formal evidence claim.
+
+Models may emit an optional `evidence_designations` array in the first-line structured JSON header:
+
+```json
+{"evidence_designations":[{"event_id":17,"supports":"selected_seed"}]}
+```
+
+The field is optional. Its absence means that the response makes no formal evidence designations. Event numbers in ordinary prose remain ordinary prose and are not parsed as evidence claims. Broken first-line JSON is also treated as prose because PMM does not infer structured intent from malformed text.
+
+Established invariant:
+
+> PMM verifies that formally designated evidence existed and was selected for the current turn. It does not determine whether that evidence proves or semantically supports the associated assertion.
+
+Validation behavior:
+
+- Parsing and validation occur after complete generation but before the immutable `assistant_message` is appended.
+- Every designated `event_id` must be a positive integer in the current turn's retrieval selection.
+- Each designation requires a non-empty `supports` identifier.
+- Validation is all-or-nothing; one malformed or unselected designation rejects the complete designation array.
+- Valid designations are stored in the originating assistant event's metadata.
+- Rejected designations create a typed `validation_failure` after the assistant event, linked through `about_event`.
+- Existing `CLAIM` payloads containing `evidence_events` must satisfy both referential existence and current-turn selection, preventing claims from bypassing the same availability boundary.
+
+New reason codes are:
+
+- `INVALID_EVIDENCE_DESIGNATION_STRUCTURE`
+- `EVIDENCE_NOT_SELECTED`
+
+The implementation is recorded in commit `fdd3f78` (`Validate formal evidence availability`).
+
+An isolated integration test used `/tmp/pmm-evidence-final.d0glmD/pmm.db`, leaving the configured production/experimental ledger unchanged. Three no-marker runtime turns created ordinary events, and a controlled concept fixture made event 17 retrievable while events 6 and 27 remained unselected.
+
+In the mixed designation case:
+
+- Retrieval selected exactly event 17.
+- The response formally designated selected event 17 and existing but unselected event 6.
+- Event 27 appeared only in prose.
+- PMM persisted no validated designations and created `EVIDENCE_NOT_SELECTED` for event 6, linked to the originating assistant event.
+- The prose reference to event 27 caused no validation action.
+
+In the claim-bypass case:
+
+- Retrieval again selected exactly event 17.
+- A `CLAIM` cited existing but unselected event 6 through `evidence_events`.
+- PMM persisted no claim and created `EVIDENCE_NOT_SELECTED`, linked to the originating assistant event.
+
+The isolated final ledger created no commitments or identity mutations. These results confirm availability enforcement, all-or-nothing behavior, prose isolation, and auditable failure linkage.
+
+Explicit semantic limitation:
+
+> Selection proves only that the model received the event in its rendered context. PMM does not yet prove that event 17 truly supports `selected_seed`, nor does it infer evidentiary meaning from unrestricted natural language.
+
 ## Model name and identity separation
 
 The Ollama model name is configuration, not PMM identity.
@@ -159,7 +214,7 @@ Any future model—including a local model, cloud model, or replacement model—
 The current code passes:
 
 ```text
-375 tests passed
+390 tests passed
 git diff --check passed
 ```
 
@@ -175,15 +230,20 @@ Regression coverage now includes:
 - Retrieval reason and score determinism
 - Provenance rendering and its non-authority warning
 - Typed validation diagnostics
+- Optional formal evidence-designation parsing
+- Selected and unselected evidence-designation enforcement
+- All-or-nothing designation validation
+- Natural-language and malformed-header isolation
+- Existing-but-unselected `CLAIM evidence_events` rejection
 - Model-name and identity neutrality
 
 ## Remaining backlog candidates
 
-These items are known but are not yet approved or ordered.
+These items remain unimplemented. Prompt-growth telemetry is next in the planned sequence; the other candidates remain unapproved and unordered.
 
 ### 1. Semantic grounding of identity anchors and evidence
 
-Current PMM can prove that an anchor or cited event exists. It cannot yet prove that the event is meaningfully related to the proposed identity or that it supports the associated claim.
+Current PMM can prove that an anchor or cited event exists, and formal evidence validation can prove that a cited event was selected for the model's current turn. It cannot yet prove that the event is meaningfully related to the proposed identity or that it supports the associated claim.
 
 Open design questions:
 
@@ -370,6 +430,8 @@ The consultation prompt should require the model to distinguish:
 
 ## Recommended next decision
 
-Do not begin semantic grounding or identity conflict policy automatically. First run a new consultation with the model operating through PMM using the questions above. Then obtain an external design critique and select one narrowly scoped next patch.
+The formal evidence-availability branch is complete. Do not begin semantic grounding or identity conflict policy automatically. The next planned area is operational monitoring of prompt growth.
 
-The current system has stronger transport integrity, claim integrity, identity-transition ordering, evidence referential integrity, retrieval auditability, and diagnostic visibility than it had at the start of this cycle. The next phase should test whether those changes materially improve the model’s operation before adding more policy.
+Begin with telemetry only: measure the rendered retrieval-provenance section size, total prompt-token growth, evidence displacement risk, and whether provenance scores measurably improve correction behavior. Do not add truncation policy until the measurements justify one.
+
+The current system has stronger transport integrity, claim integrity, identity-transition ordering, evidence referential integrity, evidence-availability enforcement, retrieval auditability, and diagnostic visibility than it had at the start of this cycle. Semantic support remains explicitly unresolved: availability is auditable, but entailment is not.
