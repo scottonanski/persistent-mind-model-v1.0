@@ -246,41 +246,102 @@ pmm
 
 <br>
 
-### MCP Bridge for Ledger-Backed Turns
+### Connect PMM to the Codex IDE Extension with MCP
 
-PMM includes a local STDIO Model Context Protocol server for Codex and other MCP-compatible clients:
+PMM includes a STDIO Model Context Protocol (MCP) server that exposes the `pmm_turn` tool to Codex. Each tool call runs one complete, non-interactive PMM turn against a persistent ledger: it retrieves context, calls the configured inference model, writes and validates events, processes commitments and identity updates, and returns structured results. The result includes the assistant output, generation status, appended event range, commitment changes, validated claims, validation failures, and identity updates; callers can also request the complete appended events.
+
+Codex launches and communicates with the STDIO server automatically after it is configured. Do not manually start the server, and do not run the interactive `pmm` CLI for this integration.
+
+#### Prerequisites
+
+- Python 3.9 or newer, as required by `pyproject.toml`.
+- The Codex IDE extension installed and authenticated.
+- A supported model provider configured for PMM. The one-shot runtime supports Ollama and OpenAI model adapters.
+- Ollama installed, running, authenticated when necessary, and able to access the selected model when using an Ollama model.
+
+#### Install the repository
+
+The following is a Linux shell example. On other platforms, use that platform's virtual-environment Python path in the Codex configuration.
 
 ```bash
-export PMM_MCP_DB="$(pwd)/.data/pmmdb/pmm.db"
-export PMM_MCP_MODEL="ornith:9b"  # Model configuration, not PMM identity
-python3 -m pmm.runtime.mcp_server
+cd <REPO_ROOT>
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -e .
+.venv/bin/python -c "import pmm, mcp; print('PMM MCP READY')"
 ```
 
-The server exposes one tool:
+If `python3 -m venv` fails on Linux, install the Python venv package supplied by your distribution and try again.
+
+#### Configure the Codex MCP form
+
+Add an MCP server in the Codex IDE extension with these fields:
+
+| Field | Value |
+| --- | --- |
+| Name | `pmm` |
+| Type | `STDIO` |
+| Command to launch | `<REPO_ROOT>/.venv/bin/python` |
+| Argument 1 | `-m` |
+| Argument 2 | `pmm.runtime.mcp_server` |
+| Environment variable | `PMM_MCP_DB=<ABSOLUTE_DB_PATH>` |
+| Optional environment variable | `PMM_MCP_MODEL=<MODEL_NAME>` |
+| Working directory | `<REPO_ROOT>` |
+| Environment-variable passthrough | Leave empty unless the selected provider requires additional variables |
+
+Enter `-m` and `pmm.runtime.mcp_server` as two separate argument entries. Use absolute paths for the Python executable, repository working directory, and database. Replace every angle-bracketed placeholder with a real value; do not include the angle brackets.
+
+`PMM_MCP_DB` is required. `PMM_MCP_MODEL` is optional: when it is omitted and the tool call does not provide a model override, the MCP server uses its built-in default model. An unprefixed model name is routed through Ollama. A recognized provider prefix such as `openai:` selects that provider.
+
+If the provider needs credentials or other environment configuration, make those variables available to the server through the Codex environment-variable settings or passthrough facility.
+
+#### `config.toml` alternative
+
+The equivalent generic Codex configuration is:
+
+```toml
+[mcp_servers.pmm]
+enabled = true
+command = "<REPO_ROOT>/.venv/bin/python"
+args = ["-m", "pmm.runtime.mcp_server"]
+cwd = "<REPO_ROOT>"
+
+[mcp_servers.pmm.env]
+PMM_MCP_DB = "<ABSOLUTE_DB_PATH>"
+PMM_MCP_MODEL = "<MODEL_NAME>"
+```
+
+Remove the `PMM_MCP_MODEL` line if the built-in default is intended. Keep `PMM_MCP_DB` and all path values absolute.
+
+#### Verify the integration
+
+After saving the configuration, restart Codex or create a fresh Codex agent so it discovers the MCP server. Ask the agent:
 
 ```text
-pmm_turn(prompt, model=None, include_events=False)
+Use the PMM integration to ask the configured model: “Can you hear me?”
 ```
 
-Each call invokes the non-interactive one-shot runtime and executes one complete PMM turn against the configured persistent ledger:
+The agent's tool activity should show the PMM integration and a `pmm_turn` call. A successful result contains the model's response and structured ledger-turn metadata.
 
-```text
-MCP client → pmm_turn → PMM one-shot runtime → configured model → ledger
-```
+Be explicit when asking Codex to route a prompt through PMM. Without wording such as **“Use the PMM integration”** or **“Call `pmm_turn`”**, Codex may answer the prompt itself instead of invoking the MCP tool. These phrases remove that ambiguity and make the intended execution path clear.
 
-The turn uses PMM's normal retrieval, context rendering, generation, event-writing, validation, commitment, reflection, and identity-processing pipeline. Its structured result includes assistant output, generation status, the appended event range, commitment changes, validated claims, validation failures, identity updates, and—when requested—the full events appended during that turn.
+#### Important notes
 
-Calls routed through one MCP server process are serialized with a process-level lock so their event ranges cannot overlap. Do not run multiple independent MCP server processes against the same database concurrently without external serialization.
+- Each database path identifies a separate persistent ledger.
+- Different computers do not share PMM history unless the ledger file is deliberately transferred or placed on storage shared safely between them.
+- The configured model name identifies the inference model. It is not a PMM identity; identity is established through PMM's ledger-backed protocol.
+- Calls routed through one MCP server process are serialized so event ranges do not overlap. Do not run multiple independent server processes against the same ledger without external serialization.
+- `PMM_MCP_DB` is required. The parent directory is created when needed, but the value should be a valid absolute database path that the server can read and write.
+- `PMM_MCP_MODEL` is optional. If it and the per-call `model` argument are absent, the current MCP implementation selects its built-in default model.
 
-This bridge supports a model-consultant/coding-agent workflow: a model operating through PMM can report friction from the bounded ledger state it receives; Codex can inspect the implementation, make a narrow change, run tests, and consult the PMM-connected model again through `pmm_turn`. These are real ledger-backed turns, not manually copied chat transcripts.
+#### Troubleshooting
 
-External advisory calls are distinct. For example, invoking `gemma4:cloud` directly through Ollama supplies the model with an implementation summary but does not run a PMM turn or mutate the PMM ledger:
-
-```text
-Codex → Ollama cloud model with implementation summary
-```
-
-The configured model name is not an identity. Identity is established only through PMM's ledger-backed identity protocol.
+- **`.venv/bin/python: No such file or directory`:** Confirm that `<REPO_ROOT>` is correct and absolute, create the virtual environment in that repository, and use the platform-appropriate Python executable path. On Linux, install the distribution's Python venv package if virtual-environment creation fails.
+- **`import pmm, mcp` fails:** Run the editable install with the virtual environment's Python, check the pip output for dependency errors, and repeat the import verification command. Ensure Codex is configured to launch that same Python executable.
+- **Missing or invalid `PMM_MCP_DB`:** Add the required variable to the MCP server environment. Use an absolute path in a writable location and confirm its parent directory is accessible. Each distinct path creates or opens a distinct ledger.
+- **The Ollama model is unavailable:** Confirm that Ollama is running and authenticated if required, then verify that the selected model exists or is accessible from Ollama before retrying the tool call.
+- **The MCP server does not appear:** Save the configuration and restart the Codex IDE extension, reload the IDE window, or create a fresh Codex agent. Existing agents may not discover newly added servers.
+- **More diagnostics are needed:** Open the IDE's Output or Logs view and select the Codex extension or MCP-related channel. Also inspect the IDE extension-host logs for the STDIO launch command, environment errors, import failures, and server stderr. The exact menu names vary by IDE.
 
 For the current improvement history and consultation procedure, see [PMM Improvement Progress and Remaining Work](pmm-improvement-progress.md).
 
