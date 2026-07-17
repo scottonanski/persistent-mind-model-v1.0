@@ -27,6 +27,8 @@ full = [
 
 [project.scripts]
 pmm = "pmm.runtime.cli:main"
+pmm-turn = "pmm.runtime.oneshot_cli:main"
+
 
 [tool.setuptools.packages.find]
 include = ["pmm", "pmm.*"]
