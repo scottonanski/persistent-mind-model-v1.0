@@ -8,16 +8,30 @@ import json
 import os
 from urllib import request
 
-from pmm.adapters import AdapterTransportError, GenerationResult, GenerationStatus
+from pmm.adapters import (
+    AdapterTransportError,
+    GenerationResult,
+    GenerationStatus,
+    resolve_output_budget_tokens,
+)
+
 
 class OllamaAdapter:
     """Ollama transport for an already complete system prompt."""
 
-    def __init__(self, model: str | None = None, base_url: str | None = None) -> None:
+    supports_output_budget = True
+
+    def __init__(
+        self,
+        model: str | None = None,
+        base_url: str | None = None,
+        output_budget_tokens: int | None = None,
+    ) -> None:
         self.model = model or os.environ.get("PMM_OLLAMA_MODEL", "llama3")
         self.base_url = base_url or os.environ.get(
             "OLLAMA_BASE_URL", "http://localhost:11434"
         )
+        self.output_budget_tokens = resolve_output_budget_tokens(output_budget_tokens)
 
     def generate_reply(
         self, system_prompt: str, user_prompt: str
@@ -28,10 +42,13 @@ class OllamaAdapter:
             "total_assembled_prompt_chars": len(prompt),
             "context_window_tokens": getattr(self, "context_window_tokens", None),
         }
+        options = {"temperature": 0}
+        if self.output_budget_tokens is not None:
+            options["num_predict"] = self.output_budget_tokens
         body = {
             "model": self.model,
             "prompt": prompt,
-            "options": {"temperature": 0},
+            "options": options,
             "stream": False,
         }
         # Record generation params deterministically
@@ -41,6 +58,7 @@ class OllamaAdapter:
             "temperature": 0,
             "top_p": None,
             "seed": None,
+            "configured_output_budget_tokens": self.output_budget_tokens,
         }
         data = json.dumps(body).encode("utf-8")
         req = request.Request(
@@ -83,6 +101,10 @@ class OllamaAdapter:
             "prompt_eval_count": payload.get("prompt_eval_count"),
             "provider_prompt_tokens": payload.get("prompt_eval_count"),
             "eval_count": payload.get("eval_count"),
+            "provider_output_tokens": payload.get("eval_count"),
+            "provider_reasoning_tokens": None,
+            "provider_stop_reason": done_reason,
+            "length_limit_reached": done_reason == "length",
             "total_duration": payload.get("total_duration"),
             "load_duration": payload.get("load_duration"),
             "prompt_eval_duration": payload.get("prompt_eval_duration"),

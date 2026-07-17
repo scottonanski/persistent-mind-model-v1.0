@@ -55,6 +55,46 @@ def test_pmm_turn_model_override():
         assert "--include-events" in cmd
 
 
+def test_pmm_turn_forwards_explicit_output_budget():
+    mock_run = MagicMock()
+    mock_run.return_value = MagicMock(
+        returncode=0, stdout='{"assistant": "ok"}', stderr=""
+    )
+    with patch("subprocess.run", mock_run), patch.dict(
+        os.environ, {"PMM_MCP_DB": "/path/to/pmm.db"}
+    ):
+        pmm_turn(prompt="Test", output_budget_tokens=32)
+
+    cmd = mock_run.call_args.args[0]
+    assert cmd[cmd.index("--output-budget-tokens") + 1] == "32"
+
+
+def test_pmm_turn_rejects_invalid_output_budget_before_subprocess():
+    with patch("subprocess.run") as run, patch.dict(
+        os.environ, {"PMM_MCP_DB": "/path/to/pmm.db"}
+    ), pytest.raises(ValueError, match="positive integer"):
+        pmm_turn(prompt="Test", output_budget_tokens=0)
+    run.assert_not_called()
+
+
+def test_pmm_turn_forwards_environment_output_budget():
+    mock_run = MagicMock()
+    mock_run.return_value = MagicMock(
+        returncode=0, stdout='{"assistant": "ok"}', stderr=""
+    )
+    with patch("subprocess.run", mock_run), patch.dict(
+        os.environ,
+        {
+            "PMM_MCP_DB": "/path/to/pmm.db",
+            "PMM_OUTPUT_BUDGET_TOKENS": "24",
+        },
+    ):
+        pmm_turn(prompt="Test")
+
+    cmd = mock_run.call_args.args[0]
+    assert cmd[cmd.index("--output-budget-tokens") + 1] == "24"
+
+
 def test_pmm_turn_missing_env():
     with patch.dict(os.environ, {}, clear=True):
         with pytest.raises(ValueError, match="Environment variable PMM_MCP_DB is required"):

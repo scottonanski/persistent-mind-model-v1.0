@@ -17,6 +17,7 @@ import threading
 from typing import Any, Dict, Optional
 
 from mcp.server.fastmcp import FastMCP
+from pmm.adapters import resolve_output_budget_tokens
 
 # Initialize FastMCP server
 mcp = FastMCP("pmm")
@@ -30,6 +31,7 @@ def pmm_turn(
     prompt: str,
     model: Optional[str] = None,
     include_events: bool = False,
+    output_budget_tokens: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Execute a single PMM turn against the configured ledger and return results.
 
@@ -38,6 +40,7 @@ def pmm_turn(
         model: Specific model name to target (e.g. 'openai:gpt-4o-mini' or 'ornith:9b').
                Defaults to PMM_MCP_MODEL env variable or 'ornith:9b'.
         include_events: If True, includes full generated event logs in the response.
+        output_budget_tokens: Optional provider-enforced generated-token limit.
     """
     db_path = os.environ.get("PMM_MCP_DB")
     if not db_path:
@@ -45,6 +48,7 @@ def pmm_turn(
 
     default_model = os.environ.get("PMM_MCP_MODEL", "ornith:9b")
     target_model = model or default_model
+    resolved_output_budget = resolve_output_budget_tokens(output_budget_tokens)
 
     cmd = [
         sys.executable,
@@ -57,6 +61,8 @@ def pmm_turn(
     ]
     if include_events:
         cmd.append("--include-events")
+    if resolved_output_budget is not None:
+        cmd.extend(["--output-budget-tokens", str(resolved_output_budget)])
 
     # Serialize turns
     with _turn_lock:

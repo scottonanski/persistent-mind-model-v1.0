@@ -62,6 +62,31 @@ class RuntimeLoop:
         "context_window_tokens",
     }
 
+    @classmethod
+    def _build_output_telemetry(
+        cls, generation_meta: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Normalize conservative provider output measurements."""
+
+        meta = generation_meta if isinstance(generation_meta, dict) else {}
+        stop_reason = meta.get("provider_stop_reason")
+        if not isinstance(stop_reason, str) or not stop_reason:
+            stop_reason = None
+        return {
+            "schema": "output_telemetry.v1",
+            "configured_output_budget_tokens": cls._optional_positive_int(
+                meta.get("configured_output_budget_tokens")
+            ),
+            "provider_output_tokens": cls._optional_nonnegative_int(
+                meta.get("provider_output_tokens")
+            ),
+            "provider_reasoning_tokens": cls._optional_nonnegative_int(
+                meta.get("provider_reasoning_tokens")
+            ),
+            "provider_stop_reason": stop_reason,
+            "length_limit_reached": bool(meta.get("length_limit_reached")),
+        }
+
     @staticmethod
     def _optional_nonnegative_int(value: Any) -> int | None:
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
@@ -137,7 +162,22 @@ class RuntimeLoop:
         replay: bool = False,
         autonomy: bool = True,
         thresholds: Optional[Dict[str, int]] = None,
+        output_budget_tokens: int | None = None,
     ) -> None:
+        configured_budget = (
+            output_budget_tokens
+            if output_budget_tokens is not None
+            else getattr(adapter, "output_budget_tokens", None)
+        )
+        if configured_budget is not None:
+            if self._optional_positive_int(configured_budget) is None:
+                raise ValueError("output budget must be a positive integer")
+            if getattr(adapter, "supports_output_budget", False) is not True:
+                raise ValueError(
+                    "configured output budget is unsupported by selected adapter"
+                )
+            if getattr(adapter, "output_budget_tokens", None) != configured_budget:
+                raise ValueError("selected adapter did not accept the output budget")
         self.eventlog = eventlog
         if not replay:
             self._recover_latest_interrupted_turn()
@@ -447,6 +487,10 @@ class RuntimeLoop:
             )
         except AdapterTransportError as exc:
             failure_meta = dict(exc.meta)
+            failure_meta.setdefault(
+                "configured_output_budget_tokens",
+                getattr(self.adapter, "output_budget_tokens", None),
+            )
             prompt_telemetry = self._build_prompt_telemetry(
                 context_chars=len(ctx_block),
                 provenance_chars=context_render.retrieval_provenance_chars,
@@ -459,6 +503,7 @@ class RuntimeLoop:
                 ),
             )
             self._remove_prompt_measurement_transport(failure_meta)
+            output_telemetry = self._build_output_telemetry(failure_meta)
             failure_meta.update(
                 {
                     "source": "runtime",
@@ -466,6 +511,7 @@ class RuntimeLoop:
                     "reason_code": "ADAPTER_TRANSPORT_ERROR",
                     "error_category": exc.category,
                     "prompt_telemetry": prompt_telemetry,
+                    "output_telemetry": output_telemetry,
                 }
             )
             self.eventlog.append_terminal_outcome(
@@ -476,13 +522,18 @@ class RuntimeLoop:
             )
             return self.eventlog.read_since(user_event_id - 1, limit=200)
         except Exception as exc:
+            output_meta = {
+                "configured_output_budget_tokens": getattr(
+                    self.adapter, "output_budget_tokens", None
+                )
+            }
             prompt_telemetry = self._build_prompt_telemetry(
                 context_chars=len(ctx_block),
                 provenance_chars=context_render.retrieval_provenance_chars,
                 evidence_chars=context_render.raw_evidence_chars,
                 user_message_chars=len(user_input),
                 selected_evidence_events=len(selection_ids),
-                generation_meta={},
+                generation_meta=output_meta,
                 adapter_context_window_tokens=getattr(
                     self.adapter, "context_window_tokens", None
                 ),
@@ -497,6 +548,7 @@ class RuntimeLoop:
                     "reason_code": "ADAPTER_EXCEPTION",
                     "error_category": type(exc).__name__,
                     "prompt_telemetry": prompt_telemetry,
+                    "output_telemetry": self._build_output_telemetry(output_meta),
                 },
             )
             return self.eventlog.read_since(user_event_id - 1, limit=200)
@@ -513,6 +565,12 @@ class RuntimeLoop:
                 self.adapter, "context_window_tokens", None
             ),
         )
+        output_meta = dict(generation_result.meta)
+        output_meta.setdefault(
+            "configured_output_budget_tokens",
+            getattr(self.adapter, "output_budget_tokens", None),
+        )
+        output_telemetry = self._build_output_telemetry(output_meta)
 
         # Failed or incomplete generations are diagnostic events only. They must
         # never become assistant messages or reach semantic state parsers.
@@ -524,6 +582,7 @@ class RuntimeLoop:
             failure_meta.update(generation_result.meta)
             self._remove_prompt_measurement_transport(failure_meta)
             failure_meta["prompt_telemetry"] = prompt_telemetry
+            failure_meta["output_telemetry"] = output_telemetry
             self.eventlog.append_terminal_outcome(
                 user_event_id=user_event_id,
                 kind="generation_failure",
@@ -747,7 +806,10 @@ class RuntimeLoop:
         self.eventlog.append(
             kind="metrics_turn",
             content=diag,
-            meta={"prompt_telemetry": prompt_telemetry},
+            meta={
+                "prompt_telemetry": prompt_telemetry,
+                "output_telemetry": output_telemetry,
+            },
         )
 
         # 4d. Synthesize deterministic reflection and maybe append summary

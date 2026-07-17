@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pmm.core.event_log import EventLog
 from pmm.runtime.loop import RuntimeLoop
+from pmm.adapters import resolve_output_budget_tokens
 from pmm.core.semantic_extractor import (
     extract_commitments,
     extract_closures,
@@ -77,14 +78,20 @@ def resolve_provider_and_model(
     return resolved_provider, resolved_model
 
 
-def instantiate_adapter(provider: str, model: Optional[str]) -> Any:
+def instantiate_adapter(
+    provider: str, model: Optional[str], output_budget_tokens: int | None = None
+) -> Any:
     """Instantiate the adapter for the resolved provider and model."""
     if provider == "openai":
         from pmm.adapters.openai_adapter import OpenAIAdapter
-        return OpenAIAdapter(model=model)
+        return OpenAIAdapter(
+            model=model, output_budget_tokens=output_budget_tokens
+        )
     elif provider == "ollama":
         from pmm.adapters.ollama_adapter import OllamaAdapter
-        return OllamaAdapter(model=model)
+        return OllamaAdapter(
+            model=model, output_budget_tokens=output_budget_tokens
+        )
     elif provider == "dummy":
         from pmm.adapters.dummy_adapter import DummyAdapter
         return DummyAdapter()
@@ -99,21 +106,30 @@ def run_one_turn(
     provider: Optional[str] = None,
     adapter: Optional[Any] = None,
     include_events: bool = False,
+    output_budget_tokens: int | None = None,
 ) -> Dict[str, Any]:
     """Execute a single PMM turn synchronously and return structured updates."""
     if db_path != ":memory:":
         db_path = os.path.abspath(db_path)
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
     
+    resolved_output_budget = resolve_output_budget_tokens(output_budget_tokens)
     elog = EventLog(db_path)
 
     # 1. Resolve LLM Adapter if not injected (for testing compatibility)
     if adapter is None:
         resolved_provider, resolved_model = resolve_provider_and_model(model, provider)
-        adapter = instantiate_adapter(resolved_provider, resolved_model)
+        adapter = instantiate_adapter(
+            resolved_provider, resolved_model, resolved_output_budget
+        )
 
     # 2. Instantiate Loop (autonomy=False prevents background supervisor thread)
-    loop = RuntimeLoop(eventlog=elog, adapter=adapter, autonomy=False)
+    loop = RuntimeLoop(
+        eventlog=elog,
+        adapter=adapter,
+        autonomy=False,
+        output_budget_tokens=resolved_output_budget,
+    )
 
     # 3. Snapshot the actual tail event ID AFTER loop initialization
     tail_before = elog.read_tail(1)
@@ -311,6 +327,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Include full generated event objects in JSON output",
     )
+    parser.add_argument(
+        "--output-budget-tokens",
+        type=int,
+        help="Provider-enforced maximum generated output tokens",
+    )
     return parser.parse_args()
 
 
@@ -344,6 +365,7 @@ def main() -> None:
             model=args.model,
             provider=args.provider,
             include_events=args.include_events,
+            output_budget_tokens=args.output_budget_tokens,
         )
         print(json.dumps(results, indent=2), file=sys.stdout)
         sys.exit(0)

@@ -4,6 +4,7 @@
 # Path: pmm/runtime/cli.py
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -27,6 +28,7 @@ from rich.console import Console
 from rich.theme import Theme
 from rich.table import Table
 from datetime import datetime
+from pmm.adapters import resolve_output_budget_tokens
 
 # CLI Theme - Nord colors
 CLI_THEME = Theme(
@@ -228,14 +230,22 @@ def _resolve_model_selection(
     return selected, use_openai, model_name
 
 
-def _instantiate_adapter(use_openai: bool, model_name: str):
+def _instantiate_adapter(
+    use_openai: bool,
+    model_name: str,
+    output_budget_tokens: int | None = None,
+):
     if use_openai:
         from pmm.adapters.openai_adapter import OpenAIAdapter
 
-        return OpenAIAdapter(model=model_name)
+        return OpenAIAdapter(
+            model=model_name, output_budget_tokens=output_budget_tokens
+        )
     from pmm.adapters.ollama_adapter import OllamaAdapter
 
-    return OllamaAdapter(model=model_name)
+    return OllamaAdapter(
+        model=model_name, output_budget_tokens=output_budget_tokens
+    )
 
 
 def _prompt_for_model_choice(models: list[str]) -> str | None:
@@ -246,7 +256,15 @@ def _prompt_for_model_choice(models: list[str]) -> str | None:
     return choice or None
 
 
-def main() -> None:  # pragma: no cover - thin wrapper
+def main(argv: list[str] | None = None) -> None:  # pragma: no cover - thin wrapper
+    parser = argparse.ArgumentParser(description="Run the interactive PMM client.")
+    parser.add_argument(
+        "--output-budget-tokens",
+        type=int,
+        help="Provider-enforced maximum generated output tokens",
+    )
+    args = parser.parse_args(argv)
+    output_budget_tokens = resolve_output_budget_tokens(args.output_budget_tokens)
     # Resolve canonical DB path with legacy fallback/migration
     import pathlib
 
@@ -340,8 +358,15 @@ def main() -> None:  # pragma: no cover - thin wrapper
     console.print("[prompt]Type '/exit' to quit.[/prompt]\n")
 
     elog = EventLog(db_path)
-    adapter = _instantiate_adapter(use_openai, model_name)
-    loop = RuntimeLoop(eventlog=elog, adapter=adapter, replay=False)
+    adapter = _instantiate_adapter(
+        use_openai, model_name, output_budget_tokens
+    )
+    loop = RuntimeLoop(
+        eventlog=elog,
+        adapter=adapter,
+        replay=False,
+        output_budget_tokens=output_budget_tokens,
+    )
 
     try:
         while True:
@@ -553,7 +578,11 @@ def handle_model_command(command: str, loop: RuntimeLoop) -> Optional[str]:
             return "Model change canceled."
 
     selected, use_openai, model_name = _resolve_model_selection(remainder, models)
-    loop.adapter = _instantiate_adapter(use_openai, model_name)
+    loop.adapter = _instantiate_adapter(
+        use_openai,
+        model_name,
+        getattr(loop.adapter, "output_budget_tokens", None),
+    )
     return f"Switched to model: {selected}"
 
 

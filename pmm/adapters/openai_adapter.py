@@ -5,14 +5,25 @@
 from __future__ import annotations
 
 import os
-from pmm.adapters import AdapterTransportError, GenerationResult, GenerationStatus
+from pmm.adapters import (
+    AdapterTransportError,
+    GenerationResult,
+    GenerationStatus,
+    resolve_output_budget_tokens,
+)
+
+
 class OpenAIAdapter:
     """OpenAI transport for an already complete system prompt.
 
     Import is deferred to call time to avoid hard dependency during tests.
     """
 
-    def __init__(self, model: str | None = None) -> None:
+    supports_output_budget = True
+
+    def __init__(
+        self, model: str | None = None, output_budget_tokens: int | None = None
+    ) -> None:
         # Prefer explicit arg, then PMM-specific var, then common OPENAI_MODEL
         self.model = (
             model
@@ -20,6 +31,7 @@ class OpenAIAdapter:
             or os.environ.get("OPENAI_MODEL")
             or "gpt-4o-mini"
         )
+        self.output_budget_tokens = resolve_output_budget_tokens(output_budget_tokens)
 
     def generate_reply(
         self, system_prompt: str, user_prompt: str
@@ -42,6 +54,11 @@ class OpenAIAdapter:
         }
 
         client = openai.OpenAI() if hasattr(openai, "OpenAI") else None
+        request_budget = (
+            {"max_completion_tokens": self.output_budget_tokens}
+            if self.output_budget_tokens is not None
+            else {}
+        )
         if client:
             # new SDK style
             try:
@@ -50,6 +67,7 @@ class OpenAIAdapter:
                     temperature=0,
                     top_p=1,
                     messages=messages,
+                    **request_budget,
                 )
             except Exception as exc:
                 raise AdapterTransportError(
@@ -61,6 +79,7 @@ class OpenAIAdapter:
                         "temperature": 0,
                         "top_p": 1,
                         "seed": None,
+                        "configured_output_budget_tokens": self.output_budget_tokens,
                     },
                 ) from exc
             # Deterministic metadata capture
@@ -85,6 +104,11 @@ class OpenAIAdapter:
                 "seed": None,
                 "finish_reason": finish_reason,
                 "provider_prompt_tokens": _openai_prompt_tokens(resp),
+                "configured_output_budget_tokens": self.output_budget_tokens,
+                "provider_output_tokens": _openai_output_tokens(resp),
+                "provider_reasoning_tokens": _openai_reasoning_tokens(resp),
+                "provider_stop_reason": finish_reason,
+                "length_limit_reached": finish_reason == "length",
             }
             return GenerationResult(text=text, status=status, meta=generation_meta)
         else:
@@ -95,6 +119,7 @@ class OpenAIAdapter:
                     temperature=0,
                     top_p=1,
                     messages=messages,
+                    **request_budget,
                 )
             except Exception as exc:
                 raise AdapterTransportError(
@@ -106,6 +131,7 @@ class OpenAIAdapter:
                         "temperature": 0,
                         "top_p": 1,
                         "seed": None,
+                        "configured_output_budget_tokens": self.output_budget_tokens,
                     },
                 ) from exc
             choice = resp["choices"][0]
@@ -128,6 +154,11 @@ class OpenAIAdapter:
                 "seed": None,
                 "finish_reason": finish_reason,
                 "provider_prompt_tokens": _openai_prompt_tokens(resp),
+                "configured_output_budget_tokens": self.output_budget_tokens,
+                "provider_output_tokens": _openai_output_tokens(resp),
+                "provider_reasoning_tokens": _openai_reasoning_tokens(resp),
+                "provider_stop_reason": finish_reason,
+                "length_limit_reached": finish_reason == "length",
             }
             return GenerationResult(text=text, status=status, meta=generation_meta)
 
@@ -140,6 +171,34 @@ def _openai_prompt_tokens(response) -> int | None:
     if value is None and isinstance(response, dict):
         usage = response.get("usage") or {}
         value = usage.get("prompt_tokens") if isinstance(usage, dict) else None
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
+
+
+def _openai_output_tokens(response) -> int | None:
+    usage = getattr(response, "usage", None)
+    value = getattr(usage, "completion_tokens", None) if usage is not None else None
+    if value is None and isinstance(response, dict):
+        usage = response.get("usage") or {}
+        value = usage.get("completion_tokens") if isinstance(usage, dict) else None
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
+
+
+def _openai_reasoning_tokens(response) -> int | None:
+    usage = getattr(response, "usage", None)
+    details = (
+        getattr(usage, "completion_tokens_details", None)
+        if usage is not None
+        else None
+    )
+    value = getattr(details, "reasoning_tokens", None) if details is not None else None
+    if value is None and isinstance(response, dict):
+        usage = response.get("usage") or {}
+        details = usage.get("completion_tokens_details") if isinstance(usage, dict) else None
+        value = details.get("reasoning_tokens") if isinstance(details, dict) else None
     if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
         return value
     return None

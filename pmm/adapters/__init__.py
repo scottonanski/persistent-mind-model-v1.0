@@ -30,6 +30,26 @@ class AdapterTransportError(RuntimeError):
         self.meta = dict(meta or {})
 
 
+def resolve_output_budget_tokens(explicit: int | None = None) -> int | None:
+    """Resolve and validate the provider-neutral output budget."""
+
+    raw: Any = explicit
+    if raw is None:
+        value = os.environ.get("PMM_OUTPUT_BUDGET_TOKENS")
+        raw = value if value not in (None, "") else None
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        raise ValueError("output budget must be a positive integer")
+    try:
+        budget = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("output budget must be a positive integer") from exc
+    if budget <= 0 or (isinstance(raw, str) and str(budget) != raw.strip()):
+        raise ValueError("output budget must be a positive integer")
+    return budget
+
+
 def normalize_generation_result(
     result: Union[GenerationResult, str],
 ) -> GenerationResult:
@@ -51,8 +71,13 @@ class LLMAdapter(Protocol):
     """Transport contract for model providers.
 
     ``system_prompt`` is the complete provider-facing system policy. Adapters
-    translate and transmit it without injecting PMM policy of their own.
+    translate and transmit it without injecting PMM policy of their own. An
+    adapter must explicitly declare and accept a configured output budget; an
+    absent budget preserves compatibility with legacy custom adapters.
     """
+
+    supports_output_budget: bool
+    output_budget_tokens: int | None
 
     def generate_reply(
         self, system_prompt: str, user_prompt: str
