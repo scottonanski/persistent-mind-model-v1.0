@@ -1,7 +1,7 @@
 # PMM Improvement Progress and Remaining Work
 
 **Status date:** 2026-07-17  
-**Current verification:** 407 tests passing; `git diff --check` passing
+**Current verification:** 417 tests passing; `git diff --check` passing
 **Scope:** Incremental integrity, continuity, diagnostics, and retrieval improvements developed through model consultation and source-level review.
 
 ## Purpose
@@ -12,7 +12,7 @@ The work follows one rule: implement one small, observable, testable change at a
 
 ## Current status
 
-The two model-generated roadmaps used during this cycle are complete. Eleven related improvements have been implemented. The evidence-availability branch, prompt-growth telemetry, duplicate-primer correction, and managed-turn terminal-outcome protocol are complete. The next planned area is a design-only audit of provider-enforced output limits.
+The two model-generated roadmaps used during this cycle are complete. Twelve related improvements have been implemented. The evidence-availability branch, prompt-growth telemetry, duplicate-primer correction, managed-turn terminal-outcome protocol, and provider-enforced output budgets are complete. The next step is ordinary operation and observation rather than another immediate feature.
 
 The remaining items listed later in this document are backlog candidates. They require another consultation and explicit prioritization before implementation.
 
@@ -270,7 +270,31 @@ The implementation is recorded in commit `17cc164` (`Guarantee terminal outcomes
 - An isolated real-Ollama deadline test produced exactly `user_message → embedding_add → generation_failure`.
 - The real transport failure retained safe prompt telemetry and created no assistant message, commitment, claim, reflection, identity change, or other semantic mutation.
 
-The operational audit that motivated this change also observed an Ollama generation producing approximately 13,056 tokens before the adapter's 180-second read timeout cancelled it. Output limiting is deliberately separate from terminal accounting and is the next design-only area.
+The operational audit that motivated this change also observed an Ollama generation producing approximately 13,056 tokens before the adapter's 180-second read timeout cancelled it. Output limiting was kept separate from terminal accounting and implemented as the next bounded improvement.
+
+### 12. Provider-enforced output budgets
+
+PMM now supports an optional provider-neutral `output_budget_tokens` setting. The value can be supplied through CLI and MCP arguments or `PMM_OUTPUT_BUDGET_TOKENS`; explicit arguments take precedence over the environment. When unset, provider requests remain backward compatible and no explicit output budget is added.
+
+Established invariant:
+
+> A configured output budget is enforced by a capable provider adapter, and a provider-reported length-limited result produces an auditable truncated terminal failure rather than a successful partial turn.
+
+Ollama maps the setting to `options.num_predict`. OpenAI Chat Completions maps it to `max_completion_tokens`, which may include both visible and reasoning tokens. An adapter must explicitly declare budget support and accept the resolved value. If a budget is configured for an unsupported custom adapter, PMM fails before appending the managed user event; legacy custom adapters remain compatible when the setting is absent.
+
+Successful and failed turns record `output_telemetry.v1` containing:
+
+- Configured output budget
+- Provider-reported aggregate output-token count when available
+- Provider-reported reasoning-token count when available
+- Raw safe provider stop reason
+- Whether the provider reported that a length limit was reached
+
+Unavailable reasoning counts remain `null`, including for Ollama. PMM does not infer that a configured budget specifically caused a `length` stop; it records `provider_stop_reason: length` and `length_limit_reached: true`. Partial visible output, including reasoning-only exhaustion with no visible response, remains isolated from semantic parsers.
+
+The implementation is recorded in commit `7490928` (`Enforce provider output budgets`). An isolated real-provider test used `granite4.1:8b-q5_K_M` with a budget of eight tokens and a deliberately long prompt. Ollama returned `done_reason: length` and `eval_count: 8`. PMM persisted exactly `user_message → embedding_add → generation_failure`, linked the truncated outcome to the managed turn, retained the partial response diagnostically, and created no assistant message or semantic mutations. The isolated ledger is `/tmp/pmm-output-budget.Uo8WYB/pmm.db`.
+
+Operational configuration begins with `PMM_OUTPUT_BUDGET_TOKENS=2048` for normal Granite use. A 4096-token value is available for unusually long consultations. Changing the MCP environment requires relaunching the STDIO server.
 
 ## Model name and identity separation
 
@@ -291,7 +315,7 @@ Any future model—including a local model, cloud model, or replacement model—
 The current code passes:
 
 ```text
-407 tests passed
+417 tests passed
 git diff --check passed
 ```
 
@@ -320,6 +344,11 @@ Regression coverage now includes:
 - Active transport-error isolation and safe exception telemetry
 - Narrow latest-turn interruption recovery and legacy-ledger preservation
 - Concurrent SQLite recovery idempotence
+- Provider-capability enforcement before managed-turn mutation
+- Ollama `num_predict` and OpenAI `max_completion_tokens` mapping
+- Conservative output and reasoning-token telemetry
+- Length-limited partial-response semantic isolation
+- CLI, environment, and MCP output-budget precedence
 - Model-name and identity neutrality
 
 ## Remaining backlog candidates
@@ -517,8 +546,8 @@ The consultation prompt should require the model to distinguish:
 
 ## Recommended next decision
 
-The formal evidence-availability branch, prompt telemetry, duplicate-primer correction, and managed-turn terminal accounting are complete. Do not begin semantic grounding, identity conflict policy, retries, or automatic context truncation.
+The formal evidence-availability branch, prompt telemetry, duplicate-primer correction, managed-turn terminal accounting, and provider output budgets are complete. Do not begin semantic grounding, identity conflict policy, retries, or automatic context truncation.
 
-The next bounded area is a design-only audit of provider-enforced output limits. Define a provider-neutral output budget, configuration precedence, telemetry, truncation behavior, and real-provider verification before changing code. Keep retries, partial-response acceptance, automatic budget increases, and context-window budgeting deferred.
+Operate PMM normally with a 2048-token Granite budget and observe multi-turn behavior before selecting another change. Keep retries, partial-response acceptance, automatic budget increases, and context-window budgeting deferred. Let the next bounded defect be established by operational evidence rather than adding another speculative feature.
 
 The current system has stronger transport integrity, claim integrity, identity-transition ordering, evidence referential integrity, evidence-availability enforcement, retrieval auditability, and diagnostic visibility than it had at the start of this cycle. Semantic support remains explicitly unresolved: availability is auditable, but entailment is not.
