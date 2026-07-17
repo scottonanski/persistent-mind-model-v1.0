@@ -21,6 +21,15 @@ class GenerationResult:
     meta: Dict[str, Any] = field(default_factory=dict)
 
 
+class AdapterTransportError(RuntimeError):
+    """Provider transport failed after safe request measurements were known."""
+
+    def __init__(self, category: str, *, meta: Dict[str, Any] | None = None) -> None:
+        super().__init__(category)
+        self.category = category
+        self.meta = dict(meta or {})
+
+
 def normalize_generation_result(
     result: Union[GenerationResult, str],
 ) -> GenerationResult:

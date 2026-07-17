@@ -8,7 +8,7 @@ import json
 import os
 from urllib import request
 
-from pmm.adapters import GenerationResult, GenerationStatus
+from pmm.adapters import AdapterTransportError, GenerationResult, GenerationStatus
 
 class OllamaAdapter:
     """Ollama transport for an already complete system prompt."""
@@ -49,38 +49,45 @@ class OllamaAdapter:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with request.urlopen(
-            req, timeout=180
-        ) as resp:  # pragma: no cover (network in CI)
-            payload = json.loads(resp.read().decode("utf-8"))
-            text = payload.get("response", "")
-            if not isinstance(text, str):
-                text = ""
-            done = payload.get("done")
-            done_reason = payload.get("done_reason")
-            if done is True and done_reason == "length":
-                status: GenerationStatus = "truncated"
-            elif done is True and done_reason == "stop" and text.strip():
-                status = "complete"
-            elif done is True and done_reason == "stop":
-                status = "empty"
-            else:
-                status = "indeterminate"
+        try:
+            with request.urlopen(
+                req, timeout=180
+            ) as resp:  # pragma: no cover (network in CI)
+                payload = json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            raise AdapterTransportError(
+                type(exc).__name__,
+                meta={**generation_meta, **prompt_measurements},
+            ) from exc
 
-            thinking = payload.get("thinking")
-            meta = {
-                **generation_meta,
-                **prompt_measurements,
-                "done": done,
-                "done_reason": done_reason,
-                "prompt_eval_count": payload.get("prompt_eval_count"),
-                "provider_prompt_tokens": payload.get("prompt_eval_count"),
-                "eval_count": payload.get("eval_count"),
-                "total_duration": payload.get("total_duration"),
-                "load_duration": payload.get("load_duration"),
-                "prompt_eval_duration": payload.get("prompt_eval_duration"),
-                "eval_duration": payload.get("eval_duration"),
-                "thinking_present": isinstance(thinking, str) and bool(thinking),
-                "thinking_char_count": len(thinking) if isinstance(thinking, str) else 0,
-            }
-            return GenerationResult(text=text, status=status, meta=meta)
+        text = payload.get("response", "")
+        if not isinstance(text, str):
+            text = ""
+        done = payload.get("done")
+        done_reason = payload.get("done_reason")
+        if done is True and done_reason == "length":
+            status: GenerationStatus = "truncated"
+        elif done is True and done_reason == "stop" and text.strip():
+            status = "complete"
+        elif done is True and done_reason == "stop":
+            status = "empty"
+        else:
+            status = "indeterminate"
+
+        thinking = payload.get("thinking")
+        meta = {
+            **generation_meta,
+            **prompt_measurements,
+            "done": done,
+            "done_reason": done_reason,
+            "prompt_eval_count": payload.get("prompt_eval_count"),
+            "provider_prompt_tokens": payload.get("prompt_eval_count"),
+            "eval_count": payload.get("eval_count"),
+            "total_duration": payload.get("total_duration"),
+            "load_duration": payload.get("load_duration"),
+            "prompt_eval_duration": payload.get("prompt_eval_duration"),
+            "eval_duration": payload.get("eval_duration"),
+            "thinking_present": isinstance(thinking, str) and bool(thinking),
+            "thinking_char_count": len(thinking) if isinstance(thinking, str) else 0,
+        }
+        return GenerationResult(text=text, status=status, meta=meta)

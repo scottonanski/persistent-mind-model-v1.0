@@ -17,6 +17,10 @@ from hashlib import sha256
 from typing import Any, Dict, List, Optional
 
 
+TERMINAL_OUTCOME_PROTOCOL = "terminal_outcome.v1"
+TERMINAL_OUTCOME_KINDS = {"assistant_message", "generation_failure"}
+
+
 def _iso_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
@@ -59,6 +63,17 @@ class EventLog:
             # Unique index on hash to support idempotent append with INSERT OR IGNORE.
             self._conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_hash ON events(hash);"
+            )
+            # Protocol-v1 turns opt in to exactly one linked terminal outcome.
+            # Legacy uses of about_event remain outside this constraint.
+            self._conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_terminal_outcome_v1
+                ON events(json_extract(meta, '$.about_event'))
+                WHERE kind IN ('assistant_message', 'generation_failure')
+                  AND json_extract(meta, '$.turn_protocol') = 'terminal_outcome.v1'
+                  AND json_type(meta, '$.about_event') = 'integer';
+                """
             )
 
     def register_listener(self, callback) -> None:
@@ -273,6 +288,90 @@ class EventLog:
         }
         self._emit(ev)
         return ev_id
+
+    def append_terminal_outcome(
+        self,
+        *,
+        user_event_id: int,
+        kind: str,
+        content: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> tuple[int, bool]:
+        """Atomically append the sole protocol-v1 outcome for a managed turn.
+
+        Returns ``(event_id, created)``. Competing recovery attempts converge on
+        the existing outcome under SQLite's write reservation and unique index.
+        """
+
+        if kind not in TERMINAL_OUTCOME_KINDS:
+            raise ValueError(f"Invalid terminal outcome kind: {kind}")
+        if (
+            not isinstance(user_event_id, int)
+            or isinstance(user_event_id, bool)
+            or user_event_id <= 0
+        ):
+            raise ValueError("user_event_id must be a positive integer")
+        if not isinstance(content, str):
+            raise TypeError("Terminal outcome content must be a string")
+
+        outcome_meta = dict(meta or {})
+        outcome_meta["about_event"] = user_event_id
+        outcome_meta["turn_protocol"] = TERMINAL_OUTCOME_PROTOCOL
+        meta_json = _canonical_json(outcome_meta)
+        ts = _iso_now()
+
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                existing = self._conn.execute(
+                    """
+                    SELECT id FROM events
+                    WHERE kind IN ('assistant_message', 'generation_failure')
+                      AND json_extract(meta, '$.turn_protocol') = ?
+                      AND json_extract(meta, '$.about_event') = ?
+                    ORDER BY id ASC LIMIT 1
+                    """,
+                    (TERMINAL_OUTCOME_PROTOCOL, user_event_id),
+                ).fetchone()
+                if existing is not None:
+                    self._conn.commit()
+                    return int(existing["id"]), False
+
+                row = self._conn.execute(
+                    "SELECT hash FROM events ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                prev_hash = row["hash"] if row and row["hash"] else None
+                payload = {
+                    "kind": kind,
+                    "content": content,
+                    "meta": outcome_meta,
+                    "prev_hash": prev_hash,
+                }
+                digest = sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+                cur = self._conn.execute(
+                    "INSERT INTO events "
+                    "(ts, kind, content, meta, prev_hash, hash) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (ts, kind, content, meta_json, prev_hash, digest),
+                )
+                event_id = int(cur.lastrowid)
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+        self._emit(
+            {
+                "id": event_id,
+                "ts": ts,
+                "kind": kind,
+                "content": content,
+                "meta": outcome_meta,
+                "prev_hash": prev_hash,
+                "hash": digest,
+            }
+        )
+        return event_id, True
 
     def read_all(self) -> List[Dict[str, Any]]:
         with self._lock:

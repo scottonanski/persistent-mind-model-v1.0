@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from pmm.adapters import GenerationResult
+from pmm.adapters import AdapterTransportError, GenerationResult
 from pmm.adapters.ollama_adapter import OllamaAdapter
 from pmm.core.event_log import EventLog
 from pmm.runtime.loop import RuntimeLoop
@@ -107,6 +107,43 @@ def test_openai_transmits_complete_system_prompt_without_primer_injection() -> N
     assert captured["messages"][0]["content"].count(SYSTEM_PRIMER) == 1
     assert result.meta["adapter_system_primer_insertions"] == 0
     assert result.meta["provider_prompt_tokens"] == 55
+
+
+def test_ollama_transport_error_retains_safe_request_measurements() -> None:
+    adapter = OllamaAdapter(model="ornith:test")
+    with patch(
+        "pmm.adapters.ollama_adapter.request.urlopen",
+        side_effect=TimeoutError("private transport detail"),
+    ), pytest.raises(AdapterTransportError) as caught:
+        adapter.generate_reply(f"{SYSTEM_PRIMER}\npolicy", "private prompt")
+
+    assert caught.value.category == "TimeoutError"
+    assert caught.value.meta["provider"] == "ollama"
+    assert caught.value.meta["total_assembled_prompt_chars"] > 0
+    assert "private transport detail" not in str(caught.value)
+
+
+def test_openai_transport_error_retains_safe_request_measurements() -> None:
+    def create(**kwargs):
+        raise TimeoutError("private SDK detail")
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+    fake_openai = SimpleNamespace(OpenAI=lambda: client)
+    with patch.dict(sys.modules, {"openai": fake_openai}), pytest.raises(
+        AdapterTransportError
+    ) as caught:
+        from pmm.adapters.openai_adapter import OpenAIAdapter
+
+        OpenAIAdapter(model="test").generate_reply(
+            f"{SYSTEM_PRIMER}\npolicy", "private prompt"
+        )
+
+    assert caught.value.category == "TimeoutError"
+    assert caught.value.meta["provider"] == "openai"
+    assert caught.value.meta["total_assembled_prompt_chars"] > 0
+    assert "private SDK detail" not in str(caught.value)
 
 
 @pytest.mark.parametrize("status", ["empty", "truncated", "indeterminate"])

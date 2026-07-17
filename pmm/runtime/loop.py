@@ -9,8 +9,8 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
 
-from pmm.adapters import normalize_generation_result
-from pmm.core.event_log import EventLog
+from pmm.adapters import AdapterTransportError, normalize_generation_result
+from pmm.core.event_log import EventLog, TERMINAL_OUTCOME_PROTOCOL
 from pmm.core.mirror import Mirror
 from pmm.core.meme_graph import MemeGraph
 from pmm.core.commitment_manager import CommitmentManager
@@ -139,6 +139,8 @@ class RuntimeLoop:
         thresholds: Optional[Dict[str, int]] = None,
     ) -> None:
         self.eventlog = eventlog
+        if not replay:
+            self._recover_latest_interrupted_turn()
         self.mirror = Mirror(eventlog)
         self.memegraph = MemeGraph(eventlog)
         # wire event listeners
@@ -179,6 +181,56 @@ class RuntimeLoop:
                     target=self._run_supervisor_async, daemon=True
                 )
                 self._supervisor_thread.start()
+
+    def _recover_latest_interrupted_turn(self) -> int | None:
+        """Recover only an unambiguous latest managed turn, if one exists."""
+
+        events = self.eventlog.read_all()
+        latest_user_index = next(
+            (
+                index
+                for index in range(len(events) - 1, -1, -1)
+                if events[index].get("kind") == "user_message"
+            ),
+            None,
+        )
+        if latest_user_index is None:
+            return None
+        user_event = events[latest_user_index]
+        user_meta = user_event.get("meta") or {}
+        if user_meta.get("turn_protocol") != TERMINAL_OUTCOME_PROTOCOL:
+            return None
+
+        user_event_id = int(user_event["id"])
+        suffix = events[latest_user_index + 1 :]
+        for event in suffix:
+            meta = event.get("meta") or {}
+            if (
+                event.get("kind") in {"assistant_message", "generation_failure"}
+                and meta.get("turn_protocol") == TERMINAL_OUTCOME_PROTOCOL
+                and meta.get("about_event") == user_event_id
+            ):
+                return None
+
+        for event in suffix:
+            if event.get("kind") != "embedding_add":
+                return None
+            try:
+                embedded_event_id = json.loads(event.get("content") or "{}").get(
+                    "event_id"
+                )
+            except (TypeError, json.JSONDecodeError):
+                return None
+            if embedded_event_id != user_event_id:
+                return None
+
+        failure_id, _ = self.eventlog.append_terminal_outcome(
+            user_event_id=user_event_id,
+            kind="generation_failure",
+            content="",
+            meta={"source": "runtime_recovery", "status": "interrupted"},
+        )
+        return failure_id
 
     def _run_supervisor_async(self) -> None:
         """Run the supervisor in an asyncio event loop."""
@@ -290,7 +342,12 @@ class RuntimeLoop:
 
         # 1. Log user message
         user_event_id = self.eventlog.append(
-            kind="user_message", content=user_input, meta={"role": "user"}
+            kind="user_message",
+            content=user_input,
+            meta={
+                "role": "user",
+                "turn_protocol": TERMINAL_OUTCOME_PROTOCOL,
+            },
         )
         # If vector retrieval is enabled, append embedding_add for the user message (idempotent)
         retrieval_cfg = self.mirror.current_retrieval_config or {}
@@ -382,11 +439,67 @@ class RuntimeLoop:
 
         # 3. Invoke model
         t0 = time.perf_counter()
-        generation_result = normalize_generation_result(
-            self.adapter.generate_reply(
-                system_prompt=system_prompt, user_prompt=user_input
+        try:
+            generation_result = normalize_generation_result(
+                self.adapter.generate_reply(
+                    system_prompt=system_prompt, user_prompt=user_input
+                )
             )
-        )
+        except AdapterTransportError as exc:
+            failure_meta = dict(exc.meta)
+            prompt_telemetry = self._build_prompt_telemetry(
+                context_chars=len(ctx_block),
+                provenance_chars=context_render.retrieval_provenance_chars,
+                evidence_chars=context_render.raw_evidence_chars,
+                user_message_chars=len(user_input),
+                selected_evidence_events=len(selection_ids),
+                generation_meta=failure_meta,
+                adapter_context_window_tokens=getattr(
+                    self.adapter, "context_window_tokens", None
+                ),
+            )
+            self._remove_prompt_measurement_transport(failure_meta)
+            failure_meta.update(
+                {
+                    "source": "runtime",
+                    "status": "transport_error",
+                    "reason_code": "ADAPTER_TRANSPORT_ERROR",
+                    "error_category": exc.category,
+                    "prompt_telemetry": prompt_telemetry,
+                }
+            )
+            self.eventlog.append_terminal_outcome(
+                user_event_id=user_event_id,
+                kind="generation_failure",
+                content="",
+                meta=failure_meta,
+            )
+            return self.eventlog.read_since(user_event_id - 1, limit=200)
+        except Exception as exc:
+            prompt_telemetry = self._build_prompt_telemetry(
+                context_chars=len(ctx_block),
+                provenance_chars=context_render.retrieval_provenance_chars,
+                evidence_chars=context_render.raw_evidence_chars,
+                user_message_chars=len(user_input),
+                selected_evidence_events=len(selection_ids),
+                generation_meta={},
+                adapter_context_window_tokens=getattr(
+                    self.adapter, "context_window_tokens", None
+                ),
+            )
+            self.eventlog.append_terminal_outcome(
+                user_event_id=user_event_id,
+                kind="generation_failure",
+                content="",
+                meta={
+                    "source": "runtime",
+                    "status": "transport_error",
+                    "reason_code": "ADAPTER_EXCEPTION",
+                    "error_category": type(exc).__name__,
+                    "prompt_telemetry": prompt_telemetry,
+                },
+            )
+            return self.eventlog.read_since(user_event_id - 1, limit=200)
         t1 = time.perf_counter()
         assistant_reply = generation_result.text
         prompt_telemetry = self._build_prompt_telemetry(
@@ -411,7 +524,8 @@ class RuntimeLoop:
             failure_meta.update(generation_result.meta)
             self._remove_prompt_measurement_transport(failure_meta)
             failure_meta["prompt_telemetry"] = prompt_telemetry
-            self.eventlog.append(
+            self.eventlog.append_terminal_outcome(
+                user_event_id=user_event_id,
                 kind="generation_failure",
                 content=assistant_reply,
                 meta=failure_meta,
@@ -495,11 +609,14 @@ class RuntimeLoop:
             # Validated runtime metadata is authoritative over provider metadata.
             ai_meta["evidence_designations_validated"] = True
             ai_meta["evidence_designations"] = evidence_designations
-        ai_event_id = self.eventlog.append(
+        ai_event_id, terminal_created = self.eventlog.append_terminal_outcome(
+            user_event_id=user_event_id,
             kind="assistant_message",
             content=assistant_reply,
             meta=ai_meta,
         )
+        if not terminal_created:
+            return self.eventlog.read_since(user_event_id - 1, limit=200)
 
         if designation_validation is not None and not designation_validation.ok:
             failure_content = json.dumps(

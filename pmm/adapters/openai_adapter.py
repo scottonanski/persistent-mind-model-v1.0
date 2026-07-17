@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import os
-from pmm.adapters import GenerationResult, GenerationStatus
+from pmm.adapters import AdapterTransportError, GenerationResult, GenerationStatus
 class OpenAIAdapter:
     """OpenAI transport for an already complete system prompt.
 
@@ -44,12 +44,25 @@ class OpenAIAdapter:
         client = openai.OpenAI() if hasattr(openai, "OpenAI") else None
         if client:
             # new SDK style
-            resp = client.chat.completions.create(
-                model=self.model,
-                temperature=0,
-                top_p=1,
-                messages=messages,
-            )
+            try:
+                resp = client.chat.completions.create(
+                    model=self.model,
+                    temperature=0,
+                    top_p=1,
+                    messages=messages,
+                )
+            except Exception as exc:
+                raise AdapterTransportError(
+                    type(exc).__name__,
+                    meta={
+                        **prompt_measurements,
+                        "provider": "openai",
+                        "model": self.model,
+                        "temperature": 0,
+                        "top_p": 1,
+                        "seed": None,
+                    },
+                ) from exc
             # Deterministic metadata capture
             choice = resp.choices[0]
             text = choice.message.content or ""
@@ -76,12 +89,25 @@ class OpenAIAdapter:
             return GenerationResult(text=text, status=status, meta=generation_meta)
         else:
             # legacy
-            resp = openai.ChatCompletion.create(
-                model=self.model,
-                temperature=0,
-                top_p=1,
-                messages=messages,
-            )
+            try:
+                resp = openai.ChatCompletion.create(
+                    model=self.model,
+                    temperature=0,
+                    top_p=1,
+                    messages=messages,
+                )
+            except Exception as exc:
+                raise AdapterTransportError(
+                    type(exc).__name__,
+                    meta={
+                        **prompt_measurements,
+                        "provider": "openai",
+                        "model": self.model,
+                        "temperature": 0,
+                        "top_p": 1,
+                        "seed": None,
+                    },
+                ) from exc
             choice = resp["choices"][0]
             text = choice["message"]["content"] or ""
             finish_reason = choice.get("finish_reason")
