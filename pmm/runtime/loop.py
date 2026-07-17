@@ -77,6 +77,11 @@ class RuntimeLoop:
             "configured_output_budget_tokens": cls._optional_positive_int(
                 meta.get("configured_output_budget_tokens")
             ),
+            "output_budget_source": (
+                meta.get("output_budget_source")
+                if isinstance(meta.get("output_budget_source"), str)
+                else "adapter_capability_unknown"
+            ),
             "provider_output_tokens": cls._optional_nonnegative_int(
                 meta.get("provider_output_tokens")
             ),
@@ -163,6 +168,7 @@ class RuntimeLoop:
         autonomy: bool = True,
         thresholds: Optional[Dict[str, int]] = None,
         output_budget_tokens: int | None = None,
+        output_budget_source: str | None = None,
     ) -> None:
         configured_budget = (
             output_budget_tokens
@@ -179,6 +185,11 @@ class RuntimeLoop:
             if getattr(adapter, "output_budget_tokens", None) != configured_budget:
                 raise ValueError("selected adapter did not accept the output budget")
         self.eventlog = eventlog
+        self.output_budget_source = output_budget_source or getattr(
+            adapter,
+            "output_budget_source",
+            "adapter_capability_unknown",
+        )
         if not replay:
             self._recover_latest_interrupted_turn()
         self.mirror = Mirror(eventlog)
@@ -491,6 +502,9 @@ class RuntimeLoop:
                 "configured_output_budget_tokens",
                 getattr(self.adapter, "output_budget_tokens", None),
             )
+            failure_meta.setdefault(
+                "output_budget_source", self.output_budget_source
+            )
             prompt_telemetry = self._build_prompt_telemetry(
                 context_chars=len(ctx_block),
                 provenance_chars=context_render.retrieval_provenance_chars,
@@ -525,7 +539,8 @@ class RuntimeLoop:
             output_meta = {
                 "configured_output_budget_tokens": getattr(
                     self.adapter, "output_budget_tokens", None
-                )
+                ),
+                "output_budget_source": self.output_budget_source,
             }
             prompt_telemetry = self._build_prompt_telemetry(
                 context_chars=len(ctx_block),
@@ -570,6 +585,7 @@ class RuntimeLoop:
             "configured_output_budget_tokens",
             getattr(self.adapter, "output_budget_tokens", None),
         )
+        output_meta.setdefault("output_budget_source", self.output_budget_source)
         output_telemetry = self._build_output_telemetry(output_meta)
 
         # Failed or incomplete generations are diagnostic events only. They must

@@ -77,7 +77,7 @@ def test_pmm_turn_rejects_invalid_output_budget_before_subprocess():
     run.assert_not_called()
 
 
-def test_pmm_turn_forwards_environment_output_budget():
+def test_pmm_turn_leaves_environment_output_budget_for_child_resolution():
     mock_run = MagicMock()
     mock_run.return_value = MagicMock(
         returncode=0, stdout='{"assistant": "ok"}', stderr=""
@@ -92,7 +92,7 @@ def test_pmm_turn_forwards_environment_output_budget():
         pmm_turn(prompt="Test")
 
     cmd = mock_run.call_args.args[0]
-    assert cmd[cmd.index("--output-budget-tokens") + 1] == "24"
+    assert "--output-budget-tokens" not in cmd
 
 
 def test_pmm_turn_missing_env():

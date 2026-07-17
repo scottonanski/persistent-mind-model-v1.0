@@ -22,7 +22,10 @@ class OpenAIAdapter:
     supports_output_budget = True
 
     def __init__(
-        self, model: str | None = None, output_budget_tokens: int | None = None
+        self,
+        model: str | None = None,
+        output_budget_tokens: int | None = None,
+        output_budget_source: str | None = None,
     ) -> None:
         # Prefer explicit arg, then PMM-specific var, then common OPENAI_MODEL
         self.model = (
@@ -31,7 +34,16 @@ class OpenAIAdapter:
             or os.environ.get("OPENAI_MODEL")
             or "gpt-4o-mini"
         )
+        environment_budget = os.environ.get("PMM_OUTPUT_BUDGET_TOKENS") not in (
+            None,
+            "",
+        )
         self.output_budget_tokens = resolve_output_budget_tokens(output_budget_tokens)
+        self.output_budget_source = output_budget_source or (
+            "argument"
+            if output_budget_tokens is not None
+            else "environment" if environment_budget else "not_applicable"
+        )
 
     def generate_reply(
         self, system_prompt: str, user_prompt: str
@@ -80,6 +92,7 @@ class OpenAIAdapter:
                         "top_p": 1,
                         "seed": None,
                         "configured_output_budget_tokens": self.output_budget_tokens,
+                        "output_budget_source": self.output_budget_source,
                     },
                 ) from exc
             # Deterministic metadata capture
@@ -105,6 +118,7 @@ class OpenAIAdapter:
                 "finish_reason": finish_reason,
                 "provider_prompt_tokens": _openai_prompt_tokens(resp),
                 "configured_output_budget_tokens": self.output_budget_tokens,
+                "output_budget_source": self.output_budget_source,
                 "provider_output_tokens": _openai_output_tokens(resp),
                 "provider_reasoning_tokens": _openai_reasoning_tokens(resp),
                 "provider_stop_reason": finish_reason,
@@ -132,6 +146,7 @@ class OpenAIAdapter:
                         "top_p": 1,
                         "seed": None,
                         "configured_output_budget_tokens": self.output_budget_tokens,
+                        "output_budget_source": self.output_budget_source,
                     },
                 ) from exc
             choice = resp["choices"][0]
@@ -155,6 +170,7 @@ class OpenAIAdapter:
                 "finish_reason": finish_reason,
                 "provider_prompt_tokens": _openai_prompt_tokens(resp),
                 "configured_output_budget_tokens": self.output_budget_tokens,
+                "output_budget_source": self.output_budget_source,
                 "provider_output_tokens": _openai_output_tokens(resp),
                 "provider_reasoning_tokens": _openai_reasoning_tokens(resp),
                 "provider_stop_reason": finish_reason,

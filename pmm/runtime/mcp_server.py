@@ -48,7 +48,11 @@ def pmm_turn(
 
     default_model = os.environ.get("PMM_MCP_MODEL", "ornith:9b")
     target_model = model or default_model
-    resolved_output_budget = resolve_output_budget_tokens(output_budget_tokens)
+    resolved_output_budget = (
+        resolve_output_budget_tokens(output_budget_tokens)
+        if output_budget_tokens is not None
+        else None
+    )
 
     cmd = [
         sys.executable,

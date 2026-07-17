@@ -26,12 +26,22 @@ class OllamaAdapter:
         model: str | None = None,
         base_url: str | None = None,
         output_budget_tokens: int | None = None,
+        output_budget_source: str | None = None,
     ) -> None:
         self.model = model or os.environ.get("PMM_OLLAMA_MODEL", "llama3")
         self.base_url = base_url or os.environ.get(
             "OLLAMA_BASE_URL", "http://localhost:11434"
         )
+        environment_budget = os.environ.get("PMM_OUTPUT_BUDGET_TOKENS") not in (
+            None,
+            "",
+        )
         self.output_budget_tokens = resolve_output_budget_tokens(output_budget_tokens)
+        self.output_budget_source = output_budget_source or (
+            "argument"
+            if output_budget_tokens is not None
+            else "environment" if environment_budget else "not_applicable"
+        )
 
     def generate_reply(
         self, system_prompt: str, user_prompt: str
@@ -59,6 +69,7 @@ class OllamaAdapter:
             "top_p": None,
             "seed": None,
             "configured_output_budget_tokens": self.output_budget_tokens,
+            "output_budget_source": self.output_budget_source,
         }
         data = json.dumps(body).encode("utf-8")
         req = request.Request(

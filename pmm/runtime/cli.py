@@ -28,7 +28,7 @@ from rich.console import Console
 from rich.theme import Theme
 from rich.table import Table
 from datetime import datetime
-from pmm.adapters import resolve_output_budget_tokens
+from pmm.adapters import resolve_application_output_budget
 
 # CLI Theme - Nord colors
 CLI_THEME = Theme(
@@ -234,17 +234,22 @@ def _instantiate_adapter(
     use_openai: bool,
     model_name: str,
     output_budget_tokens: int | None = None,
+    output_budget_source: str | None = None,
 ):
     if use_openai:
         from pmm.adapters.openai_adapter import OpenAIAdapter
 
         return OpenAIAdapter(
-            model=model_name, output_budget_tokens=output_budget_tokens
+            model=model_name,
+            output_budget_tokens=output_budget_tokens,
+            output_budget_source=output_budget_source,
         )
     from pmm.adapters.ollama_adapter import OllamaAdapter
 
     return OllamaAdapter(
-        model=model_name, output_budget_tokens=output_budget_tokens
+        model=model_name,
+        output_budget_tokens=output_budget_tokens,
+        output_budget_source=output_budget_source,
     )
 
 
@@ -264,7 +269,6 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover - thin wrap
         help="Provider-enforced maximum generated output tokens",
     )
     args = parser.parse_args(argv)
-    output_budget_tokens = resolve_output_budget_tokens(args.output_budget_tokens)
     # Resolve canonical DB path with legacy fallback/migration
     import pathlib
 
@@ -274,6 +278,10 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover - thin wrap
         data_dir.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
+
+    output_budget_tokens, output_budget_source = resolve_application_output_budget(
+        args.output_budget_tokens
+    )
     db_path = str(canonical)
 
     # Load .env if present (for OPENAI_API_KEY/OPENAI_MODEL etc.)
@@ -359,13 +367,14 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover - thin wrap
 
     elog = EventLog(db_path)
     adapter = _instantiate_adapter(
-        use_openai, model_name, output_budget_tokens
+        use_openai, model_name, output_budget_tokens, output_budget_source
     )
     loop = RuntimeLoop(
         eventlog=elog,
         adapter=adapter,
         replay=False,
         output_budget_tokens=output_budget_tokens,
+        output_budget_source=output_budget_source,
     )
 
     try:
@@ -582,6 +591,7 @@ def handle_model_command(command: str, loop: RuntimeLoop) -> Optional[str]:
         use_openai,
         model_name,
         getattr(loop.adapter, "output_budget_tokens", None),
+        getattr(loop.adapter, "output_budget_source", "pmm_default_v1"),
     )
     return f"Switched to model: {selected}"
 

@@ -21,7 +21,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pmm.core.event_log import EventLog
 from pmm.runtime.loop import RuntimeLoop
-from pmm.adapters import resolve_output_budget_tokens
+from pmm.adapters import (
+    resolve_application_output_budget,
+    resolve_output_budget_tokens,
+)
 from pmm.core.semantic_extractor import (
     extract_commitments,
     extract_closures,
@@ -79,18 +82,25 @@ def resolve_provider_and_model(
 
 
 def instantiate_adapter(
-    provider: str, model: Optional[str], output_budget_tokens: int | None = None
+    provider: str,
+    model: Optional[str],
+    output_budget_tokens: int | None = None,
+    output_budget_source: str | None = None,
 ) -> Any:
     """Instantiate the adapter for the resolved provider and model."""
     if provider == "openai":
         from pmm.adapters.openai_adapter import OpenAIAdapter
         return OpenAIAdapter(
-            model=model, output_budget_tokens=output_budget_tokens
+            model=model,
+            output_budget_tokens=output_budget_tokens,
+            output_budget_source=output_budget_source,
         )
     elif provider == "ollama":
         from pmm.adapters.ollama_adapter import OllamaAdapter
         return OllamaAdapter(
-            model=model, output_budget_tokens=output_budget_tokens
+            model=model,
+            output_budget_tokens=output_budget_tokens,
+            output_budget_source=output_budget_source,
         )
     elif provider == "dummy":
         from pmm.adapters.dummy_adapter import DummyAdapter
@@ -113,14 +123,34 @@ def run_one_turn(
         db_path = os.path.abspath(db_path)
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
     
-    resolved_output_budget = resolve_output_budget_tokens(output_budget_tokens)
     elog = EventLog(db_path)
 
     # 1. Resolve LLM Adapter if not injected (for testing compatibility)
     if adapter is None:
         resolved_provider, resolved_model = resolve_provider_and_model(model, provider)
+        if resolved_provider == "dummy":
+            resolved_output_budget = None
+            output_budget_source = "not_applicable"
+        else:
+            resolved_output_budget, output_budget_source = (
+                resolve_application_output_budget(output_budget_tokens)
+            )
         adapter = instantiate_adapter(
-            resolved_provider, resolved_model, resolved_output_budget
+            resolved_provider,
+            resolved_model,
+            resolved_output_budget,
+            output_budget_source,
+        )
+    elif output_budget_tokens is not None or os.environ.get(
+        "PMM_OUTPUT_BUDGET_TOKENS"
+    ) not in (None, ""):
+        resolved_output_budget, output_budget_source = (
+            resolve_application_output_budget(output_budget_tokens)
+        )
+    else:
+        resolved_output_budget = getattr(adapter, "output_budget_tokens", None)
+        output_budget_source = getattr(
+            adapter, "output_budget_source", "adapter_capability_unknown"
         )
 
     # 2. Instantiate Loop (autonomy=False prevents background supervisor thread)
@@ -129,6 +159,7 @@ def run_one_turn(
         adapter=adapter,
         autonomy=False,
         output_budget_tokens=resolved_output_budget,
+        output_budget_source=output_budget_source,
     )
 
     # 3. Snapshot the actual tail event ID AFTER loop initialization
