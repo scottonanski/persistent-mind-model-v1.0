@@ -1,7 +1,7 @@
 # PMM Improvement Progress and Remaining Work
 
 **Status date:** 2026-07-17  
-**Current verification:** 390 tests passing; `git diff --check` passing
+**Current verification:** 397 tests passing; `git diff --check` passing
 **Scope:** Incremental integrity, continuity, diagnostics, and retrieval improvements developed through model consultation and source-level review.
 
 ## Purpose
@@ -12,7 +12,7 @@ The work follows one rule: implement one small, observable, testable change at a
 
 ## Current status
 
-The two model-generated roadmaps used during this cycle are complete. Eight related improvements have been implemented. The evidence-availability branch is complete, and prompt-growth telemetry is the next planned area.
+The two model-generated roadmaps used during this cycle are complete. Ten related improvements have been implemented. The evidence-availability branch, prompt-growth telemetry, and duplicate-primer correction are complete. The next step is to use the telemetry to establish a representative post-fix operational baseline before considering another feature.
 
 The remaining items listed later in this document are backlog candidates. They require another consultation and explicit prioritization before implementation.
 
@@ -195,6 +195,59 @@ Explicit semantic limitation:
 
 > Selection proves only that the model received the event in its rendered context. PMM does not yet prove that event 17 truly supports `selected_seed`, nor does it infer evidentiary meaning from unrestricted natural language.
 
+### 9. Prompt-growth telemetry
+
+PMM now records bounded prompt-construction measurements in the existing diagnostic event for each generation. Successful generations store them in `metrics_turn.meta.prompt_telemetry`; failed generations store equivalent measurements in `generation_failure.meta.prompt_telemetry`.
+
+The `prompt_telemetry.v1` payload records:
+
+- PMM system-primer insertion count and character count
+- Rendered PMM-context character count
+- Retrieval-provenance character count
+- Raw-evidence character count
+- Current user-message character count
+- Total assembled-prompt character count
+- Selected evidence-event count
+- Provider-reported prompt-token count when available
+- Configured context-window size when known
+
+Unknown provider token counts and context-window sizes remain `null`. Measurements are stored without duplicating prompt contents, and the observational patch does not change prompt assembly, retrieval, truncation, or token budgeting.
+
+The implementation is recorded in commit `b799abf` (`Add prompt growth telemetry`). Its controlled fixture exposed two PMM-owned primer insertions totaling 4,224 characters, making a previously hidden prompt-composition defect directly observable.
+
+### 10. Single ownership of system-primer insertion
+
+The duplicate-primer audit established an explicit adapter contract:
+
+> `system_prompt` is the complete provider-facing system policy.
+
+`RuntimeLoop` now owns PMM policy composition. Ollama and OpenAI adapters translate and transmit the completed prompt without injecting another primer. Custom adapters continue to receive the primer through runtime composition. In-repository direct adapter usage was audited; the only direct built-in adapter caller is a connectivity check that does not rely on generated policy content.
+
+Regression coverage proves that runtime composition, Ollama requests, and OpenAI requests contain exactly one primer; custom adapters retain it; telemetry reports one insertion and 2,112 primer characters; and model input changes only by removal of the redundant copy. Retrieval, parsing, ledger, and validation behavior were not modified by the correction.
+
+The implementation is recorded in commit `fe815fe` (`Remove duplicate system primer injection`).
+
+A matched fresh-database experiment compared the telemetry commit with the corrected commit using `granite4.1:8b-q5_K_M`, temperature zero, the same prompt, equivalent initial ledgers, and the same unset seed configuration:
+
+| Measurement | Duplicated primer | Single primer |
+|---|---:|---:|
+| Primer insertions | 2 | 1 |
+| Primer characters | 4,224 | 2,112 |
+| Total prompt characters | 6,801 | 4,687 |
+| Provider prompt tokens | 1,387 | 977 |
+| Response characters | 1,280 | 785 |
+| Provider output tokens | 238 | 148 |
+| Selected evidence events | 0 | 0 |
+| Control markers | `COMMIT: acknowledgment_of_no_evidence` | None |
+| Ledger mutations | One unintended `commitment_open` | None |
+| Invented event references | None | None |
+
+The corrected run used approximately 30% fewer provider prompt tokens and one-third fewer assembled-prompt characters. It also produced a shorter response without losing the requested behavior and emitted no unintended commitment.
+
+Behavioral limitation:
+
+> The adapter exposes no explicit numeric seed setting, so both conditions reported `seed: null`. Behavioral differences are observations rather than strict causal proof. The architectural result is definitive: PMM policy is composed exactly once.
+
 ## Model name and identity separation
 
 The Ollama model name is configuration, not PMM identity.
@@ -214,7 +267,7 @@ Any future model—including a local model, cloud model, or replacement model—
 The current code passes:
 
 ```text
-390 tests passed
+397 tests passed
 git diff --check passed
 ```
 
@@ -235,11 +288,15 @@ Regression coverage now includes:
 - All-or-nothing designation validation
 - Natural-language and malformed-header isolation
 - Existing-but-unselected `CLAIM evidence_events` rejection
+- Prompt telemetry on successful and failed generations
+- Prompt-content privacy and backward-compatible diagnostics
+- Exact single-primer composition for Ollama, OpenAI, and custom adapters
+- Unchanged provider input except for removal of the duplicate primer
 - Model-name and identity neutrality
 
 ## Remaining backlog candidates
 
-These items remain unimplemented. Prompt-growth telemetry is next in the planned sequence; the other candidates remain unapproved and unordered.
+These items remain unimplemented. Prompt-growth telemetry is complete; the other candidates remain unapproved and unordered.
 
 ### 1. Semantic grounding of identity anchors and evidence
 
@@ -307,16 +364,18 @@ A bounded retry design would need to specify:
 
 Retries must never conceal the original failed attempt or allow a partial response to reach semantic parsers.
 
-### 6. Operational monitoring of prompt growth
+### 6. Operational baseline for prompt growth
 
-Rendering retrieval provenance adds useful context but consumes tokens. PMM should measure:
+The measurement mechanism is implemented. Before adding prompt-reduction behavior, PMM should run a fresh representative 10–20 turn conversation and observe:
 
-- Provenance-section size
-- Total prompt-token growth
-- Whether verbose multi-reason records displace useful evidence
-- Whether scores measurably improve model self-correction
+- Prompt-token growth by turn
+- Rendered PMM-context size
+- Provenance and raw-evidence size
+- Selected-event count
+- Output-token count
+- Unintended control markers and ledger mutations
 
-This should begin as telemetry, not premature truncation logic.
+This baseline is an experiment, not a code change. It should identify whether prompt growth is operationally significant and which component causes it. A later controlled behavioral experiment would be required to determine whether provenance scores improve model self-correction; telemetry alone cannot establish that claim.
 
 ## MCP bridge and its use in this cycle
 
@@ -430,8 +489,8 @@ The consultation prompt should require the model to distinguish:
 
 ## Recommended next decision
 
-The formal evidence-availability branch is complete. Do not begin semantic grounding or identity conflict policy automatically. The next planned area is operational monitoring of prompt growth.
+The formal evidence-availability branch, prompt telemetry, and duplicate-primer correction are complete. Do not begin semantic grounding, identity conflict policy, truncation, or another feature automatically.
 
-Begin with telemetry only: measure the rendered retrieval-provenance section size, total prompt-token growth, evidence displacement risk, and whether provenance scores measurably improve correction behavior. Do not add truncation policy until the measurements justify one.
+Use the existing telemetry to establish the first post-fix operational baseline through a fresh representative 10–20 turn conversation. Measure prompt growth and its component sources without changing code. Do not add truncation policy until repeated measurements justify one.
 
 The current system has stronger transport integrity, claim integrity, identity-transition ordering, evidence referential integrity, evidence-availability enforcement, retrieval auditability, and diagnostic visibility than it had at the start of this cycle. Semantic support remains explicitly unresolved: availability is auditable, but entailment is not.
