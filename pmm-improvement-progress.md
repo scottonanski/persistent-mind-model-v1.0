@@ -1,7 +1,7 @@
 # PMM Improvement Progress and Remaining Work
 
 **Status date:** 2026-07-17  
-**Current verification:** 397 tests passing; `git diff --check` passing
+**Current verification:** 407 tests passing; `git diff --check` passing
 **Scope:** Incremental integrity, continuity, diagnostics, and retrieval improvements developed through model consultation and source-level review.
 
 ## Purpose
@@ -12,7 +12,7 @@ The work follows one rule: implement one small, observable, testable change at a
 
 ## Current status
 
-The two model-generated roadmaps used during this cycle are complete. Ten related improvements have been implemented. The evidence-availability branch, prompt-growth telemetry, and duplicate-primer correction are complete. The next step is to use the telemetry to establish a representative post-fix operational baseline before considering another feature.
+The two model-generated roadmaps used during this cycle are complete. Eleven related improvements have been implemented. The evidence-availability branch, prompt-growth telemetry, duplicate-primer correction, and managed-turn terminal-outcome protocol are complete. The next planned area is a design-only audit of provider-enforced output limits.
 
 The remaining items listed later in this document are backlog candidates. They require another consultation and explicit prioritization before implementation.
 
@@ -248,6 +248,30 @@ Behavioral limitation:
 
 > The adapter exposes no explicit numeric seed setting, so both conditions reported `seed: null`. Behavioral differences are observations rather than strict causal proof. The architectural result is definitive: PMM policy is composed exactly once.
 
+### 11. Managed-turn terminal outcomes
+
+PMM now marks runtime-managed user turns and their terminal outcomes with `turn_protocol: terminal_outcome.v1`. Every managed turn has exactly one linked terminal outcome through `about_event`: a successful `assistant_message` or a `generation_failure` describing a returned incomplete result, an actively observed transport error, or a later-recovered interruption.
+
+Established invariant:
+
+> Every runtime-managed user turn using terminal-outcome protocol v1 has exactly one linked terminal outcome. A caught active failure is recorded as `transport_error`; a termination inferred by a later runtime is recorded as `interrupted`.
+
+All protocol-v1 terminal paths use one transactional `EventLog` operation. A protocol-scoped SQLite unique index and `BEGIN IMMEDIATE` transaction make competing recovery attempts converge on one outcome. Legacy events, including older uses of `about_event`, remain outside the new uniqueness rule and are never rewritten or automatically classified merely because they lack protocol metadata.
+
+Recovery is intentionally narrow. Runtime initialization examines only the latest user event and recovers it only when it opts into protocol v1, has no linked terminal outcome, and is followed solely by its recognized pre-generation embedding side effect. Ambiguous suffixes and legacy turns remain unchanged. General cross-process serialization remains unresolved; the supported database contract is still one active writer.
+
+Adapters may raise a safe typed `AdapterTransportError` containing content-free request measurements known before I/O. Runtime combines those measurements with context, provenance, evidence, user-message, and selection measurements already available locally. Arbitrary adapter exceptions still produce a terminal failure, but unavailable provider measurements remain `null` and exception messages, tracebacks, prompt contents, and response bodies are not persisted.
+
+The implementation is recorded in commit `17cc164` (`Guarantee terminal outcomes for managed turns`). Verification included:
+
+- Two SQLite connections racing recovery produced exactly one terminal event.
+- A copied 152-event legacy database migrated without rewriting history or recovering its unmarked historical incomplete turn.
+- The copied ledger accepted a new linked protocol-v1 turn normally.
+- An isolated real-Ollama deadline test produced exactly `user_message → embedding_add → generation_failure`.
+- The real transport failure retained safe prompt telemetry and created no assistant message, commitment, claim, reflection, identity change, or other semantic mutation.
+
+The operational audit that motivated this change also observed an Ollama generation producing approximately 13,056 tokens before the adapter's 180-second read timeout cancelled it. Output limiting is deliberately separate from terminal accounting and is the next design-only area.
+
 ## Model name and identity separation
 
 The Ollama model name is configuration, not PMM identity.
@@ -267,7 +291,7 @@ Any future model—including a local model, cloud model, or replacement model—
 The current code passes:
 
 ```text
-397 tests passed
+407 tests passed
 git diff --check passed
 ```
 
@@ -292,6 +316,10 @@ Regression coverage now includes:
 - Prompt-content privacy and backward-compatible diagnostics
 - Exact single-primer composition for Ollama, OpenAI, and custom adapters
 - Unchanged provider input except for removal of the duplicate primer
+- Protocol-v1 user/outcome linkage and terminal uniqueness
+- Active transport-error isolation and safe exception telemetry
+- Narrow latest-turn interruption recovery and legacy-ledger preservation
+- Concurrent SQLite recovery idempotence
 - Model-name and identity neutrality
 
 ## Remaining backlog candidates
@@ -489,8 +517,8 @@ The consultation prompt should require the model to distinguish:
 
 ## Recommended next decision
 
-The formal evidence-availability branch, prompt telemetry, and duplicate-primer correction are complete. Do not begin semantic grounding, identity conflict policy, truncation, or another feature automatically.
+The formal evidence-availability branch, prompt telemetry, duplicate-primer correction, and managed-turn terminal accounting are complete. Do not begin semantic grounding, identity conflict policy, retries, or automatic context truncation.
 
-Use the existing telemetry to establish the first post-fix operational baseline through a fresh representative 10–20 turn conversation. Measure prompt growth and its component sources without changing code. Do not add truncation policy until repeated measurements justify one.
+The next bounded area is a design-only audit of provider-enforced output limits. Define a provider-neutral output budget, configuration precedence, telemetry, truncation behavior, and real-provider verification before changing code. Keep retries, partial-response acceptance, automatic budget increases, and context-window budgeting deferred.
 
 The current system has stronger transport integrity, claim integrity, identity-transition ordering, evidence referential integrity, evidence-availability enforcement, retrieval auditability, and diagnostic visibility than it had at the start of this cycle. Semantic support remains explicitly unresolved: availability is auditable, but entailment is not.
