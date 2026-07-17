@@ -6,11 +6,8 @@ from __future__ import annotations
 
 import os
 from pmm.adapters import GenerationResult, GenerationStatus
-from pmm.runtime.prompts import SYSTEM_PRIMER
-
-
 class OpenAIAdapter:
-    """OpenAI chat adapter using Chat Completions API.
+    """OpenAI transport for an already complete system prompt.
 
     Import is deferred to call time to avoid hard dependency during tests.
     """
@@ -33,13 +30,13 @@ class OpenAIAdapter:
         except Exception as e:  # pragma: no cover - import error path
             raise RuntimeError("openai package not available") from e
 
-        system_content = f"{SYSTEM_PRIMER}\n\n{system_prompt}"
+        system_content = system_prompt
         messages = [
             {"role": "system", "content": system_content},
             {"role": "user", "content": user_prompt},
         ]
         prompt_measurements = {
-            "adapter_system_primer_insertions": 1,
+            "adapter_system_primer_insertions": 0,
             "total_assembled_prompt_chars": len(system_content) + len(user_prompt),
             "context_window_tokens": getattr(self, "context_window_tokens", None),
         }

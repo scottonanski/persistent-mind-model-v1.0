@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sys
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -57,19 +59,54 @@ def test_ollama_classifies_generation_envelope(payload, expected_status) -> None
         "pmm.adapters.ollama_adapter.request.urlopen",
         return_value=FakeResponse(payload),
     ) as urlopen:
-        result = adapter.generate_reply("system", "user")
+        complete_system = f"{SYSTEM_PRIMER}\n\nprovider policy"
+        result = adapter.generate_reply(complete_system, "user")
 
     assert result.status == expected_status
     assert result.text == payload["response"]
     assert result.meta["thinking_present"] is True
     assert result.meta["thinking_char_count"] == len("private reasoning")
     assert "thinking" not in result.meta
-    expected_prompt = f"{SYSTEM_PRIMER}\n\nsystem\nUser: user\nAssistant:"
+    expected_prompt = f"{complete_system}\nUser: user\nAssistant:"
     request_body = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
     assert request_body["prompt"] == expected_prompt
-    assert result.meta["adapter_system_primer_insertions"] == 1
+    assert request_body["prompt"].count(SYSTEM_PRIMER) == 1
+    assert result.meta["adapter_system_primer_insertions"] == 0
     assert result.meta["total_assembled_prompt_chars"] == len(expected_prompt)
     assert result.meta["provider_prompt_tokens"] == 34
+
+
+def test_openai_transmits_complete_system_prompt_without_primer_injection() -> None:
+    complete_system = f"{SYSTEM_PRIMER}\n\nprovider policy"
+    captured = {}
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content="OK"), finish_reason="stop"
+                )
+            ],
+            usage=SimpleNamespace(prompt_tokens=55),
+        )
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+    fake_openai = SimpleNamespace(OpenAI=lambda: client)
+    with patch.dict(sys.modules, {"openai": fake_openai}):
+        from pmm.adapters.openai_adapter import OpenAIAdapter
+
+        result = OpenAIAdapter(model="test").generate_reply(complete_system, "user")
+
+    assert captured["messages"] == [
+        {"role": "system", "content": complete_system},
+        {"role": "user", "content": "user"},
+    ]
+    assert captured["messages"][0]["content"].count(SYSTEM_PRIMER) == 1
+    assert result.meta["adapter_system_primer_insertions"] == 0
+    assert result.meta["provider_prompt_tokens"] == 55
 
 
 @pytest.mark.parametrize("status", ["empty", "truncated", "indeterminate"])

@@ -39,6 +39,12 @@ def normalize_generation_result(
 
 
 class LLMAdapter(Protocol):
+    """Transport contract for model providers.
+
+    ``system_prompt`` is the complete provider-facing system policy. Adapters
+    translate and transmit it without injecting PMM policy of their own.
+    """
+
     def generate_reply(
         self, system_prompt: str, user_prompt: str
     ) -> GenerationResult:  # pragma: no cover - interface

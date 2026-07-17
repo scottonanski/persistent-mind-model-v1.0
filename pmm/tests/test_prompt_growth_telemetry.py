@@ -69,6 +69,7 @@ def test_empty_retrieval_telemetry_and_legacy_adapter_unknowns() -> None:
     assert telemetry["schema"] == "prompt_telemetry.v1"
     assert telemetry["system_primer_insertions"] == 1
     assert telemetry["system_primer_chars"] == len(SYSTEM_PRIMER)
+    assert telemetry["system_primer_chars"] == 2112
     assert telemetry["selected_evidence_events"] == 0
     assert telemetry["retrieval_provenance_chars"] > 0
     assert telemetry["raw_evidence_chars"] == 0
@@ -78,15 +79,15 @@ def test_empty_retrieval_telemetry_and_legacy_adapter_unknowns() -> None:
     assert telemetry["context_window_tokens"] is None
 
 
-def test_provider_measurements_record_two_primers_without_changing_input() -> None:
+def test_provider_measurements_record_one_primer_without_changing_input() -> None:
     sentinel = "USER-SENTINEL"
     result = GenerationResult(
         text="OK",
         status="complete",
         meta={
             "provider": "test",
-            "adapter_system_primer_insertions": 1,
-            "total_assembled_prompt_chars": 8127,
+            "adapter_system_primer_insertions": 0,
+            "total_assembled_prompt_chars": 6015,
             "provider_prompt_tokens": 1942,
             "context_window_tokens": 8192,
         },
@@ -98,9 +99,9 @@ def test_provider_measurements_record_two_primers_without_changing_input() -> No
     telemetry = _telemetry(log)
     assert adapter.user_prompt == sentinel
     assert adapter.system_prompt.count(SYSTEM_PRIMER) == 1
-    assert telemetry["system_primer_insertions"] == 2
-    assert telemetry["system_primer_chars"] == 2 * len(SYSTEM_PRIMER)
-    assert telemetry["total_assembled_prompt_chars"] == 8127
+    assert telemetry["system_primer_insertions"] == 1
+    assert telemetry["system_primer_chars"] == len(SYSTEM_PRIMER)
+    assert telemetry["total_assembled_prompt_chars"] == 6015
     assert telemetry["provider_prompt_tokens"] == 1942
     assert telemetry["context_window_tokens"] == 8192
     assert sentinel not in json.dumps(telemetry)
@@ -118,7 +119,7 @@ def test_failed_generation_records_equivalent_private_telemetry() -> None:
             status="truncated",
             meta={
                 "provider": "test",
-                "adapter_system_primer_insertions": 1,
+                "adapter_system_primer_insertions": 0,
                 "total_assembled_prompt_chars": 5000,
                 "provider_prompt_tokens": 1000,
             },
@@ -130,7 +131,7 @@ def test_failed_generation_records_equivalent_private_telemetry() -> None:
     failures = log.read_by_kind("generation_failure")
     assert len(failures) == 1
     telemetry = failures[0]["meta"]["prompt_telemetry"]
-    assert telemetry["system_primer_insertions"] == 2
+    assert telemetry["system_primer_insertions"] == 1
     assert telemetry["total_assembled_prompt_chars"] == 5000
     assert telemetry["provider_prompt_tokens"] == 1000
     assert sentinel not in json.dumps(telemetry)

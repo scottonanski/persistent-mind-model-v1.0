@@ -10,11 +10,8 @@ from urllib import request
 
 from pmm.adapters import GenerationResult, GenerationStatus
 
-from pmm.runtime.prompts import SYSTEM_PRIMER
-
-
 class OllamaAdapter:
-    """Ollama local model adapter via HTTP API."""
+    """Ollama transport for an already complete system prompt."""
 
     def __init__(self, model: str | None = None, base_url: str | None = None) -> None:
         self.model = model or os.environ.get("PMM_OLLAMA_MODEL", "llama3")
@@ -25,9 +22,9 @@ class OllamaAdapter:
     def generate_reply(
         self, system_prompt: str, user_prompt: str
     ) -> GenerationResult:
-        prompt = f"{SYSTEM_PRIMER}\n\n{system_prompt}\nUser: {user_prompt}\nAssistant:"
+        prompt = f"{system_prompt}\nUser: {user_prompt}\nAssistant:"
         prompt_measurements = {
-            "adapter_system_primer_insertions": 1,
+            "adapter_system_primer_insertions": 0,
             "total_assembled_prompt_chars": len(prompt),
             "context_window_tokens": getattr(self, "context_window_tokens", None),
         }

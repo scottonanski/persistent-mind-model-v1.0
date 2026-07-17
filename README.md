@@ -560,12 +560,16 @@ resp = client.chat.completions.create(
     messages=[
         {
             "role": "system",
-            "content": f"{SYSTEM_PRIMER}\n\n{system_prompt}",
+            "content": system_prompt,
         },
         {"role": "user", "content": user_prompt},
     ],
 )
 ```
+
+`system_prompt` is complete provider-facing system policy. `RuntimeLoop`
+assembles it, including exactly one `SYSTEM_PRIMER`; adapters translate and
+transmit it without injecting additional PMM policy.
 
 **User Message**: Just the raw user input.
 
