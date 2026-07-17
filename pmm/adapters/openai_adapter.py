@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+from pmm.adapters import GenerationResult, GenerationStatus
 from pmm.runtime.prompts import SYSTEM_PRIMER
 
 
@@ -22,15 +23,9 @@ class OpenAIAdapter:
             or os.environ.get("OPENAI_MODEL")
             or "gpt-4o-mini"
         )
-        self.generation_meta = {
-            "provider": "openai",
-            "model": self.model,
-            "temperature": 0,
-            "top_p": 1,
-            "seed": None,
-        }
-
-    def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
+    def generate_reply(
+        self, system_prompt: str, user_prompt: str
+    ) -> GenerationResult:
         # Lazy import
         try:
             import openai  # type: ignore
@@ -53,14 +48,27 @@ class OpenAIAdapter:
                 ],
             )
             # Deterministic metadata capture
-            self.generation_meta = {
+            choice = resp.choices[0]
+            text = choice.message.content or ""
+            finish_reason = choice.finish_reason
+            status: GenerationStatus
+            if finish_reason == "length":
+                status = "truncated"
+            elif finish_reason == "stop" and text.strip():
+                status = "complete"
+            elif finish_reason == "stop":
+                status = "empty"
+            else:
+                status = "indeterminate"
+            generation_meta = {
                 "provider": "openai",
                 "model": self.model,
                 "temperature": 0,
                 "top_p": 1,
                 "seed": None,
+                "finish_reason": finish_reason,
             }
-            return resp.choices[0].message.content or ""
+            return GenerationResult(text=text, status=status, meta=generation_meta)
         else:
             # legacy
             resp = openai.ChatCompletion.create(
@@ -75,11 +83,23 @@ class OpenAIAdapter:
                     {"role": "user", "content": user_prompt},
                 ],
             )
-            self.generation_meta = {
+            choice = resp["choices"][0]
+            text = choice["message"]["content"] or ""
+            finish_reason = choice.get("finish_reason")
+            if finish_reason == "length":
+                status = "truncated"
+            elif finish_reason == "stop" and text.strip():
+                status = "complete"
+            elif finish_reason == "stop":
+                status = "empty"
+            else:
+                status = "indeterminate"
+            generation_meta = {
                 "provider": "openai",
                 "model": self.model,
                 "temperature": 0,
                 "top_p": 1,
                 "seed": None,
+                "finish_reason": finish_reason,
             }
-            return resp["choices"][0]["message"]["content"]
+            return GenerationResult(text=text, status=status, meta=generation_meta)

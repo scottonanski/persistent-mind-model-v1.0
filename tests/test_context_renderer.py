@@ -77,6 +77,14 @@ def test_render_context_full():
         event_ids=[e_msg, e_asst, e_open],
         relevant_cids=[cid],
         active_concepts=["topic.code"],
+        provenance={
+            e_msg: {
+                "reasons": ["vector_refinement", "graph_expansion"],
+                "scores": {"vector": 0.75},
+            },
+            e_asst: {"reasons": ["thread_expansion"], "scores": {}},
+            e_open: {"reasons": ["concept_binding"], "scores": {}},
+        },
     )
 
     ctx = render_context(
@@ -95,6 +103,14 @@ def test_render_context_full():
 
     assert "## Evidence" in ctx
     assert f"[{e_msg}] user_message: Do it" in ctx
+
+    assert "## Retrieval Selection Mechanics" in ctx
+    assert "do not establish truth, authority, confidence, or evidence quality" in ctx
+    assert f"[{e_msg}] reasons=vector_refinement, graph_expansion" in ctx
+    assert "vector_score=0.750000" in ctx
+    assert ctx.index("## Retrieval Selection Mechanics") < ctx.index("## Evidence")
+    assert "Ornith" not in ctx
+    assert "Orinth" not in ctx
 
     # Determinism check
     ctx2 = render_context(

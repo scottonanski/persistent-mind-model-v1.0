@@ -8,6 +8,7 @@ import json
 import os
 from urllib import request
 
+from pmm.adapters import GenerationResult, GenerationStatus
 
 from pmm.runtime.prompts import SYSTEM_PRIMER
 
@@ -20,15 +21,10 @@ class OllamaAdapter:
         self.base_url = base_url or os.environ.get(
             "OLLAMA_BASE_URL", "http://localhost:11434"
         )
-        self.generation_meta = {
-            "provider": "ollama",
-            "model": self.model,
-            "temperature": 0,
-            "top_p": None,
-            "seed": None,
-        }
 
-    def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
+    def generate_reply(
+        self, system_prompt: str, user_prompt: str
+    ) -> GenerationResult:
         prompt = f"{SYSTEM_PRIMER}\n\n{system_prompt}\nUser: {user_prompt}\nAssistant:"
         body = {
             "model": self.model,
@@ -37,7 +33,7 @@ class OllamaAdapter:
             "stream": False,
         }
         # Record generation params deterministically
-        self.generation_meta = {
+        generation_meta = {
             "provider": "ollama",
             "model": self.model,
             "temperature": 0,
@@ -55,4 +51,32 @@ class OllamaAdapter:
             req, timeout=180
         ) as resp:  # pragma: no cover (network in CI)
             payload = json.loads(resp.read().decode("utf-8"))
-            return payload.get("response", "")
+            text = payload.get("response", "")
+            if not isinstance(text, str):
+                text = ""
+            done = payload.get("done")
+            done_reason = payload.get("done_reason")
+            if done is True and done_reason == "length":
+                status: GenerationStatus = "truncated"
+            elif done is True and done_reason == "stop" and text.strip():
+                status = "complete"
+            elif done is True and done_reason == "stop":
+                status = "empty"
+            else:
+                status = "indeterminate"
+
+            thinking = payload.get("thinking")
+            meta = {
+                **generation_meta,
+                "done": done,
+                "done_reason": done_reason,
+                "prompt_eval_count": payload.get("prompt_eval_count"),
+                "eval_count": payload.get("eval_count"),
+                "total_duration": payload.get("total_duration"),
+                "load_duration": payload.get("load_duration"),
+                "prompt_eval_duration": payload.get("prompt_eval_duration"),
+                "eval_duration": payload.get("eval_duration"),
+                "thinking_present": isinstance(thinking, str) and bool(thinking),
+                "thinking_char_count": len(thinking) if isinstance(thinking, str) else 0,
+            }
+            return GenerationResult(text=text, status=status, meta=meta)

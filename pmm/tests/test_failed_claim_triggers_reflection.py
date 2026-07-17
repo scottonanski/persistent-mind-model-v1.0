@@ -33,7 +33,8 @@ def test_failed_claim_triggers_reflection():
     assert kinds[0] == "user_message"
     assert kinds[1] == "assistant_message"
     assert "commitment_open" not in kinds
-    assert kinds[-2] == "reflection"
+    assert "validation_failure" in kinds
+    assert kinds.count("reflection") >= 2
     assert kinds[-1] == "reflection"
     last_reflection = [e for e in events if e["kind"] == "reflection"][-1]
     assert last_reflection["meta"].get("source") is None

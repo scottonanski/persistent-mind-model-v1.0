@@ -9,10 +9,16 @@ Echoes user input and emits a single well-formed commitment line.
 
 from __future__ import annotations
 
+from pmm.adapters import GenerationResult
+
 
 class DummyAdapter:
-    def generate_reply(self, system_prompt: str, user_prompt: str) -> str:
-        return f"Echo: {user_prompt}\nCOMMIT: note this item"
+    def generate_reply(self, system_prompt: str, user_prompt: str) -> GenerationResult:
+        return GenerationResult(
+            text=f"Echo: {user_prompt}\nCOMMIT: note this item",
+            status="complete",
+            meta={"provider": "dummy"},
+        )
 
     # Deterministic latency hint for diagnostics (ms)
     deterministic_latency_ms: int = 0

@@ -86,6 +86,8 @@ class EventLog:
         valid_kinds = {
             "user_message",
             "assistant_message",
+            "generation_failure",
+            "validation_failure",
             "reflection",
             "identity_adoption",
             "meta_summary",

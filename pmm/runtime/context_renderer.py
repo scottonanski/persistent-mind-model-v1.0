@@ -3,11 +3,12 @@
 
 """Context renderer for PMM.
 
-Renders a 4-section context based on deterministic retrieval results:
+Renders a 5-section context based on deterministic retrieval results:
 1. CTL Story
 2. Threads / Projects
 3. State & Self-Model
-4. Raw Evidence
+4. Retrieval Selection Mechanics
+5. Raw Evidence
 """
 
 from __future__ import annotations
@@ -57,7 +58,12 @@ def render_context(
     if state_section:
         sections.append(state_section)
 
-    # 4. Raw Evidence
+    # 4. Retrieval provenance (selection mechanics, not evidence quality)
+    provenance_section = _render_retrieval_provenance(result)
+    if provenance_section:
+        sections.append(provenance_section)
+
+    # 5. Raw Evidence
     evidence_section = _render_evidence(result.event_ids, eventlog)
     if evidence_section:
         sections.append(evidence_section)
@@ -200,6 +206,37 @@ def _render_state_model(
             parts.append(f"Open Commitments: {', '.join(sorted(cids))}")
 
     return "\n\n".join(parts)
+
+
+def _render_retrieval_provenance(result: RetrievalResult) -> str:
+    """Explain deterministic selection mechanics without implying authority."""
+
+    if not result.event_ids or not result.provenance:
+        return ""
+
+    lines = [
+        "## Retrieval Selection Mechanics",
+        (
+            "These fields explain why an event was selected. They do not establish "
+            "truth, authority, confidence, or evidence quality. Similarity scores "
+            "measure retrieval relevance only."
+        ),
+    ]
+    for event_id in sorted(result.event_ids):
+        item = result.provenance.get(event_id) or {}
+        reasons = item.get("reasons") or []
+        scores = item.get("scores") or {}
+        reason_text = ", ".join(str(reason) for reason in reasons) or "unspecified"
+        details = [f"reasons={reason_text}"]
+        for score_name in sorted(scores):
+            try:
+                score = float(scores[score_name])
+            except (TypeError, ValueError):
+                continue
+            details.append(f"{score_name}_score={score:.6f}")
+        lines.append(f"- [{event_id}] {'; '.join(details)}")
+
+    return "\n".join(lines)
 
 
 def _render_evidence(event_ids: List[int], eventlog: EventLog) -> str:

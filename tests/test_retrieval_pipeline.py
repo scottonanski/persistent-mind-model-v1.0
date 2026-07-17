@@ -96,6 +96,8 @@ def test_retrieval_pipeline_concept_seeding():
     # makes the thread relevant.
     assert e_open in res.event_ids
     assert e_asst in res.event_ids
+    assert "concept_binding" in res.provenance[e_open]["reasons"]
+    assert "thread_expansion" in res.provenance[e_asst]["reasons"]
 
 
 def test_retrieval_pipeline_vector_search():
@@ -128,6 +130,10 @@ def test_retrieval_pipeline_vector_search():
     )
 
     assert e_msg in res.event_ids
+    provenance = res.provenance[e_msg]
+    assert "sticky_concept" in provenance["reasons"]
+    assert "vector_refinement" in provenance["reasons"]
+    assert isinstance(provenance["scores"]["vector"], float)
 
 
 def test_retrieval_pipeline_forced_concepts_precede_vector():

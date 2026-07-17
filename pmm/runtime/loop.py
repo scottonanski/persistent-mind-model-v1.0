@@ -9,12 +9,13 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
 
+from pmm.adapters import normalize_generation_result
 from pmm.core.event_log import EventLog
 from pmm.core.mirror import Mirror
 from pmm.core.meme_graph import MemeGraph
 from pmm.core.commitment_manager import CommitmentManager
 from pmm.core.schemas import Claim
-from pmm.core.validators import validate_claim
+from pmm.core.validators import validate_claim_detailed
 from pmm.core.semantic_extractor import (
     extract_commitments,
     extract_claims,
@@ -279,8 +280,15 @@ class RuntimeLoop:
         )
 
         selection_ids = retrieval_result.event_ids
-        # We don't calculate vector scores in pipeline result yet, so pass empty/dummy
-        selection_scores = [0.0] * len(selection_ids)
+        selection_provenance = retrieval_result.provenance
+        selection_scores = [
+            float(
+                (selection_provenance.get(event_id, {}).get("scores") or {}).get(
+                    "vector", 0.0
+                )
+            )
+            for event_id in selection_ids
+        ]
 
         # Check if graph context is actually present
         context_has_graph = "## Graph" in ctx_block
@@ -294,10 +302,28 @@ class RuntimeLoop:
 
         # 3. Invoke model
         t0 = time.perf_counter()
-        assistant_reply = self.adapter.generate_reply(
-            system_prompt=system_prompt, user_prompt=user_input
+        generation_result = normalize_generation_result(
+            self.adapter.generate_reply(
+                system_prompt=system_prompt, user_prompt=user_input
+            )
         )
         t1 = time.perf_counter()
+        assistant_reply = generation_result.text
+
+        # Failed or incomplete generations are diagnostic events only. They must
+        # never become assistant messages or reach semantic state parsers.
+        if generation_result.status != "complete":
+            failure_meta: Dict[str, Any] = {
+                "source": "runtime",
+                "status": generation_result.status,
+            }
+            failure_meta.update(generation_result.meta)
+            self.eventlog.append(
+                kind="generation_failure",
+                content=assistant_reply,
+                meta=failure_meta,
+            )
+            return self.eventlog.read_since(user_event_id - 1, limit=200)
 
         # 3a. Try to parse optional structured JSON header (intent/outcome/etc. + concepts).
         #     Expected pattern in test mode: first line is a JSON object, followed
@@ -356,10 +382,9 @@ class RuntimeLoop:
             ai_meta["assistant_structured"] = True
             ai_meta["assistant_schema"] = "assistant.v1"
             ai_meta["assistant_payload"] = structured_payload
-        # Include deterministic generation metadata from adapters if present
-        gen_meta = getattr(self.adapter, "generation_meta", None)
-        if isinstance(gen_meta, dict):
-            for k, v in gen_meta.items():
+        # Include metadata carried by this specific generation result.
+        if isinstance(generation_result.meta, dict):
+            for k, v in generation_result.meta.items():
                 ai_meta[k] = v
         ai_event_id = self.eventlog.append(
             kind="assistant_message",
@@ -432,7 +457,16 @@ class RuntimeLoop:
                     "turn_id": ai_event_id,
                     "selected": selection_ids,
                     "scores": selection_scores,
-                    "strategy": "vector",
+                    "provenance": [
+                        {
+                            "event_id": event_id,
+                            **selection_provenance.get(
+                                event_id, {"reasons": [], "scores": {}}
+                            ),
+                        }
+                        for event_id in selection_ids
+                    ],
+                    "strategy": "hybrid",
                     "model": model,
                     "dims": dims,
                 },
@@ -505,8 +539,8 @@ class RuntimeLoop:
 
         # 6. Claims
         for claim in self._extract_claims(assistant_reply):
-            ok, _msg = validate_claim(claim, self.eventlog, self.mirror)
-            if ok:
+            validation = validate_claim_detailed(claim, self.eventlog, self.mirror)
+            if validation.ok:
                 # Persist valid claims to ledger for future retrieval
                 claim_content = (
                     f"CLAIM:{claim.type}="
@@ -538,6 +572,26 @@ class RuntimeLoop:
                         meta={"source": "auto_binder"},
                     )
             else:
+                failure_content = json.dumps(
+                    {
+                        "claim_type": claim.type,
+                        "data": claim.data,
+                        "reason_code": validation.code,
+                        "reason": validation.message,
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                self.eventlog.append(
+                    kind="validation_failure",
+                    content=failure_content,
+                    meta={
+                        "source": "claim_validator",
+                        "about_event": ai_event_id,
+                        "claim_type": claim.type,
+                        "reason_code": validation.code,
+                    },
+                )
                 delta.failed_claims.append(claim)
 
         # 6a. Identity adoption – derive from validated identity_* CLAIMs.

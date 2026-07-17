@@ -130,6 +130,9 @@ def run_one_turn(
 
     # 6. Extract results from actual newly appended events
     assistant_msg = next((e for e in new_events if e["kind"] == "assistant_message"), None)
+    generation_failure = next(
+        (e for e in new_events if e["kind"] == "generation_failure"), None
+    )
 
     assistant_raw = ""
     assistant_visible = ""
@@ -182,6 +185,24 @@ def run_one_turn(
                 except Exception:
                     pass
 
+    validation_failures = []
+    for e in new_events:
+        if e["kind"] != "validation_failure":
+            continue
+        try:
+            failure_content = json.loads(e.get("content") or "{}")
+        except Exception:
+            failure_content = {"reason": e.get("content") or ""}
+        validation_failures.append(
+            {
+                "event_id": e["id"],
+                "claim_type": failure_content.get("claim_type"),
+                "reason_code": failure_content.get("reason_code"),
+                "reason": failure_content.get("reason"),
+                "data": failure_content.get("data"),
+            }
+        )
+
 
     # Extract identity updates / summaries from persisted events
     identity_updates = []
@@ -207,10 +228,29 @@ def run_one_turn(
     output_data: Dict[str, Any] = {
         "assistant": assistant_visible,
         "assistant_raw": assistant_raw,
+        "generation_status": (
+            "complete"
+            if assistant_msg
+            else (
+                (generation_failure.get("meta") or {}).get("status", "indeterminate")
+                if generation_failure
+                else "indeterminate"
+            )
+        ),
+        "generation_failure": (
+            {
+                "status": (generation_failure.get("meta") or {}).get("status"),
+                "partial_response": generation_failure.get("content") or "",
+                "meta": generation_failure.get("meta") or {},
+            }
+            if generation_failure
+            else None
+        ),
         "event_range": event_range,
         "opened": opened_cids,
         "closed": closed_cids,
         "claims": claims,
+        "validation_failures": validation_failures,
         "identity_updates": identity_updates,
     }
 
@@ -233,6 +273,7 @@ def run_one_turn(
                 "concept_bind_event",
                 "retrieval_selection",
                 "outcome_observation",
+                "validation_failure",
             ):
                 try:
                     ev_dict["content"] = json.loads(e["content"])

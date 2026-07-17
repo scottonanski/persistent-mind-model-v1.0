@@ -68,6 +68,7 @@ class RetrievalResult:
     event_ids: List[int]
     relevant_cids: List[str]
     active_concepts: List[str]
+    provenance: Dict[int, Dict[str, Any]] = field(default_factory=dict)
 
 
 def run_retrieval_pipeline(
@@ -210,28 +211,32 @@ def run_retrieval_pipeline(
 
     # 3. Vector Selection
     vector_event_ids: Set[int] = set()
+    vector_scores: Dict[int, float] = {}
     summary_vector_ids: Set[int] = set()
+    summary_vector_scores: Dict[int, float] = {}
     summary_expanded_ids: Set[int] = set()
     summary_pinned_ids: Set[int] = set()
 
     # Vector stage becomes a refiner over already selected slices only
-    def _refine_with_vector(candidate_ids: Set[int], limit: int) -> Set[int]:
+    def _refine_with_vector(
+        candidate_ids: Set[int], limit: int
+    ) -> tuple[Set[int], Dict[int, float]]:
         if not config.enable_vector_search or not query_text:
-            return set()
+            return set(), {}
         if not candidate_ids:
-            return set()
+            return set(), {}
         events_data: List[Dict] = []
         for eid in sorted(candidate_ids):
             ev = eventlog.get(int(eid)) or {}
             ev["id"] = int(eid)
             events_data.append(ev)
-        vec_ids, _ = select_by_vector(
+        vec_ids, scores = select_by_vector(
             events=events_data,
             query_text=query_text,
             limit=min(limit, len(events_data)),
             cap=len(events_data),
         )
-        return set(vec_ids)
+        return set(vec_ids), dict(zip(vec_ids, scores))
 
     # 3a. Thread-first selection (concept -> CID -> slices)
     thread_expanded_ids: Set[int] = set()
@@ -242,11 +247,12 @@ def run_retrieval_pipeline(
 
     # 3b. Optional vector refinement over thread slices
     if config.enable_vector_search and query_text:
-        refined_ids = _refine_with_vector(
+        refined_ids, refined_scores = _refine_with_vector(
             thread_expanded_ids.union(ctl_event_ids).union(sticky_event_ids),
             config.limit_vector_events,
         )
         vector_event_ids.update(refined_ids)
+        vector_scores.update(refined_scores)
 
     # 3c. Summary vector search (unchanged but bounded to summaries)
     if (
@@ -265,7 +271,7 @@ def run_retrieval_pipeline(
             )
         summary_events = sorted(summary_events, key=lambda ev: int(ev.get("id", 0)))
         if summary_events:
-            s_vec_ids, _ = select_by_vector(
+            s_vec_ids, s_vec_scores = select_by_vector(
                 events=summary_events,
                 query_text=query_text,
                 limit=config.summary_vector_limit,
@@ -273,6 +279,7 @@ def run_retrieval_pipeline(
                 cap=len(summary_events),
             )
             summary_vector_ids.update(s_vec_ids)
+            summary_vector_scores.update(dict(zip(s_vec_ids, s_vec_scores)))
             summary_expanded_ids.update(summary_vector_ids)
             for sid in s_vec_ids:
                 ev = eventlog.get(sid) or {}
@@ -357,12 +364,14 @@ def run_retrieval_pipeline(
         .union(thread_expanded_ids)
     )
     expanded_ids: Set[int] = set(base_ids)
+    graph_expanded_ids: Set[int] = set()
 
     # Expand generic neighbors
     for eid in list(base_ids):
         # Immediate neighbors
         neighbors = meme_graph.neighbors(eid, direction="both")
         expanded_ids.update(neighbors)
+        graph_expanded_ids.update(set(neighbors) - base_ids)
 
         # Also, if this event is part of any thread, mark that CID as relevant
         # event_cids = meme_graph.cids_for_event(eid)
@@ -382,6 +391,7 @@ def run_retrieval_pipeline(
         subgraph = meme_graph.subgraph_for_cid(cid)
         expanded_ids.update(subgraph)
         thread_expanded_ids.update(subgraph)
+        graph_expanded_ids.update(set(subgraph) - base_ids)
 
     # 5. Finalize
     # Bucketed allocation: pinned (forced+sticky) > concept > thread > summary > vector > residual
@@ -431,11 +441,30 @@ def run_retrieval_pipeline(
     _take(vector_bucket)
     _take(residual_bucket)
 
-    # For active_concepts, we return the seed concepts.
-    # We could also verify which concepts are actually present in the final selection.
+    reason_sources = [
+        ("forced_concept", forced_event_ids),
+        ("sticky_concept", sticky_event_ids),
+        ("summary_pinned", summary_pinned_ids),
+        ("concept_binding", ctl_event_ids),
+        ("thread_expansion", thread_expanded_ids),
+        ("summary_expansion", summary_expanded_ids),
+        ("vector_refinement", vector_event_ids),
+        ("summary_vector", summary_vector_ids),
+        ("graph_expansion", graph_expanded_ids),
+    ]
+    provenance: Dict[int, Dict[str, Any]] = {}
+    for event_id in final_ids:
+        reasons = [name for name, ids in reason_sources if event_id in ids]
+        scores: Dict[str, float] = {}
+        if event_id in vector_scores:
+            scores["vector"] = vector_scores[event_id]
+        if event_id in summary_vector_scores:
+            scores["summary_vector"] = summary_vector_scores[event_id]
+        provenance[event_id] = {"reasons": reasons, "scores": scores}
 
     return RetrievalResult(
         event_ids=final_ids,
         relevant_cids=sorted(relevant_cids),
         active_concepts=seed_concepts_list,
+        provenance=provenance,
     )

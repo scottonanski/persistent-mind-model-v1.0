@@ -246,6 +246,46 @@ pmm
 
 <br>
 
+### MCP Bridge for Ledger-Backed Turns
+
+PMM includes a local STDIO Model Context Protocol server for Codex and other MCP-compatible clients:
+
+```bash
+export PMM_MCP_DB="$(pwd)/.data/pmmdb/pmm.db"
+export PMM_MCP_MODEL="ornith:9b"  # Model configuration, not PMM identity
+python3 -m pmm.runtime.mcp_server
+```
+
+The server exposes one tool:
+
+```text
+pmm_turn(prompt, model=None, include_events=False)
+```
+
+Each call invokes the non-interactive one-shot runtime and executes one complete PMM turn against the configured persistent ledger:
+
+```text
+MCP client → pmm_turn → PMM one-shot runtime → configured model → ledger
+```
+
+The turn uses PMM's normal retrieval, context rendering, generation, event-writing, validation, commitment, reflection, and identity-processing pipeline. Its structured result includes assistant output, generation status, the appended event range, commitment changes, validated claims, validation failures, identity updates, and—when requested—the full events appended during that turn.
+
+Calls routed through one MCP server process are serialized with a process-level lock so their event ranges cannot overlap. Do not run multiple independent MCP server processes against the same database concurrently without external serialization.
+
+This bridge supports a model-consultant/coding-agent workflow: a model operating through PMM can report friction from the bounded ledger state it receives; Codex can inspect the implementation, make a narrow change, run tests, and consult the PMM-connected model again through `pmm_turn`. These are real ledger-backed turns, not manually copied chat transcripts.
+
+External advisory calls are distinct. For example, invoking `gemma4:cloud` directly through Ollama supplies the model with an implementation summary but does not run a PMM turn or mutate the PMM ledger:
+
+```text
+Codex → Ollama cloud model with implementation summary
+```
+
+The configured model name is not an identity. Identity is established only through PMM's ledger-backed identity protocol.
+
+For the current improvement history and consultation procedure, see [PMM Improvement Progress and Remaining Work](pmm-improvement-progress.md).
+
+<br>
+
 ### Exporting the Chat and the Telemetry
 
 There's three ways to export the chat and the telemetry:

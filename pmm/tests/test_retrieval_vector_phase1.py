@@ -61,7 +61,12 @@ def test_retrieval_selection_recorded_and_consistent():
     payload = json.loads(sel.get("content") or "{}")
     selected_ids = payload.get("selected") or []
     scores = payload.get("scores") or []
+    provenance = payload.get("provenance") or []
     assert selected_ids and len(selected_ids) == len(scores)
+    assert [item["event_id"] for item in provenance] == selected_ids
+    assert all(item["reasons"] for item in provenance)
+    assert all(isinstance(item["scores"], dict) for item in provenance)
+    assert payload["strategy"] == "hybrid"
 
     # Deterministically recompute (up to the assistant turn id) and confirm identical ids
     turn_id = int(payload.get("turn_id"))
