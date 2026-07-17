@@ -34,7 +34,8 @@ from pmm.runtime.prompts import compose_system_prompt
 from pmm.core.identity_manager import maybe_append_identity_adoptions
 from pmm.runtime.reflection import TurnDelta, build_reflection_text
 from pmm.retrieval.pipeline import run_retrieval_pipeline, RetrievalConfig
-from pmm.runtime.context_renderer import render_context
+from pmm.runtime.context_renderer import render_context_with_metrics
+from pmm.runtime.prompts import SYSTEM_PRIMER
 from pmm.retrieval.vector import (
     selection_digest,
     ensure_embedding_for_event,
@@ -54,6 +55,80 @@ DEBUG = False  # Set to True for debugging
 
 
 class RuntimeLoop:
+    _PROMPT_MEASUREMENT_TRANSPORT_FIELDS = {
+        "adapter_system_primer_insertions",
+        "total_assembled_prompt_chars",
+        "provider_prompt_tokens",
+        "context_window_tokens",
+    }
+
+    @staticmethod
+    def _optional_nonnegative_int(value: Any) -> int | None:
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value
+        return None
+
+    @staticmethod
+    def _optional_positive_int(value: Any) -> int | None:
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+        return None
+
+    @classmethod
+    def _build_prompt_telemetry(
+        cls,
+        *,
+        context_chars: int,
+        provenance_chars: int,
+        evidence_chars: int,
+        user_message_chars: int,
+        selected_evidence_events: int,
+        generation_meta: Dict[str, Any],
+        adapter_context_window_tokens: Any = None,
+    ) -> Dict[str, Any]:
+        """Normalize content-free prompt measurements for one generation."""
+
+        meta = generation_meta if isinstance(generation_meta, dict) else {}
+        adapter_insertions = cls._optional_nonnegative_int(
+            meta.get("adapter_system_primer_insertions")
+        )
+        system_primer_insertions = 1 + (adapter_insertions or 0)
+        provider_prompt_tokens = cls._optional_nonnegative_int(
+            meta.get("provider_prompt_tokens")
+        )
+        if provider_prompt_tokens is None:
+            provider_prompt_tokens = cls._optional_nonnegative_int(
+                meta.get("prompt_eval_count")
+            )
+        context_window_tokens = cls._optional_positive_int(
+            meta.get("context_window_tokens")
+        )
+        if context_window_tokens is None:
+            context_window_tokens = cls._optional_positive_int(
+                adapter_context_window_tokens
+            )
+
+        return {
+            "schema": "prompt_telemetry.v1",
+            "system_primer_insertions": system_primer_insertions,
+            "system_primer_chars": system_primer_insertions * len(SYSTEM_PRIMER),
+            "rendered_pmm_context_chars": context_chars,
+            "retrieval_provenance_chars": provenance_chars,
+            "raw_evidence_chars": evidence_chars,
+            "user_message_chars": user_message_chars,
+            "total_assembled_prompt_chars": cls._optional_nonnegative_int(
+                meta.get("total_assembled_prompt_chars")
+            ),
+            "selected_evidence_events": selected_evidence_events,
+            "provider_prompt_tokens": provider_prompt_tokens,
+            "context_window_tokens": context_window_tokens,
+        }
+
+    @classmethod
+    def _remove_prompt_measurement_transport(cls, meta: Dict[str, Any]) -> None:
+        for field in cls._PROMPT_MEASUREMENT_TRANSPORT_FIELDS:
+            meta.pop(field, None)
+
     def __init__(
         self,
         *,
@@ -275,13 +350,14 @@ class RuntimeLoop:
             user_event=user_event,
         )
 
-        ctx_block = render_context(
+        context_render = render_context_with_metrics(
             result=retrieval_result,
             eventlog=self.eventlog,
             concept_graph=self.concept_graph,
             meme_graph=self.memegraph,
             mirror=self.mirror,
         )
+        ctx_block = context_render.text
 
         selection_ids = retrieval_result.event_ids
         selection_provenance = retrieval_result.provenance
@@ -313,6 +389,17 @@ class RuntimeLoop:
         )
         t1 = time.perf_counter()
         assistant_reply = generation_result.text
+        prompt_telemetry = self._build_prompt_telemetry(
+            context_chars=len(ctx_block),
+            provenance_chars=context_render.retrieval_provenance_chars,
+            evidence_chars=context_render.raw_evidence_chars,
+            user_message_chars=len(user_input),
+            selected_evidence_events=len(selection_ids),
+            generation_meta=generation_result.meta,
+            adapter_context_window_tokens=getattr(
+                self.adapter, "context_window_tokens", None
+            ),
+        )
 
         # Failed or incomplete generations are diagnostic events only. They must
         # never become assistant messages or reach semantic state parsers.
@@ -322,6 +409,8 @@ class RuntimeLoop:
                 "status": generation_result.status,
             }
             failure_meta.update(generation_result.meta)
+            self._remove_prompt_measurement_transport(failure_meta)
+            failure_meta["prompt_telemetry"] = prompt_telemetry
             self.eventlog.append(
                 kind="generation_failure",
                 content=assistant_reply,
@@ -399,6 +488,8 @@ class RuntimeLoop:
         # Include metadata carried by this specific generation result.
         if isinstance(generation_result.meta, dict):
             for k, v in generation_result.meta.items():
+                if k in self._PROMPT_MEASUREMENT_TRANSPORT_FIELDS:
+                    continue
                 ai_meta[k] = v
         if designation_validation is not None and designation_validation.ok:
             # Validated runtime metadata is authoritative over provider metadata.
@@ -536,7 +627,11 @@ class RuntimeLoop:
             f"provider:{prov},model:{model_name},"
             f"in_tokens:{in_tokens},out_tokens:{out_tokens},lat_ms:{lat_ms}"
         )
-        self.eventlog.append(kind="metrics_turn", content=diag, meta={})
+        self.eventlog.append(
+            kind="metrics_turn",
+            content=diag,
+            meta={"prompt_telemetry": prompt_telemetry},
+        )
 
         # 4d. Synthesize deterministic reflection and maybe append summary
         synthesize_reflection(self.eventlog, mirror=self.mirror)

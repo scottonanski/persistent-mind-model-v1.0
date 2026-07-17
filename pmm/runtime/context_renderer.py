@@ -13,6 +13,7 @@ Renders a 5-section context based on deterministic retrieval results:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import List
 from pmm.core.event_log import EventLog
 from pmm.core.concept_graph import ConceptGraph
@@ -26,6 +27,15 @@ from pmm.runtime.context_utils import (
 )
 
 
+@dataclass(frozen=True)
+class ContextRenderResult:
+    """Rendered PMM context and non-content size measurements."""
+
+    text: str
+    retrieval_provenance_chars: int
+    raw_evidence_chars: int
+
+
 def render_context(
     *,
     result: RetrievalResult,
@@ -35,6 +45,25 @@ def render_context(
     mirror: Mirror,
 ) -> str:
     """Render the full context string."""
+
+    return render_context_with_metrics(
+        result=result,
+        eventlog=eventlog,
+        concept_graph=concept_graph,
+        meme_graph=meme_graph,
+        mirror=mirror,
+    ).text
+
+
+def render_context_with_metrics(
+    *,
+    result: RetrievalResult,
+    eventlog: EventLog,
+    concept_graph: ConceptGraph,
+    meme_graph: MemeGraph,
+    mirror: Mirror,
+) -> ContextRenderResult:
+    """Render context once and report exact subsection character counts."""
 
     sections: List[str] = []
 
@@ -68,7 +97,11 @@ def render_context(
     if evidence_section:
         sections.append(evidence_section)
 
-    return "\n\n".join(sections)
+    return ContextRenderResult(
+        text="\n\n".join(sections),
+        retrieval_provenance_chars=len(provenance_section),
+        raw_evidence_chars=len(evidence_section),
+    )
 
 
 def _render_ctl_story(result: RetrievalResult, cg: ConceptGraph) -> str:

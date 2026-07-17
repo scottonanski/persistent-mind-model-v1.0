@@ -26,6 +26,11 @@ class OllamaAdapter:
         self, system_prompt: str, user_prompt: str
     ) -> GenerationResult:
         prompt = f"{SYSTEM_PRIMER}\n\n{system_prompt}\nUser: {user_prompt}\nAssistant:"
+        prompt_measurements = {
+            "adapter_system_primer_insertions": 1,
+            "total_assembled_prompt_chars": len(prompt),
+            "context_window_tokens": getattr(self, "context_window_tokens", None),
+        }
         body = {
             "model": self.model,
             "prompt": prompt,
@@ -68,9 +73,11 @@ class OllamaAdapter:
             thinking = payload.get("thinking")
             meta = {
                 **generation_meta,
+                **prompt_measurements,
                 "done": done,
                 "done_reason": done_reason,
                 "prompt_eval_count": payload.get("prompt_eval_count"),
+                "provider_prompt_tokens": payload.get("prompt_eval_count"),
                 "eval_count": payload.get("eval_count"),
                 "total_duration": payload.get("total_duration"),
                 "load_duration": payload.get("load_duration"),

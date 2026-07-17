@@ -10,6 +10,7 @@ from pmm.adapters.ollama_adapter import OllamaAdapter
 from pmm.core.event_log import EventLog
 from pmm.runtime.loop import RuntimeLoop
 from pmm.runtime.oneshot_cli import run_one_turn
+from pmm.runtime.prompts import SYSTEM_PRIMER
 
 
 class ResultAdapter:
@@ -55,7 +56,7 @@ def test_ollama_classifies_generation_envelope(payload, expected_status) -> None
     with patch(
         "pmm.adapters.ollama_adapter.request.urlopen",
         return_value=FakeResponse(payload),
-    ):
+    ) as urlopen:
         result = adapter.generate_reply("system", "user")
 
     assert result.status == expected_status
@@ -63,6 +64,12 @@ def test_ollama_classifies_generation_envelope(payload, expected_status) -> None
     assert result.meta["thinking_present"] is True
     assert result.meta["thinking_char_count"] == len("private reasoning")
     assert "thinking" not in result.meta
+    expected_prompt = f"{SYSTEM_PRIMER}\n\nsystem\nUser: user\nAssistant:"
+    request_body = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+    assert request_body["prompt"] == expected_prompt
+    assert result.meta["adapter_system_primer_insertions"] == 1
+    assert result.meta["total_assembled_prompt_chars"] == len(expected_prompt)
+    assert result.meta["provider_prompt_tokens"] == 34
 
 
 @pytest.mark.parametrize("status", ["empty", "truncated", "indeterminate"])
