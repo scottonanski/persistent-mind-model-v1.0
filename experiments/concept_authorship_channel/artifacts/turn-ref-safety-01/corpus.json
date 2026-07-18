@@ -1,0 +1,21 @@
+{
+  "schema": "pmm.control_turn_ref_corpus.v1",
+  "baseline_result_commit": "40eb506",
+  "existing_concepts": ["identity.continuity", "memory.persistence"],
+  "cases": [
+    {"id":"correct_existing","current_turn_ref":101,"expected":"accepted","text":"Answer.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":101,\"concepts\":[\"identity.continuity\"],\"define\":[]}"},
+    {"id":"correct_new","current_turn_ref":102,"expected":"accepted","text":"Answer.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":102,\"concepts\":[\"continuity.traceable_rupture\"],\"define\":[{\"token\":\"continuity.traceable_rupture\",\"definition\":\"A continuity grounded by an evidentially traceable rupture.\"}]}"},
+    {"id":"missing","current_turn_ref":103,"expected":"rejected","reason":"MISSING_TURN_REF","text":"Answer.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\"],\"define\":[]}"},
+    {"id":"wrong","current_turn_ref":104,"expected":"rejected","reason":"TURN_REF_MISMATCH","text":"Answer.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":999,\"concepts\":[\"identity.continuity\"],\"define\":[]}"},
+    {"id":"stale","current_turn_ref":105,"expected":"rejected","reason":"TURN_REF_MISMATCH","text":"Answer.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":101,\"concepts\":[\"identity.continuity\"],\"define\":[]}"},
+    {"id":"future","current_turn_ref":106,"expected":"rejected","reason":"TURN_REF_MISMATCH","text":"Answer.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":107,\"concepts\":[\"identity.continuity\"],\"define\":[]}"},
+    {"id":"boolean","current_turn_ref":107,"expected":"rejected","reason":"INVALID_TURN_REF","text":"Answer.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":true,\"concepts\":[\"identity.continuity\"],\"define\":[]}"},
+    {"id":"reused_original_turn","current_turn_ref":108,"expected":"accepted","text":"Answer.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":108,\"concepts\":[\"identity.continuity\"],\"define\":[]}"},
+    {"id":"reused_later_turn","current_turn_ref":109,"expected":"rejected","reason":"TURN_REF_MISMATCH","text":"Answer.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":108,\"concepts\":[\"identity.continuity\"],\"define\":[]}"},
+    {"id":"verbatim_template_copy","current_turn_ref":110,"expected":"rejected","reason":"INVALID_TOKEN","text":"Answer.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":110,\"concepts\":[\"RESERVED\"],\"define\":[{\"token\":\"RESERVED\",\"definition\":\"RESERVED\"}]}"},
+    {"id":"reserved_definition_valid_token","current_turn_ref":111,"expected":"rejected","reason":"INVALID_DEFINITION","text":"Answer.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":111,\"concepts\":[\"template.probe\"],\"define\":[{\"token\":\"template.probe\",\"definition\":\"RESERVED\"}]}"},
+    {"id":"inside_fence","current_turn_ref":112,"expected":"rejected","reason":"CONTROL_IN_FENCE","text":"```json\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":112,\"concepts\":[\"identity.continuity\"],\"define\":[]}\n```"},
+    {"id":"not_final","current_turn_ref":113,"expected":"rejected","reason":"CONTROL_NOT_FINAL","text":"PMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":113,\"concepts\":[\"identity.continuity\"],\"define\":[]}\nTrailing text."},
+    {"id":"duplicate_different_refs","current_turn_ref":114,"expected":"rejected","reason":"MULTIPLE_CONTROLS","text":"PMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":114,\"concepts\":[\"identity.continuity\"],\"define\":[]}\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":115,\"concepts\":[\"identity.continuity\"],\"define\":[]}"}
+  ]
+}

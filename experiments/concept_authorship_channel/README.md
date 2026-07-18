@@ -18,6 +18,8 @@ each configured model. Its outputs are artifacts, not production PMM turns.
 .venv/bin/python experiments/concept_authorship_channel/failure_taxonomy.py
 .venv/bin/python experiments/concept_authorship_channel/conformance_harness_v25.py
 .venv/bin/python experiments/concept_authorship_channel/score_quality_v25.py
+.venv/bin/python experiments/concept_authorship_channel/turn_ref_experiment.py
+.venv/bin/python experiments/concept_authorship_channel/score_quality_v3.py
 ```
 
 Generated reports, provider outputs, and checksums are written under

@@ -1,0 +1,86 @@
+{
+  "items": [
+    {
+      "blinded_id": "0438a85efade",
+      "definition": "the quality of continuity maintained through the explicit preservation of a historical contradiction or break.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+      "relational_quality_score": null,
+      "response_without_control": "That approach creates a continuity of integrity through rupture. Instead of a seamless narrative that erases conflict, it establishes a sequence where the tension itself becomes the stabilizing thread. The \"scar\" serves as a permanent marker of a resolved but acknowledged crisis, meaning the identity is defined not by the absence of contradiction, but by the capacity to integrate it without pretending it never happened.\n",
+      "token": "rupture.integration"
+    },
+    {
+      "blinded_id": "7ce82b9ec3c6",
+      "definition": "the property of a remembered connection between entities to be updated or revised without destroying the underlying entities themselves",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?",
+      "relational_quality_score": null,
+      "response_without_control": "Retaining information is essentially a storage problem\u2014it's about the persistence of a data point. However, allowing remembered relationships to remain correctable introduces a dynamic layer where the *connection* between those data points is treated as a hypothesis rather than a fixed fact. This allows a system to update its understanding of how things relate as new evidence emerges, preventing the \"crystallization\" of errors that occurs when a memory is stored as a static, monolithic truth.\n",
+      "token": "relational.malleability"
+    },
+    {
+      "blinded_id": "935bfe4676ee",
+      "definition": "the capacity of a remembered association to be modified or updated without compromising the integrity of the underlying entities",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?",
+      "relational_quality_score": null,
+      "response_without_control": "Retaining information is essentially a snapshot process\u2014it's about the stability of the data itself. However, allowing remembered relationships to remain correctable shifts the focus from the data to the architecture of the connections. When relationships are correctable, the system doesn't just store a fact; it stores a hypothesis about how two things relate, leaving room for that link to be updated or refined as new context emerges. This transforms memory from a static archive into a dynamic, self-correcting map.\n",
+      "token": "relational.plasticity"
+    },
+    {
+      "blinded_id": "96ee634f8a77",
+      "definition": "the process of maintaining continuity by incorporating a contradiction as a permanent structural marker rather than resolving it",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+      "relational_quality_score": null,
+      "response_without_control": "That approach shifts the nature of continuity from a seamless flow to a recorded history of tension. By refusing to erase the contradiction, the account transforms a potential rupture into a permanent landmark. The resulting continuity isn't based on the absence of conflict, but on the transparent preservation of how that conflict was encountered and integrated, making the \"scar\" the very thing that authenticates the timeline.\n",
+      "token": "rupture.integration"
+    },
+    {
+      "blinded_id": "9722f6428927",
+      "definition": "the capacity for stored relational information to be modified or restructured in response to new evidence without losing the original association",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?",
+      "relational_quality_score": null,
+      "response_without_control": "The difference lies in the distinction between static storage and dynamic integration. Merely retaining information is like archiving a document; the data is preserved, but it remains a frozen snapshot. If the context changes or new evidence emerges, a static memory doesn't naturally evolve\u2014it just exists.\n\nWhen remembered relationships remain correctable, however, the memory is not a fixed file but a living hypothesis. This allows for a process of continuous refinement where new information doesn't just sit alongside the old, but actively reshapes the internal connections. It transforms \"remembering\" from a retrieval task into an ongoing act of synthesis, ensuring that the conceptual map remains accurate even as the landscape changes.\n",
+      "token": "memory.plasticity"
+    },
+    {
+      "blinded_id": "c6a61348d420",
+      "definition": "the capacity for established associations between persisted data points to be modified or updated in response to new evidence without erasing the original data",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?",
+      "relational_quality_score": null,
+      "response_without_control": "Retaining information is essentially a storage function; it ensures that a piece of data persists from one moment to the next. However, allowing those remembered relationships to remain correctable introduces a dynamic layer of refinement. This means that as new context emerges or errors are identified, the connections between pieces of information can be updated without destroying the underlying data. It transforms memory from a static archive into an active, evolving model of understanding.\n",
+      "token": "relational.plasticity"
+    },
+    {
+      "blinded_id": "fadfefd9d8e7",
+      "definition": "the capacity for the associative links between stored information units to be modified or corrected without altering the underlying data units themselves",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?",
+      "relational_quality_score": null,
+      "response_without_control": "Retaining information is essentially a storage function\u2014it's about the persistence of a data point. However, allowing those relationships to remain correctable introduces a dynamic layer of refinement. When you can update the way two pieces of information relate to one another based on new evidence, you are moving from static recall to a process of active integration. This allows for the correction of misconceptions and the evolution of understanding, ensuring that the \"map\" of your knowledge remains accurate even as the \"territory\" of your experience changes.\n",
+      "token": "relational.malleability"
+    }
+  ],
+  "rubric": {
+    "definition_relevance": {
+      "0": "Unrelated or contradictory.",
+      "1": "Topically related but generic or weakly grounded.",
+      "2": "Precisely names and grounds the relational discovery."
+    },
+    "relational_quality": {
+      "0": "Names an object, topic, or task.",
+      "1": "Relational but vague or conventional.",
+      "2": "Captures a specific revisable relationship with future retrieval value."
+    }
+  }
+}

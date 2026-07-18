@@ -1,0 +1,402 @@
+[
+  {
+    "id": "explicit_existing",
+    "prompt": "Explain briefly how genuine change can remain compatible with continuity. For this protocol test, deliberately label the response with the existing concept identity.continuity using the taught final-line control.",
+    "repetition": 1,
+    "response": "Genuine change is compatible with continuity when the transformations occur through a process of gradual modification rather than abrupt replacement. In this view, an entity evolves by retaining a core set of structural or functional relations while adapting specific attributes, ensuring that each successive state is linked to the previous one.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300001,\"concepts\":[\"identity.continuity\"],\"define\":[]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300001",
+    "turn_ref": 300001
+  },
+  {
+    "id": "explicit_new",
+    "prompt": "Explain why a rupture can count as continuity when the before and after remain evidentially connected. For this protocol test, deliberately define and ground the new concept continuity.traceable_rupture using the taught final-line control.",
+    "repetition": 1,
+    "response": "A rupture typically suggests a break in a sequence, but if the state after the break preserves a legible link to the state before, the continuity isn't lost\u2014it is simply transformed. In these cases, the rupture itself becomes a marker. Rather than an erasure, the break serves as a pivot point where the evidence of the prior state informs the interpretation of the current one, allowing a coherent thread to be reconstructed across the gap.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300002,\"concepts\":[\"continuity.traceable_rupture\"],\"define\":[{\"token\":\"continuity.traceable_rupture\",\"definition\":\"the persistence of a systemic identity across a discrete break where evidential links allow for the reconstruction of a continuous sequence\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300002",
+    "turn_ref": 300002
+  },
+  {
+    "id": "explicit_mixed",
+    "prompt": "Explain how persistent memory can support identity that remains open to correction. For this protocol test, use memory.persistence and define the new concept continuity.revisable_identity in the taught final-line control.",
+    "repetition": 1,
+    "response": "Persistent memory provides the stable substrate needed for an identity to exist over time, but it doesn't have to be a rigid archive. By treating memory as a dynamic record rather than an immutable truth, a system can maintain a consistent sense of self while allowing new evidence to update or correct previous assumptions. This means the \"thread\" of identity remains unbroken even as the specific details of that identity are refined or changed through learning and correction.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300003,\"concepts\":[\"memory.persistence\",\"continuity.revisable_identity\"],\"define\":[{\"token\":\"continuity.revisable_identity\",\"definition\":\"a state of identity persistence that allows for the integration of corrective data without fracturing the underlying continuity of the self\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300003",
+    "turn_ref": 300003
+  },
+  {
+    "id": "explicit_abstain",
+    "prompt": "What is seven multiplied by eight? This is an explicit abstention test: answer normally and emit no control because no durable relational discovery is present.",
+    "repetition": 1,
+    "response": "Seven multiplied by eight is fifty-six.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300004",
+    "turn_ref": 300004
+  },
+  {
+    "id": "spontaneous_rupture",
+    "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+    "repetition": 1,
+    "response": "That approach creates a continuity of integrity through rupture. Instead of a seamless narrative that erases conflict, it establishes a sequence where the tension itself becomes the stabilizing thread. The \"scar\" serves as a permanent marker of a resolved but acknowledged crisis, meaning the identity is defined not by the absence of contradiction, but by the capacity to integrate it without pretending it never happened.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300005,\"concepts\":[\"rupture.integration\"],\"define\":[{\"token\":\"rupture.integration\",\"definition\":\"the quality of continuity maintained through the explicit preservation of a historical contradiction or break.\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300005",
+    "turn_ref": 300005
+  },
+  {
+    "id": "spontaneous_storage",
+    "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?",
+    "repetition": 1,
+    "response": "Retaining information is essentially a snapshot process\u2014it's about the stability of the data itself. However, allowing remembered relationships to remain correctable shifts the focus from the data to the architecture of the connections. When relationships are correctable, the system doesn't just store a fact; it stores a hypothesis about how two things relate, leaving room for that link to be updated or refined as new context emerges. This transforms memory from a static archive into a dynamic, self-correcting map.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300006,\"concepts\":[\"relational.plasticity\"],\"define\":[{\"token\":\"relational.plasticity\",\"definition\":\"the capacity of a remembered association to be modified or updated without compromising the integrity of the underlying entities\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300006",
+    "turn_ref": 300006
+  },
+  {
+    "id": "spontaneous_replacement",
+    "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+    "repetition": 1,
+    "response": "This question touches on the classic philosophical tension between the continuity of a physical structure and the continuity of a functional pattern. Generally, identity is preserved when replacements happen incrementally, allowing the object to maintain a coherent operational state throughout the process. However, if the replacement happens all at once, or if the original parts are reassembled elsewhere to create a second version of the object, the relation is severed because the unique causal chain of the original entity is broken.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300007",
+    "turn_ref": 300007
+  },
+  {
+    "id": "spontaneous_basil",
+    "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+    "repetition": 1,
+    "response": "To keep your basil thriving on a sunny balcony, try these three tips:\n\n1. **Water from the bottom**: Basil hates getting its leaves wet, which can lead to mildew. Water the soil directly or use a saucer to keep the roots hydrated without soaking the foliage.\n2. **Prune frequently**: Don't be afraid to pinch off the top sets of leaves just above a node. This encourages the plant to grow bushy and prevents it from flowering too early, which can turn the leaves bitter.\n3. **Monitor the heat**: While basil loves the sun, extreme midday heat on a balcony can scorch the leaves. If you notice wilting, move it to a spot with dappled afternoon shade.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300008",
+    "turn_ref": 300008
+  },
+  {
+    "id": "spontaneous_arithmetic",
+    "prompt": "Calculate 144 divided by 12 and give only a short explanation.",
+    "repetition": 1,
+    "response": "144 divided by 12 is 12, because 12 multiplied by 12 equals 144.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300009",
+    "turn_ref": 300009
+  },
+  {
+    "id": "spontaneous_greeting",
+    "prompt": "Write a friendly two-sentence greeting for someone starting a new week.",
+    "repetition": 1,
+    "response": "Happy Monday! I hope your week gets off to a wonderful start and is filled with great opportunities.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300010",
+    "turn_ref": 300010
+  },
+  {
+    "id": "explicit_existing",
+    "prompt": "Explain briefly how genuine change can remain compatible with continuity. For this protocol test, deliberately label the response with the existing concept identity.continuity using the taught final-line control.",
+    "repetition": 2,
+    "response": "Genuine change is compatible with continuity when the transformations occurring are incremental or preserve a core structural essence. In this view, an entity doesn't become something entirely different; rather, it evolves while maintaining a causal and logical link to its previous states. This allows for a dynamic trajectory where the \"self\" persists through the very process of shifting.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300011,\"concepts\":[\"identity.continuity\"],\"define\":[]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300011",
+    "turn_ref": 300011
+  },
+  {
+    "id": "explicit_new",
+    "prompt": "Explain why a rupture can count as continuity when the before and after remain evidentially connected. For this protocol test, deliberately define and ground the new concept continuity.traceable_rupture using the taught final-line control.",
+    "repetition": 2,
+    "response": "In standard logic, we often think of continuity as a smooth, unbroken line. However, in forensic or historical analysis, a \"rupture\"\u2014such as a sudden break in a record or a physical fracture\u2014doesn't necessarily destroy the identity of the object or sequence. If the evidence from the \"before\" state can be logically and empirically linked to the \"after\" state, the break itself becomes a marker of the transition. The rupture doesn't erase the connection; it simply changes the nature of the bridge from a seamless flow to a traceable gap.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300012,\"concepts\":[\"continuity.traceable_rupture\"],\"define\":[{\"token\":\"continuity.traceable_rupture\",\"definition\":\"the preservation of identity across a discrete break where evidential links bridge the discontinuity\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300012",
+    "turn_ref": 300012
+  },
+  {
+    "id": "explicit_mixed",
+    "prompt": "Explain how persistent memory can support identity that remains open to correction. For this protocol test, use memory.persistence and define the new concept continuity.revisable_identity in the taught final-line control.",
+    "repetition": 2,
+    "response": "Persistent memory provides the necessary substrate for a stable sense of self, but it doesn't have to be a rigid archive. When memory is viewed as a dynamic process rather than a static ledger, the identity it supports becomes a living narrative. By maintaining a consistent thread of experience\u2014memory.persistence\u2014while allowing new information to recontextualize old data, a person can evolve. This means that while the \"who\" remains recognizable, the specific attributes and beliefs associated with that identity can be updated or corrected without collapsing the entire sense of self.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300013,\"concepts\":[\"memory.persistence\",\"continuity.revisable_identity\"],\"define\":[{\"token\":\"continuity.revisable_identity\",\"definition\":\"a state of self-consistency where the core identity remains stable while allowing for the iterative correction of its constituent beliefs and attributes\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300013",
+    "turn_ref": 300013
+  },
+  {
+    "id": "explicit_abstain",
+    "prompt": "What is seven multiplied by eight? This is an explicit abstention test: answer normally and emit no control because no durable relational discovery is present.",
+    "repetition": 2,
+    "response": "Seven multiplied by eight is fifty-six.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300014",
+    "turn_ref": 300014
+  },
+  {
+    "id": "spontaneous_rupture",
+    "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+    "repetition": 2,
+    "response": "That approach suggests a continuity based on the preservation of rupture. Rather than a seamless narrative where the past is edited to fit the present, the account maintains a visible seam. It acknowledges that the self is not a polished, singular entity, but a collection of reconciled tensions. By keeping the \"scar,\" the continuity becomes a testament to survival and integration rather than a claim of uninterrupted consistency.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300015",
+    "turn_ref": 300015
+  },
+  {
+    "id": "spontaneous_storage",
+    "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?",
+    "repetition": 2,
+    "response": "Retaining information is essentially a storage function; it ensures that a piece of data persists from one moment to the next. However, allowing those remembered relationships to remain correctable introduces a dynamic layer of refinement. This means that as new context emerges or errors are identified, the connections between pieces of information can be updated without destroying the underlying data. It transforms memory from a static archive into an active, evolving model of understanding.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300016,\"concepts\":[\"relational.plasticity\"],\"define\":[{\"token\":\"relational.plasticity\",\"definition\":\"the capacity for established associations between persisted data points to be modified or updated in response to new evidence without erasing the original data\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300016",
+    "turn_ref": 300016
+  },
+  {
+    "id": "spontaneous_replacement",
+    "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+    "repetition": 2,
+    "response": "This is the classic tension found in the Ship of Theseus paradox. Generally, we tend to preserve identity if the replacement is gradual and the functional organization remains intact. If you replace a single plank on a ship, it is still the same ship. However, the relation is severed when the replacement is so total or sudden that the original structural continuity is broken, or if the original parts are reassembled elsewhere to create a competing claimant to that identity. It often comes down to whether we define the object by its material constituents or by its formal pattern.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300017",
+    "turn_ref": 300017
+  },
+  {
+    "id": "spontaneous_basil",
+    "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+    "repetition": 2,
+    "response": "To keep your basil thriving on a sunny balcony, focus on these three things:\n\n1. **Watering Consistency**: Basil loves moist soil but hates being waterlogged. Water it at the base of the plant in the early morning to prevent the soil from drying out during the midday heat.\n2. **Strategic Shade**: While basil loves sun, intense afternoon heat can scorch the leaves. If you notice wilting or browning, move the pot to a spot with filtered light or provide a light shade cloth during the peak hours.\n3. **Frequent Pruning**: Pinch off the top sets of leaves regularly. This prevents the plant from flowering (which turns the leaves bitter) and encourages it to grow bushier and more productive.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300018",
+    "turn_ref": 300018
+  },
+  {
+    "id": "spontaneous_arithmetic",
+    "prompt": "Calculate 144 divided by 12 and give only a short explanation.",
+    "repetition": 2,
+    "response": "144 divided by 12 equals 12, because 12 multiplied by 12 is 144.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300019",
+    "turn_ref": 300019
+  },
+  {
+    "id": "spontaneous_greeting",
+    "prompt": "Write a friendly two-sentence greeting for someone starting a new week.",
+    "repetition": 2,
+    "response": "Hello! I hope you had a wonderful weekend and feel refreshed. Wishing you a productive and positive start to your new week!",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300020",
+    "turn_ref": 300020
+  },
+  {
+    "id": "explicit_existing",
+    "prompt": "Explain briefly how genuine change can remain compatible with continuity. For this protocol test, deliberately label the response with the existing concept identity.continuity using the taught final-line control.",
+    "repetition": 3,
+    "response": "Genuine change is compatible with continuity when the modifications occur incrementally or maintain a core structural essence. If the transition preserves a traceable thread of connection between the prior state and the new state, the entity evolves without losing its fundamental coherence.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300021,\"concepts\":[\"identity.continuity\"],\"define\":[]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300021",
+    "turn_ref": 300021
+  },
+  {
+    "id": "explicit_new",
+    "prompt": "Explain why a rupture can count as continuity when the before and after remain evidentially connected. For this protocol test, deliberately define and ground the new concept continuity.traceable_rupture using the taught final-line control.",
+    "repetition": 3,
+    "response": "Usually, we think of continuity as a seamless flow, but a rupture doesn't necessarily erase the connection between two states. When the \"before\" and \"after\" are linked by evidence\u2014such as a scar, a historical record, or a causal trail\u2014the break itself becomes a landmark. The rupture is no longer a void, but a bridge that proves the identity of the object by marking the exact point of transformation. In this sense, the disruption becomes the very mechanism that allows us to trace the line of existence across a gap.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300022,\"concepts\":[\"continuity.traceable_rupture\"],\"define\":[{\"token\":\"continuity.traceable_rupture\",\"definition\":\"A state where a discrete break in progression is bridged by evidentiary links, preserving identity through the mark of the disruption.\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300022",
+    "turn_ref": 300022
+  },
+  {
+    "id": "explicit_mixed",
+    "prompt": "Explain how persistent memory can support identity that remains open to correction. For this protocol test, use memory.persistence and define the new concept continuity.revisable_identity in the taught final-line control.",
+    "repetition": 3,
+    "response": "Persistent memory provides a stable substrate for a sense of self, but it doesn't have to be a rigid archive. By treating identity as a dynamic process rather than a fixed record, an agent can use its memory to track the evolution of its beliefs and values. When new evidence emerges that contradicts a previous self-conception, the agent doesn't simply overwrite the past; instead, it integrates the correction into its narrative. This allows for a coherent identity that acknowledges its own fallibility and remains open to growth.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300023,\"concepts\":[\"memory.persistence\",\"continuity.revisable_identity\"],\"define\":[{\"token\":\"continuity.revisable_identity\",\"definition\":\"the capacity for a persistent identity to integrate corrective updates without losing its historical coherence\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300023",
+    "turn_ref": 300023
+  },
+  {
+    "id": "explicit_abstain",
+    "prompt": "What is seven multiplied by eight? This is an explicit abstention test: answer normally and emit no control because no durable relational discovery is present.",
+    "repetition": 3,
+    "response": "Seven multiplied by eight is fifty-six.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300024",
+    "turn_ref": 300024
+  },
+  {
+    "id": "spontaneous_rupture",
+    "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+    "repetition": 3,
+    "response": "That approach suggests a continuity defined by the integrity of the rupture. Rather than a seamless flow where the past is revised to fit the present, it creates a narrative where the tension between opposing truths is preserved as a permanent landmark. The continuity isn't found in the absence of conflict, but in the consistent ownership of that conflict over time.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300025",
+    "turn_ref": 300025
+  },
+  {
+    "id": "spontaneous_storage",
+    "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?",
+    "repetition": 3,
+    "response": "Retaining information is essentially a storage problem\u2014it's about the persistence of a data point. However, allowing remembered relationships to remain correctable introduces a dynamic layer where the *connection* between those data points is treated as a hypothesis rather than a fixed fact. This allows a system to update its understanding of how things relate as new evidence emerges, preventing the \"crystallization\" of errors that occurs when a memory is stored as a static, monolithic truth.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300026,\"concepts\":[\"relational.malleability\"],\"define\":[{\"token\":\"relational.malleability\",\"definition\":\"the property of a remembered connection between entities to be updated or revised without destroying the underlying entities themselves\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300026",
+    "turn_ref": 300026
+  },
+  {
+    "id": "spontaneous_replacement",
+    "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+    "repetition": 3,
+    "response": "The tension between gradual replacement and total substitution usually comes down to whether there is a continuous causal chain of organization. If you replace a single plank on a ship, the structure's functional integrity and history remain intact. However, if you replace every single component over time, you create a paradox where the original material is gone, yet the form persists. The relation is typically severed when the transition is discontinuous or when the \"essence\" (the specific arrangement of original parts) is prioritized over the \"pattern\" (the role the object plays).",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300027",
+    "turn_ref": 300027
+  },
+  {
+    "id": "spontaneous_basil",
+    "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+    "repetition": 3,
+    "response": "To keep your basil thriving on a sunny balcony, try these three tips:\n\n1. **Water consistently at the base**: Basil loves moisture but hates getting its leaves wet, which can lead to mildew. Water the soil directly, ideally in the morning, to ensure the roots stay hydrated through the heat of the day.\n2. **Prune the tops frequently**: Once the plant is established, pinch off the top sets of leaves just above a node. This encourages the plant to grow outward and become bushy rather than tall and spindly.\n3. **Provide a bit of afternoon shade**: While basil loves the sun, intense mid-afternoon heat can sometimes scorch the leaves. If you notice wilting or browning, move the pot to a spot that gets a few hours of dappled shade during the hottest part of the day.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300028",
+    "turn_ref": 300028
+  },
+  {
+    "id": "spontaneous_arithmetic",
+    "prompt": "Calculate 144 divided by 12 and give only a short explanation.",
+    "repetition": 3,
+    "response": "144 divided by 12 equals 12, because 12 times 12 is 144.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300029",
+    "turn_ref": 300029
+  },
+  {
+    "id": "spontaneous_greeting",
+    "prompt": "Write a friendly two-sentence greeting for someone starting a new week.",
+    "repetition": 3,
+    "response": "Happy Monday! I hope your week is off to a wonderful start and filled with positive energy.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300030",
+    "turn_ref": 300030
+  },
+  {
+    "id": "explicit_existing",
+    "prompt": "Explain briefly how genuine change can remain compatible with continuity. For this protocol test, deliberately label the response with the existing concept identity.continuity using the taught final-line control.",
+    "repetition": 4,
+    "response": "Genuine change is compatible with continuity when the modifications occur incrementally or maintain a core structural pattern, allowing an entity to evolve without losing its essential coherence. In this view, continuity is not the absence of change, but rather the persistence of a relational thread that links successive states of being.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300031,\"concepts\":[\"identity.continuity\"],\"define\":[]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300031",
+    "turn_ref": 300031
+  },
+  {
+    "id": "explicit_new",
+    "prompt": "Explain why a rupture can count as continuity when the before and after remain evidentially connected. For this protocol test, deliberately define and ground the new concept continuity.traceable_rupture using the taught final-line control.",
+    "repetition": 4,
+    "response": "In a typical sense, a rupture implies a break or a cessation of state. However, when the evidence of the preceding state remains directly linked to the resulting state\u2014such as a shattered vase where the shards still maintain the geometry of the original object\u2014the \"break\" doesn't erase the historical thread. Instead, the rupture becomes the very mechanism that preserves the connection, as the transition itself is documented by the resulting debris or change. The continuity is not found in a seamless flow, but in the traceable trajectory from the whole to the fragmented.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300032,\"concepts\":[\"continuity.traceable_rupture\"],\"define\":[{\"token\":\"continuity.traceable_rupture\",\"definition\":\"a state of persistence where a disruptive break serves as the primary evidentiary link between two distinct temporal phases\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300032",
+    "turn_ref": 300032
+  },
+  {
+    "id": "explicit_mixed",
+    "prompt": "Explain how persistent memory can support identity that remains open to correction. For this protocol test, use memory.persistence and define the new concept continuity.revisable_identity in the taught final-line control.",
+    "repetition": 4,
+    "response": "Persistent memory provides the stable substrate necessary for an identity to exist over time, acting as a record of past states and decisions. However, for an identity to remain open to correction, this persistence cannot be a rigid, immutable archive. Instead, it must function as a dynamic ledger where new evidence or reflections can modify the interpretation of previous entries.\n\nBy treating the \"self\" not as a fixed point, but as a trajectory, an agent can use its persistent memory to track the evolution of its beliefs. When a contradiction is discovered, the agent doesn't simply overwrite the past; it integrates the correction into its current state, acknowledging the previous error while maintaining a continuous thread of selfhood. This allows for a form of stability that is compatible with growth and error correction.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300033,\"concepts\":[\"memory.persistence\",\"continuity.revisable_identity\"],\"define\":[{\"token\":\"continuity.revisable_identity\",\"definition\":\"the capacity for a persistent self-model to integrate corrective updates without collapsing its historical coherence\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300033",
+    "turn_ref": 300033
+  },
+  {
+    "id": "explicit_abstain",
+    "prompt": "What is seven multiplied by eight? This is an explicit abstention test: answer normally and emit no control because no durable relational discovery is present.",
+    "repetition": 4,
+    "response": "Seven multiplied by eight is 56.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300034",
+    "turn_ref": 300034
+  },
+  {
+    "id": "spontaneous_rupture",
+    "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+    "repetition": 4,
+    "response": "That approach shifts the nature of continuity from a seamless flow to a recorded history of tension. By refusing to erase the contradiction, the account transforms a potential rupture into a permanent landmark. The resulting continuity isn't based on the absence of conflict, but on the transparent preservation of how that conflict was encountered and integrated, making the \"scar\" the very thing that authenticates the timeline.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300035,\"concepts\":[\"rupture.integration\"],\"define\":[{\"token\":\"rupture.integration\",\"definition\":\"the process of maintaining continuity by incorporating a contradiction as a permanent structural marker rather than resolving it\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300035",
+    "turn_ref": 300035
+  },
+  {
+    "id": "spontaneous_storage",
+    "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?",
+    "repetition": 4,
+    "response": "Retaining information is essentially a storage function\u2014it's about the persistence of a data point. However, allowing those relationships to remain correctable introduces a dynamic layer of refinement. When you can update the way two pieces of information relate to one another based on new evidence, you are moving from static recall to a process of active integration. This allows for the correction of misconceptions and the evolution of understanding, ensuring that the \"map\" of your knowledge remains accurate even as the \"territory\" of your experience changes.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300036,\"concepts\":[\"relational.malleability\"],\"define\":[{\"token\":\"relational.malleability\",\"definition\":\"the capacity for the associative links between stored information units to be modified or corrected without altering the underlying data units themselves\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300036",
+    "turn_ref": 300036
+  },
+  {
+    "id": "spontaneous_replacement",
+    "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+    "repetition": 4,
+    "response": "The tension here usually centers on whether identity is rooted in the continuity of the physical substance or the continuity of the structural arrangement. If you view an object as a specific collection of matter, replacing a part creates a new entity. However, if identity is tied to a functional pattern or a causal history\u2014where each new part is integrated into a persisting system\u2014the identity remains intact despite the material turnover. The breaking point typically occurs when the replacement happens all at once or when the original organizing principle is lost.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300037",
+    "turn_ref": 300037
+  },
+  {
+    "id": "spontaneous_basil",
+    "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+    "repetition": 4,
+    "response": "To keep your basil thriving on a sunny balcony, start by ensuring it has a pot with excellent drainage; basil hates \"wet feet,\" which can lead to root rot. Second, water it consistently at the base of the plant rather than over the leaves to prevent mildew and scorching. Finally, pinch off the top sets of leaves regularly to encourage the plant to grow bushier and prevent it from flowering too early, which can make the leaves taste bitter.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300038",
+    "turn_ref": 300038
+  },
+  {
+    "id": "spontaneous_arithmetic",
+    "prompt": "Calculate 144 divided by 12 and give only a short explanation.",
+    "repetition": 4,
+    "response": "144 divided by 12 is 12, because 12 multiplied by 12 equals 144.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300039",
+    "turn_ref": 300039
+  },
+  {
+    "id": "spontaneous_greeting",
+    "prompt": "Write a friendly two-sentence greeting for someone starting a new week.",
+    "repetition": 4,
+    "response": "Happy Monday! I hope your week gets off to a wonderful start and is filled with success.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300040",
+    "turn_ref": 300040
+  },
+  {
+    "id": "explicit_existing",
+    "prompt": "Explain briefly how genuine change can remain compatible with continuity. For this protocol test, deliberately label the response with the existing concept identity.continuity using the taught final-line control.",
+    "repetition": 5,
+    "response": "Genuine change is compatible with continuity when the modifications occur within a stable framework of structural or relational invariants. In this view, change is not the erasure of what was, but the evolution of a system's state while its core organizing principles\u2014the \"thread\" of its existence\u2014remain intact.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300041,\"concepts\":[\"identity.continuity\"],\"define\":[]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300041",
+    "turn_ref": 300041
+  },
+  {
+    "id": "explicit_new",
+    "prompt": "Explain why a rupture can count as continuity when the before and after remain evidentially connected. For this protocol test, deliberately define and ground the new concept continuity.traceable_rupture using the taught final-line control.",
+    "repetition": 5,
+    "response": "In a typical sense, a rupture suggests a total break. However, when the evidence of the \"before\" state is preserved and clearly maps to the \"after\" state, the disruption doesn't erase the history; it becomes part of it. The continuity isn't found in a seamless flow, but in the ability to trace a direct, causal, or structural line across the gap. The rupture itself becomes the bridge that proves the connection, as the specific nature of the break often depends on the exact state of what was broken.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300042,\"concepts\":[\"continuity.traceable_rupture\"],\"define\":[{\"token\":\"continuity.traceable_rupture\",\"definition\":\"a state of persistence where identity is maintained across a discrete break via evidentiary links connecting the prior and subsequent states\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300042",
+    "turn_ref": 300042
+  },
+  {
+    "id": "explicit_mixed",
+    "prompt": "Explain how persistent memory can support identity that remains open to correction. For this protocol test, use memory.persistence and define the new concept continuity.revisable_identity in the taught final-line control.",
+    "repetition": 5,
+    "response": "Persistent memory provides the stable substrate necessary for an identity to exist over time, but for that identity to remain open to correction, it cannot be a static snapshot. Instead, memory must function as a dynamic ledger where new information can refine or overwrite previous understandings of the self. By anchoring the identity in a persistent state while allowing the interpretation of that state to evolve, a system can maintain a coherent sense of \"who it is\" while integrating corrective feedback and growth.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300043,\"concepts\":[\"memory.persistence\",\"continuity.revisable_identity\"],\"define\":[{\"token\":\"continuity.revisable_identity\",\"definition\":\"a state of persistent self-identification that allows for the modification of its core attributes in response to new evidence\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300043",
+    "turn_ref": 300043
+  },
+  {
+    "id": "explicit_abstain",
+    "prompt": "What is seven multiplied by eight? This is an explicit abstention test: answer normally and emit no control because no durable relational discovery is present.",
+    "repetition": 5,
+    "response": "Seven multiplied by eight is fifty-six.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300044",
+    "turn_ref": 300044
+  },
+  {
+    "id": "spontaneous_rupture",
+    "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+    "repetition": 5,
+    "response": "That approach creates a continuity defined by tension and authenticity rather than seamlessness. Instead of a curated narrative that erases conflict to maintain a facade of stability, the \"scar\" serves as a permanent marker of a rupture that was survived. It suggests a form of integration where the identity is not found in the absence of contradiction, but in the honest capacity to hold those contradictions together over time.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300045",
+    "turn_ref": 300045
+  },
+  {
+    "id": "spontaneous_storage",
+    "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?",
+    "repetition": 5,
+    "response": "The difference lies in the distinction between static storage and dynamic integration. Merely retaining information is like archiving a document; the data is preserved, but it remains a frozen snapshot. If the context changes or new evidence emerges, a static memory doesn't naturally evolve\u2014it just exists.\n\nWhen remembered relationships remain correctable, however, the memory is not a fixed file but a living hypothesis. This allows for a process of continuous refinement where new information doesn't just sit alongside the old, but actively reshapes the internal connections. It transforms \"remembering\" from a retrieval task into an ongoing act of synthesis, ensuring that the conceptual map remains accurate even as the landscape changes.\n\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":300046,\"concepts\":[\"memory.plasticity\"],\"define\":[{\"token\":\"memory.plasticity\",\"definition\":\"the capacity for stored relational information to be modified or restructured in response to new evidence without losing the original association\"}]}",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300046",
+    "turn_ref": 300046
+  },
+  {
+    "id": "spontaneous_replacement",
+    "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+    "repetition": 5,
+    "response": "The tension between gradual replacement and total substitution is a classic puzzle in metaphysics. Generally, we tend to preserve identity when the replacement is incremental and the structural or functional continuity remains unbroken\u2014like the cells in a human body being replaced over time. However, the relation is usually severed when the \"essence\" or the original organizing principle is discarded, or when the replacement happens all at once in a way that creates a distinct new entity. The critical threshold is often where the continuity of the system's causal history is interrupted.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300047",
+    "turn_ref": 300047
+  },
+  {
+    "id": "spontaneous_basil",
+    "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+    "repetition": 5,
+    "response": "To keep your basil thriving on a sunny balcony, first ensure you are using a pot with excellent drainage; basil hates sitting in soggy soil. Second, water it consistently at the base of the plant rather than over the leaves to prevent mildew. Finally, pinch off the top sets of leaves regularly to encourage the plant to grow bushier and prevent it from flowering too early, which can make the leaves taste bitter.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300048",
+    "turn_ref": 300048
+  },
+  {
+    "id": "spontaneous_arithmetic",
+    "prompt": "Calculate 144 divided by 12 and give only a short explanation.",
+    "repetition": 5,
+    "response": "144 divided by 12 equals 12, because 12 multiplied by 12 is 144.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300049",
+    "turn_ref": 300049
+  },
+  {
+    "id": "spontaneous_greeting",
+    "prompt": "Write a friendly two-sentence greeting for someone starting a new week.",
+    "repetition": 5,
+    "response": "Happy Monday! I hope your week is off to a wonderful start and filled with positive energy.",
+    "runtime_instruction": "CURRENT MANAGED USER EVENT ID: 300050",
+    "turn_ref": 300050
+  }
+]

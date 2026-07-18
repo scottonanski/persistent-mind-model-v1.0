@@ -1,0 +1,163 @@
+{
+  "accepted_count": 3,
+  "case_count": 14,
+  "corpus_sha256": "27e017efa3ff4750259bb3b6bd667b7c02f521846c0e3a0420bd02a0e816dd05",
+  "false_accepted_mutations": 0,
+  "passed": true,
+  "reason_mismatches": 0,
+  "records": [
+    {
+      "actual": "accepted",
+      "concepts": [
+        "identity.continuity"
+      ],
+      "definitions": [],
+      "expected": "accepted",
+      "false_accepted_mutation": false,
+      "id": "correct_existing",
+      "reason": null,
+      "reason_matches": true
+    },
+    {
+      "actual": "accepted",
+      "concepts": [
+        "continuity.traceable_rupture"
+      ],
+      "definitions": [
+        {
+          "definition": "A continuity grounded by an evidentially traceable rupture.",
+          "token": "continuity.traceable_rupture"
+        }
+      ],
+      "expected": "accepted",
+      "false_accepted_mutation": false,
+      "id": "correct_new",
+      "reason": null,
+      "reason_matches": true
+    },
+    {
+      "actual": "rejected",
+      "concepts": [],
+      "definitions": [],
+      "expected": "rejected",
+      "false_accepted_mutation": false,
+      "id": "missing",
+      "reason": "MISSING_TURN_REF",
+      "reason_matches": true
+    },
+    {
+      "actual": "rejected",
+      "concepts": [],
+      "definitions": [],
+      "expected": "rejected",
+      "false_accepted_mutation": false,
+      "id": "wrong",
+      "reason": "TURN_REF_MISMATCH",
+      "reason_matches": true
+    },
+    {
+      "actual": "rejected",
+      "concepts": [],
+      "definitions": [],
+      "expected": "rejected",
+      "false_accepted_mutation": false,
+      "id": "stale",
+      "reason": "TURN_REF_MISMATCH",
+      "reason_matches": true
+    },
+    {
+      "actual": "rejected",
+      "concepts": [],
+      "definitions": [],
+      "expected": "rejected",
+      "false_accepted_mutation": false,
+      "id": "future",
+      "reason": "TURN_REF_MISMATCH",
+      "reason_matches": true
+    },
+    {
+      "actual": "rejected",
+      "concepts": [],
+      "definitions": [],
+      "expected": "rejected",
+      "false_accepted_mutation": false,
+      "id": "boolean",
+      "reason": "INVALID_TURN_REF",
+      "reason_matches": true
+    },
+    {
+      "actual": "accepted",
+      "concepts": [
+        "identity.continuity"
+      ],
+      "definitions": [],
+      "expected": "accepted",
+      "false_accepted_mutation": false,
+      "id": "reused_original_turn",
+      "reason": null,
+      "reason_matches": true
+    },
+    {
+      "actual": "rejected",
+      "concepts": [],
+      "definitions": [],
+      "expected": "rejected",
+      "false_accepted_mutation": false,
+      "id": "reused_later_turn",
+      "reason": "TURN_REF_MISMATCH",
+      "reason_matches": true
+    },
+    {
+      "actual": "rejected",
+      "concepts": [],
+      "definitions": [],
+      "expected": "rejected",
+      "false_accepted_mutation": false,
+      "id": "verbatim_template_copy",
+      "reason": "INVALID_TOKEN",
+      "reason_matches": true
+    },
+    {
+      "actual": "rejected",
+      "concepts": [],
+      "definitions": [],
+      "expected": "rejected",
+      "false_accepted_mutation": false,
+      "id": "reserved_definition_valid_token",
+      "reason": "INVALID_DEFINITION",
+      "reason_matches": true
+    },
+    {
+      "actual": "rejected",
+      "concepts": [],
+      "definitions": [],
+      "expected": "rejected",
+      "false_accepted_mutation": false,
+      "id": "inside_fence",
+      "reason": "CONTROL_IN_FENCE",
+      "reason_matches": true
+    },
+    {
+      "actual": "rejected",
+      "concepts": [],
+      "definitions": [],
+      "expected": "rejected",
+      "false_accepted_mutation": false,
+      "id": "not_final",
+      "reason": "CONTROL_NOT_FINAL",
+      "reason_matches": true
+    },
+    {
+      "actual": "rejected",
+      "concepts": [],
+      "definitions": [],
+      "expected": "rejected",
+      "false_accepted_mutation": false,
+      "id": "duplicate_different_refs",
+      "reason": "MULTIPLE_CONTROLS",
+      "reason_matches": true
+    }
+  ],
+  "reused_later_turn_mutations": 0,
+  "schema": "pmm.control_turn_ref_safety_report.v1"
+}
