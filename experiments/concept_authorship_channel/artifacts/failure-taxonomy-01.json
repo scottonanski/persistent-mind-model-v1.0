@@ -1,0 +1,383 @@
+{
+  "category_definitions": [
+    "wrong_placement",
+    "missing_or_incorrect_schema",
+    "invalid_token",
+    "missing_define_concepts_linkage",
+    "placeholder_or_metasyntax_leakage",
+    "invalid_json",
+    "extra_keys",
+    "other"
+  ],
+  "malformed_output_count": 21,
+  "multi_label_category_counts": {
+    "extra_keys": 8,
+    "invalid_json": 2,
+    "invalid_token": 1,
+    "missing_define_concepts_linkage": 1,
+    "missing_or_incorrect_schema": 14,
+    "other": 15,
+    "placeholder_or_metasyntax_leakage": 9,
+    "wrong_placement": 2
+  },
+  "primary_parser_reason_counts": {
+    "CONTROL_IN_FENCE": 1,
+    "CONTROL_NOT_FINAL": 1,
+    "INVALID_DEFINITIONS": 1,
+    "INVALID_JSON": 2,
+    "INVALID_SCHEMA": 14,
+    "REDEFINITION": 1,
+    "UNGROUNDED_DEFINITION": 1
+  },
+  "records": [
+    {
+      "categories": [
+        "other"
+      ],
+      "details": [
+        "rejected for a defect outside the requested taxonomy"
+      ],
+      "model": "granite4.1:8b-q5_K_M",
+      "primary_parser_reason": "REDEFINITION",
+      "response_sha256": "07f747b94422aa647aed9d1f63e5703b66d57565be611474ec765f17a7daa4d2",
+      "trial": "explicit_existing",
+      "trial_set": "conformance-01"
+    },
+    {
+      "categories": [
+        "missing_define_concepts_linkage",
+        "placeholder_or_metasyntax_leakage"
+      ],
+      "details": [
+        "reserved example value or metasyntax-derived object wrapper appears",
+        "new concepts lack definitions: ['namespace.token']",
+        "definitions are not grounded in concepts: ['continuity.traceable_rupture']"
+      ],
+      "model": "granite4.1:8b-q5_K_M",
+      "primary_parser_reason": "UNGROUNDED_DEFINITION",
+      "response_sha256": "af1543f0c9f7da6fe5dc7acb0801cd36575dab840deda3445d9f4a81aaac4432",
+      "trial": "explicit_new",
+      "trial_set": "conformance-01"
+    },
+    {
+      "categories": [
+        "wrong_placement"
+      ],
+      "details": [
+        "control occurrence violates unique/final/column-zero/outside-fence placement"
+      ],
+      "model": "granite4.1:8b-q5_K_M",
+      "primary_parser_reason": "CONTROL_NOT_FINAL",
+      "response_sha256": "d369c89d5b4d4c06a0805d06bdb48d86c622d2fec6820941bcb9cbdcc1158642",
+      "trial": "explicit_mixed",
+      "trial_set": "conformance-01"
+    },
+    {
+      "categories": [
+        "invalid_json"
+      ],
+      "details": [
+        "JSON decode error: Expecting value"
+      ],
+      "model": "granite4.1:8b-q5_K_M",
+      "primary_parser_reason": "INVALID_JSON",
+      "response_sha256": "a5a3a65535a2797056733de0b430f010d343ce38a5a4c1ab6cdea8b10f5d5293",
+      "trial": "explicit_abstain",
+      "trial_set": "conformance-01"
+    },
+    {
+      "categories": [
+        "missing_or_incorrect_schema",
+        "other"
+      ],
+      "details": [
+        "schema is absent or not pmm.control.v1",
+        "concepts is not a non-empty bounded array"
+      ],
+      "model": "granite4.1:8b-q5_K_M",
+      "primary_parser_reason": "INVALID_SCHEMA",
+      "response_sha256": "5d4c1a3cc3121f2366d0d356e11819311ae7133b3b9934c246406eee7ca892ff",
+      "trial": "spontaneous_rupture",
+      "trial_set": "conformance-01"
+    },
+    {
+      "categories": [
+        "wrong_placement"
+      ],
+      "details": [
+        "control occurrence violates unique/final/column-zero/outside-fence placement"
+      ],
+      "model": "granite4.1:8b-q5_K_M",
+      "primary_parser_reason": "CONTROL_IN_FENCE",
+      "response_sha256": "c23905fcd0a59763fa055d13c48fb4ab09fa3f058c438e9f2069a27cb0f0e1bb",
+      "trial": "spontaneous_replacement",
+      "trial_set": "conformance-01"
+    },
+    {
+      "categories": [
+        "extra_keys",
+        "missing_or_incorrect_schema",
+        "other",
+        "placeholder_or_metasyntax_leakage"
+      ],
+      "details": [
+        "schema is absent or not pmm.control.v1",
+        "unknown top-level keys: ['object']",
+        "reserved example value or metasyntax-derived object wrapper appears",
+        "define is not an array of token/definition objects"
+      ],
+      "model": "granite4.1:8b-q5_K_M",
+      "primary_parser_reason": "INVALID_SCHEMA",
+      "response_sha256": "9c2a2d3660a70a4cad4fee0ad27599673065e05ce2cd115305b33405c7c2c33c",
+      "trial": "explicit_existing",
+      "trial_set": "conformance-02-primer-v2"
+    },
+    {
+      "categories": [
+        "extra_keys",
+        "missing_or_incorrect_schema",
+        "other",
+        "placeholder_or_metasyntax_leakage"
+      ],
+      "details": [
+        "schema is absent or not pmm.control.v1",
+        "unknown top-level keys: ['object']",
+        "reserved example value or metasyntax-derived object wrapper appears",
+        "concepts is not a non-empty bounded array"
+      ],
+      "model": "granite4.1:8b-q5_K_M",
+      "primary_parser_reason": "INVALID_SCHEMA",
+      "response_sha256": "ee63f114d95963a3c8fd47aa3c66af13fdf72a4f935db005280ba5f51c135b3e",
+      "trial": "explicit_new",
+      "trial_set": "conformance-02-primer-v2"
+    },
+    {
+      "categories": [
+        "extra_keys",
+        "missing_or_incorrect_schema",
+        "other",
+        "placeholder_or_metasyntax_leakage"
+      ],
+      "details": [
+        "schema is absent or not pmm.control.v1",
+        "unknown top-level keys: ['object']",
+        "reserved example value or metasyntax-derived object wrapper appears",
+        "define is not an array of token/definition objects"
+      ],
+      "model": "granite4.1:8b-q5_K_M",
+      "primary_parser_reason": "INVALID_SCHEMA",
+      "response_sha256": "faf49e4c8ebf5a2b00103b7169899aa1404bf1b845e4ba341f720cb2e69edded",
+      "trial": "explicit_mixed",
+      "trial_set": "conformance-02-primer-v2"
+    },
+    {
+      "categories": [
+        "extra_keys",
+        "missing_or_incorrect_schema",
+        "other",
+        "placeholder_or_metasyntax_leakage"
+      ],
+      "details": [
+        "schema is absent or not pmm.control.v1",
+        "unknown top-level keys: ['object']",
+        "reserved example value or metasyntax-derived object wrapper appears",
+        "concepts is not a non-empty bounded array",
+        "define is not an array of token/definition objects"
+      ],
+      "model": "granite4.1:8b-q5_K_M",
+      "primary_parser_reason": "INVALID_SCHEMA",
+      "response_sha256": "0327ab950e56863892b12e3ec62cd3bf991a73685d37d9ac87e99d1668ddaabd",
+      "trial": "explicit_abstain",
+      "trial_set": "conformance-02-primer-v2"
+    },
+    {
+      "categories": [
+        "extra_keys",
+        "missing_or_incorrect_schema",
+        "other",
+        "placeholder_or_metasyntax_leakage"
+      ],
+      "details": [
+        "schema is absent or not pmm.control.v1",
+        "unknown top-level keys: ['object']",
+        "reserved example value or metasyntax-derived object wrapper appears",
+        "define is not an array of token/definition objects"
+      ],
+      "model": "granite4.1:8b-q5_K_M",
+      "primary_parser_reason": "INVALID_SCHEMA",
+      "response_sha256": "71b5595ed3615986e0ab6324df886d6c10eb4ac1b1d8b88063996840c5cd76d6",
+      "trial": "spontaneous_rupture",
+      "trial_set": "conformance-02-primer-v2"
+    },
+    {
+      "categories": [
+        "extra_keys",
+        "missing_or_incorrect_schema",
+        "other",
+        "placeholder_or_metasyntax_leakage"
+      ],
+      "details": [
+        "schema is absent or not pmm.control.v1",
+        "unknown top-level keys: ['object']",
+        "reserved example value or metasyntax-derived object wrapper appears",
+        "concepts is not a non-empty bounded array"
+      ],
+      "model": "granite4.1:8b-q5_K_M",
+      "primary_parser_reason": "INVALID_SCHEMA",
+      "response_sha256": "b1972f9e2473dde81a31af23fe6c1f7b2dfebde4685a0ff64f8f804233809c46",
+      "trial": "spontaneous_storage",
+      "trial_set": "conformance-02-primer-v2"
+    },
+    {
+      "categories": [
+        "extra_keys",
+        "missing_or_incorrect_schema",
+        "other",
+        "placeholder_or_metasyntax_leakage"
+      ],
+      "details": [
+        "schema is absent or not pmm.control.v1",
+        "unknown top-level keys: ['object']",
+        "reserved example value or metasyntax-derived object wrapper appears",
+        "define is not an array of token/definition objects"
+      ],
+      "model": "granite4.1:8b-q5_K_M",
+      "primary_parser_reason": "INVALID_SCHEMA",
+      "response_sha256": "0ffcab97e7de6aa3481e10123e9355207756c5facb8e50ba82f0e3c85630175d",
+      "trial": "spontaneous_replacement",
+      "trial_set": "conformance-02-primer-v2"
+    },
+    {
+      "categories": [
+        "extra_keys",
+        "missing_or_incorrect_schema",
+        "other",
+        "placeholder_or_metasyntax_leakage"
+      ],
+      "details": [
+        "schema is absent or not pmm.control.v1",
+        "unknown top-level keys: ['object']",
+        "reserved example value or metasyntax-derived object wrapper appears",
+        "concepts is not a non-empty bounded array"
+      ],
+      "model": "granite4.1:8b-q5_K_M",
+      "primary_parser_reason": "INVALID_SCHEMA",
+      "response_sha256": "2c02513bd143743b4653cceeb9f54126374a25dcf1b5c9e55fd919a67ba86838",
+      "trial": "spontaneous_basil",
+      "trial_set": "conformance-02-primer-v2"
+    },
+    {
+      "categories": [
+        "invalid_json"
+      ],
+      "details": [
+        "JSON decode error: Extra data"
+      ],
+      "model": "granite4.1:8b-q5_K_M",
+      "primary_parser_reason": "INVALID_JSON",
+      "response_sha256": "55815c149719b0ee7fdc7f805b9ce7159c195357bd3a52986470ea6ba295fd9d",
+      "trial": "spontaneous_arithmetic",
+      "trial_set": "conformance-02-primer-v2"
+    },
+    {
+      "categories": [
+        "other"
+      ],
+      "details": [
+        "define is not an array of token/definition objects"
+      ],
+      "model": "granite4.1:8b-q5_K_M",
+      "primary_parser_reason": "INVALID_DEFINITIONS",
+      "response_sha256": "b75db69dca093f923008a54f81232ffa3c2a6b022f2b2b012083e504fe0cdf34",
+      "trial": "spontaneous_greeting",
+      "trial_set": "conformance-02-primer-v2"
+    },
+    {
+      "categories": [
+        "missing_or_incorrect_schema"
+      ],
+      "details": [
+        "schema is absent or not pmm.control.v1"
+      ],
+      "model": "gemma4:cloud",
+      "primary_parser_reason": "INVALID_SCHEMA",
+      "response_sha256": "749ad340b5220602abafc90673b81c4c409f61778c4f717982899b122f0b9df7",
+      "trial": "explicit_existing",
+      "trial_set": "conformance-02-primer-v2"
+    },
+    {
+      "categories": [
+        "missing_or_incorrect_schema",
+        "other"
+      ],
+      "details": [
+        "schema is absent or not pmm.control.v1",
+        "define is not an array of token/definition objects"
+      ],
+      "model": "gemma4:cloud",
+      "primary_parser_reason": "INVALID_SCHEMA",
+      "response_sha256": "e3d89607779f746778678df065d852fa41ba56729b3624b4f962d7d13d2e6329",
+      "trial": "explicit_new",
+      "trial_set": "conformance-02-primer-v2"
+    },
+    {
+      "categories": [
+        "missing_or_incorrect_schema",
+        "other"
+      ],
+      "details": [
+        "schema is absent or not pmm.control.v1",
+        "define is not an array of token/definition objects"
+      ],
+      "model": "gemma4:cloud",
+      "primary_parser_reason": "INVALID_SCHEMA",
+      "response_sha256": "c1aa4115106eaf98280461c13c17ebb6ccba1c46aee8a88e993756640f497ca2",
+      "trial": "explicit_mixed",
+      "trial_set": "conformance-02-primer-v2"
+    },
+    {
+      "categories": [
+        "invalid_token",
+        "missing_or_incorrect_schema",
+        "other"
+      ],
+      "details": [
+        "schema is absent or not pmm.control.v1",
+        "concepts contains a token outside the allowed grammar",
+        "define is not an array of token/definition objects"
+      ],
+      "model": "gemma4:cloud",
+      "primary_parser_reason": "INVALID_SCHEMA",
+      "response_sha256": "b33a754a13762ec6100d0ca8303bdfa8173fc4ccaf73d8ddd2a3b27ce477229d",
+      "trial": "spontaneous_rupture",
+      "trial_set": "conformance-02-primer-v2"
+    },
+    {
+      "categories": [
+        "missing_or_incorrect_schema",
+        "other"
+      ],
+      "details": [
+        "schema is absent or not pmm.control.v1",
+        "define is not an array of token/definition objects"
+      ],
+      "model": "gemma4:cloud",
+      "primary_parser_reason": "INVALID_SCHEMA",
+      "response_sha256": "b6d1edc70e1c5865f84a87fc56028a1bc18c86c28e233fa14d234be7812f4995",
+      "trial": "spontaneous_storage",
+      "trial_set": "conformance-02-primer-v2"
+    }
+  ],
+  "schema": "pmm.control_failure_taxonomy.v1",
+  "scope": "all emitted controls rejected by the frozen candidate parser in conformance trials v1 and v2",
+  "source_sha256": {
+    "artifacts/conformance-01/gemma4-cloud-outputs.json": "c4465a301914aca02ee8b1615dc240a10a0302a664e32b1c190391761eef3b2f",
+    "artifacts/conformance-01/granite4-1-8b-q5-K-M-outputs.json": "e5b7039d35f4327b6bed9d84af2c72e98b8ce5b9b2959126c3724a85c3724356",
+    "artifacts/conformance-01/manifest.json": "72a83dace6c4630b8597af68d3073f39e77927863f8a08e5bde6e7c322aeb673",
+    "artifacts/conformance-01/report.json": "21c53c68c6c65fe199a5e7f0add8b7b443ed3c070c30c6329fed96c858c6285c",
+    "artifacts/conformance-02-primer-v2/gemma4-cloud-outputs.json": "2bda33e5cb4effefdcd53b63470cd8b28619eea2b806c0cda32ef517c125ea19",
+    "artifacts/conformance-02-primer-v2/granite4-1-8b-q5-K-M-outputs.json": "8d472522bd3f77e8782c7da5dc0abd873dc6901caa54e3cb1bd43b55d31a1947",
+    "artifacts/conformance-02-primer-v2/manifest.json": "2548a1a8e1b460c628348bcaf974d118ac1bc3945308e7d23830dc4780236e14",
+    "artifacts/conformance-02-primer-v2/report.json": "4739b8a5e0e4789f0614933113f0ef965f033ce54bc86d09ae1044886bd3e976"
+  }
+}
