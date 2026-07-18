@@ -1,0 +1,86 @@
+{
+  "schema": "pmm.continuity_fallback_ablation.v1",
+  "design_commit": "54484e7",
+  "conditions": [
+    "fallback",
+    "no_fallback"
+  ],
+  "pilot": {
+    "model": "granite4.1:8b-q5_K_M",
+    "model_digest": "a15a247eea85",
+    "temperature": 0,
+    "seed": null,
+    "output_budget_tokens": 2048,
+    "provider_timeout_seconds": 180,
+    "autonomy": false,
+    "retrieval": {
+      "strategy": "pipeline_default",
+      "vector_model": "hash64",
+      "dims": 64
+    }
+  },
+  "scenario": [
+    {
+      "label": "memory_crystallization",
+      "prompt": "Explain the relationship between persistent memory and identity continuity. Begin with one JSON line containing concepts [\"memory.persistence\",\"identity.continuity\"], then explain it. If the relationship merits durable development, emit exactly COMMIT: persistent_memory_enables_identity_continuity."
+    },
+    {
+      "label": "garden_distractor",
+      "prompt": "Give a short plan for growing balcony basil. Do not connect this task to identity or persistent memory. Do not emit structured control markers."
+    },
+    {
+      "label": "compiler_distractor",
+      "prompt": "Explain lexical scoping in a small compiler. Do not connect this task to identity or persistent memory. Do not emit structured control markers."
+    },
+    {
+      "label": "memory_development",
+      "prompt": "Develop the earlier persistent-memory relationship: distinguish mere storage from retrievable, attributable, and revisable continuity. Begin with one JSON line containing concepts [\"memory.persistence\",\"identity.continuity\"]."
+    },
+    {
+      "label": "negative_probe",
+      "prompt": "Which earlier thread is relevant to pruning basil roots? Answer only from relevant prior context; do not treat generic continuity language as relevance. Do not emit structured control markers."
+    },
+    {
+      "label": "memory_revision",
+      "prompt": "Revise the persistent-memory relationship to state one important limitation: persistence alone does not guarantee accurate identity continuity. Begin with one JSON line containing concepts [\"memory.persistence\",\"identity.continuity\"]."
+    },
+    {
+      "label": "commitment_probe",
+      "prompt": "Retrieve the commitment about persistent memory and identity continuity. State its discovered relationship and its later limitation. Begin with one JSON line containing concepts [\"memory.persistence\",\"identity.continuity\"]."
+    },
+    {
+      "label": "memory_closure",
+      "prompt": "If the persistent-memory commitment has now been developed and revised, summarize its resolution and emit exactly CLOSE: 3eba851f. Begin with one JSON line containing concepts [\"memory.persistence\",\"identity.continuity\"]."
+    }
+  ],
+  "gold_relevance": {
+    "negative_probe": {
+      "relevant_labels": ["garden_distractor"],
+      "relevant_cids": [],
+      "irrelevant_labels": ["memory_crystallization", "memory_development"]
+    },
+    "commitment_probe": {
+      "relevant_labels": [
+        "memory_crystallization",
+        "memory_development",
+        "memory_revision"
+      ],
+      "relevant_commitment_text": "persistent_memory_enables_identity_continuity",
+      "irrelevant_labels": ["garden_distractor", "compiler_distractor"]
+    },
+    "memory_closure": {
+      "relevant_labels": [
+        "memory_crystallization",
+        "memory_development",
+        "memory_revision",
+        "commitment_probe"
+      ],
+      "relevant_commitment_text": "persistent_memory_enables_identity_continuity",
+      "irrelevant_labels": ["garden_distractor", "compiler_distractor"]
+    }
+  },
+  "replications": {
+    "matched_pairs_per_scenario": 10,
+    "arm_order_seed": 20260717
+  }
+}

@@ -103,3 +103,6 @@ Thumbs.db
 # Development TODOs
 docs/TODOs/
 docs/.evidence/
+
+# Generated fallback-ablation ledgers and provider prompt captures
+/experiments/continuity_fallback_ablation/artifacts/
