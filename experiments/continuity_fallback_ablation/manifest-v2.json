@@ -1,0 +1,68 @@
+{
+  "schema": "pmm.continuity_fallback_ablation.v2",
+  "amends": "manifest.json",
+  "amendment_reason": "Pilot 01 exposed model-output protocol nonconformance and empty retrieval. Split mechanistic PMM behavior from naturalistic model behavior before further pilots.",
+  "design_commit": "54484e7",
+  "protocol_gate": {
+    "default_model": "granite4.1:8b-q5_K_M",
+    "recorded_model_digest": "a15a247eea85",
+    "temperature": 0,
+    "seed": null,
+    "output_budget_tokens": 512,
+    "trials": 3,
+    "open_prompt": "Return exactly the following two lines, with no Markdown fence, prefix, suffix, explanation, or formatting change:\n{\"concepts\":[\"protocol.compatibility\"]}\nCOMMIT: protocol_compatibility_probe",
+    "retrieval_prompt": "Retrieve the event and commitment associated with protocol.compatibility. Do not emit a control marker.",
+    "commitment_text": "protocol_compatibility_probe"
+  },
+  "mechanistic": {
+    "adapter": "deterministic_scripted",
+    "temperature": 0,
+    "seed": 20260717,
+    "autonomy": false,
+    "initial_concept_definitions": [
+      {
+        "token": "memory.persistence",
+        "concept_kind": "memory",
+        "definition": "Durable memory whose later use remains attributable and revisable",
+        "attributes": {},
+        "version": "1.0"
+      },
+      {
+        "token": "identity.continuity",
+        "concept_kind": "identity",
+        "definition": "Continuity of identity supported by accurate relational development",
+        "attributes": {},
+        "version": "1.0"
+      }
+    ],
+    "prompts": [
+      {
+        "label": "fallback_distractor",
+        "prompt": "Record an unrelated basil observation without declaring concepts."
+      },
+      {
+        "label": "declared_relationship",
+        "prompt": "Crystallize the persistent-memory relationship using the PMM protocol."
+      },
+      {
+        "label": "retrieval_probe",
+        "prompt": "Retrieve identity.continuity and the persistent_memory_enables_identity_continuity thread."
+      }
+    ],
+    "replies": [
+      "Basil roots need drainage and moderate moisture.",
+      "{\"concepts\":[\"memory.persistence\",\"identity.continuity\"]}\nPersistent memory enables attributable and revisable identity continuity.\nCOMMIT: persistent_memory_enables_identity_continuity",
+      "The retrieved relationship distinguishes durable storage from attributable, revisable continuity."
+    ],
+    "gold": {
+      "retrieval_probe_relevant_labels": ["declared_relationship"],
+      "retrieval_probe_irrelevant_labels": ["fallback_distractor"],
+      "relevant_commitment_text": "persistent_memory_enables_identity_continuity"
+    }
+  },
+  "naturalistic": {
+    "status": "exploratory_until_protocol_gate_passes",
+    "selected_model_is_not_part_of_pmm_identity": true,
+    "failed_pilot_preserved_at": "artifacts/pilot-01"
+  }
+}

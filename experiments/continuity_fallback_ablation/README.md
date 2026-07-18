@@ -20,6 +20,20 @@ Run one real-model matched pilot pair:
 .venv/bin/python experiments/continuity_fallback_ablation/harness.py pilot
 ```
 
+Pilot 01 is retained but did not pass its diagnostic gate. Amendment 01 adds a
+model-parameterized protocol gate and a separate deterministic mechanistic
+pilot:
+
+```bash
+.venv/bin/python experiments/continuity_fallback_ablation/harness.py protocol-gate
+.venv/bin/python experiments/continuity_fallback_ablation/harness.py mechanistic-pilot
+```
+
+`protocol-gate` defaults to the model recorded in `manifest-v2.json`; `--model`
+may select any Ollama model. A passing result means that model/provider/settings
+combination emitted text accepted by PMM's existing model-agnostic protocol. It
+does not define a model-specific PMM protocol.
+
 Generated databases, full transcripts, prompt captures, and reports are written
 under `artifacts/`, which is intentionally ignored because it may contain private
 provider-facing context. Preserve that directory outside the repository before
