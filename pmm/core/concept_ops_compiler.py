@@ -20,6 +20,7 @@ from .concept_schemas import (
     create_concept_relate_payload,
 )
 from .event_log import EventLog
+from .binding_attribution import binding_attribution_meta
 
 
 class ConceptOpsCompiler:
@@ -33,6 +34,8 @@ class ConceptOpsCompiler:
         self,
         concept_ops: Dict[str, Any],
         source: str = "assistant",
+        binding_origin: str = "operator_declared",
+        origin_event_id: int | None = None,
     ) -> int:
         """Compile concept_ops dict into concept events.
 
@@ -97,7 +100,9 @@ class ConceptOpsCompiler:
         # Process bind_events
         bind_events = concept_ops.get("bind_events", [])
         if isinstance(bind_events, list):
-            events_added += self._compile_bind_events(bind_events, source)
+            events_added += self._compile_bind_events(
+                bind_events, source, binding_origin, origin_event_id
+            )
 
         # Process relate
         relates = concept_ops.get("relate", [])
@@ -188,7 +193,11 @@ class ConceptOpsCompiler:
         return events_added
 
     def _compile_bind_events(
-        self, bind_events: List[Dict[str, Any]], source: str
+        self,
+        bind_events: List[Dict[str, Any]],
+        source: str,
+        binding_origin: str,
+        origin_event_id: int | None,
     ) -> int:
         """Compile concept_bind_event operations with idempotency."""
         events_added = 0
@@ -228,6 +237,14 @@ class ConceptOpsCompiler:
                     relation=bind_op.get("relation", "evidence"),
                     weight=bind_op.get("weight", 1.0),
                     source=source,
+                )
+                meta = binding_attribution_meta(
+                    source=source,
+                    binding_origin=binding_origin,
+                    kind="concept_bind_event",
+                    content=content,
+                    origin_event_id=origin_event_id,
+                    extra=meta,
                 )
 
                 self.eventlog.append(
@@ -308,7 +325,9 @@ def compile_concept_ops(
     cg.rebuild(eventlog.read_all())
 
     compiler = ConceptOpsCompiler(eventlog, cg)
-    return compiler.compile_concept_ops(concept_ops, source=source)
+    return compiler.compile_concept_ops(
+        concept_ops, source=source, binding_origin="operator_declared"
+    )
 
 
 def compile_assistant_message_concepts(
@@ -336,4 +355,9 @@ def compile_assistant_message_concepts(
         return 0
 
     compiler = ConceptOpsCompiler(eventlog, concept_graph)
-    return compiler.compile_concept_ops(concept_ops, source="assistant")
+    return compiler.compile_concept_ops(
+        concept_ops,
+        source="assistant",
+        binding_origin="model_declared",
+        origin_event_id=int(assistant_message_event["id"]),
+    )

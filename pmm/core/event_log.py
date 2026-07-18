@@ -157,6 +157,26 @@ class EventLog:
         if not isinstance(content, str):
             raise TypeError("EventLog.append requires string content")
         meta = meta or {}
+        if kind in {
+            "concept_bind_event",
+            "concept_bind_thread",
+            "concept_bind_async",
+        }:
+            from pmm.core.binding_attribution import (
+                BINDING_ATTRIBUTION_PROTOCOL,
+                validate_binding_attribution_meta,
+            )
+
+            validate_binding_attribution_meta(meta)
+            if (
+                meta.get("binding_protocol") == BINDING_ATTRIBUTION_PROTOCOL
+                and meta.get("binding_origin") == "model_declared"
+            ):
+                origin_event = self.get(int(meta["origin_event_id"]))
+                if not origin_event or origin_event.get("kind") != "assistant_message":
+                    raise ValueError(
+                        "model_declared origin_event_id must identify an assistant_message"
+                    )
         ts = _iso_now()
         prev_hash = self._last_hash()
         # Hash payload intentionally excludes timestamp to keep digest

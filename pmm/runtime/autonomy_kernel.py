@@ -16,6 +16,7 @@ from pmm.core.meme_graph import MemeGraph
 from pmm.core.concept_graph import ConceptGraph
 from pmm.core.concept_metrics import check_concept_health
 from pmm.core.concept_schemas import create_concept_bind_event_payload
+from pmm.core.binding_attribution import binding_attribution_meta
 from pmm.runtime.reflection_synthesizer import synthesize_kernel_reflection
 from pmm.context.context_graph import ContextGraph
 from pmm.stability.stability_monitor import (
@@ -498,6 +499,14 @@ class AutonomyKernel:
                     relation=relation,
                     weight=1.0,
                     source="autonomy_kernel",
+                )
+                meta = binding_attribution_meta(
+                    source="autonomy_kernel",
+                    binding_origin="runtime_autonomy",
+                    kind="concept_bind_event",
+                    content=content,
+                    origin_event_id=eid,
+                    extra=meta,
                 )
                 self.eventlog.append(
                     kind="concept_bind_event",

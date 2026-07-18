@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List
 
+from pmm.core.binding_attribution import binding_attribution_meta
 from pmm.core.event_log import EventLog
 from pmm.core.concept_graph import ConceptGraph
 from pmm.core.meme_graph import MemeGraph
@@ -185,7 +186,14 @@ class Indexer:
                 self.eventlog.append(
                     kind="concept_bind_async",
                     content=bind_content,
-                    meta={"source": "autonomy_kernel.indexer", "origin": "async"},
+                    meta=binding_attribution_meta(
+                        source="autonomy_kernel.indexer",
+                        binding_origin="runtime_inferred_indexing",
+                        kind="concept_bind_async",
+                        content=bind_content,
+                        origin_event_id=event_id,
+                        extra={"origin": "async"},
+                    ),
                 )
                 # Also emit standard concept_bind_event for CTL compatibility
                 # (The async event is for audit/provenance, but CTL needs the standard one too?
@@ -312,12 +320,6 @@ class Indexer:
 
             for cid in cids:
                 for token in concepts:
-                    # Skip if already bound
-                    already = cid in self.concept_graph.concept_cid_bindings.get(
-                        self.concept_graph.canonical_token(token), set()
-                    )
-                    if already:
-                        continue
                     bind_content = json.dumps(
                         {
                             "cid": cid,
@@ -327,12 +329,45 @@ class Indexer:
                         sort_keys=True,
                         separators=(",", ":"),
                     )
-                    self.eventlog.append(
-                        kind="concept_bind_thread",
-                        content=bind_content,
-                        meta={"source": "indexer.backfill"},
+                    upstream = self.concept_graph.attributions_for_event_binding(
+                        token, eid
                     )
-                    emitted += 1
+                    attributable = [
+                        item
+                        for item in upstream
+                        if item.get("binding_origin") != "legacy_unknown"
+                    ]
+                    if not attributable:
+                        attributable = [{}]
+                    for item in attributable:
+                        binding_origin = str(
+                            item.get("binding_origin") or "index_backfill"
+                        )
+                        origin_event_id = item.get("origin_event_id")
+                        proposed_meta = binding_attribution_meta(
+                            source="indexer.backfill",
+                            binding_origin=binding_origin,
+                            kind="concept_bind_thread",
+                            content=bind_content,
+                            origin_event_id=origin_event_id,
+                            derived_from_binding_event_id=item.get(
+                                "binding_event_id"
+                            ),
+                        )
+                        existing_ids = {
+                            existing.get("attribution_id")
+                            for existing in self.concept_graph.attributions_for_thread_binding(
+                                token, cid
+                            )
+                        }
+                        if proposed_meta["attribution_id"] in existing_ids:
+                            continue
+                        self.eventlog.append(
+                            kind="concept_bind_thread",
+                            content=bind_content,
+                            meta=proposed_meta,
+                        )
+                        emitted += 1
 
             self._last_cbt_id = eid
 

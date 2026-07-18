@@ -14,6 +14,7 @@ import json
 from typing import Any, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 from .event_log import EventLog
+from .binding_attribution import projected_binding_origin
 
 if TYPE_CHECKING:
     from .meme_graph import MemeGraph
@@ -78,6 +79,8 @@ class ConceptGraph:
         # Thread bindings (concept -> cid, cid -> concepts)
         self.concept_cid_bindings: Dict[str, Set[str]] = {}
         self.cid_to_concepts: Dict[str, Set[str]] = {}
+        self.event_binding_attributions: Dict[Tuple[str, int], List[Dict[str, Any]]] = {}
+        self.thread_binding_attributions: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
 
         # Topological metadata for concepts (all rebuildable)
         # - concept_roots: earliest evidence binding for a concept token
@@ -101,6 +104,8 @@ class ConceptGraph:
         self.event_binding_relations.clear()
         self.concept_cid_bindings.clear()
         self.cid_to_concepts.clear()
+        self.event_binding_attributions.clear()
+        self.thread_binding_attributions.clear()
         self.concept_roots.clear()
         self.concept_tails.clear()
         self.concept_kinds.clear()
@@ -270,6 +275,9 @@ class ConceptGraph:
             if event_id not in self.event_to_concepts:
                 self.event_to_concepts[event_id] = set()
             self.event_to_concepts[event_id].add(canonical)
+            self._record_binding_attribution(
+                self.event_binding_attributions, (canonical, event_id), event
+            )
 
             # Maintain topological roots/tails for this concept token.
             current_root = self.concept_roots.get(canonical)
@@ -331,6 +339,9 @@ class ConceptGraph:
 
             self.concept_cid_bindings[canonical].add(cid)
             self.cid_to_concepts[cid].add(canonical)
+            self._record_binding_attribution(
+                self.thread_binding_attributions, (canonical, str(cid)), event
+            )
 
             if relation:
                 # Track relation in event_binding_relations for symmetry with event bindings
@@ -379,6 +390,50 @@ class ConceptGraph:
         if not cid:
             return set()
         return set(self.cid_to_concepts.get(cid, set()))
+
+    def attributions_for_event_binding(
+        self, token: str, event_id: int
+    ) -> List[Dict[str, Any]]:
+        key = (self.canonical_token(token), int(event_id))
+        return [dict(item) for item in self.event_binding_attributions.get(key, [])]
+
+    def attributions_for_thread_binding(
+        self, token: str, cid: str
+    ) -> List[Dict[str, Any]]:
+        key = (self.canonical_token(token), str(cid))
+        return [dict(item) for item in self.thread_binding_attributions.get(key, [])]
+
+    @staticmethod
+    def _record_binding_attribution(
+        target: Dict[Any, List[Dict[str, Any]]],
+        key: Any,
+        event: Dict[str, Any],
+    ) -> None:
+        meta = event.get("meta") or {}
+        record = {
+            "binding_event_id": event.get("id"),
+            "binding_origin": projected_binding_origin(meta),
+            "source": meta.get("source"),
+            "binding_protocol": meta.get("binding_protocol"),
+            "attribution_id": meta.get("attribution_id"),
+            "origin_event_id": meta.get("origin_event_id"),
+            "derived_from_binding_event_id": meta.get(
+                "derived_from_binding_event_id"
+            ),
+        }
+        records = target.setdefault(key, [])
+        identity = record.get("attribution_id") or (
+            record.get("binding_event_id"),
+            record.get("binding_origin"),
+        )
+        for existing in records:
+            existing_identity = existing.get("attribution_id") or (
+                existing.get("binding_event_id"),
+                existing.get("binding_origin"),
+            )
+            if existing_identity == identity:
+                return
+        records.append(record)
 
     def events_for_concept(
         self, token: str, relation: Optional[str] = None

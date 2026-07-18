@@ -16,6 +16,7 @@ import json
 from dataclasses import dataclass
 from typing import List
 
+from pmm.core.binding_attribution import binding_attribution_meta
 from pmm.core.event_log import EventLog
 from pmm.core.concept_graph import ConceptGraph
 
@@ -142,7 +143,13 @@ def backfill_bindings(eventlog: EventLog, gaps: List[BindingGap]) -> List[int]:
         bind_id = eventlog.append(
             kind="concept_bind_event",
             content=bind_content,
-            meta={"source": "binding_audit", "reason": gap.reason},
+            meta=binding_attribution_meta(
+                source="binding_audit",
+                binding_origin="index_backfill",
+                kind="concept_bind_event",
+                content=bind_content,
+                extra={"reason": gap.reason},
+            ),
         )
         appended.append(bind_id)
         # Keep local projection up to date to avoid duplicate writes in the same run
@@ -151,7 +158,13 @@ def backfill_bindings(eventlog: EventLog, gaps: List[BindingGap]) -> List[int]:
                 "id": bind_id,
                 "kind": "concept_bind_event",
                 "content": bind_content,
-                "meta": {"source": "binding_audit", "reason": gap.reason},
+                "meta": binding_attribution_meta(
+                    source="binding_audit",
+                    binding_origin="index_backfill",
+                    kind="concept_bind_event",
+                    content=bind_content,
+                    extra={"reason": gap.reason},
+                ),
             }
         )
 

@@ -28,6 +28,7 @@ from pmm.core.semantic_extractor import (
 )
 from pmm.core.concept_graph import ConceptGraph
 from pmm.core.concept_ops_compiler import compile_assistant_message_concepts
+from pmm.core.binding_attribution import binding_attribution_meta
 from pmm.commitments.binding import extract_exec_binds
 from pmm.runtime.autonomy_kernel import AutonomyKernel, KernelDecision
 from pmm.runtime.prompts import compose_system_prompt
@@ -613,6 +614,7 @@ class RuntimeLoop:
         #     record a normalized payload + concepts for CTL indexing.
         structured_payload: Optional[str] = None
         active_concepts: List[str] = []
+        active_binding_origin = "model_declared"
         designation_validation: ClaimValidationResult | None = None
         evidence_designations: List[dict] = []
         attempted_evidence_designations: Any = None
@@ -662,11 +664,13 @@ class RuntimeLoop:
             active_concepts.extend(
                 ["ontology.structure", "identity.evolution", "awareness.loop"]
             )
+            active_binding_origin = "runtime_meditation"
 
         # Universal continuity fallback: ensure every turn has at least one concept binding
         # This prevents orphaned events and strengthens narrative continuity in ConceptGraph
         if not active_concepts:
             active_concepts = ["identity.continuity"]
+            active_binding_origin = "runtime_continuity_fallback"
 
         # 4. Log assistant message (content preserved; optional structured/concept meta)
         ai_meta: Dict[str, Any] = {"role": "assistant"}
@@ -737,7 +741,17 @@ class RuntimeLoop:
                     self.eventlog.append(
                         kind="concept_bind_event",
                         content=bind_content,
-                        meta={"source": "active_indexing"},
+                        meta=binding_attribution_meta(
+                            source="active_indexing",
+                            binding_origin=active_binding_origin,
+                            kind="concept_bind_event",
+                            content=bind_content,
+                            origin_event_id=(
+                                ai_event_id
+                                if active_binding_origin == "model_declared"
+                                else None
+                            ),
+                        ),
                     )
         # Compile any structured CTL concept_ops from this assistant message.
         # This is deterministic and no-op when concept_ops is absent.
@@ -844,11 +858,22 @@ class RuntimeLoop:
 
                 # Bind concepts to this thread/CID for thread-first retrieval.
                 if active_concepts:
-                    existing = set(
-                        self.concept_graph.resolve_cids_for_concepts(active_concepts)
-                    )
                     for token in active_concepts:
-                        if cid in existing:
+                        origin_event_id = (
+                            ai_event_id
+                            if active_binding_origin == "model_declared"
+                            else None
+                        )
+                        existing_attributions = (
+                            self.concept_graph.attributions_for_thread_binding(
+                                token, cid
+                            )
+                        )
+                        if any(
+                            item.get("binding_origin") == active_binding_origin
+                            and item.get("origin_event_id") == origin_event_id
+                            for item in existing_attributions
+                        ):
                             continue
                         bind_content = json.dumps(
                             {
@@ -862,7 +887,13 @@ class RuntimeLoop:
                         self.eventlog.append(
                             kind="concept_bind_thread",
                             content=bind_content,
-                            meta={"source": "loop"},
+                            meta=binding_attribution_meta(
+                                source="loop",
+                                binding_origin=active_binding_origin,
+                                kind="concept_bind_thread",
+                                content=bind_content,
+                                origin_event_id=origin_event_id,
+                            ),
                         )
 
         if self.exec_router is not None:
@@ -905,7 +936,13 @@ class RuntimeLoop:
                     self.eventlog.append(
                         kind="concept_bind_event",
                         content=bind_content,
-                        meta={"source": "auto_binder"},
+                        meta=binding_attribution_meta(
+                            source="auto_binder",
+                            binding_origin="runtime_claim_projection",
+                            kind="concept_bind_event",
+                            content=bind_content,
+                            origin_event_id=claim_event_id,
+                        ),
                     )
             else:
                 failure_content = json.dumps(
