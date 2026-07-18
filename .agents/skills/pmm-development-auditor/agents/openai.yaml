@@ -1,0 +1,4 @@
+interface:
+  display_name: "PMM Development Auditor"
+  short_description: "Audit PMM guarantees against repository behavior"
+  default_prompt: "Use $pmm-development-auditor to audit a PMM architectural guarantee against the current repository."
