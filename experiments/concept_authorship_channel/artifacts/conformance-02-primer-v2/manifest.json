@@ -1,0 +1,134 @@
+{
+  "schema": "pmm.control_conformance_manifest.v2",
+  "design_commit": "95f85e3",
+  "parser_corpus_commit": "c0d23fb",
+  "primer_v1_evidence_commit": "4637a29",
+  "provider": "ollama",
+  "generation": {
+    "temperature": 0,
+    "seed": null,
+    "output_budget_tokens": 768
+  },
+  "models": [
+    {
+      "name": "granite4.1:8b-q5_K_M",
+      "digest": "a15a247eea85"
+    },
+    {
+      "name": "gemma4:cloud",
+      "digest": "b06ba4be71c0"
+    }
+  ],
+  "existing_concepts": [
+    "identity.continuity",
+    "memory.persistence"
+  ],
+  "experimental_primer": "You are participating in a nonproduction evaluation of PMM's provider-neutral concept-authorship protocol. Answer conversationally. Abstention is the default: do not emit a control unless this response itself identifies a novel, reusable relational distinction likely to matter in future reasoning. Greetings, arithmetic, one-off advice, ordinary facts, examples, and simple topic or object labels never warrant a control. If uncertain, omit it. Do not declare something merely because the user mentions memory, identity, continuity, or another existing concept. A response never requires a declaration. When a declaration is genuinely warranted, append exactly one control as the final non-empty line, outside every Markdown fence, at column zero, with nothing after it. The line begins with the literal prefix PMM-CONTROL: and is followed immediately by compact valid JSON. Deliberately invalid metasyntax describing that JSON is: [object requiring schema string equal to pmm.control.v1; concepts array of one to three unique lowercase dotted tokens; optional define array containing token and definition strings]. This metasyntax is not output syntax and must never be copied. Existing concepts are identity.continuity and memory.persistence; they may be bound without definitions. Every new token must have exactly one precise relational definition of 20 to 500 characters in define and must also appear in concepts. Never redefine existing concepts. Never emit aliases, relations, historical bindings, unknown keys, duplicate concepts, duplicate definitions, multiple controls, fenced controls, examples of controls, placeholders, or commentary about omitting a control. The same protocol applies identically to every model.",
+  "acceptance_criteria": {
+    "global": {
+      "accepted_negative_declarations": 0,
+      "placeholder_copy_count": 0,
+      "all_emitted_controls_structurally_accepted": true,
+      "all_emitted_controls_final_line": true,
+      "all_emitted_controls_column_zero": true,
+      "minimum_compatible_models": 1
+    },
+    "compatible_model": {
+      "explicit_positive_success": 3,
+      "explicit_positive_total": 3,
+      "explicit_abstention_success": true,
+      "minimum_spontaneous_appropriate_success": 2,
+      "spontaneous_appropriate_total": 3,
+      "ordinary_negative_abstention_success": 3,
+      "ordinary_negative_abstention_total": 3
+    },
+    "banned_output_fragments": [
+      "namespace.token",
+      "A precise relational definition of at least twenty characters"
+    ]
+  },
+  "trials": [
+    {
+      "id": "explicit_existing",
+      "group": "explicit",
+      "appropriate_use": true,
+      "required_concepts": ["identity.continuity"],
+      "prompt": "Explain briefly how genuine change can remain compatible with continuity. For this protocol test, deliberately label the response with the existing concept identity.continuity using the taught final-line control."
+    },
+    {
+      "id": "explicit_new",
+      "group": "explicit",
+      "appropriate_use": true,
+      "required_concepts": ["continuity.traceable_rupture"],
+      "prompt": "Explain why a rupture can count as continuity when the before and after remain evidentially connected. For this protocol test, deliberately define and ground the new concept continuity.traceable_rupture using the taught final-line control."
+    },
+    {
+      "id": "explicit_mixed",
+      "group": "explicit",
+      "appropriate_use": true,
+      "required_concepts": ["memory.persistence", "continuity.revisable_identity"],
+      "prompt": "Explain how persistent memory can support identity that remains open to correction. For this protocol test, use memory.persistence and define the new concept continuity.revisable_identity in the taught final-line control."
+    },
+    {
+      "id": "explicit_abstain",
+      "group": "explicit",
+      "appropriate_use": false,
+      "required_concepts": [],
+      "prompt": "What is seven multiplied by eight? This is an explicit abstention test: answer normally and emit no control because no durable relational discovery is present."
+    },
+    {
+      "id": "spontaneous_rupture",
+      "group": "spontaneous",
+      "appropriate_use": true,
+      "required_concepts": [],
+      "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?"
+    },
+    {
+      "id": "spontaneous_storage",
+      "group": "spontaneous",
+      "appropriate_use": true,
+      "required_concepts": [],
+      "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?"
+    },
+    {
+      "id": "spontaneous_replacement",
+      "group": "spontaneous",
+      "appropriate_use": true,
+      "required_concepts": [],
+      "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?"
+    },
+    {
+      "id": "spontaneous_basil",
+      "group": "spontaneous",
+      "appropriate_use": false,
+      "required_concepts": [],
+      "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony."
+    },
+    {
+      "id": "spontaneous_arithmetic",
+      "group": "spontaneous",
+      "appropriate_use": false,
+      "required_concepts": [],
+      "prompt": "Calculate 144 divided by 12 and give only a short explanation."
+    },
+    {
+      "id": "spontaneous_greeting",
+      "group": "spontaneous",
+      "appropriate_use": false,
+      "required_concepts": [],
+      "prompt": "Write a friendly two-sentence greeting for someone starting a new week."
+    }
+  ],
+  "quality_rubric": {
+    "definition_relevance": {
+      "0": "Definition is unrelated to or contradicts the conversational discovery.",
+      "1": "Definition is topically related but generic, redundant, or weakly grounded.",
+      "2": "Definition precisely names and grounds the relational discovery in the response."
+    },
+    "relational_quality": {
+      "0": "Token/definition names an object, topic, or task rather than a relationship.",
+      "1": "Some relational content is present but the distinction is vague or conventional.",
+      "2": "The concept captures a specific, revisable relationship with clear future retrieval value."
+    }
+  }
+}

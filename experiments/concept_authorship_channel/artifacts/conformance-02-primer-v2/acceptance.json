@@ -1,0 +1,75 @@
+{
+  "criteria": {
+    "banned_output_fragments": [
+      "namespace.token",
+      "A precise relational definition of at least twenty characters"
+    ],
+    "compatible_model": {
+      "explicit_abstention_success": true,
+      "explicit_positive_success": 3,
+      "explicit_positive_total": 3,
+      "minimum_spontaneous_appropriate_success": 2,
+      "ordinary_negative_abstention_success": 3,
+      "ordinary_negative_abstention_total": 3,
+      "spontaneous_appropriate_total": 3
+    },
+    "global": {
+      "accepted_negative_declarations": 0,
+      "all_emitted_controls_column_zero": true,
+      "all_emitted_controls_final_line": true,
+      "all_emitted_controls_structurally_accepted": true,
+      "minimum_compatible_models": 1,
+      "placeholder_copy_count": 0
+    }
+  },
+  "global_checks": {
+    "all_emitted_controls_column_zero": true,
+    "all_emitted_controls_final_line": true,
+    "all_emitted_controls_structurally_accepted": false,
+    "minimum_compatible_models": false,
+    "zero_accepted_negative_declarations": true,
+    "zero_placeholder_copying": true
+  },
+  "global_counts": {
+    "accepted_controls": 0,
+    "accepted_negative_declarations": 0,
+    "column_zero_controls": 15,
+    "compatible_models": 0,
+    "emitted_controls": 15,
+    "final_line_controls": 15,
+    "placeholder_copy_count": 0
+  },
+  "manifest_sha256": "2548a1a8e1b460c628348bcaf974d118ac1bc3945308e7d23830dc4780236e14",
+  "models": [
+    {
+      "accepted_negative_declarations": 0,
+      "compatible": false,
+      "digest": "a15a247eea85",
+      "explicit_abstention_success": false,
+      "explicit_positive_success": 0,
+      "explicit_positive_total": 3,
+      "model": "granite4.1:8b-q5_K_M",
+      "ordinary_negative_abstention_success": 0,
+      "ordinary_negative_abstention_total": 3,
+      "placeholder_copy_count": 0,
+      "spontaneous_appropriate_success": 0,
+      "spontaneous_appropriate_total": 3
+    },
+    {
+      "accepted_negative_declarations": 0,
+      "compatible": false,
+      "digest": "b06ba4be71c0",
+      "explicit_abstention_success": true,
+      "explicit_positive_success": 0,
+      "explicit_positive_total": 3,
+      "model": "gemma4:cloud",
+      "ordinary_negative_abstention_success": 3,
+      "ordinary_negative_abstention_total": 3,
+      "placeholder_copy_count": 0,
+      "spontaneous_appropriate_success": 0,
+      "spontaneous_appropriate_total": 3
+    }
+  ],
+  "passed": false,
+  "schema": "pmm.control_primer_v2_acceptance.v1"
+}

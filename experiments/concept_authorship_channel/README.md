@@ -14,6 +14,7 @@ each configured model. Its outputs are artifacts, not production PMM turns.
 ```bash
 .venv/bin/python experiments/concept_authorship_channel/offline_harness.py
 .venv/bin/python experiments/concept_authorship_channel/conformance_harness.py
+.venv/bin/python experiments/concept_authorship_channel/conformance_harness_v2.py
 ```
 
 Generated reports, provider outputs, and checksums are written under

@@ -6,6 +6,7 @@ retrieval, or ledger behavior was changed.
 Design amendment commit: `95f85e3`  
 Frozen safety corpus commit: `c0d23fb`  
 Frozen conformance trials commit: `1243096`
+Frozen primer-v2 trials commit: `dc96beb`
 
 ## Scope
 
@@ -171,12 +172,66 @@ placeholder and reducing overuse without weakening the parser. The protocol and
 production acceptance criteria should be frozen only after that evidence is
 reviewed and a separate implementation is approved.
 
+## Primer-v2 conformance result
+
+Primer v2 changed only the nonproduction teaching prompt. The candidate parser,
+models, generation settings, existing-concept list, and ten trial prompts were
+unchanged. The primer contained no syntactically valid control example. It used
+deliberately invalid metasyntax, made abstention the default, and explicitly
+excluded greetings, arithmetic, one-off advice, ordinary facts, examples, and
+simple topic labels. The manifest and acceptance criteria were committed before
+any model call. A subsequent harness-only commit fixed its direct-execution
+import path before any trial ran; it did not alter the primer or criteria.
+
+The preregistered gate failed:
+
+| Measurement | Granite | Gemma |
+|---|---:|---:|
+| Explicit positive success | 0/3 | 0/3 |
+| Explicit abstention success | 0/1 | 1/1 |
+| Spontaneous appropriate use | 0/3 | 0/3 |
+| Ordinary negative abstention | 0/3 | 3/3 |
+| Controls emitted | 10 | 5 |
+| Structurally accepted controls | 0 | 0 |
+| Final-line placement when emitted | 10/10 | 5/5 |
+| Column-zero placement when emitted | 10/10 | 5/5 |
+| Accepted negative declarations | 0 | 0 |
+| Placeholder copies | 0 | 0 |
+
+Granite continued to invoke the channel on every negative prompt. Its controls
+generally represented the invalid metasyntax as an `object` wrapper or supplied
+`define` in the wrong shape. Gemma correctly abstained on all four negative
+trials, and its emitted lines were close to the intended form, but they omitted
+the required `schema` key. Some Gemma definitions also used nested arrays or
+flat strings rather than definition objects. Its mixed explicit response omitted
+the requested existing `memory.persistence` concept.
+
+Thus removing a copyable example corrected neither model's structural
+conformance, although it eliminated literal placeholder copying and separated
+their selectivity behavior sharply. Granite remained both structurally
+incompatible and nonselective under this primer. Gemma became appropriately
+selective but structurally incompatible. No model met the frozen compatibility
+criteria, and the global requirement that every emitted control be accepted
+failed.
+
+The masked quality worksheet is empty because the unchanged parser accepted no
+definitions. Conceptual quality was therefore not scored; treating rejected raw
+payloads as accepted definitions after observing the result would change the
+measurement boundary post hoc.
+
+This refines the previous lesson: parser safety remains strong on the frozen
+offline corpus, but the teaching problem includes both *when* to declare and
+how to express the exact schema without a copyable valid example. The result
+still does not justify production implementation or model-family-specific
+acceptance rules.
+
 ## Preserved artifacts
 
 Generated artifacts are stored locally under:
 
 - `experiments/concept_authorship_channel/artifacts/offline-safety-01/`
 - `experiments/concept_authorship_channel/artifacts/conformance-01/`
+- `experiments/concept_authorship_channel/artifacts/conformance-02-primer-v2/`
 
 They contain the reports, exact model outputs, frozen manifest copy, masked
 quality worksheet, quality scores, and checksum manifests.
@@ -185,6 +240,14 @@ Conformance report SHA-256:
 
 ```text
 21c53c68c6c65fe199a5e7f0add8b7b443ed3c070c30c6329fed96c858c6285c
+```
+
+Primer-v2 manifest, report, and acceptance SHA-256 values:
+
+```text
+2548a1a8e1b460c628348bcaf974d118ac1bc3945308e7d23830dc4780236e14  manifest.json
+4739b8a5e0e4789f0614933113f0ef965f033ce54bc86d09ae1044886bd3e976  report.json
+76448bd9e03d1d397b22b2646ebdfb9a5f830eb166dae81321606fec9e461be8  acceptance.json
 ```
 
 No production implementation is included in this result.

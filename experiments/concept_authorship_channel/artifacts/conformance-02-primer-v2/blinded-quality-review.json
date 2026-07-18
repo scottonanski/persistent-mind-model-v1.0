@@ -1,0 +1,15 @@
+{
+  "items": [],
+  "rubric": {
+    "definition_relevance": {
+      "0": "Definition is unrelated to or contradicts the conversational discovery.",
+      "1": "Definition is topically related but generic, redundant, or weakly grounded.",
+      "2": "Definition precisely names and grounds the relational discovery in the response."
+    },
+    "relational_quality": {
+      "0": "Token/definition names an object, topic, or task rather than a relationship.",
+      "1": "Some relational content is present but the distinction is vague or conventional.",
+      "2": "The concept captures a specific, revisable relationship with clear future retrieval value."
+    }
+  }
+}

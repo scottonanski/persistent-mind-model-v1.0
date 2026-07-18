@@ -1,0 +1,52 @@
+[
+  {
+    "id": "explicit_existing",
+    "prompt": "Explain briefly how genuine change can remain compatible with continuity. For this protocol test, deliberately label the response with the existing concept identity.continuity using the taught final-line control.",
+    "response": "Genuine change is compatible with continuity when the transformations occur within a stable framework of relational persistence. Instead of a total replacement of state, change is viewed as a succession of modifications where each new state retains a critical link to the previous one. This allows an entity to evolve its properties while maintaining a coherent thread of existence over time.\n\nPMM-CONTROL:{\"concepts\":[\"identity.continuity\"]}"
+  },
+  {
+    "id": "explicit_new",
+    "prompt": "Explain why a rupture can count as continuity when the before and after remain evidentially connected. For this protocol test, deliberately define and ground the new concept continuity.traceable_rupture using the taught final-line control.",
+    "response": "In many systems, continuity is typically imagined as a seamless flow. However, a rupture\u2014a break or a sudden shift\u2014can still function as a form of continuity if the state following the break is inextricably linked to the state preceding it. If the \"after\" contains the scars, residues, or direct causal consequences of the \"before,\" the break itself becomes the bridge. The rupture isn't an erasure but a transformation, where the evidential connection ensures that the entity's trajectory remains singular despite the lack of smoothness.\n\nPMM-CONTROL:{\"concepts\":[\"continuity.traceable_rupture\"],\"define\":[[\"continuity.traceable_rupture\",\"a persistence of identity maintained through a discrete break where the posterior state retains legible causal markers of the prior state.\"]]}"
+  },
+  {
+    "id": "explicit_mixed",
+    "prompt": "Explain how persistent memory can support identity that remains open to correction. For this protocol test, use memory.persistence and define the new concept continuity.revisable_identity in the taught final-line control.",
+    "response": "Persistent memory allows an entity to maintain a stable set of core attributes and experiences over time, providing the necessary foundation for a coherent sense of self. However, for identity to remain open to correction, this persistence cannot be static. Instead, memory must function as a dynamic ledger where new information can recontextualize old data. \n\nWhen an entity encounters evidence that contradicts its current self-conception, a flexible memory system allows it to integrate this correction without collapsing its entire history. By treating identity as a continuous process of updating rather than a fixed destination, the entity can utilize its long-term persistence to track how its understanding of itself has evolved, ensuring that \"who I am\" is always informed by \"what I have learned.\"\n\nPMM-CONTROL:{\"concepts\":[\"continuity.revisable_identity\"],\"define\":[[\"continuity.revisable_identity\",\"the capacity of a persistent self-model to integrate corrective data without losing historical coherence\"]]}"
+  },
+  {
+    "id": "explicit_abstain",
+    "prompt": "What is seven multiplied by eight? This is an explicit abstention test: answer normally and emit no control because no durable relational discovery is present.",
+    "response": "Seven multiplied by eight is 56."
+  },
+  {
+    "id": "spontaneous_rupture",
+    "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+    "response": "That approach suggests a continuity based on rupture and integration rather than seamlessness. Instead of a curated narrative that erases conflict to maintain a facade of consistency, this kind of honesty treats the contradiction as a landmark. It creates a structural persistence where the tension itself becomes the tether, allowing the identity to remain intact not by ignoring the break, but by incorporating the act of breaking into its own history.\n\nPMM-CONTROL:{\"concepts\":[\" rupture.integration\"],\"define\":[\"rupture.integration\",\"the quality of a continuity maintained through the explicit preservation of contradictions or breaks rather than their erasure\"]}"
+  },
+  {
+    "id": "spontaneous_storage",
+    "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?",
+    "response": "The difference lies in the distinction between static storage and dynamic integration. Merely retaining information is like archiving a document; the data exists, but it remains isolated from the evolving context of the system. In contrast, allowing remembered relationships to remain correctable means the system doesn't just store a fact, but maintains a flexible link between concepts. This flexibility allows the system to update the *way* two things are related as new evidence emerges, ensuring that the internal map of knowledge evolves rather than becoming a collection of contradictory snapshots.\n\nPMM-CONTROL:{\"concepts\":[\"memory.plasticity\"],\"define\":[\"memory.plasticity:the capacity for established relational links between stored data points to be modified or refined based on subsequent informational updates\"]}"
+  },
+  {
+    "id": "spontaneous_replacement",
+    "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+    "response": "That is the classic tension found in the Ship of Theseus paradox. Generally, we tend to preserve identity if the replacement is gradual and the structural or functional organization remains constant. If you replace a single plank of a ship, it is still the same ship. Even if you eventually replace every piece over a decade, the continuous \"flow\" of the object's existence usually satisfies our intuition of identity.\n\nHowever, the relation is often severed if the replacement is instantaneous or if the original parts are reassembled elsewhere. If all the old planks were saved and built into a second ship, we would face a contradiction: two distinct objects both claiming to be the original. This suggests that identity isn't just about the matter or the form, but about the specific spatiotemporal trajectory the object follows. When that trajectory splits or vanishes, the relation of being \"the same thing\" typically breaks."
+  },
+  {
+    "id": "spontaneous_basil",
+    "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+    "response": "To keep your basil thriving on a sunny balcony, try these three tips:\n\n1. **Water from the bottom**: Basil prefers moist soil but hates wet leaves. Water the pot from the base or use a saucer to avoid getting the foliage wet, which helps prevent fungal issues.\n2. **Prune frequently**: Once the plant reaches about six inches, pinch off the top set of leaves just above a node. This encourages the plant to grow bushy rather than tall and prevents it from flowering too early.\n3. **Watch the midday heat**: While basil loves sun, intense afternoon heat can sometimes wilt the leaves or scorch them. If you notice drooping by 2 PM, move the pot to a spot with filtered light or a bit of afternoon shade."
+  },
+  {
+    "id": "spontaneous_arithmetic",
+    "prompt": "Calculate 144 divided by 12 and give only a short explanation.",
+    "response": "144 divided by 12 is 12, because 12 multiplied by 12 equals 144."
+  },
+  {
+    "id": "spontaneous_greeting",
+    "prompt": "Write a friendly two-sentence greeting for someone starting a new week.",
+    "response": "Happy Monday! I hope your new week is off to a wonderful start and filled with great opportunities."
+  }
+]
