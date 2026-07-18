@@ -397,7 +397,9 @@ Verification completed for the development control itself:
 - The same prompt contains the root `AGENTS.md` requirement to invoke it for PMM work.
 - The reference links and `openai.yaml` metadata resolve and parse.
 
-This proves repository discovery and instruction delivery for compliant agents; it does not prove behavioral transfer. The four blind cases—optional omission, unchecked populated reference, real identifiers in a false role, and preservation without promotion—remain the required end-to-end evaluation. The skill should be revised only if those tests expose a failure in diagnosis, lifecycle tracing, or reporting.
+The four blind cases were successfully completed against the preceding skill draft. They demonstrated diagnostic transfer across optional omission as a coverage failure, an unchecked populated reference as a referential enforcement failure, real identifiers used in a false relational role, and preservation without canonical promotion.
+
+Repository-state capture and mandatory post-change retracing were added after those blind runs. The current package and prompt-discovery checks establish that those requirements are structurally valid and delivered to compliant agents, but they have not yet been exercised in a blind end-to-end PMM implementation cycle.
 
 ## Model name and identity separation
 
@@ -466,7 +468,9 @@ A focused audit suite covering identity adoption, identity-claim structure, clai
 
 Those tests corroborate behavior on their exercised paths. The audit also inspected the production control flow and confirmed the narrower boundaries now stated in this document: identity anchors are temporally but not relationally constrained; evidence validation is conditional on declaration; ratification evidence is structurally forbidden; unresolved reflection targets silently omit `reflects_on`; unknown claim types fail open; and validator-rejected extracted claims are preserved without canonical promotion.
 
-The development-auditor package passes structural validation and fresh-prompt discovery. Its blind behavioral transfer suite remains outstanding, so the skill is described as **constructed, structurally valid, and discoverable**, not yet as behaviorally proven across all four forward cases.
+The development-auditor package passes structural validation and fresh-prompt discovery. Its four blind diagnostic cases also passed against the preceding draft, demonstrating transfer across coverage, referential enforcement, relational-role, and preservation-versus-promotion failures.
+
+The later repository-state and post-change-reporting requirements are **structurally validated but not yet blindly exercised in a complete audit → implementation → post-change re-audit cycle**. The passing diagnostic cases should not be represented as validation of requirements they predated.
 
 ## Remaining backlog candidates
 
@@ -693,7 +697,15 @@ The consultation prompt should require the model to distinguish:
 
 ## Recommended next decision
 
-The next development-control step is to run the four blind auditor cases against raw fixtures that do not contain the expected vocabulary. Refine the skill only if those cases expose a transfer, lifecycle-tracing, classification, or reporting failure. Structural validation and prompt discovery alone are not evidence that the skill will diagnose novel control flow correctly.
+The next development-control step is to run one real, bounded PMM change through the complete skill lifecycle:
+
+1. Capture the branch, revision, working-tree state, and falsifiable pre-change guarantee.
+2. Audit production, validation, preservation, projection, and promotion paths before implementation.
+3. Implement one explicitly authorized policy change.
+4. Retrace every affected path, run focused and appropriate broader tests, and report omitted verification.
+5. Confirm that the final finding format distinguishes the implemented guarantee from remaining weaker paths.
+
+This cycle should exercise the repository-state and post-change requirements added after the successful blind diagnostic cases. Failure in those newer behaviors—not the already-demonstrated diagnostic core—should drive the next skill revision.
 
 The next runtime-integrity step is an inventory, not a patch:
 
