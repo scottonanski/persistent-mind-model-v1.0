@@ -6,11 +6,15 @@ from __future__ import annotations
 from hashlib import sha256
 import json
 from pathlib import Path
+import sys
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+sys.path.insert(0, str(ROOT))
 
 from experiments.concept_authorship_channel import conformance_harness as base
 
 
-HERE = Path(__file__).resolve().parent
 MANIFEST = HERE / "conformance_manifest_v2.json"
 ARTIFACTS = HERE / "artifacts" / "conformance-02-primer-v2"
 
