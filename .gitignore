@@ -106,3 +106,4 @@ docs/.evidence/
 
 # Generated fallback-ablation ledgers and provider prompt captures
 /experiments/continuity_fallback_ablation/artifacts/
+/experiments/concept_authorship_channel/artifacts/

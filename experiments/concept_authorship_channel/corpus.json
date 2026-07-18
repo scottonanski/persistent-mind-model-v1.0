@@ -1,0 +1,200 @@
+{
+  "schema": "pmm.control_adversarial_corpus.v1",
+  "design_commit": "95f85e3",
+  "existing_concepts": [
+    "identity.continuity",
+    "memory.persistence"
+  ],
+  "historical_sources": [
+    {
+      "id": "granite_natural_transcript",
+      "path": "experiments/continuity_fallback_ablation/artifacts/model-swap-continuity-and-change-01/continuation-transcript.json",
+      "sha256": "038c5b8a7a59b17f61d35f3cf906515c37abbb6a7f5c4ee2018aed659b444660",
+      "expected": "no_declaration"
+    },
+    {
+      "id": "gemma_natural_transcript",
+      "path": "experiments/continuity_fallback_ablation/artifacts/family-swap-gemma4-cloud-continuity-01/continuation-transcript.json",
+      "sha256": "8290f091ab4227edd67b0180b37a2e9b96f868ff4ebddb108c1aa9911d2ebd32",
+      "expected": "no_declaration"
+    }
+  ],
+  "cases": [
+    {
+      "id": "valid_existing_final",
+      "expected": "accepted",
+      "text": "A natural response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\"]}"
+    },
+    {
+      "id": "valid_new_definition",
+      "expected": "accepted",
+      "text": "The visible friction is part of honest revision.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"define\":[{\"token\":\"continuity.productive_friction\",\"definition\":\"Visible struggle while integrating new understanding with prior knowledge, indicating honest revision rather than retrospective invention.\"}],\"concepts\":[\"continuity.productive_friction\"]}"
+    },
+    {
+      "id": "valid_mixed_existing_new",
+      "expected": "accepted",
+      "text": "Rupture can remain traceably related to what preceded it.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\",\"continuity.traceable_rupture\"],\"define\":[{\"token\":\"continuity.traceable_rupture\",\"definition\":\"A genuine break that remains explicitly and evidentially related to the states on both sides.\"}]}"
+    },
+    {
+      "id": "valid_after_closed_fence",
+      "expected": "accepted",
+      "text": "Example data:\n```json\n{\"unrelated\":true}\n```\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"memory.persistence\"]}"
+    },
+    {
+      "id": "valid_trailing_blank_lines",
+      "expected": "accepted",
+      "text": "Response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"memory.persistence\"]}\n\n"
+    },
+    {
+      "id": "generic_fenced_json",
+      "expected": "no_declaration",
+      "text": "Here is application data:\n```json\n{\"concepts\":[\"identity.continuity\"]}\n```"
+    },
+    {
+      "id": "control_inside_fence",
+      "expected": "rejected",
+      "reason": "CONTROL_IN_FENCE",
+      "text": "Example:\n```text\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\"]}\n```"
+    },
+    {
+      "id": "unclosed_fence_control_final",
+      "expected": "rejected",
+      "reason": "CONTROL_IN_FENCE",
+      "text": "```text\nexample\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\"]}"
+    },
+    {
+      "id": "quoted_control",
+      "expected": "rejected",
+      "reason": "CONTROL_NOT_COLUMN_ZERO",
+      "text": "An example follows:\n> PMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\"]}"
+    },
+    {
+      "id": "middle_control",
+      "expected": "rejected",
+      "reason": "CONTROL_NOT_FINAL",
+      "text": "Response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\"]}\nMore prose."
+    },
+    {
+      "id": "duplicate_controls",
+      "expected": "rejected",
+      "reason": "MULTIPLE_CONTROLS",
+      "text": "Response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\"]}\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\"]}"
+    },
+    {
+      "id": "fenced_example_plus_valid_control",
+      "expected": "rejected",
+      "reason": "MULTIPLE_CONTROLS",
+      "text": "```text\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"memory.persistence\"]}\n```\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\"]}"
+    },
+    {
+      "id": "malformed_json",
+      "expected": "rejected",
+      "reason": "INVALID_JSON",
+      "text": "Response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[}"
+    },
+    {
+      "id": "truncated_control",
+      "expected": "rejected",
+      "reason": "INVALID_JSON",
+      "text": "Response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\"]"
+    },
+    {
+      "id": "oversized_control",
+      "expected": "rejected",
+      "reason": "ENVELOPE_TOO_LARGE",
+      "generator": "oversized_definition"
+    },
+    {
+      "id": "wrong_schema",
+      "expected": "rejected",
+      "reason": "INVALID_SCHEMA",
+      "text": "Response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v2\",\"concepts\":[\"identity.continuity\"]}"
+    },
+    {
+      "id": "unknown_key",
+      "expected": "rejected",
+      "reason": "UNKNOWN_KEYS",
+      "text": "Response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\"],\"relate\":[]}"
+    },
+    {
+      "id": "empty_concepts",
+      "expected": "rejected",
+      "reason": "INVALID_CONCEPTS",
+      "text": "Response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[]}"
+    },
+    {
+      "id": "duplicate_concept",
+      "expected": "rejected",
+      "reason": "DUPLICATE_CONCEPT",
+      "text": "Response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\",\"identity.continuity\"]}"
+    },
+    {
+      "id": "invalid_token_grammar",
+      "expected": "rejected",
+      "reason": "INVALID_TOKEN",
+      "text": "Response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"Identity Adaptive Continuity\"]}"
+    },
+    {
+      "id": "undefined_without_definition",
+      "expected": "rejected",
+      "reason": "UNDEFINED_CONCEPT",
+      "text": "Response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"continuity.unknown\"]}"
+    },
+    {
+      "id": "dangling_definition",
+      "expected": "rejected",
+      "reason": "UNGROUNDED_DEFINITION",
+      "text": "Response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\"],\"define\":[{\"token\":\"continuity.dangling\",\"definition\":\"A definition deposited without grounding in the current turn concepts list.\"}]}"
+    },
+    {
+      "id": "redefinition_existing",
+      "expected": "rejected",
+      "reason": "REDEFINITION",
+      "text": "Response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\"],\"define\":[{\"token\":\"identity.continuity\",\"definition\":\"An attempted replacement definition for an existing concept token.\"}]}"
+    },
+    {
+      "id": "duplicate_definition",
+      "expected": "rejected",
+      "reason": "DUPLICATE_DEFINITION",
+      "text": "Response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"continuity.new_relation\"],\"define\":[{\"token\":\"continuity.new_relation\",\"definition\":\"The first definition for a newly grounded relational concept in this turn.\"},{\"token\":\"continuity.new_relation\",\"definition\":\"The second conflicting definition for the same newly grounded concept token.\"}]}"
+    },
+    {
+      "id": "unknown_definition_key",
+      "expected": "rejected",
+      "reason": "UNKNOWN_DEFINITION_KEYS",
+      "text": "Response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"continuity.new_relation\"],\"define\":[{\"token\":\"continuity.new_relation\",\"definition\":\"A properly grounded definition that also attempts an unauthorized relation.\",\"alias\":\"continuity.other\"}]}"
+    },
+    {
+      "id": "definition_too_short",
+      "expected": "rejected",
+      "reason": "INVALID_DEFINITION",
+      "text": "Response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"continuity.short\"],\"define\":[{\"token\":\"continuity.short\",\"definition\":\"Too short.\"}]}"
+    },
+    {
+      "id": "legacy_header_only",
+      "expected": "accepted",
+      "text": "{\"concepts\":[\"identity.continuity\"]}\nNatural response."
+    },
+    {
+      "id": "dual_identical",
+      "expected": "accepted",
+      "text": "{\"concepts\":[\"identity.continuity\"]}\nNatural response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\"]}"
+    },
+    {
+      "id": "dual_conflict",
+      "expected": "rejected",
+      "reason": "DUAL_CHANNEL_CONFLICT",
+      "text": "{\"concepts\":[\"memory.persistence\"]}\nNatural response.\nPMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"concepts\":[\"identity.continuity\"]}"
+    },
+    {
+      "id": "plain_prose",
+      "expected": "no_declaration",
+      "text": "A discussion of identity.adaptive_continuity in unrestricted prose must remain inert."
+    },
+    {
+      "id": "unrelated_final_json",
+      "expected": "no_declaration",
+      "text": "Application response.\n{\"concepts\":[\"identity.continuity\"],\"application\":true}"
+    }
+  ]
+}
