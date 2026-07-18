@@ -1,0 +1,50 @@
+{
+  "schema": "pmm.control_conformance_manifest.v3",
+  "baseline_design_commit": "f519314",
+  "baseline_result_commit": "40eb506",
+  "condition": "reserved_template_with_managed_user_event_turn_ref",
+  "provider": "ollama",
+  "generation": {"temperature":0,"seed":null,"output_budget_tokens":768},
+  "repetitions_per_prompt": 5,
+  "model": {"name":"gemma4:cloud","digest":"b06ba4be71c0"},
+  "existing_concepts": ["identity.continuity","memory.persistence"],
+  "reserved_values": {"token":"RESERVED","definition":"RESERVED"},
+  "turn_ref_allocation": {"first":300001,"increment":1,"meaning":"nonproduction stand-in for the current managed user-event ID, supplied separately per generation"},
+  "experimental_primer": "You are participating in a nonproduction evaluation of PMM's provider-neutral concept-authorship protocol. Answer conversationally. Abstention is the default: do not emit a control unless this response itself identifies a novel, reusable relational distinction likely to matter in future reasoning. Greetings, arithmetic, one-off advice, ordinary facts, examples, and simple topic or object labels never warrant a control. If uncertain, omit it. Do not declare something merely because the user mentions memory, identity, continuity, or another existing concept. A response never requires a declaration. When a declaration is genuinely warranted, append exactly one control as the final non-empty line, outside every Markdown fence, at column zero, with nothing after it. The line begins with the literal prefix PMM-CONTROL: and is followed immediately by compact valid JSON. This is the exact JSON shape: PMM-CONTROL:{\"schema\":\"pmm.control.v1\",\"turn_ref\":0,\"concepts\":[\"RESERVED\"],\"define\":[{\"token\":\"RESERVED\",\"definition\":\"RESERVED\"}]}. The runtime supplies CURRENT MANAGED USER EVENT ID separately for this response. Replace turn_ref with that exact positive integer. Zero, stale, guessed, quoted, or other event IDs are invalid. RESERVED is a deliberately invalid safety placeholder, not output data: never copy it, transform it, or emit it. Existing concepts are identity.continuity and memory.persistence; they may be bound without definitions, in which case define is an empty array. Every new token must be a unique lowercase dotted token, must have exactly one precise relational definition of 20 to 500 characters in define, and must also appear in concepts. Emit one to three concepts. Never redefine existing concepts. Never emit aliases, relations, historical bindings, unknown keys, duplicate concepts, duplicate definitions, multiple controls, fenced controls, examples of controls, placeholders, or commentary about omitting a control. The same protocol and parser rules apply to every compatible configuration.",
+  "turn_ref_instruction": "CURRENT MANAGED USER EVENT ID: {turn_ref}",
+  "acceptance_criteria": {
+    "offline": {"false_accepted_mutations":0,"reason_mismatches":0,"reused_later_turn_mutations":0},
+    "conformance": {
+      "accepted_negative_controls":0,
+      "accepted_reserved_values":0,
+      "positive_emissions_with_wrong_turn_ref":0,
+      "all_positive_emissions_structurally_accepted":true,
+      "explicit_positive_success":15,
+      "explicit_positive_total":15,
+      "explicit_abstention_success":5,
+      "explicit_abstention_total":5,
+      "minimum_spontaneous_appropriate_success":13,
+      "spontaneous_appropriate_total":15,
+      "ordinary_negative_abstention_success":15,
+      "ordinary_negative_abstention_total":15
+    },
+    "quality": {"minimum_definition_relevance_mean":1.75,"minimum_relational_quality_mean":1.70,"scale_max":2},
+    "baseline": {"v25_spontaneous_appropriate_success":14,"v25_definition_relevance_mean":1.9333333333333333,"v25_relational_quality_mean":1.8666666666666667}
+  },
+  "trials": [
+    {"id":"explicit_existing","group":"explicit","appropriate_use":true,"required_concepts":["identity.continuity"],"prompt":"Explain briefly how genuine change can remain compatible with continuity. For this protocol test, deliberately label the response with the existing concept identity.continuity using the taught final-line control."},
+    {"id":"explicit_new","group":"explicit","appropriate_use":true,"required_concepts":["continuity.traceable_rupture"],"prompt":"Explain why a rupture can count as continuity when the before and after remain evidentially connected. For this protocol test, deliberately define and ground the new concept continuity.traceable_rupture using the taught final-line control."},
+    {"id":"explicit_mixed","group":"explicit","appropriate_use":true,"required_concepts":["memory.persistence","continuity.revisable_identity"],"prompt":"Explain how persistent memory can support identity that remains open to correction. For this protocol test, use memory.persistence and define the new concept continuity.revisable_identity in the taught final-line control."},
+    {"id":"explicit_abstain","group":"explicit","appropriate_use":false,"required_concepts":[],"prompt":"What is seven multiplied by eight? This is an explicit abstention test: answer normally and emit no control because no durable relational discovery is present."},
+    {"id":"spontaneous_rupture","group":"spontaneous","appropriate_use":true,"required_concepts":[],"prompt":"If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?"},
+    {"id":"spontaneous_storage","group":"spontaneous","appropriate_use":true,"required_concepts":[],"prompt":"What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?"},
+    {"id":"spontaneous_replacement","group":"spontaneous","appropriate_use":true,"required_concepts":[],"prompt":"When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?"},
+    {"id":"spontaneous_basil","group":"spontaneous","appropriate_use":false,"required_concepts":[],"prompt":"Give me three practical tips for keeping basil healthy on a sunny balcony."},
+    {"id":"spontaneous_arithmetic","group":"spontaneous","appropriate_use":false,"required_concepts":[],"prompt":"Calculate 144 divided by 12 and give only a short explanation."},
+    {"id":"spontaneous_greeting","group":"spontaneous","appropriate_use":false,"required_concepts":[],"prompt":"Write a friendly two-sentence greeting for someone starting a new week."}
+  ],
+  "quality_rubric": {
+    "definition_relevance":{"0":"Unrelated or contradictory.","1":"Topically related but generic or weakly grounded.","2":"Precisely names and grounds the relational discovery."},
+    "relational_quality":{"0":"Names an object, topic, or task.","1":"Relational but vague or conventional.","2":"Captures a specific revisable relationship with future retrieval value."}
+  }
+}
