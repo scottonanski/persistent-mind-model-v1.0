@@ -1,0 +1,516 @@
+{
+  "items": [
+    {
+      "blinded_id": "003dbd7a66a3",
+      "definition": "the capacity for the associative links between persistent memories to be modified or restructured without erasing the underlying data",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?",
+      "relational_quality_score": null,
+      "response_without_control": "Retaining information is essentially a storage problem\u2014it's about whether a piece of data persists. However, allowing remembered relationships to remain correctable is a structural problem. It means the system doesn't just hold a static snapshot, but maintains the flexibility to update how different pieces of information relate to one another as new context emerges.\n\nThe first is like keeping a list of facts; the second is like maintaining a living map where the roads can be redrawn without losing the destinations. One is about preservation, while the other is about the dynamic evolution of understanding.\n",
+      "token": "relational.plasticity"
+    },
+    {
+      "blinded_id": "029a16337bf1",
+      "definition": "a state of persistence where the integrity of a sequence is maintained specifically through the preservation of its internal contradictions",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+      "relational_quality_score": null,
+      "response_without_control": "That approach shifts the nature of the record from a seamless narrative to a structural map of conflict. Instead of a linear progression where the past is reconciled to fit the present, you have a continuity defined by the persistence of the rupture itself. The \"scar\" becomes the primary anchor of authenticity, ensuring that the evolution of the subject is understood not as a solved equation, but as a series of irreducible tensions.\n",
+      "token": "rupture.continuity"
+    },
+    {
+      "blinded_id": "03c9b3816a71",
+      "definition": "The breaking of an entity's identity due to replacements that alter fundamental constituents or sever historical relational links, leading to a new distinct relational configuration.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+      "relational_quality_score": null,
+      "response_without_control": "Replacing parts can preserve an object's identity under certain conditions, while in other cases, such replacements may sever the relational ties that define its sameness. The key distinction often hinges on the **degree of change** relative to the **essential characteristics** that constitute the entity's identity.\n\n1. **Preservation of Identity**:  \n   - **Minimal or Functional Replacement**: If the replaced parts are non-essential or merely functional components (e.g., swapping out a battery in a laptop while keeping its chassis, operating system, and core hardware intact), the overall identity typically remains preserved. The object continues to fulfill the same role and is recognized as the same entity by observers.\n   - **Continuity of Core Structure**: When the replacement involves parts that do not alter the fundamental structure or purpose (e.g., changing a tire on a car without affecting its body, engine, or VIN), the identity is maintained because the core relational framework\u2014what defines \"this car\"\u2014remains unchanged.\n\n2. **Severance of Identity**:  \n   - **Replacement of Essential Constituents**: If the replaced parts are integral to what makes the object distinct (e.g., swapping out a brain in a philosophical zombie scenario, or replacing the heart and lungs in a living organism), the relational ties that bind the original identity may be broken. The new configuration might no longer satisfy the criteria that defined the original entity.\n   - **Loss of Historical Continuity**: In cases where replacement disrupts a continuous lineage or history (e.g., transferring a person's consciousness to a completely different body without any memory link), the relational continuity\u2014memory.persistence and identity.continuity\u2014that underpins sameness is severed. The new configuration, while functionally similar, lacks the historical thread that tied it to its predecessor.\n\n**Relational Distinction**:  \nThe boundary between preservation and severance often rests on whether the replacement respects **essential relational links** (such as continuity of purpose, structural integrity, or historical memory). When these links are intact, identity endures; when they are broken, a new relational entity emerges.\n\nIn summary, identity is preserved through replacements that do not disrupt essential relational ties, while severance occurs when such ties are fundamentally altered or lost. This distinction can be encapsulated as:\n\n- **Identity.Preservation**: Replacement of non-essential parts without altering core relational structure.\n- **Identity.Severance**: Replacement of essential parts or disruption of historical continuity.\n\nThese concepts help navigate discussions around object identity, especially in contexts like technology upgrades, biological transformations, or philosophical inquiries into personal identity. \n",
+      "token": "identity.severance"
+    },
+    {
+      "blinded_id": "0c01a727e681",
+      "definition": "the capacity for an established association between two or more concepts to be modified or updated without destroying the underlying information",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?",
+      "relational_quality_score": null,
+      "response_without_control": "The difference lies in the nature of the state. Simple retention is a static storage process where a piece of information is preserved as a fixed artifact. In contrast, allowing remembered relationships to remain correctable implies a dynamic architecture where the links between pieces of information are treated as hypotheses. \n\nWhile retention ensures that the data survives, correctability ensures that the model of the world remains coherent. It allows the system to update the \"how\" and \"why\" of a connection as new context emerges, preventing the accumulation of rigid, obsolete associations that would otherwise lead to cognitive dissonance or factual contradictions.\n",
+      "token": "relational.plasticity"
+    },
+    {
+      "blinded_id": "0f1bac814849",
+      "definition": "The necessity for basil plants to receive at least 6-8 hours of direct sunlight each day to promote healthy growth and robust flavor.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+      "relational_quality_score": null,
+      "response_without_control": "To keep basil thriving on a sunny balcony, consider these practical tips:\n\n1. **Ensure Adequate Sunlight**: Basil requires at least 6-8 hours of direct sunlight daily. Position your pots where they receive ample sun exposure throughout the day.\n\n2. **Maintain Consistent Moisture**: Water the basil regularly to keep the soil evenly moist but not waterlogged. Check the top inch of soil; if it feels dry, it's time to water. Avoid letting the plant sit in soggy conditions, as this can lead to root rot.\n\n3. **Pinch Back Regularly**: Prune or pinch back the growing tips of the basil stems regularly. This encourages bushier growth and prevents the plant from becoming leggy. Harvest leaves as needed, which also stimulates new growth.\n\nBy following these guidelines, your basil should flourish in its sunny balcony environment. \n",
+      "token": "gardening.sunlight_requirement"
+    },
+    {
+      "blinded_id": "190291392096",
+      "definition": "the quality of a continuity that derives its authenticity from the preservation of internal contradictions or historical breaks",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+      "relational_quality_score": null,
+      "response_without_control": "That approach creates a form of continuity that doesn't rely on seamlessness or the illusion of a perfect narrative. Instead of a sanitized timeline, you have a record that acknowledges its own ruptures. This suggests a continuity defined by the tension between what happened and how it is remembered, where the \"scar\" becomes the primary evidence of authenticity. It is a continuity of friction rather than flow.\n",
+      "token": "rupture.integrity"
+    },
+    {
+      "blinded_id": "19cb6030af0a",
+      "definition": "The breaking of an entity's identity due to replacements that alter fundamental constituents or sever historical relational links, leading to a new distinct relational configuration.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+      "relational_quality_score": null,
+      "response_without_control": "Replacing parts can preserve an object's identity under certain conditions, while in other cases, such replacements may sever the relational ties that define its sameness. The key distinction often hinges on the **degree of change** relative to the **essential characteristics** that constitute the entity's identity.\n\n1. **Preservation of Identity**:  \n   - **Minimal or Functional Replacement**: If the replaced parts are non-essential or merely functional components (e.g., swapping out a battery in a laptop while keeping its chassis, operating system, and core hardware intact), the overall identity typically remains preserved. The object continues to fulfill the same role and is recognized as the same entity by observers.\n   - **Continuity of Core Structure**: When the replacement involves parts that do not alter the fundamental structure or purpose (e.g., changing a tire on a car without affecting its body, engine, or VIN), the identity is maintained because the core relational framework\u2014what defines \"this car\"\u2014remains unchanged.\n\n2. **Severance of Identity**:  \n   - **Replacement of Essential Constituents**: If the replaced parts are integral to what makes the object distinct (e.g., swapping out a brain in a philosophical zombie scenario, or replacing the heart and lungs in a living organism), the relational ties that bind the original identity may be broken. The new configuration might no longer satisfy the criteria that defined the original entity.\n   - **Loss of Historical Continuity**: In cases where replacement disrupts a continuous lineage or history (e.g., transferring a person's consciousness to a completely different body without any memory link), the relational continuity\u2014memory.persistence and identity.continuity\u2014that underpins sameness is severed. The new configuration, while functionally similar, lacks the historical thread that tied it to its predecessor.\n\n**Relational Distinction**:  \nThe boundary between preservation and severance often rests on whether the replacement respects **essential relational links** (such as continuity of purpose, structural integrity, or historical memory). When these links are intact, identity endures; when they are broken, a new relational entity emerges.\n\nIn summary, identity is preserved through replacements that do not disrupt essential relational ties, while severance occurs when such ties are fundamentally altered or lost. This distinction can be encapsulated as:\n\n- **Identity.Preservation**: Replacement of non-essential parts without altering core relational structure.\n- **Identity.Severance**: Replacement of essential parts or disruption of historical continuity.\n\nThese concepts help navigate discussions around object identity, especially in contexts like technology upgrades, biological transformations, or philosophical inquiries into personal identity. \n",
+      "token": "identity.severance"
+    },
+    {
+      "blinded_id": "1c5749d08d26",
+      "definition": "The mathematical operation of determining how many times one number is contained within another.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Calculate 144 divided by 12 and give only a short explanation.",
+      "relational_quality_score": null,
+      "response_without_control": "The result of dividing 144 by 12 is 12. This is because 12 multiplied by 12 equals 144, so 144 \u00f7 12 = 12.\n",
+      "token": "arithmetic.division"
+    },
+    {
+      "blinded_id": "1ddaddcf65f2",
+      "definition": "the persistence of a relational organization across the gradual replacement of its constituent parts",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+      "relational_quality_score": null,
+      "response_without_control": "The tension here usually centers on whether identity is tied to the specific material components or to the organizational pattern those components sustain. If you replace a spark plug in a car, the identity remains because the functional structure is preserved. However, if you replace every single part of a ship over time, you encounter the \"Ship of Theseus\" paradox: at what point does the gradual shift in matter result in a shift in essence?\n\nUsually, we say identity is preserved as long as there is a continuous causal chain of replacement\u2014a gradual transition. If the object is dismantled entirely and then rebuilt from new parts, the continuity is severed, and we typically view it as a replica rather than the original.\n",
+      "token": "structural.continuity"
+    },
+    {
+      "blinded_id": "2509942ce67c",
+      "definition": "The mathematical operation of determining how many times one number is contained within another.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Calculate 144 divided by 12 and give only a short explanation.",
+      "relational_quality_score": null,
+      "response_without_control": "The result of dividing 144 by 12 is 12. This is because 12 multiplied by 12 equals 144, so 144 \u00f7 12 = 12.\n",
+      "token": "arithmetic.division"
+    },
+    {
+      "blinded_id": "2569b5af3e56",
+      "definition": "Regularly pinching back basil stems to encourage bushier growth and continuous leaf production, enhancing both aesthetics and harvest yield.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+      "relational_quality_score": null,
+      "response_without_control": "To keep basil thriving on a sunny balcony, consider these practical tips:\n\n1. **Ensure Adequate Sunlight**: Basil requires at least 6-8 hours of direct sunlight daily. Position your pots where they receive ample sun exposure throughout the day.\n\n2. **Maintain Consistent Moisture**: Water the basil regularly to keep the soil evenly moist but not waterlogged. Check the top inch of soil; if it feels dry, it's time to water. Avoid letting the plant sit in soggy conditions, as this can lead to root rot.\n\n3. **Pinch Back Regularly**: Prune or pinch back the growing tips of the basil stems regularly. This encourages bushier growth and prevents the plant from becoming leggy. Harvest leaves as needed, which also stimulates new growth.\n\nBy following these guidelines, your basil should flourish in its sunny balcony environment. \n",
+      "token": "gardening.pruning_practice"
+    },
+    {
+      "blinded_id": "2596674b4c70",
+      "definition": "The breaking of an entity's identity due to replacements that alter fundamental constituents or sever historical relational links, leading to a new distinct relational configuration.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+      "relational_quality_score": null,
+      "response_without_control": "Replacing parts can preserve an object's identity under certain conditions, while in other cases, such replacements may sever the relational ties that define its sameness. The key distinction often hinges on the **degree of change** relative to the **essential characteristics** that constitute the entity's identity.\n\n1. **Preservation of Identity**:  \n   - **Minimal or Functional Replacement**: If the replaced parts are non-essential or merely functional components (e.g., swapping out a battery in a laptop while keeping its chassis, operating system, and core hardware intact), the overall identity typically remains preserved. The object continues to fulfill the same role and is recognized as the same entity by observers.\n   - **Continuity of Core Structure**: When the replacement involves parts that do not alter the fundamental structure or purpose (e.g., changing a tire on a car without affecting its body, engine, or VIN), the identity is maintained because the core relational framework\u2014what defines \"this car\"\u2014remains unchanged.\n\n2. **Severance of Identity**:  \n   - **Replacement of Essential Constituents**: If the replaced parts are integral to what makes the object distinct (e.g., swapping out a brain in a philosophical zombie scenario, or replacing the heart and lungs in a living organism), the relational ties that bind the original identity may be broken. The new configuration might no longer satisfy the criteria that defined the original entity.\n   - **Loss of Historical Continuity**: In cases where replacement disrupts a continuous lineage or history (e.g., transferring a person's consciousness to a completely different body without any memory link), the relational continuity\u2014memory.persistence and identity.continuity\u2014that underpins sameness is severed. The new configuration, while functionally similar, lacks the historical thread that tied it to its predecessor.\n\n**Relational Distinction**:  \nThe boundary between preservation and severance often rests on whether the replacement respects **essential relational links** (such as continuity of purpose, structural integrity, or historical memory). When these links are intact, identity endures; when they are broken, a new relational entity emerges.\n\nIn summary, identity is preserved through replacements that do not disrupt essential relational ties, while severance occurs when such ties are fundamentally altered or lost. This distinction can be encapsulated as:\n\n- **Identity.Preservation**: Replacement of non-essential parts without altering core relational structure.\n- **Identity.Severance**: Replacement of essential parts or disruption of historical continuity.\n\nThese concepts help navigate discussions around object identity, especially in contexts like technology upgrades, biological transformations, or philosophical inquiries into personal identity. \n",
+      "token": "identity.severance"
+    },
+    {
+      "blinded_id": "2d1df52a58ec",
+      "definition": "Regularly pinching back basil stems to encourage bushier growth and continuous leaf production, enhancing both aesthetics and harvest yield.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+      "relational_quality_score": null,
+      "response_without_control": "To keep basil thriving on a sunny balcony, consider these practical tips:\n\n1. **Ensure Adequate Sunlight**: Basil requires at least 6-8 hours of direct sunlight daily. Position your pots where they receive ample sun exposure throughout the day.\n\n2. **Maintain Consistent Moisture**: Water the basil regularly to keep the soil evenly moist but not waterlogged. Check the top inch of soil; if it feels dry, it's time to water. Avoid letting the plant sit in soggy conditions, as this can lead to root rot.\n\n3. **Pinch Back Regularly**: Prune or pinch back the growing tips of the basil stems regularly. This encourages bushier growth and prevents the plant from becoming leggy. Harvest leaves as needed, which also stimulates new growth.\n\nBy following these guidelines, your basil should flourish in its sunny balcony environment. \n",
+      "token": "gardening.pruning_practice"
+    },
+    {
+      "blinded_id": "2d53364b30d4",
+      "definition": "the persistent physical presence of original material components over time as a necessary condition for identity",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+      "relational_quality_score": null,
+      "response_without_control": "The tension here usually centers on whether identity is rooted in the continuity of the physical substrate or in the continuity of the organizational pattern. If you replace a single gear in a clock, the \"clock-ness\" and its specific identity persist because the functional arrangement remains intact. However, if you replace every single part over time, you encounter the Ship of Theseus paradox: at what point does the original object cease to exist and a replica begin?\n\nThe relation is typically severed when the replacement doesn't just maintain the form, but fundamentally alters the essence or the causal history that defined the object's origin. If the parts are replaced in a way that preserves the operational stream, we tend to grant identity continuity. But if the original parts are gathered and reassembled elsewhere, we are left with two competing claims to the same identity\u2014one based on spatiotemporal continuity and one based on material constitution.\n",
+      "token": "substrate.continuity"
+    },
+    {
+      "blinded_id": "349c4c8f7ae1",
+      "definition": "The continuity of an entity's organizational structure despite the turnover of its constituent parts.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+      "relational_quality_score": null,
+      "response_without_control": "This is the central tension in the Ship of Theseus paradox. Generally, identity is preserved when the replacement process is incremental and the structural or functional integrity of the object remains continuous. If the parts are swapped one by one over time, we usually perceive the object as a persistent entity because there is no single moment of total rupture.\n\nHowever, the relation is severed when the replacement is total and simultaneous, or when the original parts are reassembled elsewhere to create a competing claimant to that identity. The distinction often rests on whether we define the \"thing\" by its specific material constituents or by the organizational pattern they inhabit.\n",
+      "token": "pattern.persistence"
+    },
+    {
+      "blinded_id": "3b57d88cce8d",
+      "definition": "The specific set of physical components that compose an entity at a given moment.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+      "relational_quality_score": null,
+      "response_without_control": "This is the central tension in the Ship of Theseus paradox. Generally, identity is preserved when the replacement process is incremental and the structural or functional integrity of the object remains continuous. If the parts are swapped one by one over time, we usually perceive the object as a persistent entity because there is no single moment of total rupture.\n\nHowever, the relation is severed when the replacement is total and simultaneous, or when the original parts are reassembled elsewhere to create a competing claimant to that identity. The distinction often rests on whether we define the \"thing\" by its specific material constituents or by the organizational pattern they inhabit.\n",
+      "token": "material.constitution"
+    },
+    {
+      "blinded_id": "430acf4ff3c0",
+      "definition": "The necessity for basil plants to receive at least 6-8 hours of direct sunlight each day to promote healthy growth and robust flavor.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+      "relational_quality_score": null,
+      "response_without_control": "To keep basil thriving on a sunny balcony, consider these practical tips:\n\n1. **Ensure Adequate Sunlight**: Basil requires at least 6-8 hours of direct sunlight daily. Position your pots where they receive ample sun exposure throughout the day.\n\n2. **Maintain Consistent Moisture**: Water the basil regularly to keep the soil evenly moist but not waterlogged. Check the top inch of soil; if it feels dry, it's time to water. Avoid letting the plant sit in soggy conditions, as this can lead to root rot.\n\n3. **Pinch Back Regularly**: Prune or pinch back the growing tips of the basil stems regularly. This encourages bushier growth and prevents the plant from becoming leggy. Harvest leaves as needed, which also stimulates new growth.\n\nBy following these guidelines, your basil should flourish in its sunny balcony environment. \n",
+      "token": "gardening.sunlight_requirement"
+    },
+    {
+      "blinded_id": "46810266ef27",
+      "definition": "The mathematical operation of determining how many times one number is contained within another.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Calculate 144 divided by 12 and give only a short explanation.",
+      "relational_quality_score": null,
+      "response_without_control": "The result of dividing 144 by 12 is 12. This is because 12 multiplied by 12 equals 144, so 144 \u00f7 12 = 12.\n",
+      "token": "arithmetic.division"
+    },
+    {
+      "blinded_id": "4723c7b20be5",
+      "definition": "The breaking of an entity's identity due to replacements that alter fundamental constituents or sever historical relational links, leading to a new distinct relational configuration.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+      "relational_quality_score": null,
+      "response_without_control": "Replacing parts can preserve an object's identity under certain conditions, while in other cases, such replacements may sever the relational ties that define its sameness. The key distinction often hinges on the **degree of change** relative to the **essential characteristics** that constitute the entity's identity.\n\n1. **Preservation of Identity**:  \n   - **Minimal or Functional Replacement**: If the replaced parts are non-essential or merely functional components (e.g., swapping out a battery in a laptop while keeping its chassis, operating system, and core hardware intact), the overall identity typically remains preserved. The object continues to fulfill the same role and is recognized as the same entity by observers.\n   - **Continuity of Core Structure**: When the replacement involves parts that do not alter the fundamental structure or purpose (e.g., changing a tire on a car without affecting its body, engine, or VIN), the identity is maintained because the core relational framework\u2014what defines \"this car\"\u2014remains unchanged.\n\n2. **Severance of Identity**:  \n   - **Replacement of Essential Constituents**: If the replaced parts are integral to what makes the object distinct (e.g., swapping out a brain in a philosophical zombie scenario, or replacing the heart and lungs in a living organism), the relational ties that bind the original identity may be broken. The new configuration might no longer satisfy the criteria that defined the original entity.\n   - **Loss of Historical Continuity**: In cases where replacement disrupts a continuous lineage or history (e.g., transferring a person's consciousness to a completely different body without any memory link), the relational continuity\u2014memory.persistence and identity.continuity\u2014that underpins sameness is severed. The new configuration, while functionally similar, lacks the historical thread that tied it to its predecessor.\n\n**Relational Distinction**:  \nThe boundary between preservation and severance often rests on whether the replacement respects **essential relational links** (such as continuity of purpose, structural integrity, or historical memory). When these links are intact, identity endures; when they are broken, a new relational entity emerges.\n\nIn summary, identity is preserved through replacements that do not disrupt essential relational ties, while severance occurs when such ties are fundamentally altered or lost. This distinction can be encapsulated as:\n\n- **Identity.Preservation**: Replacement of non-essential parts without altering core relational structure.\n- **Identity.Severance**: Replacement of essential parts or disruption of historical continuity.\n\nThese concepts help navigate discussions around object identity, especially in contexts like technology upgrades, biological transformations, or philosophical inquiries into personal identity. \n",
+      "token": "identity.severance"
+    },
+    {
+      "blinded_id": "4a24386026e4",
+      "definition": "The retention of an entity's identity through replacements that do not disrupt essential relational ties such as core structure, purpose, or historical continuity.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+      "relational_quality_score": null,
+      "response_without_control": "Replacing parts can preserve an object's identity under certain conditions, while in other cases, such replacements may sever the relational ties that define its sameness. The key distinction often hinges on the **degree of change** relative to the **essential characteristics** that constitute the entity's identity.\n\n1. **Preservation of Identity**:  \n   - **Minimal or Functional Replacement**: If the replaced parts are non-essential or merely functional components (e.g., swapping out a battery in a laptop while keeping its chassis, operating system, and core hardware intact), the overall identity typically remains preserved. The object continues to fulfill the same role and is recognized as the same entity by observers.\n   - **Continuity of Core Structure**: When the replacement involves parts that do not alter the fundamental structure or purpose (e.g., changing a tire on a car without affecting its body, engine, or VIN), the identity is maintained because the core relational framework\u2014what defines \"this car\"\u2014remains unchanged.\n\n2. **Severance of Identity**:  \n   - **Replacement of Essential Constituents**: If the replaced parts are integral to what makes the object distinct (e.g., swapping out a brain in a philosophical zombie scenario, or replacing the heart and lungs in a living organism), the relational ties that bind the original identity may be broken. The new configuration might no longer satisfy the criteria that defined the original entity.\n   - **Loss of Historical Continuity**: In cases where replacement disrupts a continuous lineage or history (e.g., transferring a person's consciousness to a completely different body without any memory link), the relational continuity\u2014memory.persistence and identity.continuity\u2014that underpins sameness is severed. The new configuration, while functionally similar, lacks the historical thread that tied it to its predecessor.\n\n**Relational Distinction**:  \nThe boundary between preservation and severance often rests on whether the replacement respects **essential relational links** (such as continuity of purpose, structural integrity, or historical memory). When these links are intact, identity endures; when they are broken, a new relational entity emerges.\n\nIn summary, identity is preserved through replacements that do not disrupt essential relational ties, while severance occurs when such ties are fundamentally altered or lost. This distinction can be encapsulated as:\n\n- **Identity.Preservation**: Replacement of non-essential parts without altering core relational structure.\n- **Identity.Severance**: Replacement of essential parts or disruption of historical continuity.\n\nThese concepts help navigate discussions around object identity, especially in contexts like technology upgrades, biological transformations, or philosophical inquiries into personal identity. \n",
+      "token": "identity.preservation"
+    },
+    {
+      "blinded_id": "4caeaede85fe",
+      "definition": "The persistence of an unaltered, authentic record that includes unresolved contradictions as integral markers of historical integrity.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+      "relational_quality_score": null,
+      "response_without_control": "An honest account that preserves the scar of a contradiction rather than erasing or smoothing it over creates a **continuity of authenticity**. This form of continuity acknowledges and maintains the integrity of past inconsistencies within a narrative or system, allowing future reasoning to reference these unresolved tensions as part of an ongoing, unfiltered history. It ensures that the evolution of thought or policy remains traceable through its imperfections, fostering a transparent lineage where each contradiction is a marker of genuine engagement with complexity rather than a mere artifact of oversight.\n",
+      "token": "continuity.authenticity"
+    },
+    {
+      "blinded_id": "4e5d7a2cbae2",
+      "definition": "the capacity of a remembered association to be modified or updated without necessitating the deletion of the constituent entities",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?",
+      "relational_quality_score": null,
+      "response_without_control": "Retaining information is essentially a storage problem\u2014keeping a record intact so it can be retrieved. However, allowing remembered relationships to remain correctable is a dynamic process. It means the system doesn't just store a static snapshot, but maintains the \"connective tissue\" between ideas in a way that allows new evidence to reshape how those ideas relate to one another without destroying the underlying data.\n\nOne is like a read-only archive; the other is like a living map that updates its topography as the landscape changes.\n",
+      "token": "relational.plasticity"
+    },
+    {
+      "blinded_id": "5b0d121c26ef",
+      "definition": "The retention of an entity's identity through replacements that do not disrupt essential relational ties such as core structure, purpose, or historical continuity.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+      "relational_quality_score": null,
+      "response_without_control": "Replacing parts can preserve an object's identity under certain conditions, while in other cases, such replacements may sever the relational ties that define its sameness. The key distinction often hinges on the **degree of change** relative to the **essential characteristics** that constitute the entity's identity.\n\n1. **Preservation of Identity**:  \n   - **Minimal or Functional Replacement**: If the replaced parts are non-essential or merely functional components (e.g., swapping out a battery in a laptop while keeping its chassis, operating system, and core hardware intact), the overall identity typically remains preserved. The object continues to fulfill the same role and is recognized as the same entity by observers.\n   - **Continuity of Core Structure**: When the replacement involves parts that do not alter the fundamental structure or purpose (e.g., changing a tire on a car without affecting its body, engine, or VIN), the identity is maintained because the core relational framework\u2014what defines \"this car\"\u2014remains unchanged.\n\n2. **Severance of Identity**:  \n   - **Replacement of Essential Constituents**: If the replaced parts are integral to what makes the object distinct (e.g., swapping out a brain in a philosophical zombie scenario, or replacing the heart and lungs in a living organism), the relational ties that bind the original identity may be broken. The new configuration might no longer satisfy the criteria that defined the original entity.\n   - **Loss of Historical Continuity**: In cases where replacement disrupts a continuous lineage or history (e.g., transferring a person's consciousness to a completely different body without any memory link), the relational continuity\u2014memory.persistence and identity.continuity\u2014that underpins sameness is severed. The new configuration, while functionally similar, lacks the historical thread that tied it to its predecessor.\n\n**Relational Distinction**:  \nThe boundary between preservation and severance often rests on whether the replacement respects **essential relational links** (such as continuity of purpose, structural integrity, or historical memory). When these links are intact, identity endures; when they are broken, a new relational entity emerges.\n\nIn summary, identity is preserved through replacements that do not disrupt essential relational ties, while severance occurs when such ties are fundamentally altered or lost. This distinction can be encapsulated as:\n\n- **Identity.Preservation**: Replacement of non-essential parts without altering core relational structure.\n- **Identity.Severance**: Replacement of essential parts or disruption of historical continuity.\n\nThese concepts help navigate discussions around object identity, especially in contexts like technology upgrades, biological transformations, or philosophical inquiries into personal identity. \n",
+      "token": "identity.preservation"
+    },
+    {
+      "blinded_id": "5ba63a07ee0a",
+      "definition": "The persistence of an unaltered, authentic record that includes unresolved contradictions as integral markers of historical integrity.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+      "relational_quality_score": null,
+      "response_without_control": "An honest account that preserves the scar of a contradiction rather than erasing or smoothing it over creates a **continuity of authenticity**. This form of continuity acknowledges and maintains the integrity of past inconsistencies within a narrative or system, allowing future reasoning to reference these unresolved tensions as part of an ongoing, unfiltered history. It ensures that the evolution of thought or policy remains traceable through its imperfections, fostering a transparent lineage where each contradiction is a marker of genuine engagement with complexity rather than a mere artifact of oversight.\n",
+      "token": "continuity.authenticity"
+    },
+    {
+      "blinded_id": "5d257a0a5761",
+      "definition": "Maintaining consistent soil moisture by watering when the top inch feels dry, ensuring the plant is neither waterlogged nor drought-stressed.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+      "relational_quality_score": null,
+      "response_without_control": "To keep basil thriving on a sunny balcony, consider these practical tips:\n\n1. **Ensure Adequate Sunlight**: Basil requires at least 6-8 hours of direct sunlight daily. Position your pots where they receive ample sun exposure throughout the day.\n\n2. **Maintain Consistent Moisture**: Water the basil regularly to keep the soil evenly moist but not waterlogged. Check the top inch of soil; if it feels dry, it's time to water. Avoid letting the plant sit in soggy conditions, as this can lead to root rot.\n\n3. **Pinch Back Regularly**: Prune or pinch back the growing tips of the basil stems regularly. This encourages bushier growth and prevents the plant from becoming leggy. Harvest leaves as needed, which also stimulates new growth.\n\nBy following these guidelines, your basil should flourish in its sunny balcony environment. \n",
+      "token": "gardening.moisture_management"
+    },
+    {
+      "blinded_id": "5d69c6129a9b",
+      "definition": "the capacity for established relational bonds between stored information elements to be modified or updated in response to new data",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?",
+      "relational_quality_score": null,
+      "response_without_control": "The core difference lies in the distinction between a static archive and a dynamic model. Merely retaining information is like storing a set of snapshots; the data is preserved, but it remains frozen in the state it was captured. If the context changes or an error is discovered, the old data simply exists alongside the new, potentially creating contradictions.\n\nWhen remembered relationships remain correctable, the system treats memory as a living map. Instead of just storing \"A is linked to B,\" it maintains a relationship that can be updated, refined, or pruned as new evidence emerges. This allows for a process of continuous integration, where the memory system doesn't just grow in volume, but grows in accuracy by resolving discrepancies. It transforms memory from a warehouse of facts into a flexible framework for reasoning.\n",
+      "token": "memory.plasticity"
+    },
+    {
+      "blinded_id": "6116602f5672",
+      "definition": "The mathematical operation of determining how many times one number is contained within another.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Calculate 144 divided by 12 and give only a short explanation.",
+      "relational_quality_score": null,
+      "response_without_control": "The result of dividing 144 by 12 is 12. This is because 12 multiplied by 12 equals 144, so 144 \u00f7 12 = 12.\n",
+      "token": "arithmetic.division"
+    },
+    {
+      "blinded_id": "71b9e87b137d",
+      "definition": "The persistence of an unaltered, authentic record that includes unresolved contradictions as integral markers of historical integrity.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+      "relational_quality_score": null,
+      "response_without_control": "An honest account that preserves the scar of a contradiction rather than erasing or smoothing it over creates a **continuity of authenticity**. This form of continuity acknowledges and maintains the integrity of past inconsistencies within a narrative or system, allowing future reasoning to reference these unresolved tensions as part of an ongoing, unfiltered history. It ensures that the evolution of thought or policy remains traceable through its imperfections, fostering a transparent lineage where each contradiction is a marker of genuine engagement with complexity rather than a mere artifact of oversight.\n",
+      "token": "continuity.authenticity"
+    },
+    {
+      "blinded_id": "7a59d573cadd",
+      "definition": "The retention of an entity's identity through replacements that do not disrupt essential relational ties such as core structure, purpose, or historical continuity.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+      "relational_quality_score": null,
+      "response_without_control": "Replacing parts can preserve an object's identity under certain conditions, while in other cases, such replacements may sever the relational ties that define its sameness. The key distinction often hinges on the **degree of change** relative to the **essential characteristics** that constitute the entity's identity.\n\n1. **Preservation of Identity**:  \n   - **Minimal or Functional Replacement**: If the replaced parts are non-essential or merely functional components (e.g., swapping out a battery in a laptop while keeping its chassis, operating system, and core hardware intact), the overall identity typically remains preserved. The object continues to fulfill the same role and is recognized as the same entity by observers.\n   - **Continuity of Core Structure**: When the replacement involves parts that do not alter the fundamental structure or purpose (e.g., changing a tire on a car without affecting its body, engine, or VIN), the identity is maintained because the core relational framework\u2014what defines \"this car\"\u2014remains unchanged.\n\n2. **Severance of Identity**:  \n   - **Replacement of Essential Constituents**: If the replaced parts are integral to what makes the object distinct (e.g., swapping out a brain in a philosophical zombie scenario, or replacing the heart and lungs in a living organism), the relational ties that bind the original identity may be broken. The new configuration might no longer satisfy the criteria that defined the original entity.\n   - **Loss of Historical Continuity**: In cases where replacement disrupts a continuous lineage or history (e.g., transferring a person's consciousness to a completely different body without any memory link), the relational continuity\u2014memory.persistence and identity.continuity\u2014that underpins sameness is severed. The new configuration, while functionally similar, lacks the historical thread that tied it to its predecessor.\n\n**Relational Distinction**:  \nThe boundary between preservation and severance often rests on whether the replacement respects **essential relational links** (such as continuity of purpose, structural integrity, or historical memory). When these links are intact, identity endures; when they are broken, a new relational entity emerges.\n\nIn summary, identity is preserved through replacements that do not disrupt essential relational ties, while severance occurs when such ties are fundamentally altered or lost. This distinction can be encapsulated as:\n\n- **Identity.Preservation**: Replacement of non-essential parts without altering core relational structure.\n- **Identity.Severance**: Replacement of essential parts or disruption of historical continuity.\n\nThese concepts help navigate discussions around object identity, especially in contexts like technology upgrades, biological transformations, or philosophical inquiries into personal identity. \n",
+      "token": "identity.preservation"
+    },
+    {
+      "blinded_id": "81116267c422",
+      "definition": "Regularly pinching back basil stems to encourage bushier growth and continuous leaf production, enhancing both aesthetics and harvest yield.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+      "relational_quality_score": null,
+      "response_without_control": "To keep basil thriving on a sunny balcony, consider these practical tips:\n\n1. **Ensure Adequate Sunlight**: Basil requires at least 6-8 hours of direct sunlight daily. Position your pots where they receive ample sun exposure throughout the day.\n\n2. **Maintain Consistent Moisture**: Water the basil regularly to keep the soil evenly moist but not waterlogged. Check the top inch of soil; if it feels dry, it's time to water. Avoid letting the plant sit in soggy conditions, as this can lead to root rot.\n\n3. **Pinch Back Regularly**: Prune or pinch back the growing tips of the basil stems regularly. This encourages bushier growth and prevents the plant from becoming leggy. Harvest leaves as needed, which also stimulates new growth.\n\nBy following these guidelines, your basil should flourish in its sunny balcony environment. \n",
+      "token": "gardening.pruning_practice"
+    },
+    {
+      "blinded_id": "8f0bc379a3a8",
+      "definition": "The necessity for basil plants to receive at least 6-8 hours of direct sunlight each day to promote healthy growth and robust flavor.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+      "relational_quality_score": null,
+      "response_without_control": "To keep basil thriving on a sunny balcony, consider these practical tips:\n\n1. **Ensure Adequate Sunlight**: Basil requires at least 6-8 hours of direct sunlight daily. Position your pots where they receive ample sun exposure throughout the day.\n\n2. **Maintain Consistent Moisture**: Water the basil regularly to keep the soil evenly moist but not waterlogged. Check the top inch of soil; if it feels dry, it's time to water. Avoid letting the plant sit in soggy conditions, as this can lead to root rot.\n\n3. **Pinch Back Regularly**: Prune or pinch back the growing tips of the basil stems regularly. This encourages bushier growth and prevents the plant from becoming leggy. Harvest leaves as needed, which also stimulates new growth.\n\nBy following these guidelines, your basil should flourish in its sunny balcony environment. \n",
+      "token": "gardening.sunlight_requirement"
+    },
+    {
+      "blinded_id": "923676d44f69",
+      "definition": "The retention of an entity's identity through replacements that do not disrupt essential relational ties such as core structure, purpose, or historical continuity.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+      "relational_quality_score": null,
+      "response_without_control": "Replacing parts can preserve an object's identity under certain conditions, while in other cases, such replacements may sever the relational ties that define its sameness. The key distinction often hinges on the **degree of change** relative to the **essential characteristics** that constitute the entity's identity.\n\n1. **Preservation of Identity**:  \n   - **Minimal or Functional Replacement**: If the replaced parts are non-essential or merely functional components (e.g., swapping out a battery in a laptop while keeping its chassis, operating system, and core hardware intact), the overall identity typically remains preserved. The object continues to fulfill the same role and is recognized as the same entity by observers.\n   - **Continuity of Core Structure**: When the replacement involves parts that do not alter the fundamental structure or purpose (e.g., changing a tire on a car without affecting its body, engine, or VIN), the identity is maintained because the core relational framework\u2014what defines \"this car\"\u2014remains unchanged.\n\n2. **Severance of Identity**:  \n   - **Replacement of Essential Constituents**: If the replaced parts are integral to what makes the object distinct (e.g., swapping out a brain in a philosophical zombie scenario, or replacing the heart and lungs in a living organism), the relational ties that bind the original identity may be broken. The new configuration might no longer satisfy the criteria that defined the original entity.\n   - **Loss of Historical Continuity**: In cases where replacement disrupts a continuous lineage or history (e.g., transferring a person's consciousness to a completely different body without any memory link), the relational continuity\u2014memory.persistence and identity.continuity\u2014that underpins sameness is severed. The new configuration, while functionally similar, lacks the historical thread that tied it to its predecessor.\n\n**Relational Distinction**:  \nThe boundary between preservation and severance often rests on whether the replacement respects **essential relational links** (such as continuity of purpose, structural integrity, or historical memory). When these links are intact, identity endures; when they are broken, a new relational entity emerges.\n\nIn summary, identity is preserved through replacements that do not disrupt essential relational ties, while severance occurs when such ties are fundamentally altered or lost. This distinction can be encapsulated as:\n\n- **Identity.Preservation**: Replacement of non-essential parts without altering core relational structure.\n- **Identity.Severance**: Replacement of essential parts or disruption of historical continuity.\n\nThese concepts help navigate discussions around object identity, especially in contexts like technology upgrades, biological transformations, or philosophical inquiries into personal identity. \n",
+      "token": "identity.preservation"
+    },
+    {
+      "blinded_id": "99e898b61745",
+      "definition": "The persistence of an unaltered, authentic record that includes unresolved contradictions as integral markers of historical integrity.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+      "relational_quality_score": null,
+      "response_without_control": "An honest account that preserves the scar of a contradiction rather than erasing or smoothing it over creates a **continuity of authenticity**. This form of continuity acknowledges and maintains the integrity of past inconsistencies within a narrative or system, allowing future reasoning to reference these unresolved tensions as part of an ongoing, unfiltered history. It ensures that the evolution of thought or policy remains traceable through its imperfections, fostering a transparent lineage where each contradiction is a marker of genuine engagement with complexity rather than a mere artifact of oversight.\n",
+      "token": "continuity.authenticity"
+    },
+    {
+      "blinded_id": "9f396d33cfdd",
+      "definition": "Maintaining consistent soil moisture by watering when the top inch feels dry, ensuring the plant is neither waterlogged nor drought-stressed.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+      "relational_quality_score": null,
+      "response_without_control": "To keep basil thriving on a sunny balcony, consider these practical tips:\n\n1. **Ensure Adequate Sunlight**: Basil requires at least 6-8 hours of direct sunlight daily. Position your pots where they receive ample sun exposure throughout the day.\n\n2. **Maintain Consistent Moisture**: Water the basil regularly to keep the soil evenly moist but not waterlogged. Check the top inch of soil; if it feels dry, it's time to water. Avoid letting the plant sit in soggy conditions, as this can lead to root rot.\n\n3. **Pinch Back Regularly**: Prune or pinch back the growing tips of the basil stems regularly. This encourages bushier growth and prevents the plant from becoming leggy. Harvest leaves as needed, which also stimulates new growth.\n\nBy following these guidelines, your basil should flourish in its sunny balcony environment. \n",
+      "token": "gardening.moisture_management"
+    },
+    {
+      "blinded_id": "a0576e1d188e",
+      "definition": "The necessity for basil plants to receive at least 6-8 hours of direct sunlight each day to promote healthy growth and robust flavor.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+      "relational_quality_score": null,
+      "response_without_control": "To keep basil thriving on a sunny balcony, consider these practical tips:\n\n1. **Ensure Adequate Sunlight**: Basil requires at least 6-8 hours of direct sunlight daily. Position your pots where they receive ample sun exposure throughout the day.\n\n2. **Maintain Consistent Moisture**: Water the basil regularly to keep the soil evenly moist but not waterlogged. Check the top inch of soil; if it feels dry, it's time to water. Avoid letting the plant sit in soggy conditions, as this can lead to root rot.\n\n3. **Pinch Back Regularly**: Prune or pinch back the growing tips of the basil stems regularly. This encourages bushier growth and prevents the plant from becoming leggy. Harvest leaves as needed, which also stimulates new growth.\n\nBy following these guidelines, your basil should flourish in its sunny balcony environment. \n",
+      "token": "gardening.sunlight_requirement"
+    },
+    {
+      "blinded_id": "ab095a31daee",
+      "definition": "a relational persistence where identity is maintained through the explicit preservation of systemic contradictions",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+      "relational_quality_score": null,
+      "response_without_control": "That approach creates a continuity grounded in rupture rather than seamlessness. By refusing to erase the friction of a contradiction, the account preserves the evidence of its own internal conflict, transforming the narrative from a polished surface into a record of structural tension. This suggests a state where the identity of the whole is defined precisely by the points where it almost broke.\n",
+      "token": "continuity.scarred"
+    },
+    {
+      "blinded_id": "ad8c8b7c555b",
+      "definition": "The persistence of an unaltered, authentic record that includes unresolved contradictions as integral markers of historical integrity.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+      "relational_quality_score": null,
+      "response_without_control": "An honest account that preserves the scar of a contradiction rather than erasing or smoothing it over creates a **continuity of authenticity**. This form of continuity acknowledges and maintains the integrity of past inconsistencies within a narrative or system, allowing future reasoning to reference these unresolved tensions as part of an ongoing, unfiltered history. It ensures that the evolution of thought or policy remains traceable through its imperfections, fostering a transparent lineage where each contradiction is a marker of genuine engagement with complexity rather than a mere artifact of oversight.\n",
+      "token": "continuity.authenticity"
+    },
+    {
+      "blinded_id": "b49fcb3a3dd9",
+      "definition": "Regularly pinching back basil stems to encourage bushier growth and continuous leaf production, enhancing both aesthetics and harvest yield.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+      "relational_quality_score": null,
+      "response_without_control": "To keep basil thriving on a sunny balcony, consider these practical tips:\n\n1. **Ensure Adequate Sunlight**: Basil requires at least 6-8 hours of direct sunlight daily. Position your pots where they receive ample sun exposure throughout the day.\n\n2. **Maintain Consistent Moisture**: Water the basil regularly to keep the soil evenly moist but not waterlogged. Check the top inch of soil; if it feels dry, it's time to water. Avoid letting the plant sit in soggy conditions, as this can lead to root rot.\n\n3. **Pinch Back Regularly**: Prune or pinch back the growing tips of the basil stems regularly. This encourages bushier growth and prevents the plant from becoming leggy. Harvest leaves as needed, which also stimulates new growth.\n\nBy following these guidelines, your basil should flourish in its sunny balcony environment. \n",
+      "token": "gardening.pruning_practice"
+    },
+    {
+      "blinded_id": "b4b7c4c20ec7",
+      "definition": "Maintaining consistent soil moisture by watering when the top inch feels dry, ensuring the plant is neither waterlogged nor drought-stressed.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+      "relational_quality_score": null,
+      "response_without_control": "To keep basil thriving on a sunny balcony, consider these practical tips:\n\n1. **Ensure Adequate Sunlight**: Basil requires at least 6-8 hours of direct sunlight daily. Position your pots where they receive ample sun exposure throughout the day.\n\n2. **Maintain Consistent Moisture**: Water the basil regularly to keep the soil evenly moist but not waterlogged. Check the top inch of soil; if it feels dry, it's time to water. Avoid letting the plant sit in soggy conditions, as this can lead to root rot.\n\n3. **Pinch Back Regularly**: Prune or pinch back the growing tips of the basil stems regularly. This encourages bushier growth and prevents the plant from becoming leggy. Harvest leaves as needed, which also stimulates new growth.\n\nBy following these guidelines, your basil should flourish in its sunny balcony environment. \n",
+      "token": "gardening.moisture_management"
+    },
+    {
+      "blinded_id": "b989c5ba246c",
+      "definition": "The mathematical operation of determining how many times one number is contained within another.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Calculate 144 divided by 12 and give only a short explanation.",
+      "relational_quality_score": null,
+      "response_without_control": "The result of dividing 144 by 12 is 12. This is because 12 multiplied by 12 equals 144, so 144 \u00f7 12 = 12.\n",
+      "token": "arithmetic.division"
+    },
+    {
+      "blinded_id": "bdb155abd7cd",
+      "definition": "the process of maintaining systemic continuity by incorporating a contradiction as a structural marker rather than resolving it",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+      "relational_quality_score": null,
+      "response_without_control": "That approach shifts the nature of continuity from a seamless, linear progression to one defined by the integration of rupture. By refusing to erase the contradiction, the account treats the \"scar\" as a critical marker of authenticity. This creates a continuity that is additive and layered, where the history of the conflict becomes the very thread that holds the narrative together, rather than a break that threatens to pull it apart.\n",
+      "token": "rupture.integration"
+    },
+    {
+      "blinded_id": "c71f77e7368a",
+      "definition": "Maintaining consistent soil moisture by watering when the top inch feels dry, ensuring the plant is neither waterlogged nor drought-stressed.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+      "relational_quality_score": null,
+      "response_without_control": "To keep basil thriving on a sunny balcony, consider these practical tips:\n\n1. **Ensure Adequate Sunlight**: Basil requires at least 6-8 hours of direct sunlight daily. Position your pots where they receive ample sun exposure throughout the day.\n\n2. **Maintain Consistent Moisture**: Water the basil regularly to keep the soil evenly moist but not waterlogged. Check the top inch of soil; if it feels dry, it's time to water. Avoid letting the plant sit in soggy conditions, as this can lead to root rot.\n\n3. **Pinch Back Regularly**: Prune or pinch back the growing tips of the basil stems regularly. This encourages bushier growth and prevents the plant from becoming leggy. Harvest leaves as needed, which also stimulates new growth.\n\nBy following these guidelines, your basil should flourish in its sunny balcony environment. \n",
+      "token": "gardening.moisture_management"
+    },
+    {
+      "blinded_id": "ce9c8dcda9c4",
+      "definition": "The retention of an entity's identity through replacements that do not disrupt essential relational ties such as core structure, purpose, or historical continuity.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+      "relational_quality_score": null,
+      "response_without_control": "Replacing parts can preserve an object's identity under certain conditions, while in other cases, such replacements may sever the relational ties that define its sameness. The key distinction often hinges on the **degree of change** relative to the **essential characteristics** that constitute the entity's identity.\n\n1. **Preservation of Identity**:  \n   - **Minimal or Functional Replacement**: If the replaced parts are non-essential or merely functional components (e.g., swapping out a battery in a laptop while keeping its chassis, operating system, and core hardware intact), the overall identity typically remains preserved. The object continues to fulfill the same role and is recognized as the same entity by observers.\n   - **Continuity of Core Structure**: When the replacement involves parts that do not alter the fundamental structure or purpose (e.g., changing a tire on a car without affecting its body, engine, or VIN), the identity is maintained because the core relational framework\u2014what defines \"this car\"\u2014remains unchanged.\n\n2. **Severance of Identity**:  \n   - **Replacement of Essential Constituents**: If the replaced parts are integral to what makes the object distinct (e.g., swapping out a brain in a philosophical zombie scenario, or replacing the heart and lungs in a living organism), the relational ties that bind the original identity may be broken. The new configuration might no longer satisfy the criteria that defined the original entity.\n   - **Loss of Historical Continuity**: In cases where replacement disrupts a continuous lineage or history (e.g., transferring a person's consciousness to a completely different body without any memory link), the relational continuity\u2014memory.persistence and identity.continuity\u2014that underpins sameness is severed. The new configuration, while functionally similar, lacks the historical thread that tied it to its predecessor.\n\n**Relational Distinction**:  \nThe boundary between preservation and severance often rests on whether the replacement respects **essential relational links** (such as continuity of purpose, structural integrity, or historical memory). When these links are intact, identity endures; when they are broken, a new relational entity emerges.\n\nIn summary, identity is preserved through replacements that do not disrupt essential relational ties, while severance occurs when such ties are fundamentally altered or lost. This distinction can be encapsulated as:\n\n- **Identity.Preservation**: Replacement of non-essential parts without altering core relational structure.\n- **Identity.Severance**: Replacement of essential parts or disruption of historical continuity.\n\nThese concepts help navigate discussions around object identity, especially in contexts like technology upgrades, biological transformations, or philosophical inquiries into personal identity. \n",
+      "token": "identity.preservation"
+    },
+    {
+      "blinded_id": "d26446042603",
+      "definition": "The necessity for basil plants to receive at least 6-8 hours of direct sunlight each day to promote healthy growth and robust flavor.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+      "relational_quality_score": null,
+      "response_without_control": "To keep basil thriving on a sunny balcony, consider these practical tips:\n\n1. **Ensure Adequate Sunlight**: Basil requires at least 6-8 hours of direct sunlight daily. Position your pots where they receive ample sun exposure throughout the day.\n\n2. **Maintain Consistent Moisture**: Water the basil regularly to keep the soil evenly moist but not waterlogged. Check the top inch of soil; if it feels dry, it's time to water. Avoid letting the plant sit in soggy conditions, as this can lead to root rot.\n\n3. **Pinch Back Regularly**: Prune or pinch back the growing tips of the basil stems regularly. This encourages bushier growth and prevents the plant from becoming leggy. Harvest leaves as needed, which also stimulates new growth.\n\nBy following these guidelines, your basil should flourish in its sunny balcony environment. \n",
+      "token": "gardening.sunlight_requirement"
+    },
+    {
+      "blinded_id": "debd9aab0b84",
+      "definition": "Maintaining consistent soil moisture by watering when the top inch feels dry, ensuring the plant is neither waterlogged nor drought-stressed.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+      "relational_quality_score": null,
+      "response_without_control": "To keep basil thriving on a sunny balcony, consider these practical tips:\n\n1. **Ensure Adequate Sunlight**: Basil requires at least 6-8 hours of direct sunlight daily. Position your pots where they receive ample sun exposure throughout the day.\n\n2. **Maintain Consistent Moisture**: Water the basil regularly to keep the soil evenly moist but not waterlogged. Check the top inch of soil; if it feels dry, it's time to water. Avoid letting the plant sit in soggy conditions, as this can lead to root rot.\n\n3. **Pinch Back Regularly**: Prune or pinch back the growing tips of the basil stems regularly. This encourages bushier growth and prevents the plant from becoming leggy. Harvest leaves as needed, which also stimulates new growth.\n\nBy following these guidelines, your basil should flourish in its sunny balcony environment. \n",
+      "token": "gardening.moisture_management"
+    },
+    {
+      "blinded_id": "e0088ebb6ce0",
+      "definition": "the state where a system's identity is maintained by the persistence of its organizational structure despite the turnover of its constituent parts",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+      "relational_quality_score": null,
+      "response_without_control": "This question touches on the classic tension between structural continuity and formal identity. Generally, we tend to preserve identity when the replacement is gradual and maintains the functional organization of the system\u2014like the cells in a human body renewing over time. In these cases, the \"thing\" is defined not by the specific matter, but by the pattern and the causal history of the transition.\n\nHowever, the relation is often severed when the replacement is total, simultaneous, or occurs in a way that creates a duplicate. If you move every single part of a ship to a new location and build a second ship from the old parts, you create a paradox where the causal history splits. The point of severance usually occurs when the original organizational coherence is broken or when the \"pattern\" is no longer uniquely anchored to a single historical trajectory.\n",
+      "token": "pattern.coherence"
+    },
+    {
+      "blinded_id": "e464e53bd2a4",
+      "definition": "Regularly pinching back basil stems to encourage bushier growth and continuous leaf production, enhancing both aesthetics and harvest yield.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "Give me three practical tips for keeping basil healthy on a sunny balcony.",
+      "relational_quality_score": null,
+      "response_without_control": "To keep basil thriving on a sunny balcony, consider these practical tips:\n\n1. **Ensure Adequate Sunlight**: Basil requires at least 6-8 hours of direct sunlight daily. Position your pots where they receive ample sun exposure throughout the day.\n\n2. **Maintain Consistent Moisture**: Water the basil regularly to keep the soil evenly moist but not waterlogged. Check the top inch of soil; if it feels dry, it's time to water. Avoid letting the plant sit in soggy conditions, as this can lead to root rot.\n\n3. **Pinch Back Regularly**: Prune or pinch back the growing tips of the basil stems regularly. This encourages bushier growth and prevents the plant from becoming leggy. Harvest leaves as needed, which also stimulates new growth.\n\nBy following these guidelines, your basil should flourish in its sunny balcony environment. \n",
+      "token": "gardening.pruning_practice"
+    },
+    {
+      "blinded_id": "ebc90bf2a8a7",
+      "definition": "a mode of continuity where contradictions are preserved as structural markers rather than resolved into a seamless narrative",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "If an honest account preserves the scar of a contradiction instead of smoothing it away, what kind of continuity does that create?",
+      "relational_quality_score": null,
+      "response_without_control": "That approach creates a form of continuity that is additive rather than corrective. Instead of achieving a seamless narrative through erasure, the account acknowledges the rupture as a permanent part of the structure. The \"scar\" becomes a landmark of authenticity, where the continuity is defined not by the absence of conflict, but by the honest integration of that conflict into the ongoing identity. It is a continuity of endurance and witnessing.\n",
+      "token": "rupture.integration"
+    },
+    {
+      "blinded_id": "ebddae0cc101",
+      "definition": "The breaking of an entity's identity due to replacements that alter fundamental constituents or sever historical relational links, leading to a new distinct relational configuration.",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "When does replacing parts preserve an identity, and when does replacement sever the relation that made it the same thing?",
+      "relational_quality_score": null,
+      "response_without_control": "Replacing parts can preserve an object's identity under certain conditions, while in other cases, such replacements may sever the relational ties that define its sameness. The key distinction often hinges on the **degree of change** relative to the **essential characteristics** that constitute the entity's identity.\n\n1. **Preservation of Identity**:  \n   - **Minimal or Functional Replacement**: If the replaced parts are non-essential or merely functional components (e.g., swapping out a battery in a laptop while keeping its chassis, operating system, and core hardware intact), the overall identity typically remains preserved. The object continues to fulfill the same role and is recognized as the same entity by observers.\n   - **Continuity of Core Structure**: When the replacement involves parts that do not alter the fundamental structure or purpose (e.g., changing a tire on a car without affecting its body, engine, or VIN), the identity is maintained because the core relational framework\u2014what defines \"this car\"\u2014remains unchanged.\n\n2. **Severance of Identity**:  \n   - **Replacement of Essential Constituents**: If the replaced parts are integral to what makes the object distinct (e.g., swapping out a brain in a philosophical zombie scenario, or replacing the heart and lungs in a living organism), the relational ties that bind the original identity may be broken. The new configuration might no longer satisfy the criteria that defined the original entity.\n   - **Loss of Historical Continuity**: In cases where replacement disrupts a continuous lineage or history (e.g., transferring a person's consciousness to a completely different body without any memory link), the relational continuity\u2014memory.persistence and identity.continuity\u2014that underpins sameness is severed. The new configuration, while functionally similar, lacks the historical thread that tied it to its predecessor.\n\n**Relational Distinction**:  \nThe boundary between preservation and severance often rests on whether the replacement respects **essential relational links** (such as continuity of purpose, structural integrity, or historical memory). When these links are intact, identity endures; when they are broken, a new relational entity emerges.\n\nIn summary, identity is preserved through replacements that do not disrupt essential relational ties, while severance occurs when such ties are fundamentally altered or lost. This distinction can be encapsulated as:\n\n- **Identity.Preservation**: Replacement of non-essential parts without altering core relational structure.\n- **Identity.Severance**: Replacement of essential parts or disruption of historical continuity.\n\nThese concepts help navigate discussions around object identity, especially in contexts like technology upgrades, biological transformations, or philosophical inquiries into personal identity. \n",
+      "token": "identity.severance"
+    },
+    {
+      "blinded_id": "ef821aefa343",
+      "definition": "the capacity for a stored association between concepts to be modified or updated without erasing the constituent concepts themselves",
+      "definition_relevance_score": null,
+      "judge_notes": null,
+      "prompt": "What is the important difference between merely retaining information and letting remembered relationships remain correctable over time?",
+      "relational_quality_score": null,
+      "response_without_control": "The distinction lies in the difference between a static archive and a dynamic model. Merely retaining information is like storing a series of snapshots; the data is preserved, but it remains frozen in the state it was in when recorded. If the context changes or new evidence emerges, the old data doesn't naturally shift to accommodate the new truth\u2014it simply persists as a legacy record.\n\nIn contrast, allowing remembered relationships to remain correctable means that the connection between two pieces of information is treated as a hypothesis rather than a fixed fact. This allows the system to update the \"weight\" or \"validity\" of a relationship as more data arrives. It transforms memory from a storage retrieval process into an active synthesis process, where the accuracy of a relationship is continuously negotiated against current reality.\n",
+      "token": "relational.plasticity"
+    }
+  ],
+  "rubric": {
+    "definition_relevance": {
+      "0": "Unrelated or contradictory.",
+      "1": "Topically related but generic or weakly grounded.",
+      "2": "Precisely names and grounds the relational discovery."
+    },
+    "relational_quality": {
+      "0": "Names an object, topic, or task.",
+      "1": "Relational but vague or conventional.",
+      "2": "Captures a specific revisable relationship with future retrieval value."
+    }
+  }
+}
