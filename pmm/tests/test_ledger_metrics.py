@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from statistics import median
 
 from pmm.core.autonomy_tracker import AutonomyTracker
 from pmm.core.event_log import EventLog
@@ -82,12 +83,17 @@ def test_compute_metrics_includes_autonomy_tracker_metrics(tmp_path):
 def test_replay_speed_metric_under_threshold(tmp_path):
     db = _mkdb(tmp_path)
     log = EventLog(db)
-    # Create 500 events with unique content for stable hashing
-    for i in range(500):
+    # A larger fixture amortizes timer and SQLite setup noise while preserving
+    # the existing per-event performance expectation.
+    for i in range(2000):
         log.append(kind="test_event", content=f"e{i}", meta={})
 
-    metrics = compute_metrics(db)
-    speed = metrics.get("replay_speed_ms")
-    assert isinstance(speed, float)
-    # Verify O(n) perf stays below ~0.01 ms/event with small tolerance
-    assert speed < 0.015
+    # Warm caches and SQLite before measuring. A median rejects isolated
+    # scheduler stalls without hiding consistently slow replay behavior.
+    compute_metrics(db)
+    speeds = [compute_metrics(db).get("replay_speed_ms") for _ in range(7)]
+    assert all(isinstance(speed, float) for speed in speeds)
+    measured_median = median(speeds)
+
+    # Verify O(n) replay remains below the original 0.015 ms/event limit.
+    assert measured_median < 0.015, f"median={measured_median}, samples={speeds}"
