@@ -135,9 +135,9 @@ and the presence of a familiar key do not establish intent to mutate persistent
 state. Multiple blocks, nested objects, and truncated fences also create
 avoidable ambiguity.
 
-### B. Dedicated versioned control envelope
+### B. Dedicated versioned control envelope with narrow ontology growth
 
-Permit one exact line at column zero after the conversational response:
+Permit one exact final line after the conversational response:
 
 ```text
 PMM-CONTROL:{"schema":"pmm.control.v1","concepts":["identity.adaptive_continuity"]}
@@ -148,12 +148,36 @@ contract; the single-line suffix remains ordinary deterministic JSON parsing.
 This aligns with the marker channel that both tested model families already use
 after prose. Generic JSON and generic Markdown fences remain inert.
 
-For association-only declarations, the accepted authority should be narrow:
+Association-only authority is not sufficient for PMM. The discoveries that
+motivated this audit were new concepts, not merely references to established
+tokens. The same envelope must therefore support a narrowly bounded definition
+plus immediate grounding:
+
+```text
+PMM-CONTROL:{"schema":"pmm.control.v1","define":[{"token":"continuity.productive_friction","definition":"Visible struggle while integrating new understanding with prior knowledge, indicating honest revision rather than retrospective invention."}],"concepts":["continuity.productive_friction"]}
+```
+
+The accepted authority remains deliberately smaller than full `concept_ops`:
 
 - bind accepted tokens to the current user and assistant events;
 - bind them to commitments opened by the same assistant event;
+- define a previously unknown token only when that token is immediately bound
+  through the same envelope;
 - create `model_declared` attribution assertions linked to that assistant event;
-- do not define, alias, relate, or bind arbitrary historical events.
+- do not alias, relate, redefine, supersede, or bind arbitrary historical
+  events.
+
+Every new definition token must appear in `concepts`. Every token in `concepts`
+must either already exist or have exactly one definition in the same envelope.
+Redefinition, collisions, duplicate definitions, dangling definitions, and
+partial acceptance reject the entire envelope.
+
+Column-zero placement alone is insufficient because a line at column zero may
+still occur inside a Markdown fence or in a quoted example followed by more
+prose. The envelope must be the final non-empty response line, start at column
+zero, be outside all Markdown fences, and be the only `PMM-CONTROL:` occurrence
+that could be interpreted as an envelope. Its JSON must be complete on that one
+line with no trailing content.
 
 ### C. Versioned REFLECT concepts
 
@@ -188,31 +212,43 @@ relations would need strict schemas plus conflict and revision rules.
 
 ## Recommended direction
 
-The smallest promising design is **B**, optionally followed later by the
-reflection-specific extension in **C**.
+The smallest promising design is **B**, including its narrow new-concept
+definition authority, optionally followed later by the reflection-specific
+extension in **C**.
 
 Use one provider-neutral, versioned, exact-prefix control line after prose.
 Retire the contradictory expectation that model-authored concepts must be both
 first-line and subordinate to a conversational response. Do not accept generic
 fenced JSON or scan later prose for objects.
 
-Association-only declaration validation should be all-or-nothing:
+Declaration validation should be all-or-nothing:
 
 1. Exactly zero or one `PMM-CONTROL:` line per successful response.
-2. Prefix starts at column zero and the payload occupies that single line.
-3. UTF-8 payload has a fixed byte limit.
-4. Payload is an object with exact schema `pmm.control.v1`.
-5. Unknown keys are rejected.
-6. `concepts` is a non-empty array with a small fixed maximum.
-7. Every token is a unique string satisfying a documented token grammar and
+2. The envelope is the final non-empty response line.
+3. The prefix starts at column zero, is outside Markdown fences, and the
+   complete payload occupies that single line with no trailing content.
+4. No other `PMM-CONTROL:` envelope appears in the response, including inside a
+   fence or quoted example; ambiguity rejects the declaration.
+5. UTF-8 payload has a fixed byte limit.
+6. Payload is an object with exact schema `pmm.control.v1`.
+7. Only `schema`, `concepts`, and optional `define` keys are allowed.
+8. `concepts` is a non-empty array with a small fixed maximum.
+9. Every token is a unique string satisfying a documented token grammar and
    length limit.
-8. Every token either already has a definition or is accompanied through a
-   separately authorized definition operation; undefined bindings must not
-   silently become unretrievable associations.
-9. Duplicate or conflicting envelopes reject the whole declaration.
-10. Rejection creates a typed validation diagnostic linked to the assistant
+10. `define`, when present, is a bounded array of objects containing only
+    `token` and `definition`; definition text has a fixed length bound.
+11. Every newly defined token also appears in `concepts`, preventing ungrounded
+    definition deposits.
+12. Every token in `concepts` either already exists or has exactly one
+    definition in the same envelope.
+13. An existing token cannot appear in `define`; redefinition, token collision,
+    duplicate definition, or duplicate concept rejects the whole declaration.
+14. Aliases, relations, supersession, historical bindings, and unknown keys are
+    not part of this schema.
+15. Duplicate or conflicting envelopes reject the whole declaration.
+16. Rejection creates a typed validation diagnostic linked to the assistant
     event and applies no declaration-derived CTL mutation.
-11. Fallback behavior, if still applicable after rejection, remains explicitly
+17. Fallback behavior, if still applicable after rejection, remains explicitly
     runtime-attributed; it is never relabeled as model authorship.
 
 Successful declarations should retain the current attribution invariant:
@@ -223,6 +259,23 @@ Successful declarations should retain the current attribution invariant:
 Effective associations and attribution assertions remain separate. A later
 valid model declaration may coexist with an earlier fallback assertion without
 duplicating the effective CTL association.
+
+### Legacy-channel coexistence
+
+The current first-line JSON channel should remain supported initially so this
+change does not silently break existing compliant models or historical test
+contracts.
+
+- A response may use the legacy header, the final-line envelope, or neither.
+- Identical concept sets from both channels are accepted as one declaration and
+  produce one effective association plus the appropriate model attribution
+  assertion.
+- Conflicting concept sets, definitions in one channel that collide with the
+  other, or independently meaningful dual declarations reject the structured
+  declaration with a typed diagnostic rather than selecting a winner.
+- Existing events and binding assertions remain immutable.
+- A runtime fallback already recorded on an earlier turn is never
+  retrospectively relabeled when the model later declares the same association.
 
 ## Evidence and authority boundaries
 
@@ -240,9 +293,21 @@ Concept authorship also does not establish semantic truth. A valid envelope can
 prove that the model deliberately declared an association; it cannot prove that
 the association is accurate, useful, or supported.
 
+Structural validation and conceptual evaluation must remain separate:
+
+- Runtime validation covers placement, fence state, schema, bounds, token
+  grammar, uniqueness, definition grounding, existing-token collisions, and
+  all-or-nothing application.
+- Runtime validation does not claim that a definition is insightful, relevant,
+  accurate, or useful.
+- Definition relevance and relational quality belong in blinded experimental
+  evaluation.
+
 ## Evaluation before implementation
 
-Evaluate candidate parsers offline before allowing ledger mutation:
+Evaluate candidate parsers offline before allowing ledger mutation. This phase
+tests parser safety, not whether models will emit a protocol they had not yet
+been taught:
 
 1. Freeze a corpus containing the Granite and Gemma transcripts, existing
    protocol-gate outputs, ordinary fenced JSON examples, malformed markers,
@@ -256,11 +321,35 @@ Evaluate candidate parsers offline before allowing ledger mutation:
 6. Test undefined-token handling and later lexical retrieval.
 7. Run the same protocol-conformance gate across multiple model families and
    provider adapters.
-8. Re-run a natural conversation without explicitly requesting controls and
-   measure natural capture separately from instructed compliance.
+8. Report structural precision and recall, false accepted mutation count,
+   rejection-reason distribution, attribution output, idempotency, and
+   effective-association behavior.
 
-Only after the envelope, schemas, failure behavior, migration posture, and
-cross-model acceptance criteria are frozen should a parser patch be considered.
+After offline safety evaluation, run a separate nonproduction emission and
+conformance experiment. Supply the same experimental primer and exact protocol
+to every tested model family and provider adapter. Do not create family-specific
+parser rules or prompts. Different compliance rates are compatibility results,
+not reasons to loosen the contract.
+
+Measure separately:
+
+- explicit compliance when a test prompt requests an envelope;
+- **spontaneous appropriate-use rate** during ordinary conversation after the
+  system primer teaches the channel but the user does not request control
+  syntax;
+- final-line, column-zero, and outside-fence placement compliance;
+- schema, bounds, and token-grammar validity;
+- new-definition grounding and collision behavior;
+- overuse and false declarations;
+- blinded definition relevance and relational quality.
+
+Historical Granite and Gemma responses remain valuable adversarial parser
+inputs, but they cannot measure spontaneous appropriate use of a syntax those
+models were never shown.
+
+Collect safety and conformance evidence first. Then freeze the protocol and
+acceptance criteria. Only after that freeze should a production parser patch be
+considered.
 
 ## Explicit deferrals
 
@@ -272,5 +361,8 @@ This audit does not recommend:
 - changing the universal fallback based on these sessions;
 - granting `REFLECT:` arbitrary CTL mutation authority;
 - treating model declaration as evidence of correctness;
-- implementing the parser before the offline corpus and acceptance criteria are
-  approved.
+- depositing new definitions without binding them to the discovery turn;
+- accepting partial envelopes when any definition or concept fails validation;
+- creating model-family-specific parsing or acceptance rules;
+- implementing the production parser before the offline safety evaluation,
+  cross-model conformance evidence, and separate approval.
