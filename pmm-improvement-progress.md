@@ -154,7 +154,7 @@ The field is optional. Its absence means that the response makes no formal evide
 
 Established invariant:
 
-> PMM verifies that formally designated evidence existed and was selected for the current turn. It does not determine whether that evidence proves or semantically supports the associated assertion.
+> PMM verifies that formally designated event evidence existed and was selected for the current turn's raw-event evidence channel. It does not determine whether that evidence proves or semantically supports the associated assertion.
 
 Validation behavior:
 
@@ -189,11 +189,11 @@ In the claim-bypass case:
 - A `CLAIM` cited existing but unselected event 6 through `evidence_events`.
 - PMM persisted no claim and created `EVIDENCE_NOT_SELECTED`, linked to the originating assistant event.
 
-The isolated final ledger created no commitments or identity mutations. These results confirm availability enforcement, all-or-nothing behavior, prose isolation, and auditable failure linkage.
+The isolated final ledger created no commitments or identity mutations. That is a recorded outcome of these controlled responses, not an independent success criterion: appropriate commitments can represent valid ontological crystallization in PMM. The results confirm raw-event availability enforcement, all-or-nothing behavior, prose isolation, and auditable failure linkage.
 
 Explicit semantic limitation:
 
-> Selection proves only that the model received the event in its rendered context. PMM does not yet prove that event 17 truly supports `selected_seed`, nor does it infer evidentiary meaning from unrestricted natural language.
+> Selection proves only that the event was included in the turn's raw-event evidence channel. PMM also renders derived CTL, thread, graph, identity, self-model, and commitment-state projections whose underlying events may not all be selected as raw evidence. PMM does not yet prove that event 17 truly supports `selected_seed`, nor does it infer evidentiary meaning from unrestricted natural language.
 
 ### 9. Prompt-growth telemetry
 
@@ -239,10 +239,10 @@ A matched fresh-database experiment compared the telemetry commit with the corre
 | Provider output tokens | 238 | 148 |
 | Selected evidence events | 0 | 0 |
 | Control markers | `COMMIT: acknowledgment_of_no_evidence` | None |
-| Ledger mutations | One unintended `commitment_open` | None |
+| Ledger mutations | One `commitment_open` (`acknowledgment_of_no_evidence`) | None |
 | Invented event references | None | None |
 
-The corrected run used approximately 30% fewer provider prompt tokens and one-third fewer assembled-prompt characters. It also produced a shorter response without losing the requested behavior and emitted no unintended commitment.
+The corrected run used approximately 30% fewer provider prompt tokens and one-third fewer assembled-prompt characters. It also produced a shorter response without losing the requested behavior. The duplicated-primer run emitted `COMMIT: acknowledgment_of_no_evidence`; the corrected run emitted no marker. This is a behavioral observation, not evidence that commitment absence is preferable. Determining whether the commitment was meaningful would require inspecting its declared versus runtime-assigned concepts and its later retrieval, reflection, development, and closure behavior.
 
 Behavioral limitation:
 
@@ -430,7 +430,7 @@ The measurement mechanism is implemented. Before adding prompt-reduction behavio
 - Provenance and raw-evidence size
 - Selected-event count
 - Output-token count
-- Unintended control markers and ledger mutations
+- Control markers, resulting ledger mutations, binding attribution, relational content, and later utility
 
 This baseline is an experiment, not a code change. It should identify whether prompt growth is operationally significant and which component causes it. A later controlled behavioral experiment would be required to determine whether provenance scores improve model self-correction; telemetry alone cannot establish that claim.
 
