@@ -17,6 +17,12 @@ In other words, transferable machine identity is possible when identity is defin
 
 <br>
 
+## Start here: current system guide
+
+For a repository-grounded, plain-language explanation of what PMM currently does, how one turn flows through the system, and where its guarantees stop, read [`docs/PMM-SYSTEM-GUIDE.md`](docs/PMM-SYSTEM-GUIDE.md).
+
+<br>
+
 ## 📄 **White Paper (Draft):**
 
 See the detailed, publication-style description of PMM’s architecture, epistemology, and Echo case study in  
