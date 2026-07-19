@@ -5,14 +5,25 @@ from __future__ import annotations
 
 
 from pmm.core.event_log import EventLog
+from pmm.core.event_log import TERMINAL_OUTCOME_PROTOCOL
 from pmm.core.meme_graph import MemeGraph
 
 
 def create_sample_events(log: EventLog) -> None:
     # Sample events for graph (canonical meta-based commitments)
-    log.append(kind="user_message", content="hello", meta={"role": "user"})
     log.append(
-        kind="assistant_message", content="COMMIT: task1 hi", meta={"role": "assistant"}
+        kind="user_message",
+        content="hello",
+        meta={"role": "user", "turn_protocol": TERMINAL_OUTCOME_PROTOCOL},
+    )
+    log.append(
+        kind="assistant_message",
+        content="COMMIT: task1 hi",
+        meta={
+            "role": "assistant",
+            "turn_protocol": TERMINAL_OUTCOME_PROTOCOL,
+            "about_event": 1,
+        },
     )
     log.append(
         kind="commitment_open",
@@ -48,6 +59,7 @@ def test_rebuild_equals_incremental():
         return sorted((u, v, (d.get("label") or "")) for u, v, d in G.edges(data=True))
 
     assert _canon_edges(meme_rebuild.graph) == _canon_edges(meme_inc.graph)
+    assert meme_rebuild.prior_managed_pair(3) == meme_inc.prior_managed_pair(3)
 
 
 def test_edges_correctly_built():
@@ -93,6 +105,145 @@ def test_add_event_idempotent():
 
     assert nodes1 == nodes2
     assert edges1 == edges2
+
+
+def test_managed_reply_uses_canonical_about_event_not_latest_user():
+    log = EventLog(":memory:")
+    first_user = log.append(
+        kind="user_message",
+        content="first",
+        meta={"role": "user", "turn_protocol": TERMINAL_OUTCOME_PROTOCOL},
+    )
+    latest_user = log.append(
+        kind="user_message",
+        content="interleaved",
+        meta={"role": "user", "turn_protocol": TERMINAL_OUTCOME_PROTOCOL},
+    )
+    assistant, _ = log.append_terminal_outcome(
+        user_event_id=first_user,
+        kind="assistant_message",
+        content="canonical reply",
+        meta={"role": "assistant"},
+    )
+
+    meme = MemeGraph(log)
+    meme.rebuild(log.read_all())
+
+    assert meme.graph.has_edge(assistant, first_user)
+    assert not meme.graph.has_edge(assistant, latest_user)
+    assert meme.prior_managed_pair(assistant + 1) == (first_user, assistant)
+
+
+def test_legacy_reply_fallback_is_not_promoted_to_managed_index():
+    log = EventLog(":memory:")
+    user_id = log.append(kind="user_message", content="legacy", meta={})
+    assistant_id = log.append(
+        kind="assistant_message",
+        content="legacy reply",
+        meta={"role": "assistant", "about_event": user_id},
+    )
+
+    meme = MemeGraph(log)
+    meme.rebuild(log.read_all())
+
+    assert meme.graph.has_edge(assistant_id, user_id)
+    assert meme.prior_managed_pair(assistant_id + 1) is None
+
+
+def test_invalid_managed_target_does_not_fall_back_to_latest_user():
+    log = EventLog(":memory:")
+    user_id = log.append(
+        kind="user_message",
+        content="managed",
+        meta={"turn_protocol": TERMINAL_OUTCOME_PROTOCOL},
+    )
+    assistant_id = log.append(
+        kind="assistant_message",
+        content="invalid managed reply",
+        meta={
+            "turn_protocol": TERMINAL_OUTCOME_PROTOCOL,
+            "about_event": 999999,
+        },
+    )
+
+    meme = MemeGraph(log)
+    meme.rebuild(log.read_all())
+
+    assert not meme.graph.has_edge(assistant_id, user_id)
+    assert meme.prior_managed_pair(assistant_id + 1) is None
+
+
+def test_managed_pair_index_tolerates_out_of_order_assistant_delivery():
+    protocol = TERMINAL_OUTCOME_PROTOCOL
+    meme = MemeGraph(EventLog(":memory:"))
+    meme.add_event(
+        {"id": 1, "kind": "user_message", "meta": {"turn_protocol": protocol}}
+    )
+    meme.add_event(
+        {"id": 3, "kind": "user_message", "meta": {"turn_protocol": protocol}}
+    )
+    meme.add_event(
+        {
+            "id": 4,
+            "kind": "assistant_message",
+            "meta": {"turn_protocol": protocol, "about_event": 3},
+        }
+    )
+    meme.add_event(
+        {
+            "id": 2,
+            "kind": "assistant_message",
+            "meta": {"turn_protocol": protocol, "about_event": 1},
+        }
+    )
+
+    assert meme._managed_assistant_ids == [2, 4]
+    assert meme.prior_managed_pair(4) == (1, 2)
+    assert meme.prior_managed_pair(5) == (3, 4)
+
+
+def test_incomplete_and_failed_managed_turns_remain_outside_pair_index():
+    log = EventLog(":memory:")
+    completed_user = log.append(
+        kind="user_message",
+        content="complete",
+        meta={"turn_protocol": TERMINAL_OUTCOME_PROTOCOL},
+    )
+    completed_assistant, _ = log.append_terminal_outcome(
+        user_event_id=completed_user,
+        kind="assistant_message",
+        content="complete answer",
+        meta={"role": "assistant"},
+    )
+    log.append(
+        kind="user_message",
+        content="incomplete",
+        meta={"turn_protocol": TERMINAL_OUTCOME_PROTOCOL},
+    )
+    failed_user = log.append(
+        kind="user_message",
+        content="failed",
+        meta={"turn_protocol": TERMINAL_OUTCOME_PROTOCOL},
+    )
+    log.append_terminal_outcome(
+        user_event_id=failed_user,
+        kind="generation_failure",
+        content="diagnostic only",
+        meta={"source": "runtime"},
+    )
+    current_user = log.append(
+        kind="user_message",
+        content="current",
+        meta={"turn_protocol": TERMINAL_OUTCOME_PROTOCOL},
+    )
+
+    meme = MemeGraph(log)
+    meme.rebuild(log.read_all())
+
+    assert meme.prior_managed_pair(current_user) == (
+        completed_user,
+        completed_assistant,
+    )
 
 
 def test_neighbors_subgraph_and_frontier():

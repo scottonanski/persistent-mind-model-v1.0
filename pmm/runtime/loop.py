@@ -35,7 +35,11 @@ from pmm.runtime.prompts import compose_system_prompt
 from pmm.core.identity_manager import maybe_append_identity_adoptions
 from pmm.runtime.reflection import TurnDelta, build_reflection_text
 from pmm.retrieval.pipeline import run_retrieval_pipeline, RetrievalConfig
-from pmm.runtime.context_renderer import render_context_with_metrics
+from pmm.runtime.context_renderer import (
+    PriorConversationRenderResult,
+    render_context_with_metrics,
+    render_prior_managed_pair,
+)
 from pmm.runtime.prompts import SYSTEM_PRIMER
 from pmm.retrieval.vector import (
     selection_digest,
@@ -64,9 +68,7 @@ class RuntimeLoop:
     }
 
     @classmethod
-    def _build_output_telemetry(
-        cls, generation_meta: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _build_output_telemetry(cls, generation_meta: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize conservative provider output measurements."""
 
         meta = generation_meta if isinstance(generation_meta, dict) else {}
@@ -114,6 +116,7 @@ class RuntimeLoop:
         evidence_chars: int,
         user_message_chars: int,
         selected_evidence_events: int,
+        prior_conversation: PriorConversationRenderResult,
         generation_meta: Dict[str, Any],
         adapter_context_window_tokens: Any = None,
     ) -> Dict[str, Any]:
@@ -151,6 +154,28 @@ class RuntimeLoop:
                 meta.get("total_assembled_prompt_chars")
             ),
             "selected_evidence_events": selected_evidence_events,
+            "prior_conversation_status": prior_conversation.status,
+            "prior_conversation_traversal": "memegraph_managed_pair_index",
+            "prior_conversation_pair_count": int(
+                prior_conversation.status == "included"
+            ),
+            "prior_conversation_event_ids": [
+                event_id
+                for event_id in (
+                    prior_conversation.user_event_id,
+                    prior_conversation.assistant_event_id,
+                )
+                if event_id is not None
+            ],
+            "prior_conversation_chars": len(prior_conversation.text),
+            "prior_conversation_user_chars": prior_conversation.user_chars,
+            "prior_conversation_assistant_chars": prior_conversation.assistant_chars,
+            "prior_conversation_truncated_messages": (
+                prior_conversation.truncated_messages
+            ),
+            "prior_conversation_deduplicated_event_ids": list(
+                prior_conversation.deduplicated_event_ids
+            ),
             "provider_prompt_tokens": provider_prompt_tokens,
             "context_window_tokens": context_window_tokens,
         }
@@ -186,6 +211,7 @@ class RuntimeLoop:
             if getattr(adapter, "output_budget_tokens", None) != configured_budget:
                 raise ValueError("selected adapter did not accept the output budget")
         self.eventlog = eventlog
+        self._run_turn_lock = threading.Lock()
         self.output_budget_source = output_budget_source or getattr(
             adapter,
             "output_budget_source",
@@ -399,6 +425,12 @@ class RuntimeLoop:
                 )
 
     def run_turn(self, user_input: str) -> List[Dict[str, Any]]:
+        """Execute one complete managed turn at a time for this runtime."""
+
+        with self._run_turn_lock:
+            return self._run_turn_serialized(user_input)
+
+    def _run_turn_serialized(self, user_input: str) -> List[Dict[str, Any]]:
         if self.replay:
             # Replay mode: do not mutate ledger; simply return existing events.
             return self.eventlog.read_all()
@@ -464,6 +496,7 @@ class RuntimeLoop:
                 pipeline_config.enable_vector_search = False
 
         user_event = self.eventlog.get(user_event_id)
+        prior_pair = self.memegraph.prior_managed_pair(user_event_id)
 
         retrieval_result = run_retrieval_pipeline(
             query_text=user_input,
@@ -473,15 +506,6 @@ class RuntimeLoop:
             config=pipeline_config,
             user_event=user_event,
         )
-
-        context_render = render_context_with_metrics(
-            result=retrieval_result,
-            eventlog=self.eventlog,
-            concept_graph=self.concept_graph,
-            meme_graph=self.memegraph,
-            mirror=self.mirror,
-        )
-        ctx_block = context_render.text
 
         selection_ids = retrieval_result.event_ids
         selection_provenance = retrieval_result.provenance
@@ -493,6 +517,25 @@ class RuntimeLoop:
             )
             for event_id in selection_ids
         ]
+        prior_conversation = render_prior_managed_pair(
+            pair=prior_pair,
+            current_user_id=user_event_id,
+            eventlog=self.eventlog,
+            selected_event_ids=selection_ids,
+        )
+        context_render = render_context_with_metrics(
+            result=retrieval_result,
+            eventlog=self.eventlog,
+            concept_graph=self.concept_graph,
+            meme_graph=self.memegraph,
+            mirror=self.mirror,
+            excluded_evidence_ids=set(prior_conversation.deduplicated_event_ids),
+        )
+        ctx_block = "\n\n".join(
+            section
+            for section in (prior_conversation.text, context_render.text)
+            if section
+        )
 
         # Check if graph context is actually present
         context_has_graph = "## Graph" in ctx_block
@@ -518,15 +561,14 @@ class RuntimeLoop:
                 "configured_output_budget_tokens",
                 getattr(self.adapter, "output_budget_tokens", None),
             )
-            failure_meta.setdefault(
-                "output_budget_source", self.output_budget_source
-            )
+            failure_meta.setdefault("output_budget_source", self.output_budget_source)
             prompt_telemetry = self._build_prompt_telemetry(
                 context_chars=len(ctx_block),
                 provenance_chars=context_render.retrieval_provenance_chars,
                 evidence_chars=context_render.raw_evidence_chars,
                 user_message_chars=len(user_input),
                 selected_evidence_events=len(selection_ids),
+                prior_conversation=prior_conversation,
                 generation_meta=failure_meta,
                 adapter_context_window_tokens=getattr(
                     self.adapter, "context_window_tokens", None
@@ -564,6 +606,7 @@ class RuntimeLoop:
                 evidence_chars=context_render.raw_evidence_chars,
                 user_message_chars=len(user_input),
                 selected_evidence_events=len(selection_ids),
+                prior_conversation=prior_conversation,
                 generation_meta=output_meta,
                 adapter_context_window_tokens=getattr(
                     self.adapter, "context_window_tokens", None
@@ -591,6 +634,7 @@ class RuntimeLoop:
             evidence_chars=context_render.raw_evidence_chars,
             user_message_chars=len(user_input),
             selected_evidence_events=len(selection_ids),
+            prior_conversation=prior_conversation,
             generation_meta=generation_result.meta,
             adapter_context_window_tokens=getattr(
                 self.adapter, "context_window_tokens", None
@@ -716,9 +760,7 @@ class RuntimeLoop:
             failure_content = json.dumps(
                 {
                     "validation_type": "evidence_designation",
-                    "data": {
-                        "evidence_designations": attempted_evidence_designations
-                    },
+                    "data": {"evidence_designations": attempted_evidence_designations},
                     "reason_code": designation_validation.code,
                     "reason": designation_validation.message,
                 },

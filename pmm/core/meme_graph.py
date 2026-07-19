@@ -9,11 +9,12 @@ Append-only directed graph using NetworkX DiGraph.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 import threading
 import networkx as nx
 from typing import Dict, List, Iterable, Literal, Optional, Set
 
-from .event_log import EventLog
+from .event_log import EventLog, TERMINAL_OUTCOME_PROTOCOL
 
 
 class MemeGraph:
@@ -31,10 +32,14 @@ class MemeGraph:
         self.eventlog = eventlog
         self.graph = nx.DiGraph()
         self._lock = threading.RLock()
+        self._managed_assistant_ids: list[int] = []
+        self._managed_pair_by_assistant: dict[int, int] = {}
 
     def rebuild(self, events: List[Dict]) -> None:
         with self._lock:
             self.graph.clear()
+            self._managed_assistant_ids.clear()
+            self._managed_pair_by_assistant.clear()
             for event in events:
                 self._add_event(event)
 
@@ -52,13 +57,31 @@ class MemeGraph:
         meta = event.get("meta", {})
 
         # Add node
-        self.graph.add_node(event_id, kind=kind)
+        self.graph.add_node(
+            event_id,
+            kind=kind,
+            turn_protocol=(meta or {}).get("turn_protocol"),
+        )
 
         # Add edges
         if kind == "assistant_message":
-            last_user = self._find_last("user_message")
-            if last_user is not None:
-                self.graph.add_edge(event_id, last_user, label="replies_to")
+            if (meta or {}).get("turn_protocol") == TERMINAL_OUTCOME_PROTOCOL:
+                about_event = (meta or {}).get("about_event")
+                if self._is_prior_user_node(about_event, assistant_id=event_id):
+                    user_id = int(about_event)
+                    self.graph.add_edge(event_id, user_id, label="replies_to")
+                    if (
+                        self.graph.nodes[user_id].get("turn_protocol")
+                        == TERMINAL_OUTCOME_PROTOCOL
+                    ):
+                        self._index_managed_pair(event_id, user_id)
+            else:
+                # Legacy assistant events have no mandatory canonical turn link.
+                # Preserve the historical latest-user heuristic for graph shape,
+                # but never promote those inferred pairs into the managed index.
+                last_user = self._find_last("user_message")
+                if last_user is not None:
+                    self.graph.add_edge(event_id, last_user, label="replies_to")
         elif kind == "identity_adoption":
             # Link identity adoption to the most recent assistant_message or
             # reflection to form explicit identity threads.
@@ -93,6 +116,51 @@ class MemeGraph:
             about_event = meta.get("about_event")
             if about_event and self.graph.has_node(about_event):
                 self.graph.add_edge(event_id, about_event, label="reflects_on")
+
+    def _is_prior_user_node(self, event_id: object, *, assistant_id: int) -> bool:
+        return (
+            isinstance(event_id, int)
+            and not isinstance(event_id, bool)
+            and event_id < assistant_id
+            and self.graph.has_node(event_id)
+            and self.graph.nodes[event_id].get("kind") == "user_message"
+        )
+
+    def _index_managed_pair(self, assistant_id: int, user_id: int) -> None:
+        if assistant_id in self._managed_pair_by_assistant:
+            return
+
+        self._managed_pair_by_assistant[assistant_id] = user_id
+        if (
+            not self._managed_assistant_ids
+            or assistant_id > self._managed_assistant_ids[-1]
+        ):
+            self._managed_assistant_ids.append(assistant_id)
+            return
+
+        position = bisect_left(self._managed_assistant_ids, assistant_id)
+        self._managed_assistant_ids.insert(position, assistant_id)
+
+    def prior_managed_pair(self, current_user_id: int) -> tuple[int, int] | None:
+        """Return ``(user_id, assistant_id)`` for the prior managed turn.
+
+        Selection is an indexed structural lookup. It does not traverse graph
+        nodes or query canonical event content.
+        """
+
+        if (
+            not isinstance(current_user_id, int)
+            or isinstance(current_user_id, bool)
+            or current_user_id <= 0
+        ):
+            raise ValueError("current_user_id must be a positive integer")
+
+        with self._lock:
+            position = bisect_left(self._managed_assistant_ids, current_user_id) - 1
+            if position < 0:
+                return None
+            assistant_id = self._managed_assistant_ids[position]
+            return self._managed_pair_by_assistant[assistant_id], assistant_id
 
     def _find_last(self, kind: str) -> int | None:
         candidates = [
