@@ -10,6 +10,8 @@
 
 <br>
 
+# PMM is model-agnostic ontological identity-governance infrastructure for AI.
+
 An event-sourced runtime with deterministic storage, projection, and retrieval mechanisms for persistent AI memory.
 Persistent history. Rebuildable projections. Bounded, provenance-recorded context.
 
