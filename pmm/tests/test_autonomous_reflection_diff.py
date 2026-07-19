@@ -2,6 +2,7 @@
 # Copyright (c) 2025 Scott O'Nanski
 
 from unittest.mock import Mock
+from contextlib import nullcontext
 import json
 
 from pmm.runtime.reflection_synthesizer import synthesize_reflection
@@ -14,6 +15,7 @@ class MockEventLog:
     def __init__(self, events):
         self.events = events.copy()
         self.listeners = []
+        self.writer_session = self
 
     def read_all(self):
         return self.events
@@ -48,12 +50,27 @@ class MockEventLog:
         meta["open_event_id"] = latest["id"]
         return self.append(kind="commitment_close", content=content, meta=meta), True
 
-    def register_listener(self, listener):
+    def register_listener(self, listener, **kwargs):
         self.listeners.append(listener)
 
-    def rebuild_and_register_listener(self, rebuild, listener):
+    def rebuild_and_register_listener(self, rebuild, listener, **kwargs):
         rebuild(self.read_all())
         self.listeners.append(listener)
+
+    def projection_barrier(self):
+        return len(self.events)
+
+    def _require_writer(self):
+        return self
+
+    def operation(self):
+        return nullcontext()
+
+    def require_healthy(self):
+        return None
+
+    def assert_writer_authority(self):
+        return None
 
     def hash_sequence(self):
         # simple hash

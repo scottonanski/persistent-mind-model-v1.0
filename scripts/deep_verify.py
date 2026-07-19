@@ -16,7 +16,7 @@ def analyze_db(name: str):
         return
 
     print(f"\n--- Analysis: {name} ---")
-    log = EventLog(db_path)
+    log = EventLog(db_path, mode="reader")
     events = log.read_all()
 
     # 1. Event Kind Distribution
@@ -47,6 +47,7 @@ def analyze_db(name: str):
         print(f"Final RSM State: {rsm}")
     else:
         print("Final RSM State: None found")
+    log.close()
 
 
 if __name__ == "__main__":

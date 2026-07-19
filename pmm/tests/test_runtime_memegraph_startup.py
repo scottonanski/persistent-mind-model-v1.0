@@ -118,6 +118,7 @@ def test_reopened_runtime_restores_live_graph_and_relationships(tmp_path) -> Non
     live_nodes = sorted(int(node) for node in live.memegraph.graph.nodes)
     live_edges = _edges(live.memegraph)
 
+    live_log.close()
     reopened_log = EventLog(db_path)
     reopened = RuntimeLoop(
         eventlog=reopened_log, adapter=DummyAdapter(), autonomy=False
@@ -126,12 +127,14 @@ def test_reopened_runtime_restores_live_graph_and_relationships(tmp_path) -> Non
     assert sorted(int(node) for node in reopened.memegraph.graph.nodes) == live_nodes
     assert _edges(reopened.memegraph) == live_edges
     assert int(ids["untracked"]) not in reopened.memegraph.graph
-    assert reopened.memegraph.graph[int(ids["close"])][int(ids["open"])][
-        "label"
-    ] == "closes"
-    assert reopened.memegraph.graph[int(ids["reflection"])][int(ids["assistant"])][
-        "label"
-    ] == "reflects_on"
+    assert (
+        reopened.memegraph.graph[int(ids["close"])][int(ids["open"])]["label"]
+        == "closes"
+    )
+    assert (
+        reopened.memegraph.graph[int(ids["reflection"])][int(ids["assistant"])]["label"]
+        == "reflects_on"
+    )
     assert reopened.memegraph.thread_for_cid(str(ids["cid"])) == [
         int(ids["assistant"]),
         int(ids["open"]),
@@ -151,6 +154,7 @@ def test_graph_is_restored_before_first_retrieval(tmp_path) -> None:
     db_path = str(tmp_path / "first-retrieval.db")
     seed_log = EventLog(db_path)
     ids = _append_seed_history(seed_log)
+    seed_log.close()
     adapter = CaptureAdapter()
 
     from pmm.runtime import loop as loop_module
@@ -163,9 +167,7 @@ def test_graph_is_restored_before_first_retrieval(tmp_path) -> None:
         assert graph.graph.has_edge(int(ids["reflection"]), int(ids["assistant"]))
         return production_retrieval(**kwargs)
 
-    runtime = RuntimeLoop(
-        eventlog=EventLog(db_path), adapter=adapter, autonomy=False
-    )
+    runtime = RuntimeLoop(eventlog=EventLog(db_path), adapter=adapter, autonomy=False)
     with patch.object(
         loop_module,
         "run_retrieval_pipeline",
@@ -178,9 +180,7 @@ def test_graph_is_restored_before_first_retrieval(tmp_path) -> None:
 
 def test_rebuild_listener_handoff_captures_concurrent_append() -> None:
     log = EventLog(":memory:")
-    first_id = log.append(
-        kind="user_message", content="before", meta={"role": "user"}
-    )
+    first_id = log.append(kind="user_message", content="before", meta={"role": "user"})
     graph = MemeGraph(log)
     rebuild_started = threading.Event()
     release_rebuild = threading.Event()
@@ -253,6 +253,7 @@ def test_replay_restores_without_mutating_hash_chain_and_listens_incrementally(
     RuntimeLoop(eventlog=seed_log, adapter=DummyAdapter(), autonomy=False)
     ids = _append_seed_history(seed_log)
     hashes_before = [event["hash"] for event in seed_log.read_all()]
+    seed_log.close()
 
     replay_log = EventLog(db_path)
     runtime = RuntimeLoop(
@@ -270,7 +271,9 @@ def test_replay_restores_without_mutating_hash_chain_and_listens_incrementally(
 
 def test_consecutive_one_shot_invocations_restore_history(tmp_path) -> None:
     db_path = str(tmp_path / "oneshot.db")
-    ids = _append_seed_history(EventLog(db_path))
+    seed_log = EventLog(db_path)
+    ids = _append_seed_history(seed_log)
+    seed_log.close()
 
     first_adapter = CaptureAdapter()
     first = run_one_turn(
@@ -296,7 +299,9 @@ def test_consecutive_one_shot_invocations_restore_history(tmp_path) -> None:
 
 def test_consecutive_mcp_invocations_restore_history(tmp_path) -> None:
     db_path = str(tmp_path / "mcp.db")
-    ids = _append_seed_history(EventLog(db_path))
+    seed_log = EventLog(db_path)
+    ids = _append_seed_history(seed_log)
+    seed_log.close()
 
     with patch.dict(os.environ, {"PMM_MCP_DB": db_path}):
         first = pmm_turn(

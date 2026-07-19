@@ -36,7 +36,7 @@ def main():
     print("🛠️  Initializing Archivist Trigger Test...")
 
     # 1. Setup clean ledger
-    log = EventLog(":memory:")
+    log = EventLog(":memory:", mode="writer", writer_role="archivist-trigger-test")
 
     # Inject config to ensure kernel behaves predictably
     log.append(
@@ -136,6 +136,7 @@ def main():
     else:
         print("❌ ConceptGraph missing expected tokens.")
         sys.exit(1)
+    log.close()
 
 
 if __name__ == "__main__":

@@ -196,7 +196,7 @@ def main():
 
     command = sys.argv[2]
 
-    log = EventLog(str(db_path))
+    log = EventLog(str(db_path), mode="reader")
 
     if command == "list":
         cmd_list(log)
@@ -213,7 +213,10 @@ def main():
     else:
         print(f"Unknown command: {command}")
         print(__doc__)
+        log.close()
         sys.exit(1)
+
+    log.close()
 
 
 if __name__ == "__main__":

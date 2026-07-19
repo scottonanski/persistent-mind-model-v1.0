@@ -33,7 +33,7 @@ def compute_metrics(
       - open_commitments: number of currently open commitments
       - closed_commitments: number of commitment_close events
     """
-    log = EventLog(db_path)
+    log = EventLog(db_path, mode="reader")
     raw_events = log.read_all()
     instrumentation: set[str] = {"metrics_update"}
 
@@ -115,6 +115,7 @@ def compute_metrics(
             "open_commitments": am["open_commitments"],
         }
 
+    log.close()
     return metrics
 
 
@@ -246,12 +247,14 @@ def append_metrics_if_delta(db_path: str) -> bool:
 
     Returns True if appended, False if no-op.
     """
-    log = EventLog(db_path)
-    events = log.read_all()
-    new_metrics = compute_metrics(db_path)
-    new_snapshot = _stable_serialize_snapshot(new_metrics)
-    last_snapshot = _last_metrics_snapshot(events)
-    if last_snapshot == new_snapshot:
-        return False
-    log.append(kind="metrics_update", content=new_snapshot, meta={})
-    return True
+    with EventLog(db_path, mode="writer", writer_role="metrics") as log:
+        assert log.writer_session is not None
+        with log.writer_session.operation():
+            events = log.read_all()
+            new_metrics = compute_metrics(db_path)
+            new_snapshot = _stable_serialize_snapshot(new_metrics)
+            last_snapshot = _last_metrics_snapshot(events)
+            if last_snapshot == new_snapshot:
+                return False
+            log.append(kind="metrics_update", content=new_snapshot, meta={})
+            return True

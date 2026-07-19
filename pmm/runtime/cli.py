@@ -189,6 +189,7 @@ def _gather_models() -> list[str]:
     if os.environ.get("OPENAI_API_KEY"):
         try:
             from openai import OpenAI
+
             client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
             openai_models = [m.id for m in client.models.list()]
             models.extend([f"openai:{m}" for m in openai_models])
@@ -365,7 +366,7 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover - thin wrap
     console.print(f"\n[success]→ Using model: {selected}[/success]\n")
     console.print("[prompt]Type '/exit' to quit.[/prompt]\n")
 
-    elog = EventLog(db_path)
+    elog = EventLog(db_path, mode="writer", writer_role="interactive")
     adapter = _instantiate_adapter(
         use_openai, model_name, output_budget_tokens, output_budget_source
     )
@@ -563,6 +564,8 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover - thin wrap
                     )
     except KeyboardInterrupt:
         return
+    finally:
+        elog.close()
 
 
 if __name__ == "__main__":  # pragma: no cover
@@ -857,6 +860,13 @@ def _embedding_map(events, *, model: str, dims: int):
 
 
 def _handle_retrieval_backfill(eventlog: EventLog, n: int) -> str:
+    session = eventlog._require_writer()
+    with session.operation():
+        eventlog.assert_writer_authority()
+        return _handle_retrieval_backfill_owned(eventlog, n)
+
+
+def _handle_retrieval_backfill_owned(eventlog: EventLog, n: int) -> str:
     cfg = _last_retrieval_config(eventlog) or {}
     if cfg.get("strategy") != "vector":
         return "Retrieval strategy is not 'vector'"
@@ -919,6 +929,13 @@ def _handle_retrieval_verify(eventlog: EventLog, turn_id: int) -> str:
 
 def _handle_ctl_thread_backfill(eventlog: EventLog, batch: int) -> str:
     """Backfill concept->CID bindings using Indexer."""
+    session = eventlog._require_writer()
+    with session.operation():
+        eventlog.assert_writer_authority()
+        return _handle_ctl_thread_backfill_owned(eventlog, batch)
+
+
+def _handle_ctl_thread_backfill_owned(eventlog: EventLog, batch: int) -> str:
     from pmm.runtime.indexer import Indexer
 
     idx = Indexer(eventlog)

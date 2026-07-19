@@ -54,7 +54,7 @@ def run_session(model_name: str, provider: str) -> Dict[str, Any]:
     if os.path.exists(db_path):
         os.remove(db_path)
 
-    eventlog = EventLog(db_path)
+    eventlog = EventLog(db_path, mode="writer", writer_role="comparison")
 
     # Initialize adapter
     if provider == "dummy":
@@ -68,6 +68,7 @@ def run_session(model_name: str, provider: str) -> Dict[str, Any]:
             print(
                 f"Skipping {model_name}: Ollama not reachable or model missing. ({e})"
             )
+            eventlog.close()
             return None
     elif provider == "openai":
         try:
@@ -75,18 +76,20 @@ def run_session(model_name: str, provider: str) -> Dict[str, Any]:
             adapter = OpenAIAdapter()
         except Exception as e:
             print(f"Skipping {model_name}: OpenAI adapter error. ({e})")
+            eventlog.close()
             return None
     else:
         print(
             f"Skipping {model_name}: Provider {provider} not configured for local run."
         )
+        eventlog.close()
         return None
 
     loop = RuntimeLoop(eventlog=eventlog, adapter=adapter)
 
     # Run script
     for i, prompt in enumerate(INTROSPECTION_SCRIPT):
-        print(f"[{model_name}] Turn {i+1}: {prompt}")
+        print(f"[{model_name}] Turn {i + 1}: {prompt}")
         loop.run_turn(prompt)
 
     # Extract final state
@@ -97,7 +100,7 @@ def run_session(model_name: str, provider: str) -> Dict[str, Any]:
     cg = ConceptGraph(eventlog)
     cg.rebuild(eventlog.read_all())
 
-    return {
+    result = {
         "model": model_name,
         "events": len(eventlog.read_all()),
         "determinism_score": snapshot["behavioral_tendencies"].get(
@@ -110,6 +113,8 @@ def run_session(model_name: str, provider: str) -> Dict[str, Any]:
         "defined_concepts": list(cg.concepts.keys()),
         "last_response": eventlog.read_tail(1)[0]["content"],
     }
+    eventlog.close()
+    return result
 
 
 def main():

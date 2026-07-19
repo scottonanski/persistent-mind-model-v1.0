@@ -22,7 +22,8 @@ from pmm.adapters import resolve_output_budget_tokens
 # Initialize FastMCP server
 mcp = FastMCP("pmm")
 
-# Process-level serialization lock to prevent concurrent turns against the same DB
+# Process-level admission gate. Contention is explicit; the database lease remains
+# the cross-process authority.
 _turn_lock = threading.Lock()
 
 
@@ -68,8 +69,9 @@ def pmm_turn(
     if resolved_output_budget is not None:
         cmd.extend(["--output-budget-tokens", str(resolved_output_budget)])
 
-    # Serialize turns
-    with _turn_lock:
+    if not _turn_lock.acquire(blocking=False):
+        raise RuntimeError("MCP managed turn already active; contender rejected")
+    try:
         try:
             result = subprocess.run(
                 cmd,
@@ -80,6 +82,8 @@ def pmm_turn(
             )
         except subprocess.TimeoutExpired as e:
             raise RuntimeError(f"PMM turn execution timed out after 240 seconds: {e}")
+    finally:
+        _turn_lock.release()
 
     if result.returncode != 0:
         err_msg = (result.stderr or "").strip()

@@ -14,12 +14,13 @@ def check_db(name: str):
         print(f"{name}: DB not found")
         return
 
-    log = EventLog(db_path)
+    log = EventLog(db_path, mode="reader")
     events = log.read_all()
     cg = ConceptGraph(log)
     cg.rebuild(events)
 
     print(f"{name}: {len(events)} events, {len(cg.concepts)} concepts")
+    log.close()
 
 
 if __name__ == "__main__":

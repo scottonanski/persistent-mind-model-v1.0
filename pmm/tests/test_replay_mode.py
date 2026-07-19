@@ -14,9 +14,10 @@ def test_replay_does_not_mutate_ledger(tmp_path):
     loop = RuntimeLoop(eventlog=log, adapter=DummyAdapter(), autonomy=False)
     loop.run_turn("hello")
     seq_before = log.hash_sequence()
+    log.close()
 
     # New loop in replay mode on same DB
-    log2 = EventLog(str(db))
+    log2 = EventLog(str(db), mode="reader")
     loop2 = RuntimeLoop(
         eventlog=log2, adapter=DummyAdapter(), replay=True, autonomy=False
     )
@@ -25,3 +26,4 @@ def test_replay_does_not_mutate_ledger(tmp_path):
     events_after = log2.read_all()
     assert events_before == events_after
     assert seq_before == log2.hash_sequence()
+    log2.close()

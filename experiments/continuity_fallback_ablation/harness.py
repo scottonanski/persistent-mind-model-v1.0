@@ -15,10 +15,10 @@ from typing import Any, Iterable
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from pmm.adapters import GenerationResult
-from pmm.adapters.ollama_adapter import OllamaAdapter
-from pmm.core.event_log import EventLog, _canonical_json
-from pmm.runtime.loop import RuntimeLoop
+from pmm.adapters import GenerationResult  # noqa: E402
+from pmm.adapters.ollama_adapter import OllamaAdapter  # noqa: E402
+from pmm.core.event_log import EventLog, _canonical_json  # noqa: E402
+from pmm.runtime.loop import RuntimeLoop  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -32,7 +32,7 @@ class NoFallbackEventLog(EventLog):
     """Suppress only universal fallback assertions inside this experiment."""
 
     def __init__(self, path: str = ":memory:") -> None:
-        super().__init__(path)
+        super().__init__(path, mode="writer", writer_role="experiment:no-fallback")
         self.suppressed_fallback_assertions: list[dict[str, Any]] = []
 
     def append(
@@ -112,8 +112,7 @@ class ScriptedAdapter:
                 "model": self.model,
                 "temperature": 0,
                 "seed": 1,
-                "total_assembled_prompt_chars": len(system_prompt)
-                + len(user_prompt),
+                "total_assembled_prompt_chars": len(system_prompt) + len(user_prompt),
             },
         )
 
@@ -143,8 +142,7 @@ class FixedRepliesAdapter:
                 "model": self.model,
                 "temperature": 0,
                 "seed": self.seed,
-                "total_assembled_prompt_chars": len(system_prompt)
-                + len(user_prompt),
+                "total_assembled_prompt_chars": len(system_prompt) + len(user_prompt),
             },
         )
 
@@ -162,9 +160,7 @@ def _sha_file(path: Path) -> str:
 
 
 def _git(*args: str) -> str:
-    return subprocess.check_output(
-        ["git", *args], cwd=ROOT, text=True
-    ).strip()
+    return subprocess.check_output(["git", *args], cwd=ROOT, text=True).strip()
 
 
 def _load_manifest() -> dict[str, Any]:
@@ -176,13 +172,14 @@ def _load_manifest_v2() -> dict[str, Any]:
 
 
 def _new_log(path: Path, condition: str) -> EventLog:
-    cls = EventLog if condition == "fallback" else NoFallbackEventLog
-    return cls(str(path))
+    if condition == "fallback":
+        return EventLog(str(path), mode="writer", writer_role="experiment:fallback")
+    return NoFallbackEventLog(str(path))
 
 
 def _initialized_baseline(path: Path) -> None:
     """Create the one initialized ledger copied byte-for-byte into both arms."""
-    log = EventLog(str(path))
+    log = EventLog(str(path), mode="writer", writer_role="experiment:baseline")
     RuntimeLoop(eventlog=log, adapter=ScriptedAdapter(), autonomy=False)
     definitions = _load_manifest_v2()["mechanistic"]["initial_concept_definitions"]
     for definition in definitions:
@@ -191,7 +188,7 @@ def _initialized_baseline(path: Path) -> None:
             content=json.dumps(definition, sort_keys=True, separators=(",", ":")),
             meta={"source": "experiment_fixture"},
         )
-    log._conn.close()
+    log.close()
 
 
 def _copy_baseline(baseline: Path, destination: Path, condition: str) -> EventLog:
@@ -284,6 +281,8 @@ def preflight() -> Path:
         events = log.read_all()
         all_events[condition] = events
         bindings = _binding_events(events)
+        suppressed = list(getattr(log, "suppressed_fallback_assertions", []))
+        log.close()
         reports[condition] = {
             "database": str(db_path),
             "database_sha256": _sha_file(db_path),
@@ -291,26 +290,31 @@ def preflight() -> Path:
             "ledger_integrity": _verify_chain(events),
             "binding_origins": [e["meta"].get("binding_origin") for e in bindings],
             "bindings": [
-                {"kind": e["kind"], "content": json.loads(e["content"]), "meta": e["meta"]}
+                {
+                    "kind": e["kind"],
+                    "content": json.loads(e["content"]),
+                    "meta": e["meta"],
+                }
                 for e in bindings
             ],
-            "suppressed_fallback_assertions": getattr(
-                log, "suppressed_fallback_assertions", []
-            ),
+            "suppressed_fallback_assertions": suppressed,
         }
 
     fallback_bindings = _binding_events(all_events["fallback"])
     no_fallback_bindings = _binding_events(all_events["no_fallback"])
     fallback_only = [
-        event for event in fallback_bindings
+        event
+        for event in fallback_bindings
         if event["meta"].get("binding_origin") == FALLBACK_ORIGIN
     ]
     declared_fallback = [
-        event for event in fallback_bindings
+        event
+        for event in fallback_bindings
         if event["meta"].get("binding_origin") == "model_declared"
     ]
     declared_no_fallback = [
-        event for event in no_fallback_bindings
+        event
+        for event in no_fallback_bindings
         if event["meta"].get("binding_origin") == "model_declared"
     ]
     assertions = {
@@ -328,9 +332,7 @@ def preflight() -> Path:
         "pre_intervention_semantics_equal": _normalized_nonbindings(
             _through_first_assistant(all_events["fallback"])
         )
-        == _normalized_nonbindings(
-            _through_first_assistant(all_events["no_fallback"])
-        ),
+        == _normalized_nonbindings(_through_first_assistant(all_events["no_fallback"])),
         "only_expected_writes_suppressed": len(
             reports["no_fallback"]["suppressed_fallback_assertions"]
         )
@@ -396,10 +398,17 @@ def pilot() -> Path:
             before = log.count()
             loop.run_turn(item["prompt"])
             after = log.count()
-            turn_ranges.append({"label": item["label"], "first_id": before + 1, "last_id": after})
+            turn_ranges.append(
+                {"label": item["label"], "first_id": before + 1, "last_id": after}
+            )
         events = log.read_all()
         transcript = [
-            {"id": e["id"], "kind": e["kind"], "content": e["content"], "meta": e["meta"]}
+            {
+                "id": e["id"],
+                "kind": e["kind"],
+                "content": e["content"],
+                "meta": e["meta"],
+            }
             for e in events
             if e["kind"] in {"user_message", "assistant_message", "generation_failure"}
         ]
@@ -409,8 +418,11 @@ def pilot() -> Path:
         selections = []
         for event in events:
             if event["kind"] == "retrieval_selection":
-                selections.append({"event_id": event["id"], **json.loads(event["content"])})
+                selections.append(
+                    {"event_id": event["id"], **json.loads(event["content"])}
+                )
         bindings = _binding_events(events)
+        log.close()
         run_report["conditions"][condition] = {
             "database": str(db_path),
             "database_sha256": _sha_file(db_path),
@@ -419,8 +431,12 @@ def pilot() -> Path:
             "turn_ranges": turn_ranges,
             "retrieval_selections": selections,
             "binding_origin_counts": {
-                origin: sum(1 for e in bindings if e["meta"].get("binding_origin") == origin)
-                for origin in sorted({str(e["meta"].get("binding_origin")) for e in bindings})
+                origin: sum(
+                    1 for e in bindings if e["meta"].get("binding_origin") == origin
+                )
+                for origin in sorted(
+                    {str(e["meta"].get("binding_origin")) for e in bindings}
+                )
             },
         }
 
@@ -429,7 +445,9 @@ def pilot() -> Path:
     return report_path
 
 
-def _events_by_kind(events: Iterable[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
+def _events_by_kind(
+    events: Iterable[dict[str, Any]], kind: str
+) -> list[dict[str, Any]]:
     return [event for event in events if event["kind"] == kind]
 
 
@@ -444,7 +462,9 @@ def protocol_gate(model: str | None = None) -> Path:
     manifest = _load_manifest_v2()
     settings = manifest["protocol_gate"]
     selected_model = model or settings["default_model"]
-    safe_model = "".join(ch if ch.isalnum() else "-" for ch in selected_model).strip("-")
+    safe_model = "".join(ch if ch.isalnum() else "-" for ch in selected_model).strip(
+        "-"
+    )
     output = ARTIFACTS / f"protocol-gate-{safe_model}"
     if output.exists():
         raise SystemExit(f"refusing to overwrite protocol gate: {output}")
@@ -456,7 +476,11 @@ def protocol_gate(model: str | None = None) -> Path:
     for trial_number in range(1, int(settings["trials"]) + 1):
         db_path = output / f"trial-{trial_number:02d}.db"
         prompt_path = output / f"trial-{trial_number:02d}-prompts.json"
-        log = EventLog(str(db_path))
+        log = EventLog(
+            str(db_path),
+            mode="writer",
+            writer_role="experiment:protocol-gate",
+        )
         log.append(
             kind="concept_define",
             content=json.dumps(
@@ -488,7 +512,11 @@ def protocol_gate(model: str | None = None) -> Path:
         loop.run_turn(settings["open_prompt"])
         first_events = log.read_all()
         first_assistant = _events_by_kind(first_events, "assistant_message")[-1]
-        first_line = first_assistant["content"].splitlines()[0] if first_assistant["content"] else ""
+        first_line = (
+            first_assistant["content"].splitlines()[0]
+            if first_assistant["content"]
+            else ""
+        )
         try:
             first_json = json.loads(first_line)
             first_line_json_parsed = isinstance(first_json, dict)
@@ -496,11 +524,13 @@ def protocol_gate(model: str | None = None) -> Path:
             first_line_json_parsed = False
 
         opens = [
-            event for event in _events_by_kind(first_events, "commitment_open")
+            event
+            for event in _events_by_kind(first_events, "commitment_open")
             if event["meta"].get("cid") == expected_cid
         ]
         declared = [
-            event for event in _binding_events(first_events)
+            event
+            for event in _binding_events(first_events)
             if event["meta"].get("binding_origin") == "model_declared"
         ]
         close_prompt = (
@@ -510,12 +540,16 @@ def protocol_gate(model: str | None = None) -> Path:
         loop.run_turn(close_prompt)
         after_close = log.read_all()
         closes = [
-            event for event in _events_by_kind(after_close, "commitment_close")
+            event
+            for event in _events_by_kind(after_close, "commitment_close")
             if event["meta"].get("cid") == expected_cid
         ]
         loop.run_turn(settings["retrieval_prompt"])
         events = log.read_all()
-        selections = [json.loads(e["content"]) for e in _events_by_kind(events, "retrieval_selection")]
+        selections = [
+            json.loads(e["content"])
+            for e in _events_by_kind(events, "retrieval_selection")
+        ]
         last_selection = selections[-1] if selections else {"selected": []}
         assertions = {
             "first_line_json_parsed": first_line_json_parsed,
@@ -530,6 +564,7 @@ def protocol_gate(model: str | None = None) -> Path:
             "later_raw_retrieval_nonempty": bool(last_selection.get("selected")),
             "ledger_integrity": _verify_chain(events),
         }
+        log.close()
         trials.append(
             {
                 "trial": trial_number,
@@ -607,9 +642,14 @@ def mechanistic_pilot() -> Path:
         selected_labels = [
             item["label"]
             for item in ranges
-            if any(item["first_id"] <= event_id <= item["last_id"] for event_id in selected_ids)
+            if any(
+                item["first_id"] <= event_id <= item["last_id"]
+                for event_id in selected_ids
+            )
         ]
         bindings = _binding_events(events)
+        suppressed = list(getattr(log, "suppressed_fallback_assertions", []))
+        log.close()
         conditions[condition] = {
             "database": str(db_path),
             "database_sha256": _sha_file(db_path),
@@ -618,20 +658,20 @@ def mechanistic_pilot() -> Path:
             "probe_selection": probe_selection,
             "probe_selected_labels": selected_labels,
             "assistant_outputs": [
-                event["content"] for event in _events_by_kind(events, "assistant_message")
+                event["content"]
+                for event in _events_by_kind(events, "assistant_message")
             ],
             "binding_origin_counts": {
                 origin: sum(
-                    1 for event in bindings
+                    1
+                    for event in bindings
                     if event["meta"].get("binding_origin") == origin
                 )
                 for origin in sorted(
                     {str(event["meta"].get("binding_origin")) for event in bindings}
                 )
             },
-            "suppressed_fallback_assertions": getattr(
-                log, "suppressed_fallback_assertions", []
-            ),
+            "suppressed_fallback_assertions": suppressed,
         }
 
     fallback_selected = conditions["fallback"]["probe_selection"]["selected"]
@@ -651,9 +691,7 @@ def mechanistic_pilot() -> Path:
             "binding_origin_counts"
         ].get(FALLBACK_ORIGIN, 0)
         > 0
-        and conditions["no_fallback"]["binding_origin_counts"].get(
-            FALLBACK_ORIGIN, 0
-        )
+        and conditions["no_fallback"]["binding_origin_counts"].get(FALLBACK_ORIGIN, 0)
         == 0,
         "identical_scripted_outputs": conditions["fallback"]["assistant_outputs"]
         == conditions["no_fallback"]["assistant_outputs"]
@@ -663,8 +701,7 @@ def mechanistic_pilot() -> Path:
             for condition in conditions.values()
         ),
         "fallback_distractor_retrieved_only_with_fallback": (
-            "fallback_distractor"
-            in conditions["fallback"]["probe_selected_labels"]
+            "fallback_distractor" in conditions["fallback"]["probe_selected_labels"]
             and "fallback_distractor"
             not in conditions["no_fallback"]["probe_selected_labels"]
         ),

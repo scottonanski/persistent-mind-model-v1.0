@@ -17,13 +17,12 @@ import argparse
 import json
 import os
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from pmm.core.event_log import EventLog
 from pmm.runtime.loop import RuntimeLoop
 from pmm.adapters import (
     resolve_application_output_budget,
-    resolve_output_budget_tokens,
 )
 from pmm.core.semantic_extractor import (
     extract_commitments,
@@ -90,6 +89,7 @@ def instantiate_adapter(
     """Instantiate the adapter for the resolved provider and model."""
     if provider == "openai":
         from pmm.adapters.openai_adapter import OpenAIAdapter
+
         return OpenAIAdapter(
             model=model,
             output_budget_tokens=output_budget_tokens,
@@ -97,6 +97,7 @@ def instantiate_adapter(
         )
     elif provider == "ollama":
         from pmm.adapters.ollama_adapter import OllamaAdapter
+
         return OllamaAdapter(
             model=model,
             output_budget_tokens=output_budget_tokens,
@@ -104,6 +105,7 @@ def instantiate_adapter(
         )
     elif provider == "dummy":
         from pmm.adapters.dummy_adapter import DummyAdapter
+
         return DummyAdapter()
     raise ValueError(f"Unknown or unsupported provider: {provider}")
 
@@ -122,8 +124,30 @@ def run_one_turn(
     if db_path != ":memory:":
         db_path = os.path.abspath(db_path)
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    
-    elog = EventLog(db_path)
+
+    with EventLog(db_path, mode="writer", writer_role="oneshot") as elog:
+        return _run_one_turn_owned(
+            elog=elog,
+            prompt=prompt,
+            model=model,
+            provider=provider,
+            adapter=adapter,
+            include_events=include_events,
+            output_budget_tokens=output_budget_tokens,
+        )
+
+
+def _run_one_turn_owned(
+    *,
+    elog: EventLog,
+    prompt: str,
+    model: Optional[str] = None,
+    provider: Optional[str] = None,
+    adapter: Optional[Any] = None,
+    include_events: bool = False,
+    output_budget_tokens: int | None = None,
+) -> Dict[str, Any]:
+    """Run one turn while the caller retains fenced writer ownership."""
 
     # 1. Resolve LLM Adapter if not injected (for testing compatibility)
     if adapter is None:
@@ -173,10 +197,16 @@ def run_one_turn(
     tail_after = elog.read_tail(1)
     last_id_after = int(tail_after[-1]["id"]) if tail_after else 0
 
-    new_events = elog.read_range(last_id_before + 1, last_id_after) if last_id_after > last_id_before else []
+    new_events = (
+        elog.read_range(last_id_before + 1, last_id_after)
+        if last_id_after > last_id_before
+        else []
+    )
 
     # 6. Extract results from actual newly appended events
-    assistant_msg = next((e for e in new_events if e["kind"] == "assistant_message"), None)
+    assistant_msg = next(
+        (e for e in new_events if e["kind"] == "assistant_message"), None
+    )
     generation_failure = next(
         (e for e in new_events if e["kind"] == "generation_failure"), None
     )
@@ -205,14 +235,20 @@ def run_one_turn(
 
     # Extract opened CIDs from persisted event metadata
     opened_cids = [
-        e["meta"].get("cid") for e in new_events
-        if e["kind"] == "commitment_open" and isinstance(e.get("meta"), dict) and e["meta"].get("cid")
+        e["meta"].get("cid")
+        for e in new_events
+        if e["kind"] == "commitment_open"
+        and isinstance(e.get("meta"), dict)
+        and e["meta"].get("cid")
     ]
 
     # Extract closed CIDs from persisted event metadata
     closed_cids = [
-        e["meta"].get("cid") for e in new_events
-        if e["kind"] == "commitment_close" and isinstance(e.get("meta"), dict) and e["meta"].get("cid")
+        e["meta"].get("cid")
+        for e in new_events
+        if e["kind"] == "commitment_close"
+        and isinstance(e.get("meta"), dict)
+        and e["meta"].get("cid")
     ]
 
     # Extract validated claims from persisted events
@@ -225,10 +261,7 @@ def run_one_turn(
             if "=" in content:
                 try:
                     parts = content.split("=", 1)
-                    claims.append({
-                        "type": claim_type,
-                        "data": json.loads(parts[1])
-                    })
+                    claims.append({"type": claim_type, "data": json.loads(parts[1])})
                 except Exception:
                     pass
 
@@ -250,7 +283,6 @@ def run_one_turn(
             }
         )
 
-
     # Extract identity updates / summaries from persisted events
     identity_updates = []
     for e in new_events:
@@ -259,11 +291,13 @@ def run_one_turn(
                 content_parsed = json.loads(e.get("content") or "{}")
             except Exception:
                 content_parsed = e.get("content")
-            identity_updates.append({
-                "kind": e["kind"],
-                "content": content_parsed,
-                "meta": e.get("meta") or {}
-            })
+            identity_updates.append(
+                {
+                    "kind": e["kind"],
+                    "content": content_parsed,
+                    "meta": e.get("meta") or {},
+                }
+            )
 
     # Compile event range
     event_ids = [int(e["id"]) for e in new_events]

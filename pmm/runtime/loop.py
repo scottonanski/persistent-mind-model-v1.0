@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from pmm.adapters import AdapterTransportError, normalize_generation_result
 from pmm.core.event_log import EventLog, TERMINAL_OUTCOME_PROTOCOL
+from pmm.core.writer_session import WriterOwnershipLost
 from pmm.core.mirror import Mirror
 from pmm.core.meme_graph import MemeGraph
 from pmm.core.commitment_manager import CommitmentManager
@@ -218,8 +219,35 @@ class RuntimeLoop:
             "adapter_capability_unknown",
         )
         if not replay:
-            self._recover_latest_interrupted_turn()
+            if eventlog.writer_session is None:
+                raise PermissionError("managed runtime requires a writer EventLog")
+            with eventlog.writer_session.operation():
+                eventlog.assert_writer_authority()
+                self._initialize_runtime(
+                    eventlog=eventlog,
+                    adapter=adapter,
+                    replay=replay,
+                    autonomy=autonomy,
+                    thresholds=thresholds,
+                )
+        else:
+            self._initialize_runtime(
+                eventlog=eventlog,
+                adapter=adapter,
+                replay=replay,
+                autonomy=autonomy,
+                thresholds=thresholds,
+            )
 
+    def _initialize_runtime(
+        self,
+        *,
+        eventlog: EventLog,
+        adapter,
+        replay: bool,
+        autonomy: bool,
+        thresholds: Optional[Dict[str, int]],
+    ) -> None:
         # Reconstruct the shared graph before any append-capable runtime service
         # is initialized. EventLog holds its append/listener lock across the
         # ordered replay and listener registration, so no event can fall between
@@ -234,28 +262,41 @@ class RuntimeLoop:
                 ]
             ),
             self.memegraph.add_event,
+            name="runtime.memegraph",
+            required=True,
         )
 
-        self.mirror = Mirror(eventlog)
-        # Wire remaining event listeners.
-        self.eventlog.register_listener(self.mirror.sync)
+        self.mirror = Mirror(eventlog, auto_rebuild=False)
+        self.eventlog.rebuild_and_register_listener(
+            self.mirror.rebuild,
+            self.mirror.sync,
+            name="runtime.mirror",
+            required=True,
+        )
         # ConceptGraph projection for CTL (rebuildable and listener-backed)
         self.concept_graph = ConceptGraph(eventlog)
-        # Seed from existing events (if any), then listen for updates
-        self.concept_graph.rebuild()
-        self.eventlog.register_listener(self.concept_graph.sync)
+        self.eventlog.rebuild_and_register_listener(
+            self.concept_graph.rebuild,
+            self.concept_graph.sync,
+            name="runtime.concept_graph",
+            required=True,
+        )
+        self.eventlog.projection_barrier()
+        if not replay:
+            self._recover_latest_interrupted_turn()
+            self.eventlog.projection_barrier()
         self.commitments = CommitmentManager(eventlog)
         self.adapter = adapter
         self.replay = replay
-        self.autonomy = AutonomyKernel(eventlog, thresholds=thresholds)
         self.tracker = AutonomyTracker(eventlog)
         self.indexer = Indexer(eventlog)
         self.ctl_injector = CTLLookupInjector(self.concept_graph)
         self.exec_router: ExecBindRouter | None = None
         if self.replay:
             self.mirror.rebuild()
-            self.autonomy = AutonomyKernel(eventlog)
+            self.autonomy: AutonomyKernel | None = None
         if not self.replay:
+            self.autonomy = AutonomyKernel(eventlog, thresholds=thresholds)
             self.exec_router = ExecBindRouter(eventlog)
             if not any(
                 e["kind"] == "autonomy_rule_table" for e in self.eventlog.read_all()
@@ -409,8 +450,12 @@ class RuntimeLoop:
                 event_id = int(event_id_str)
             except ValueError:
                 continue
-            target_log = EventLog(path)
-            target_event = target_log.get(event_id)
+            target_event = None
+            try:
+                with EventLog(path, mode="reader") as target_log:
+                    target_event = target_log.get(event_id)
+            except Exception:
+                target_event = None
             if target_event:
                 self.eventlog.append(
                     kind="inter_ledger_ref",
@@ -428,12 +473,18 @@ class RuntimeLoop:
         """Execute one complete managed turn at a time for this runtime."""
 
         with self._run_turn_lock:
-            return self._run_turn_serialized(user_input)
+            if self.replay:
+                return self._run_turn_serialized(user_input)
+            session = self.eventlog._require_writer()
+            with session.operation():
+                return self._run_turn_serialized(user_input)
 
     def _run_turn_serialized(self, user_input: str) -> List[Dict[str, Any]]:
         if self.replay:
             # Replay mode: do not mutate ledger; simply return existing events.
             return self.eventlog.read_all()
+
+        self.eventlog.projection_barrier()
 
         from pmm.runtime.reflection_synthesizer import synthesize_reflection
         from pmm.runtime.identity_summary import maybe_append_summary
@@ -496,6 +547,7 @@ class RuntimeLoop:
                 pipeline_config.enable_vector_search = False
 
         user_event = self.eventlog.get(user_event_id)
+        self.eventlog.projection_barrier()
         prior_pair = self.memegraph.prior_managed_pair(user_event_id)
 
         retrieval_result = run_retrieval_pipeline(
@@ -550,12 +602,18 @@ class RuntimeLoop:
         # 3. Invoke model
         t0 = time.perf_counter()
         try:
-            generation_result = normalize_generation_result(
-                self.adapter.generate_reply(
-                    system_prompt=system_prompt, user_prompt=user_input
-                )
+            self.eventlog.assert_writer_authority()
+            raw_generation = self.adapter.generate_reply(
+                system_prompt=system_prompt, user_prompt=user_input
             )
+            # A provider result obtained after ownership loss is stale and must
+            # never be promoted into canonical history.
+            self.eventlog.assert_writer_authority()
+            generation_result = normalize_generation_result(raw_generation)
+        except WriterOwnershipLost:
+            raise
         except AdapterTransportError as exc:
+            self.eventlog.assert_writer_authority()
             failure_meta = dict(exc.meta)
             failure_meta.setdefault(
                 "configured_output_budget_tokens",
@@ -594,6 +652,7 @@ class RuntimeLoop:
             )
             return self.eventlog.read_since(user_event_id - 1, limit=200)
         except Exception as exc:
+            self.eventlog.assert_writer_authority()
             output_meta = {
                 "configured_output_budget_tokens": getattr(
                     self.adapter, "output_budget_tokens", None
@@ -1088,6 +1147,12 @@ class RuntimeLoop:
             return
 
     def run_tick(self, *, slot: int, slot_id: str) -> KernelDecision:
+        session = self.eventlog._require_writer()
+        with session.operation():
+            return self._run_tick_serialized(slot=slot, slot_id=slot_id)
+
+    def _run_tick_serialized(self, *, slot: int, slot_id: str) -> KernelDecision:
+        self.eventlog.projection_barrier()
         if DEBUG:
             print(f"[AUTONOMY TICK] slot={slot} | id={slot_id}")
         # Snapshot ledger before decision for outcome analysis

@@ -39,21 +39,28 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    elog = EventLog(args.db)
+    elog = EventLog(
+        args.db,
+        mode="reader" if args.mode == "audit" else "writer",
+        writer_role="binding_backfill",
+    )
 
     gaps = audit_bindings(elog)
     if args.mode == "audit":
         if not gaps:
             print("No missing bindings detected.")
+            elog.close()
             return
         print("Missing bindings:")
         for gap in gaps:
             print(f"- event_id={gap.event_id} token={gap.token} reason={gap.reason}")
+        elog.close()
         return
 
     # backfill mode
     appended: List[int] = backfill_bindings(elog, gaps)
     print(f"Found {len(gaps)} gaps; appended {len(appended)} concept_bind_event rows.")
+    elog.close()
 
 
 if __name__ == "__main__":

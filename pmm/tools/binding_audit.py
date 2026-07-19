@@ -115,6 +115,15 @@ def backfill_bindings(eventlog: EventLog, gaps: List[BindingGap]) -> List[int]:
     """
     if not gaps:
         return []
+    if eventlog.writer_session is None:
+        raise PermissionError("binding backfill requires a writer EventLog")
+    with eventlog.writer_session.operation():
+        eventlog.assert_writer_authority()
+        return _backfill_bindings_owned(eventlog, gaps)
+
+
+def _backfill_bindings_owned(eventlog: EventLog, gaps: List[BindingGap]) -> List[int]:
+    """Run one backfill under the database-scoped writer operation gate."""
 
     cg = ConceptGraph(eventlog)
     cg.rebuild(eventlog.read_all())

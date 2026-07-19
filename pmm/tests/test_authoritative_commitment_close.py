@@ -80,7 +80,7 @@ def test_second_close_is_idempotent() -> None:
 def test_concurrent_closes_create_one_event(tmp_path) -> None:
     db_path = str(tmp_path / "commitments.db")
     first_log = EventLog(db_path)
-    second_log = EventLog(db_path)
+    second_log = EventLog(db_path, writer_session=first_log.writer_session)
     open_event_id = _open(first_log)
 
     def close(log: EventLog, source: str) -> int:
@@ -102,3 +102,5 @@ def test_concurrent_closes_create_one_event(tmp_path) -> None:
     assert len(closes) == 1
     assert results == [closes[0]["id"], closes[0]["id"]]
     assert closes[0]["meta"]["open_event_id"] == open_event_id
+    second_log.close()
+    first_log.close()

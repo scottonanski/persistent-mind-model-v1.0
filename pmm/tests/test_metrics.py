@@ -62,13 +62,15 @@ def test_append_metrics_if_delta_idempotent(tmp_path):
     log = EventLog(db)
     log.append(kind="config", content="{}", meta={})
     log.append(kind="user_message", content="Hello", meta={})
+    log.close()
 
     did1 = append_metrics_if_delta(db)
     assert did1 is True
     did2 = append_metrics_if_delta(db)
     assert did2 is False
 
-    log.append(kind="assistant_message", content="Hi", meta={})
+    with EventLog(db) as log:
+        log.append(kind="assistant_message", content="Hi", meta={})
     did3 = append_metrics_if_delta(db)
     assert did3 is True
 

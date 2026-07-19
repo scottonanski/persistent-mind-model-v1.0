@@ -229,8 +229,13 @@ def test_live_and_reopened_runtime_render_same_prior_pair(tmp_path):
 
     with patch("pmm.runtime.loop.run_retrieval_pipeline", _empty_retrieval):
         live.run_turn("first question")
+        live.eventlog.close()
         shutil.copyfile(live_path, reopened_path)
+        live = RuntimeLoop(
+            eventlog=EventLog(str(live_path)), adapter=live_adapter, autonomy=False
+        )
         live.run_turn("same boundary question")
+        live.eventlog.close()
 
         reopened_adapter = SequenceAdapter(["next answer"])
         reopened = RuntimeLoop(
@@ -239,6 +244,7 @@ def test_live_and_reopened_runtime_render_same_prior_pair(tmp_path):
             autonomy=False,
         )
         reopened.run_turn("same boundary question")
+        reopened.eventlog.close()
 
     live_section = live_adapter.system_prompts[1].split(
         "\n\n## Retrieval Selection Mechanics", 1

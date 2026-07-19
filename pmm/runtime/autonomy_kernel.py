@@ -9,7 +9,8 @@ from typing import Any, Callable, Dict, List, Optional
 import json
 import math
 
-from pmm.core.event_log import EventLog
+from pmm.core.event_log import EventLog, PostCommitProjectionError
+from pmm.core.writer_session import WriterOwnershipError
 from pmm.core.mirror import Mirror
 from pmm.core.commitment_manager import CommitmentManager
 from pmm.core.meme_graph import MemeGraph
@@ -114,23 +115,39 @@ class AutonomyKernel:
         # Track last event id scanned for CTL maintenance to preserve idempotency
         self._last_concept_scan_id: int = 0
         self.commitment_manager = CommitmentManager(eventlog)
-        self.mirror = Mirror(eventlog, enable_rsm=True, listen=True)
+        self.mirror = Mirror(
+            eventlog,
+            enable_rsm=True,
+            listen=False,
+            auto_rebuild=False,
+        )
+        self.eventlog.rebuild_and_register_listener(
+            self.mirror.rebuild,
+            self.mirror.sync,
+            name="autonomy.mirror",
+            required=True,
+        )
         self.context_graph = ContextGraph(eventlog)
-        # Seed ContextGraph from existing events; future events are applied
-        # incrementally via the context listener.
-        self.context_graph.rebuild()
+        self.eventlog.rebuild_and_register_listener(
+            self.context_graph.rebuild,
+            self.context_graph.add_event,
+            name="autonomy.context_graph",
+            required=True,
+        )
         # ConceptGraph for indexing decisions
         self.concept_graph = ConceptGraph(eventlog)
-        self.concept_graph.rebuild()
-        self.eventlog.register_listener(self.concept_graph.sync)
+        self.eventlog.rebuild_and_register_listener(
+            self.concept_graph.rebuild,
+            self.concept_graph.sync,
+            name="autonomy.concept_graph",
+            required=True,
+        )
         self.ticks_since_last_index = self._init_ticks_counter()
         self._stability_window = 100
         self._coherence_enabled = True
         self.active_gap_analysis_cid: Optional[str] = None
         # Listen for autonomy_thresholds config updates at runtime
         self.eventlog.register_listener(self._on_config_event)
-        # Listen for context events
-        self.eventlog.register_listener(self._on_context_event)
         # Listen for meta-policy and policy updates
         self.eventlog.register_listener(self._on_meta_policy_event)
         self.eventlog.register_listener(self._on_policy_event)
@@ -513,6 +530,8 @@ class AutonomyKernel:
                     content=content,
                     meta=meta,
                 )
+            except (PostCommitProjectionError, WriterOwnershipError):
+                raise
             except Exception:
                 # CTL maintenance must never break core autonomy behavior
                 continue
@@ -521,10 +540,6 @@ class AutonomyKernel:
             self._last_concept_scan_id = int(events[-1].get("id", 0))
         except Exception:
             self._last_concept_scan_id = last_scanned
-
-    def _on_context_event(self, event: Dict[str, Any]) -> None:
-        """Listen for new events to update ContextGraph incrementally."""
-        self.context_graph.add_event(event)
 
     def _current_stability_metrics(self) -> Dict[str, Any]:
         """Compute current stability metrics (read-only)."""

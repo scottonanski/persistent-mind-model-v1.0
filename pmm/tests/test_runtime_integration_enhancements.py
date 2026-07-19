@@ -114,9 +114,11 @@ def test_replay_integrity(tmp_path: Path) -> None:
     first_sequence = log.hash_sequence()
 
     # Reload and rebuild projections to ensure determinism holds
-    reloaded = EventLog(str(db_path))
+    reloaded = EventLog(str(db_path), mode="reader")
     Mirror(reloaded, enable_rsm=True, listen=False)
     second_sequence = reloaded.hash_sequence()
 
     assert first_sequence == second_sequence
     assert reloaded.read_all()[-1]["kind"] == "meta_summary"
+    reloaded.close()
+    log.close()

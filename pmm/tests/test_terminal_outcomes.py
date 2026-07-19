@@ -40,7 +40,9 @@ def _managed_user(log: EventLog, content: str = "managed") -> int:
 
 def test_success_is_linked_protocol_terminal() -> None:
     log = EventLog(":memory:")
-    RuntimeLoop(eventlog=log, adapter=CompleteAdapter(), autonomy=False).run_turn("hello")
+    RuntimeLoop(eventlog=log, adapter=CompleteAdapter(), autonomy=False).run_turn(
+        "hello"
+    )
 
     user = log.read_by_kind("user_message")[0]
     assistant = log.read_by_kind("assistant_message")[0]
@@ -70,9 +72,9 @@ def test_typed_transport_error_preserves_safe_telemetry() -> None:
 
 def test_ordinary_adapter_exception_records_runtime_only_telemetry() -> None:
     log = EventLog(":memory:")
-    RuntimeLoop(eventlog=log, adapter=OrdinaryFailureAdapter(), autonomy=False).run_turn(
-        "private prompt"
-    )
+    RuntimeLoop(
+        eventlog=log, adapter=OrdinaryFailureAdapter(), autonomy=False
+    ).run_turn("private prompt")
 
     failure = log.read_by_kind("generation_failure")[0]
     assert failure["meta"]["status"] == "transport_error"
@@ -137,8 +139,8 @@ def test_two_connections_racing_recovery_create_one_terminal(tmp_path) -> None:
     path = tmp_path / "ledger.db"
     setup = EventLog(str(path))
     user_id = _managed_user(setup)
-    first = EventLog(str(path))
-    second = EventLog(str(path))
+    first = setup
+    second = EventLog(str(path), writer_session=setup.writer_session)
     barrier = threading.Barrier(2)
     results: list[tuple[int, bool]] = []
 
@@ -165,6 +167,8 @@ def test_two_connections_racing_recovery_create_one_terminal(tmp_path) -> None:
     assert sorted(created for _, created in results) == [False, True]
     assert len(set(event_id for event_id, _ in results)) == 1
     assert len(setup.read_by_kind("generation_failure")) == 1
+    second.close()
+    setup.close()
 
 
 def test_protocol_uniqueness_does_not_apply_to_legacy_about_event() -> None:
