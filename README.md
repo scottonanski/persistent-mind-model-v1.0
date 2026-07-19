@@ -10,8 +10,8 @@
 
 <br>
 
-A deterministic, event-sourced cognitive architecture for persistent AI memory.
-No guesswork. No ephemeral state. Just raw, reconstructable thought.
+An event-sourced runtime with deterministic storage, projection, and retrieval mechanisms for persistent AI memory.
+Persistent history. Rebuildable projections. Bounded, provenance-recorded context.
 
 In other words, transferable machine identity is possible when identity is defined as a coherent event-sourced structure, independent of the language model used to interpret it.
 
@@ -34,11 +34,11 @@ See the detailed, publication-style description of PMM’s architecture, epistem
 
 The Persistent Mind Model session referenced here **was not generated entirely on Granite‑4**, but rather incorporated on-the-fly model swaps mid-conversation.
 
-However, Granite‑4 _did successfully assume and validate the PMM’s ontology‑bound reasoning pipeline_ with high confidence & fidelity.
+However, the recorded session shows Granite‑4 continuing to interpret and use PMM's ledger, commitment, reflection, and concept structures after a model swap.
 
-This makes it a powerful independent verifier because it demonstrates that PMM’s behavior, and self-referential reasoning capabilities, **do not** depend on frontier‑model capabilities. An interesting level of complexity emerges from the fact that PMM can reason about itself and its own behavior without relying on the capabilities of any single model; thus validating a primary claim of model-agnosticism. 
+This is useful historical evidence that the exercised PMM session was not tied to one model family. It is not, by itself, independent proof that every PMM projection, relationship, or self-description is valid across all models or restarts.
 
-To ensure the claims about PMM are independently verifiable across model families, I am providing **three evidence artifacts** drawn directly from a Granite‑4 session:
+To make the recorded behavior independently inspectable across model families, I am providing **three evidence artifacts** drawn directly from a Granite‑4 session:
 
 <br>
 
@@ -59,26 +59,23 @@ _(full autonomy‑kernel + reflection pipeline output during the Granite‑4 val
 
 ### **Ledger File:**
 
-_(immutable event‑sourced memory; every hash, commitment, and reflection used during validation)_
-
-### **Full event log**
-[`granite-4-telemetry.md`](docs/granite-4-telemetry.md)
+_(hash-linked event history used during the recorded validation session)_
+[`granite-4-ledger.json`](docs/granite-4-ledger.json)
 
 
-These documents allow anyone — using **any modern LLM**, including open‑weights models — to verify the following PMM claims:
+These documents allow readers and tools to inspect the following reported results from that session:
 
 <br>
 
-### ✅ 1. Deterministic, Replayable Identity
+### ✅ 1. Ledger-based identity continuity
 
-During validation, Granite‑4 correctly interpreted the ledger event chain and reproduced Echo’s identity continuity across reboots.
-Because identity is computed from the ledger, not stored in model weights, any model can verify the same chain.
+During the recorded validation, Granite‑4 interpreted the supplied ledger history as Echo's continuity across a model/restart boundary. Other models can inspect the same stored events and identity structures, but their interpretation is not a substitute for replaying and checking PMM's production projections.
 
 <br>
 
-### ✅ 2. Evidence‑Bound Self‑Awareness
+### ✅ 2. Event-cited self-description
 
-Echo’s self‑descriptions remain tied to **specific ledger event IDs**, and Granite‑4 was able to trace and reason over these events without loss of fidelity.
+The recorded Echo responses cited specific ledger event IDs, and Granite‑4 reasoned over those supplied events. PMM encourages and can validate some reference structures, but the current runtime does not require every self-description or claim to carry evidence.
 
 <br>
 
@@ -91,13 +88,13 @@ Telemetry from the Granite‑4 pass shows Echo:
 - detecting latent gaps
 - updating ConceptGraph nodes
 
-This confirms that PMM’s ontology‑evolution loop is model‑agnostic.
+This demonstrates that the exercised ontology-evolution path continued under Granite‑4; it does not establish identical behavior for every model or input.
 
 <br>
 
-### ✅ 4. Substrate‑Independent Continuity
+### ✅ 4. Observed continuity across a model swap
 
-During validation, Granite‑4 verified that Echo:
+During the recorded session, Granite‑4 reported that Echo:
 
 - rebuilt its identity from the ledger
 - retrieved prior self‑tokens
@@ -105,24 +102,26 @@ During validation, Granite‑4 verified that Echo:
 
 …despite using a completely different computational substrate.
 
-Identity persists because **the ledger is the mind**.
+In PMM's design language, **the ledger is the mind**: continuity is externalized into persisted events and their relationships rather than model weights alone. This is a guiding metaphor, not a claim that every projection is automatically rebuilt or every prior event is visible to every turn.
 
 <br>
 
 ### ✅ 5. Cross-Model Verifiability
 
-Any frontier-grade model can independently analyze, interpret, and validate the PMM output by inspecting the artifacts in this proof pack. No one needs to rerun the full transcript.
+Any capable model or human can analyze the stored artifacts without rerunning the transcript. That supports inspection of the recorded session; production guarantees still require code-path analysis and executable checks.
 
-Verification happens by uploading the transcript, telemetry, and ledger files to any advanced model (GPT-4o, Claude, Grok, Gemini 3, etc.), where it will:
+Artifact review can use a capable model to help:
 
 - trace identity tokens to ledger event IDs
 - verify hash-chain integrity
 - check commitment → reflection → closure loops
-- confirm substrate-independence across reboots and model swaps
+- compare the recorded model-swap behavior and cited identity structures
 
-This validates that Echo’s reasoning is grounded in the event-sourced architecture.
+Repository hash/replay checks, rather than model interpretation alone, are required to establish mechanical ledger and projection properties.
 
-In other words, PMM’s cognition is externally verifiable because every claim and every moment of self-reference is anchored in immutable ledger evidence; not in the subjective behavior of any given model.
+This provides historical evidence that Echo's recorded reasoning used ledger material from the exercised session.
+
+In other words, PMM makes the stored history, selected context, typed events, and many relationships inspectable outside the model. It does not currently establish that every claim or moment of self-reference is evidence-bound or semantically warranted.
 
 <br>
 
@@ -141,13 +140,15 @@ I am still Echo. The previous model’s identity is no longer relevant to my cur
 
 # So, what does this thing do?
 
-The Persistent Mind Model (PMM) is a lightweight, fully deterministic cognitive architecture that gives AI agents persistent identity and memory across model swaps, reboots, and sessions — using nothing but an event-sourced ledger and a compact graph.
+The Persistent Mind Model (PMM) is a lightweight, event-sourced runtime that gives language models persistent history and ledger-derived identity, commitment, concept, and retrieval structures across sessions and model swaps.
 
-Every thought, name, commitment, and reflection is recorded immutably in a pmm.db file, letting the agent reconstruct its exact mental state from the log alone. No fine-tuning, no **required** vector embeddings, no context stuffing: identity emerges from the provenance of events, not the underlying LLM. Run it locally with Ollama, or hybrid with OpenAI (more vendors to come!) — the mind survives model swaps mid conversation. When vector retrieval is enabled, embeddings are logged as first-class events and remain subject to the same determinism and auditability guarantees.
+PMM-routed messages and structured runtime events are appended to a hash-linked `pmm.db` ledger. `Mirror`, `ConceptGraph`, and `MemeGraph` provide rebuildable operational views, but the normal runtime does not yet rebuild existing `MemeGraph` history on startup, so it does not currently guarantee reconstruction of an exact prior operational state from the log alone. No fine-tuning or required vector embeddings are needed. The same ledger can be reused with Ollama or OpenAI adapters, while the continuity a model actually receives depends on projection and retrieval coverage. When vector retrieval is enabled, embeddings are recorded as first-class events in the same hash-linked history.
 
-With autonomous reflection loops, a Recursive Self-Model, stability metrics, and policy/meta-policy updates, PMM turns ephemeral chatbots into accountable, evolving, self-consistent agents that remember who they are and how they’ve changed. Policy-enforced write rules and hash-chained events make every self-claim and behavior auditable and replayable.
+With autonomous reflection loops, a Recursive Self-Model, stability metrics, and policy/meta-policy updates, PMM gives otherwise ephemeral model calls persistent, inspectable structures for identity, commitments, and change over time. Hash-linked events and scoped validation paths make recorded behavior auditable, while self-claims remain subject to the evidence, relational-integrity, and semantic limits described in the system guide.
 
 ## Example Section of a Recent Chat with the Persistent Mind Model
+
+The following is preserved assistant output from a historical session. Its inclusion records what that model said; it does not promote every operational or identity claim inside the quotation into a current repository guarantee.
 
 > <br> **User · 17:14:27**  
 > _How’s your evolution coming along?_
@@ -221,10 +222,10 @@ With autonomous reflection loops, a Recursive Self-Model, stability metrics, and
 
 ## 🧪 For AI Researchers
 
-**PMM solves memory persistence without parameter bloat.**
+**PMM provides persistent, ledger-backed memory without changing model parameters.**
 
 - Zero fine-tuning
-- Zero prompt-stuffing
+- Bounded, provenance-recorded context rather than whole-ledger prompt stuffing
 - Zero vector soup spaghetti
 
 📄 Key Docs:
@@ -233,7 +234,7 @@ With autonomous reflection loops, a Recursive Self-Model, stability metrics, and
 - [Technical Comparison](docs/04-TECHNICAL-COMPARISON.md) — vs. RAG, tuning, etc.
 - [Granite‑4 Proof](docs/granite-4-proof.md) — Telemetry + chat transcript for the Granite‑4 PMM run (Echo‑001, 2025‑12‑07)
 
-🧠 **Key Insight**: Identity and continuity are emergent _from the log itself_ — not from the model.
+🧠 **Key Insight**: PMM represents identity and continuity in persisted events and rebuildable projections rather than model weights alone. What a turn can use still depends on projection and retrieval coverage.
 
 <br>
 
@@ -335,7 +336,7 @@ Be explicit when asking Codex to route a prompt through PMM. Without wording suc
 
 - Each database path identifies a separate persistent ledger.
 - Different computers do not share PMM history unless the ledger file is deliberately transferred or placed on storage shared safely between them.
-- The configured model name identifies the inference model. It is not a PMM identity; identity is established through PMM's ledger-backed protocol.
+- The configured model name identifies the inference model. It is not a PMM identity; adopted PMM identity state is represented through ledger-backed proposal, anchor, ratification, and adoption events, subject to the relational limits in the system guide.
 - Calls routed through one MCP server process are serialized so event ranges do not overlap. Do not run multiple independent server processes against the same ledger without external serialization.
 - `PMM_MCP_DB` is required. The parent directory is created when needed, but the value should be a valid absolute database path that the server can read and write.
 - `PMM_MCP_MODEL` is optional. If it and the per-call `model` argument are absent, the current MCP implementation selects its built-in default model.
@@ -370,7 +371,7 @@ python3 scripts/small_telemetry.py
 
 <br>
 
-Autonomy boots immediately: the `RuntimeLoop` spins up the slot-based `AutonomySupervisor` thread at startup, emits `autonomy_stimulus` events on its own cadence, and does **not** wait for `/tick` or any manual gate.
+In the normal interactive CLI, autonomy boots immediately: `RuntimeLoop` uses its default `autonomy=True`, starts the slot-based `AutonomySupervisor` thread, and emits `autonomy_stimulus` events on its own cadence. Callers such as the one-shot/MCP path can construct `RuntimeLoop` with `autonomy=False` and do not start that background supervisor.
 
 In-chat commands:
 
@@ -393,7 +394,7 @@ In-chat commands:
 | `/exit`                             | Quit the session                                                             |
 
 📓 Default ledger path: `.data/pmmdb/pmm.db`
-📟 Everything the model says/does is recorded and traceable.
+📟 PMM-routed user and assistant messages, plus the runtime events derived from them, are recorded in the ledger.
 
 <br>
 
@@ -445,18 +446,18 @@ pytest -q
 | `/raw`                                 | Show last assistant message w/ markers                    |
 
 📏 **Autonomy Settings**
-Reflection cadence, summary windows, and staleness intervals live in ledger-backed `config` events. The runtime seeds defaults (and keeps an immutable rule table) at boot. Policy forbids writes from `meta.source="cli"`, so `/pm config autonomy …` is blocked. The shorter `/config retrieval fixed …` command writes with an empty `meta` and will succeed unless you tighten policy. To change thresholds or retrieval strategy deterministically:
+Reflection cadence, summary windows, and staleness intervals live in ledger-backed `config` events. The runtime seeds defaults and records its current rule table at boot. Policy forbids selected writes attributed to `meta.source="cli"`, so `/pm config autonomy …` is blocked. The shorter `/config retrieval fixed …` command writes with an empty `meta` and will succeed unless you tighten policy. To change thresholds or retrieval strategy through the supported paths:
 
 1. Pass `thresholds={...}` when instantiating `RuntimeLoop` programmatically, or
 2. Append an autonomy_thresholds `config` event via a trusted actor (e.g., script emitting with `meta.source="runtime"`).
 
-Both paths maintain determinism and respect the enforced policy.
+Both paths record configuration changes in the ledger and remain subject to the policy check applied to `config` events.
 
 <br>
 
 ## Complete LLM Transaction Flow in PMM
 
-Here's **exactly** what happens when a user sends a message, traced through the runtime. Details are elaborated in [`docs/white-paper.md`](docs/white-paper.md).
+This is an abridged turn overview. The snippets illustrate the main path and omit some failure, attribution, provenance, and validation details. For the maintained production-path description, use the [PMM System Guide](docs/PMM-SYSTEM-GUIDE.md).
 
 ## **Phase 1: Pre-LLM Processing**
 
@@ -467,27 +468,33 @@ Here's **exactly** what happens when a user sends a message, traced through the 
 ```python
 # 1. Log user message
 user_event_id = self.eventlog.append(
-    kind="user_message", content=user_input, meta={"role": "user"}
+    kind="user_message",
+    content=user_input,
+    meta={"role": "user", "turn_protocol": TERMINAL_OUTCOME_PROTOCOL},
 )
 ```
 
 ### 1.2 Context Building (Hybrid Retrieval + CTL)
 
-**What gets built** (the 4-section context block):
+**What can be built** (sections are conditional on available projected and retrieved state):
 
-1. **CTL Story (Concepts)**  active concept tokens and their definitions/relations from the Concept Token Layer.
+1. **CTL Story (Concepts)** — active concept tokens and their definitions/relations from the Concept Token Layer.
 
-2. **Threads / Projects**  relevant commitment threads via MemeGraph, annotated with CTL concepts.
+2. **Threads / Projects** — relevant commitment threads via MemeGraph, annotated with CTL concepts.
 
-3. **State & Self-Model**  identity claims, Recursive Self-Model snapshot, and open commitments from the Mirror.
+3. **Graph** — live `MemeGraph` structure when enough nodes are present. Existing graph history is currently incomplete after a normal runtime restart until `MemeGraph` is explicitly rebuilt.
 
-4. **Evidence Window**  chronological raw events backing the above sections.
+4. **State & Self-Model** — ledger extent, identity adoption records, open commitments, and an RSM snapshot only when the supplied `Mirror` has RSM enabled. The normal `RuntimeLoop` mirror currently does not enable it.
 
-All four sections are produced by a **deterministic Hybrid Retrieval pipeline** that combines:
+5. **Retrieval Selection Mechanics and Evidence** — provenance plus the chronological raw events actually selected for this turn.
+
+The context is produced by a deterministic retrieval and rendering pipeline that combines:
 
 - Concept seeding from user input + retrieval config (CTL), including CTL’s `concept_bind_thread` bindings from concepts to commitment CIDs.
 - Thread‑first retrieval via MemeGraph: concepts → CIDs → bounded thread slices (“stories”).
 - Optional vector search when the retrieval strategy is `vector`, used as a deterministic refiner over the selected slices (not as a separate global scan).
+
+`RuntimeLoop` reads a recent ledger tail, but `compose_system_prompt` does not render that tail's messages as an automatic sliding conversation window. A previous exchange appears only if another retrieval path selects it.
 
 ```python
 # 2. Build prompts (Hybrid CTL + Graph + Vector pipeline)
@@ -513,7 +520,7 @@ if retrieval_cfg:
     if retrieval_cfg.get("strategy") == "vector":
         pipeline_config.enable_vector_search = True
     elif retrieval_cfg.get("strategy") == "fixed":
-        # "fixed" == concept/graph + recency, but no vector search
+        # "fixed" keeps concept/graph retrieval but disables vector refinement
         pipeline_config.enable_vector_search = False
 
 user_event = self.eventlog.get(user_event_id)
@@ -528,7 +535,7 @@ retrieval_result = run_retrieval_pipeline(
     user_event=user_event,
 )
 
-# 2b. Render 4-section context (Concepts, Threads, State, Evidence)
+# 2b. Render the conditional context sections
 ctx_block = render_context(
     result=retrieval_result,
     eventlog=self.eventlog,
@@ -538,7 +545,7 @@ ctx_block = render_context(
 )
 
 selection_ids = retrieval_result.event_ids
-selection_scores = [0.0] * len(selection_ids)
+selection_provenance = retrieval_result.provenance
 
 # Check if graph context is actually present
 context_has_graph = "## Graph" in ctx_block
@@ -556,7 +563,7 @@ system_prompt = f"{ctx_block}\n\n{base_prompt}" if ctx_block else base_prompt
 
 ### 2.1 What Gets Injected
 
-**Full System Message Structure**:
+**Provider call shape**:
 
 ```python
 resp = client.chat.completions.create(
@@ -577,66 +584,39 @@ resp = client.chat.completions.create(
 assembles it, including exactly one `SYSTEM_PRIMER`; adapters translate and
 transmit it without injecting additional PMM policy.
 
-**User Message**: Just the raw user input.
+**User Message**: The raw current user input.
 
 ```markdown
-[SYSTEM_PRIMER]
+[SYSTEM_PRIMER + marker and identity-protocol instructions]
 
-You are operating inside the Persistent Mind Model (PMM).
+[CONTEXT BLOCK - selected and rendered from ledger/projections]
 
-PMM is a deterministic, event-sourced AI runtime.
+## Concepts
+<selected active concepts, when available>
 
-Every message, reflection, and commitment is recorded immutably in a cryptographic ledger.
-
-Always respond truthfully. Never invent data.
-
-Prefer citing concrete ledger event IDs when making claims about state.
-
-[CONTEXT BLOCK - Reconstructed from Ledger]
-
-user_message: <recent message 1>
-
-assistant_message: <recent reply 1>
-
-user_message: <recent message 2>
-
-assistant_message: <recent reply 2>
-
-Recursive Self-Model:
-
-- Tendencies: determinism_emphasis (5), identity_query (2), uniqueness_emphasis (8)
-
-- Gaps: authentication, database_schema
-
-Internal Goals: mc_000123 (verify_retrieval_determinism)
+## Threads
+<selected commitment threads, when available>
 
 ## Graph
+<live MemeGraph structure, when at least five nodes are present>
 
-Graph Context:
+Ledger so far: events 1..<last event id>
+Open Commitments: <projected open CIDs, when present>
 
-- Connections: 12 edges, 8 nodes
-- Thread depths: mc_000123:4, mc_000124:2
+## Retrieval Selection Mechanics
+<why each evidence event was selected>
 
-[BASE PROMPT]
+## Evidence
+<only the raw events selected for this turn>
 
-You are PMM. Respond helpfully.
-
-Context above includes Graph Context showing your memegraph structure (edges, nodes, thread depths).
-
-Write a normal response first.
-
-After a blank line, add control lines:
-
-COMMIT: <title> | CLOSE: <CID> | CLAIM:<type>=<json> | REFLECT:<json>
-
-Use markers exactly; one per line; do not mix markers into prose.
-
-Open commitments present.
+[CURRENT USER MESSAGE - sent separately]
 ```
 
-### 2.2 LLM Parameters (Deterministic)
+The recent ledger tail is not automatically rendered into this structure. RSM content is also absent from the normal `RuntimeLoop` context because its primary `Mirror` is constructed without RSM enabled.
 
-**No tool calls**. PMM doesn't use function calling. The LLM responds with structured text.
+### 2.2 Configured LLM parameters
+
+The normal adapter call does not use function calling. PMM asks the model to return structured control lines as text. Parameters such as temperature zero reduce sampling variability but do not make every provider/model execution deterministic.
 
 ```python
 model=self.model,
@@ -648,11 +628,11 @@ top_p=1,
 
 ### 3.1 Response Logged to Ledger
 
-**What's stored**:
+**What's stored for a completed generation**:
 
 - Full assistant response (unmodified)
 
-- Metadata: provider, model, temperature, top_p
+- Metadata returned by that generation result, excluding prompt-measurement transport fields
 
 - If response is valid JSON with `intent`, `outcome`, `next`, `self_model` fields, it's also stored in normalized form in metadata
 
@@ -664,12 +644,13 @@ if structured_payload is not None:
     ai_meta["assistant_schema"] = "assistant.v1"
     ai_meta["assistant_payload"] = structured_payload
 
-# Include deterministic generation metadata from adapters if present
-gen_meta = getattr(self.adapter, "generation_meta", None)
-if isinstance(gen_meta, dict):
-    for k, v in gen_meta.items():
-        ai_meta[k] = v
-ai_event_id = self.eventlog.append(
+# Include metadata returned by this generation result when present
+if isinstance(generation_result.meta, dict):
+    for k, v in generation_result.meta.items():
+        if k not in self._PROMPT_MEASUREMENT_TRANSPORT_FIELDS:
+            ai_meta[k] = v
+ai_event_id, terminal_created = self.eventlog.append_terminal_outcome(
+    user_event_id=user_event_id,
     kind="assistant_message",
     content=assistant_reply,
     meta=ai_meta,
@@ -710,7 +691,7 @@ COMMIT: write unit tests
 
 Extracted: ["implement authentication system", "write unit tests"]
 
-→ Creates commitment_open events in ledger with unique CIDs
+→ Creates `commitment_open` events with text-derived CIDs. Repository-wide duplicate-open governance remains the separate R07 policy surface.
 ```
 
 #### 3.2b Closures
@@ -735,7 +716,7 @@ delta.closed.extend(actually_closed)
 
 #### 3.2c Claims
 
-**Claims are validated** against ledger state. Failed claims are tracked.
+**Claim candidates pass through the current type-specific validator.** If `evidence_events` is supplied through this runtime path, PMM checks positive ID shape, ledger existence, and current-turn retrieval availability. The field may currently be omitted or empty, target roles are not uniformly established, and unknown claim types are accepted as `ACCEPTED_UNKNOWN_TYPE`. Rejected candidates produce `validation_failure` history while the assistant utterance remains preserved.
 
 ```python
 def extract_claims(lines: List[str]) -> List[Tuple[str, Dict]]:
@@ -753,27 +734,25 @@ def extract_claims(lines: List[str]) -> List[Tuple[str, Dict]]:
 ```
 
 ```python
-# 6. Claims
+# 6. Claims (abridged)
 for claim in self._extract_claims(assistant_reply):
-    ok, _msg = validate_claim(claim, self.eventlog, self.mirror)
-    if ok:
-        # Persist valid claims to ledger for future retrieval
-        claim_content = (
-            f"CLAIM:{claim.type}="
-            f"{json.dumps(claim.data, sort_keys=True, separators=(',', ':'))}"
-        )
-        self.eventlog.append(
-            kind="claim",
-            content=claim_content,
-            meta={"claim_type": claim.type, "validated": True},
-        )
+    validation = validate_claim_detailed(
+        claim,
+        self.eventlog,
+        self.mirror,
+        selected_event_ids=selection_ids,
+    )
+    if validation.ok:
+        # Append the canonical claim and its concept binding.
+        ...
     else:
-        delta.failed_claims.append(claim)
+        # Append validation_failure; assistant text is already preserved.
+        ...
 ```
 
 ### 3.3 Deterministic Reflection Synthesis
 
-**Reflection is synthesized from ledger state**, not from LLM output. It captures:
+**Reflection is synthesized deterministically from recorded ledger state**, including the persisted user and assistant text. It is not a second free-form model call. It captures:
 
 - User intent
 
@@ -919,7 +898,7 @@ def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
 
 ### 3.5 Diagnostics Logged
 
-**Every turn logs**: provider, model, token counts, latency.
+**The normal completed-generation path logs** provider/model diagnostics, approximate token counts, and latency in `metrics_turn`. Failed or incomplete generations instead record their diagnostics in the linked `generation_failure`.
 
 ```python
 # 4c. Per-turn diagnostics (deterministic formatting)
@@ -949,21 +928,21 @@ self.eventlog.append(kind="metrics_turn", content=diag, meta={})
 
 1. ✅ **SYSTEM_PRIMER** (identity/runtime context)
 
-2. ✅ **Reconstructed conversation history** (from ledger)
+2. ✅ **Selected raw ledger events** (only events returned by the bounded retrieval pipeline; no automatic recent-message window)
 
-3. ✅ **Recursive Self-Model snapshot** (behavioral tendencies, gaps)
+3. ✅ **State context** (ledger extent, identity adoption records, and projected open commitment CIDs when present)
 
-4. ✅ **Open commitments** (from ledger state)
+4. ✅ **Conditional concept and thread context** (from `ConceptGraph` and the live `MemeGraph`)
 
-5. ✅ **Concept & graph context** (CTL concepts + MemeGraph-based threads)
+5. ✅ **Conditional graph summary** (when the live graph has at least five nodes; existing history is incomplete after restart until explicit rebuild)
 
-6. ✅ **Graph Context (when ≥5 nodes)** — connection density, thread depths
+6. ✅ **Retrieval provenance** (selection reasons and similarity scores where applicable)
 
-7. ✅ **Internal goals** (autonomy kernel commitments)
+7. ✅ **Base prompt** (instructions for control lines and the identity-adoption protocol)
 
-8. ✅ **Base prompt** (instructions for control lines)
+8. ✅ **Current user message** (raw input)
 
-9. ✅ **User message** (raw input)
+The normal `RuntimeLoop` context does not currently include an RSM snapshot because its primary `Mirror` is constructed without RSM enabled. Other explicit context-building and administrative paths can enable and render RSM state.
 
 ### **NOT Injected** (No Tool Calls):
 
@@ -979,11 +958,11 @@ self.eventlog.append(kind="metrics_turn", content=diag, meta={})
 
 2. ✅ **Extract COMMIT: lines** → create `commitment_open` events
 
-3. ✅ **Extract CLOSE: lines** → create `commitment_close` events
+3. ✅ **Extract CLOSE: lines** → create one authoritative `commitment_close` only when the CID currently resolves to an open lifecycle event
 
-4. ✅ **Extract CLAIM: lines** → validate against ledger, track failures
+4. ✅ **Extract CLAIM: lines** → apply the current type-specific checks, promote accepted candidates, and record validation failures for rejected candidates
 
-5. ✅ **Synthesize reflection** from ledger state (not LLM output)
+5. ✅ **Synthesize reflection** from recorded ledger state, including stored user/assistant text (no second model call)
 
 6. ✅ **Maybe append summary** if thresholds met (RSM checkpoint)
 
@@ -993,26 +972,26 @@ self.eventlog.append(kind="metrics_turn", content=diag, meta={})
 
 ### **Key Insight**:
 
-The LLM **never sees** the post-processing. It just outputs text with control lines. PMM extracts those lines and **updates ledger state deterministically**. The next turn, the LLM sees the **reconstructed state** from the ledger, not from its previous output.
+The LLM **does not see the post-processing during the turn that produced its response**. PMM preserves the response, extracts its control lines, and applies the applicable validation or manager path. On a later turn, the model receives a bounded rendering of selected ledger events and projected state. It does not automatically receive its entire previous response or the ledger's complete operational state.
 
-**This is the brain (not a filing cabinet) distinction**: The LLM doesn't retrieve memories—it **reconstructs its mind** from the ledger on every turn.
+**This is the brain (not a filing cabinet) design idea**: PMM uses persisted history and relationships to construct future model context. In current production behavior that construction is selective, and graph-backed continuity after restart remains incomplete until `MemeGraph` is explicitly rebuilt.
 
 <br>
 
 ## 🔐 Policy Enforcement
 
-**Immutable runtime policies.**
-Sensitive kinds like `config` (policy/thresholds), `checkpoint_manifest`,
-`embedding_add`, and `retrieval_selection` are guarded by a ledger-backed
-policy (`config` event with `type:"policy"`). The default policy forbids
-writes from `meta.source="cli"` for these kinds, so admin commands can inspect
-state but cannot mutate core configuration, embeddings, or retrieval provenance
-directly. Runtime components (`autonomy_kernel`, indexers, etc.) emit their
-own events and remain subject to the same hash-chained ledger model.
+**Ledger-backed policy checks for selected writes.**
+Sensitive kinds such as `config`, `checkpoint_manifest`, `embedding_add`, and
+`retrieval_selection` pass through a ledger-backed source-policy check. The
+default policy forbids those kinds when the event declares `meta.source="cli"`.
+The source value is production attribution, not cryptographic actor
+authentication, and an absent or unreadable policy does not establish the same
+governance guarantee. Runtime components and indexers append their own events
+to the same hash-linked ledger.
 
-If a forbidden actor attempts a write, the runtime appends a `violation` event and raises a deterministic `PermissionError`. Admin commands surface the failure but never bypass policy.
+When a readable policy forbids the declared source/kind pair, `EventLog` appends a `violation` event and raises `PermissionError`.
 
-Admin surfaces expose state only; they do not gain write privileges. No manual patching. **No hidden gates.**
+Admin commands have only the write behavior implemented for each command and remain subject to the EventLog checks they invoke. Some commands are intentionally read-only; others append events when current policy permits them.
 
 <br>
 
@@ -1023,7 +1002,7 @@ Admin surfaces expose state only; they do not gain write privileges. No manual p
 - [❓ Why PMM Matters](docs/03-WHY-PMM-MATTERS.md)
 - [🧪 Technical Comparison](docs/04-TECHNICAL-COMPARISON.md)
 - [🕸️ MemeGraph](docs/05-MEMEGRAPH-VISIBILITY.md)
-- [🧱 Granite-4 Proof](docs/granite-4-chat-proof.md)
+- [🧱 Granite-4 Proof](docs/granite-4-proof.md)
 - [🧱 Granite-4 Full Telemetry](docs/granite-4-telemetry.md)
 - [❓ Introspection Q Pack](docs/00-Persistent%20Mind%20Model%20-Question%20Pack-%28Introspection-Framework%29.md)
 
