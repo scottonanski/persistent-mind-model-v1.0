@@ -193,11 +193,26 @@ class RuntimeLoop:
         )
         if not replay:
             self._recover_latest_interrupted_turn()
-        self.mirror = Mirror(eventlog)
+
+        # Reconstruct the shared graph before any append-capable runtime service
+        # is initialized. EventLog holds its append/listener lock across the
+        # ordered replay and listener registration, so no event can fall between
+        # historical reconstruction and incremental observation.
         self.memegraph = MemeGraph(eventlog)
-        # wire event listeners
+        self.eventlog.rebuild_and_register_listener(
+            lambda events: self.memegraph.rebuild(
+                [
+                    event
+                    for event in events
+                    if event.get("kind") in MemeGraph.TRACKED_KINDS
+                ]
+            ),
+            self.memegraph.add_event,
+        )
+
+        self.mirror = Mirror(eventlog)
+        # Wire remaining event listeners.
         self.eventlog.register_listener(self.mirror.sync)
-        self.eventlog.register_listener(self.memegraph.add_event)
         # ConceptGraph projection for CTL (rebuildable and listener-backed)
         self.concept_graph = ConceptGraph(eventlog)
         # Seed from existing events (if any), then listen for updates

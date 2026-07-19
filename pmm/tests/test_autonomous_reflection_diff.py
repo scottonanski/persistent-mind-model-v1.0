@@ -51,6 +51,10 @@ class MockEventLog:
     def register_listener(self, listener):
         self.listeners.append(listener)
 
+    def rebuild_and_register_listener(self, rebuild, listener):
+        rebuild(self.read_all())
+        self.listeners.append(listener)
+
     def hash_sequence(self):
         # simple hash
         return hash(

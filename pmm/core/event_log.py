@@ -14,7 +14,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from hashlib import sha256
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 
 TERMINAL_OUTCOME_PROTOCOL = "terminal_outcome.v1"
@@ -89,6 +89,32 @@ class EventLog:
         """Register a callback(event_dict) when an event is appended."""
         with self._lock:
             self._listeners.append(callback)
+
+    def rebuild_and_register_listener(
+        self,
+        rebuild: Callable[[List[Dict[str, Any]]], None],
+        listener: Callable[[Dict[str, Any]], None],
+    ) -> None:
+        """Rebuild a projection and atomically hand off to incremental updates.
+
+        Holding the EventLog lock across both operations ensures that an append
+        is either included in the ordered historical snapshot or delivered to
+        the registered listener. If reconstruction fails, the listener is not
+        registered and the exception propagates to the caller.
+        """
+
+        with self._lock:
+            events = self.read_all()
+            rebuild(events)
+            replayed_through = int(events[-1]["id"]) if events else 0
+
+            def incremental_listener(event: Dict[str, Any]) -> None:
+                event_id = event.get("id")
+                if isinstance(event_id, int) and event_id <= replayed_through:
+                    return
+                listener(event)
+
+            self._listeners.append(incremental_listener)
 
     def _emit(self, ev: Dict[str, Any]) -> None:
         for cb in list(self._listeners):
