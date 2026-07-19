@@ -1,8 +1,8 @@
 # PMM Improvement Progress and Remaining Work
 
-- **Status date:** 2026-07-18
-- **Audit basis:** `main` at `484f55f`, including the current working tree
-- **Current verification:** 427 runtime tests passing; `git diff --check` passing; PMM development-auditor package validation and repository discovery passing
+- **Status date:** 2026-07-19
+- **Audit basis:** Clean, synchronized `main` at `69cbe30d49d817afb8cc1fdf1fdee4865a2f586f`, with divergence `0 0`
+- **Current recorded verification:** 468 tests passed; the final focused Stage 3 audit suite passed 43 tests; Ruff check and Ruff format check passed on all 24 Python files included in the Stage 3 verification scope; `compileall`, `git diff --check`, publication, and synchronization checks passed. Any verification rerun performed for this documentation-only update is reported separately below.
 - **Scope:** Incremental integrity, continuity, diagnostics, retrieval, and development-audit improvements established through model consultation and source-level verification.
 
 ## Purpose
@@ -57,9 +57,9 @@ Existence does not establish role, and role does not establish semantic warrant.
 
 ## Current status
 
-The two model-generated runtime roadmaps used during this cycle are complete. Twelve related runtime improvements have been implemented. The evidence-availability branch, prompt-growth telemetry, duplicate-primer correction, managed-turn terminal-outcome protocol, and provider-enforced output budgets are complete within the scopes described below.
+The twelve earlier runtime improvements remain complete. Three later integrity closures—R08, C01, and C02—have also been completed and published. The evidence-availability branch, prompt-growth telemetry, duplicate-primer correction, managed-turn terminal-outcome protocol, provider-enforced output budgets, authoritative commitment-close transitions, shared-graph startup reconstruction, immediate managed-turn continuity, fenced database-scoped writer governance, and fixed-watermark required-projection freshness are complete within the scopes described below.
 
-The subsequent architecture audit did not change runtime code. It clarified the boundary between temporal ordering, referential checks, relational integrity, and semantic adequacy, and produced one repository-scoped development-audit skill plus mandatory agent routing. Those development controls are described separately from the twelve runtime improvements.
+The architecture audit that followed the twelve earlier runtime improvements did not itself change runtime code. It clarified the boundary between temporal ordering, referential checks, relational integrity, and semantic adequacy, and produced one repository-scoped development-audit skill plus mandatory agent routing. Those development controls are described separately from the twelve runtime improvements.
 
 The current integrity position is:
 
@@ -68,6 +68,9 @@ The current integrity position is:
 | Historical preservation | On the audited managed-runtime terminal path, complete assistant utterances are retained. Parsed candidates rejected by the runtime validator also produce distinct `validation_failure` events; they do not produce canonical `claim` events. Malformed claim lines remain in utterance history but may never become extracted candidates or typed failures. |
 | Referential validation | Implemented for declared `evidence_events` and formal evidence designations on the audited runtime path, but coverage is conditional and uneven across reference-bearing structures. |
 | Deterministic relational integrity | Partially implemented. PMM records useful typed edges and ordering, but identity anchors, reflections, supersessions, and evidence roles do not yet receive uniform permitted-role checks. |
+| Operational conversational continuity | The immediately preceding completed protocol-v1 managed pair is selected from the shared MemeGraph, exactly dereferenced from the canonical ledger, and rendered as bounded non-evidentiary context. This does not expand evidence availability or establish semantic relevance. |
+| Canonical writer governance | Audited canonical writer paths require a live, database-scoped owner and fencing token. Transactional predecessor selection and insert-trigger enforcement prevent audited competing managed writers from silently overlapping or forking the hash chain. |
+| Projection-delivery integrity | Required managed-runtime projections are rebuilt and reconciled by canonical replay through a fixed watermark. Required delivery failure is durable and fail-closed; optional listeners remain non-authoritative. |
 | Semantic adequacy | Unresolved. PMM does not establish that an existing or selected event genuinely supports a claim or warrants an interpretation. |
 
 The relational memory substrate is currently richer than the recursive introspection mechanism. `MemeGraph`, `ConceptGraph`, retrieval provenance, commitments, and event ordering preserve substantial topology. `RecursiveSelfModel` primarily derives bounded counters, lexical-marker tendencies, sliding-window gap signals, hash-prefix uniqueness, and recorded reflection intents. `Mirror` can compare those deterministic projections across time. Together they can establish that recorded patterns changed; they do not yet establish a deep semantic explanation of why an interpretation changed.
@@ -328,7 +331,7 @@ Established invariant:
 
 All protocol-v1 terminal paths use one transactional `EventLog` operation. A protocol-scoped SQLite unique index and `BEGIN IMMEDIATE` transaction make competing recovery attempts converge on one outcome. Legacy events, including older uses of `about_event`, remain outside the new uniqueness rule and are never rewritten or automatically classified merely because they lack protocol metadata.
 
-Recovery is intentionally narrow. Runtime initialization examines only the latest user event and recovers it only when it opts into protocol v1, has no linked terminal outcome, and is followed solely by its recognized pre-generation embedding side effect. Ambiguous suffixes and legacy turns remain unchanged. General cross-process serialization remains unresolved; the supported database contract is still one active writer.
+Recovery is intentionally narrow. Runtime initialization examines only the latest user event and recovers it only when it opts into protocol v1, has no linked terminal outcome, and is followed solely by its recognized pre-generation embedding side effect. Ambiguous suffixes and legacy turns remain unchanged. The original terminal-outcome implementation did not itself solve cross-process ownership. Stage 3 later strengthened its operating precondition: recovery now runs only after the runtime has obtained fenced database-scoped ownership and confirmed required-projection freshness. A live competing owner excludes a contender, so the contender cannot prematurely recover that owner's in-flight turn. Terminal-outcome uniqueness and meaning are unchanged; the later governance layer prevents competing managed writers from overlapping silently.
 
 Adapters may raise a safe typed `AdapterTransportError` containing content-free request measurements known before I/O. Runtime combines those measurements with context, provenance, evidence, user-message, and selection measurements already available locally. Arbitrary adapter exceptions still produce a terminal failure, but unavailable provider measurements remain `null` and exception messages, tracebacks, prompt contents, and response bodies are not persisted.
 
@@ -366,6 +369,72 @@ The implementation is recorded in commit `7490928` (`Enforce provider output bud
 
 The current implementation exposes an explicit override but leaves the budget unset by default. That is technically backward compatible but not the intended zero-configuration product behavior. The next design step is a deterministic automatic budget for built-in capable adapters, while retaining explicit overrides only as advanced escape hatches.
 
+## Later continuity and integrity closures
+
+### R08 — authoritative commitment-close semantics
+
+R08 closed at `adf3e57df35f8141b9a88f72e6be0b548286b18e` (`Enforce authoritative commitment close semantics`).
+
+Established invariant:
+
+> A canonical commitment close is an idempotent transition from one exact existing open commitment event, not a free-standing assertion that an arbitrary CID was closed.
+
+`CommitmentManager` routes assistant, autonomy, and internal closure producers through `EventLog.append_commitment_close()`. That operation requires a non-empty production source, reserves the write transaction, resolves the latest lifecycle event for the CID, and creates a close only when that event is an open. An unknown CID creates no event. Repeating a closure returns the existing close without creating another. Each new close records `open_event_id`, and the partial unique index prevents two new authoritative closes from targeting the same open event. `MemeGraph` reconstructs the corresponding `closes` edge to that exact open event rather than guessing from the CID.
+
+Verification covered unknown-CID rejection, exact source and open-event recording, repeated-close idempotence, concurrent close convergence, producer migration, and live/rebuilt graph parity. R08 establishes authoritative transition mechanics; it does not establish that the commitment was wise, fulfilled in substance, or semantically supported by its stated outcome.
+
+### C01 — shared MemeGraph startup reconstruction
+
+C01 closed at `e2caabf4d0556777eb12ac10094d1137ec84e614` (`Rebuild MemeGraph on runtime startup`).
+
+Established invariant at that revision:
+
+> Complete tracked-history reconstruction of the shared `RuntimeLoop.memegraph` occurs before its first production consumer. Reconstruction uses an atomic EventLog reconstruction-to-listener handoff and runtime initialization fails when required reconstruction fails.
+
+At the C01 revision, narrow interrupted-turn recovery ran first so any recovered terminal event was included in the graph snapshot. `EventLog.rebuild_and_register_listener()` then held the EventLog lock across ordered snapshot reconstruction and listener registration. An append was therefore either present in the snapshot or delivered incrementally; reconstruction failure propagated and prevented service initialization. The graph was complete before retrieval, lifetime-memory, autonomy, and other `RuntimeLoop` consumers, and one-shot, MCP, replay, and ordinary `RuntimeLoop` construction inherited that initialization path. Tests covered reopened history and relationships, graph availability at first retrieval, the atomic append handoff, initialization failure, replay parity without hash mutation, and consecutive one-shot and MCP invocations.
+
+Stage 3 later strengthened and reordered the current initialization sequence. At `69cbe30`, the fenced runtime first rebuilds its required MemeGraph, Mirror, and ConceptGraph projections and confirms a fixed-watermark barrier; only then may interrupted-turn recovery mutate the ledger, followed by another barrier. Duplicate delivery at or below each projection's acknowledged watermark is suppressed. Thus “recovery before graph reconstruction” remains an accurate description of the original C01 revision, but not of the current governed runtime. The current ordering makes fenced ownership and required-projection health prerequisites for recovery while preserving C01's complete-before-consumer guarantee.
+
+C01 proves structural reconstruction and delivery continuity. It does not prove that a graph edge is semantically adequate or that every historical relationship has a uniformly validated role.
+
+### C02 — graph-guided conversational continuity and fenced ledger governance
+
+C02 stages 1 and 2 closed at `5570150ea63b816861d875c9487dfea7211d5184` (`Restore graph-guided turn continuity`). Their production path is:
+
+```text
+Canonical EventLog
+  -> indexed relational projection
+  -> bounded structural selection
+  -> exact canonical dereference
+  -> non-evidentiary conversational rendering
+```
+
+Established stages 1–2 invariant:
+
+> The immediately preceding completed protocol-v1 managed pair is resolved through the shared MemeGraph, dereferenced as exactly two canonical EventLog records, and rendered as bounded non-evidentiary conversational context.
+
+For managed assistant events, `replies_to` uses canonical `meta.about_event`; the latest-user heuristic remains a legacy-only behavior and is not promoted into the managed-pair index. Rebuild and incremental delivery maintain the same sorted assistant index and assistant-to-user mapping, including duplicate and unexpected out-of-order delivery handling. Lookup selects one prior completed managed pair without scanning all graph nodes or ledger rows. `EventLog.get()` dereferences exactly those two IDs. Rendering filters recognized assistant scaffolding, applies deterministic bounded truncation, excludes the current user and non-pair runtime events, deduplicates independently selected retrieval overlap, and records content-free telemetry. Live and reopened runtimes produce the same result at the same boundary, and one `RuntimeLoop` mechanically serializes its complete managed turns.
+
+The prior pair is conversational visibility, not evidence. Its IDs are not added to retrieval selection, provenance, `selected_event_ids`, evidence-designation availability, or claim `evidence_events` availability. Existing retrieval remains authoritative for evidence availability. Tests cover canonical managed linkage, legacy exclusion, rebuild/incremental equivalence, bounded exact dereference, filtering, deterministic truncation, deduplication, evidence separation, live/reopened parity, and same-runtime turn serialization.
+
+C02 Stage 3 closed at `69cbe30d49d817afb8cc1fdf1fdee4865a2f586f` (`Enforce fenced ledger governance`).
+
+Established Stage 3 invariant:
+
+> C02 Stage 3 is implemented and mandatory for audited managed-runtime paths. Canonical writes require a live fenced database-scoped writer session, and graph-derived state requires confirmed fixed-watermark projection freshness. Competing managed writers fail explicitly or acquire only after release or expiry.
+
+Each governed database has persistent identity and a singleton lease carrying owner, role, expiry, heartbeat, and a monotonically increasing fence. A writer acquires without hidden waiting; a live owner produces `WriterOwnershipConflict`, while a busy acquisition reservation is also explicit. An independent heartbeat keeps the lease live through provider generation. A shared reentrant operation gate serializes same-owner services. Reader and writer construction roles are explicit, owned one-shot lifetimes release deterministically, and expiry permits takeover with a higher fence without restoring authority to the stale owner.
+
+Every canonical append path reserves with `BEGIN IMMEDIATE`, validates the owner, fence, live lease, and database clock, selects the canonical predecessor inside that transaction, and commits the new hash-linked row. A SQLite insert trigger checks connection-registered owner and fence functions against the live lease, mechanically rejecting unowned inserts on governed connections. Provider results are rechecked after generation and discarded after ownership loss.
+
+Required projection registrations track an acknowledged `applied_through` watermark. Before graph-dependent work, a barrier fixes the canonical ledger boundary and replays every missing canonical event through it; freshness does not depend on process-local callback delivery or on merely observing the largest event ID. Required rebuild or delivery failure records durable projection health, poisons the writer session, and stops further managed work. A typed post-commit failure reports that the canonical event exists, its ID, owner and fence, the failed projection, and the last confirmed watermark, distinguishing it from an uncommitted append failure. Optional listeners remain best-effort and cannot suppress nested required-delivery failure.
+
+The production audit covered runtime, one-shot, MCP, autonomy, metrics, maintenance, backfill, and experiment writer constructors and graph consumers. The final focused Stage 3 audit suite covered ownership and trigger enforcement, hidden-wait exclusion, hash-fork prevention, heartbeat and lease loss, expiry and takeover, stale provider-result rejection, recovery exclusion, fixed-watermark barriers, durable required-listener failure, post-commit error semantics, one-shot contention, and MCP contention. The complete suite recorded 468 passing tests.
+
+No bypass was found among the audited production constructors, append APIs, and graph consumers. This does not claim protection against hostile schema modification, forged connection functions, or arbitrary out-of-band SQLite administration.
+
+Stage 3 is governance and projection-delivery integrity. It does not make graph selection semantically relevant, promote conversational context to evidence, prove claim truth, validate identity coherence, or establish semantic adequacy.
+
 ## PMM development-audit controls
 
 The architecture review produced a repository-scoped development skill at `.agents/skills/pmm-development-auditor/`. This is deliberately not a PMM runtime reasoning skill and is not counted as a thirteenth runtime improvement. Its purpose is to make coding and review agents determine exactly what the current repository establishes before they describe, modify, or extend a PMM guarantee.
@@ -399,7 +468,7 @@ Verification completed for the development control itself:
 
 The four blind cases were successfully completed against the preceding skill draft. They demonstrated diagnostic transfer across optional omission as a coverage failure, an unchecked populated reference as a referential enforcement failure, real identifiers used in a false relational role, and preservation without canonical promotion.
 
-Repository-state capture and mandatory post-change retracing were added after those blind runs. The current package and prompt-discovery checks establish that those requirements are structurally valid and delivered to compliant agents, but they have not yet been exercised in a blind end-to-end PMM implementation cycle.
+Repository-state capture and mandatory post-change retracing were added after those blind runs. They have since been exercised in real repository work, including the C01 and C02 cycles: clean synchronized pre-change gates, production-path and bypass audits, narrow authorization boundaries, implementation, post-change lifecycle retracing, focused and complete test verification, staged-diff review, and clean synchronized publication. Those later cycles are operational evidence for the full audit discipline; they are not retroactively classified as blind tests. The earlier four blind cases remain separate evidence of diagnostic transfer.
 
 ## Model name and identity separation
 
@@ -417,12 +486,12 @@ Any future model—including a local model, cloud model, or replacement model—
 
 ## Verification completed
 
-### Runtime verification — 2026-07-18
+### Runtime verification — 2026-07-19
 
 The current code passes:
 
 ```text
-427 tests passed
+468 tests passed
 git diff --check passed
 ```
 
@@ -457,6 +526,23 @@ Regression coverage now includes:
 - Length-limited partial-response semantic isolation
 - CLI, environment, and MCP output-budget precedence
 - Model-name and identity neutrality
+- Authoritative commitment-close target, source, idempotence, and reconstructed relationship
+- Shared MemeGraph reconstruction and atomic snapshot-to-listener handoff
+- Managed-pair graph indexing, exact two-record dereference, bounded non-evidentiary rendering, and evidence separation
+- Fenced database ownership, fail-fast contention, trigger enforcement, and transactional hash-chain predecessor selection
+- Independent heartbeat, ownership-loss rejection, lease expiry, takeover, and recovery exclusion
+- Fixed-watermark required-projection replay, durable health reporting, and typed post-commit failure
+- One-shot and MCP contention through the database-scoped authority
+
+The final focused Stage 3 audit suite recorded:
+
+```text
+43 tests passed
+```
+
+Its coverage included ownership, insert-trigger enforcement, hash-fork prevention, heartbeat, lease loss, expiry and takeover, stale-result rejection, recovery exclusion, projection barriers, required-listener failure, one-shot contention, and MCP contention. Stage 3 verification also recorded Ruff check and Ruff format check across its 24-file Python verification scope, plus `compileall` and diff checks. Publication completed at `69cbe30d49d817afb8cc1fdf1fdee4865a2f586f`; local `main`, `HEAD`, and `origin/main` were clean and synchronized at divergence `0 0`.
+
+For this documentation-only accuracy pass, the complete suite was rerun from the published revision with only this document modified: `.venv/bin/pytest -q` passed 468 tests in 21.35 seconds. This rerun is separate from the recorded Stage 3 publication verification above.
 
 ### Integrity-audit and development-control verification — 2026-07-18
 
@@ -470,11 +556,11 @@ Those tests corroborate behavior on their exercised paths. The audit also inspec
 
 The development-auditor package passes structural validation and fresh-prompt discovery. Its four blind diagnostic cases also passed against the preceding draft, demonstrating transfer across coverage, referential enforcement, relational-role, and preservation-versus-promotion failures.
 
-The later repository-state and post-change-reporting requirements are **structurally validated but not yet blindly exercised in a complete audit → implementation → post-change re-audit cycle**. The passing diagnostic cases should not be represented as validation of requirements they predated.
+The later repository-state and post-change-reporting requirements were exercised in the real C01 and C02 audit → authorization → implementation → post-change re-audit → publication cycles. This operational evidence is distinct from the four earlier blind diagnostic cases and does not make those earlier cases evidence for requirements they predated.
 
 ## Remaining backlog candidates
 
-These items remain unimplemented. The first three replace the former single “semantic grounding” item because reference coverage, deterministic relationship checks, and semantic warrant are different problems.
+These items remain unimplemented or separately unauthorized. R07 is queued and requires separate authorization; its queued status does not select or authorize the next implementation. The first three items below replace the former single “semantic grounding” item because reference coverage, deterministic relationship checks, and semantic warrant are different problems. C01, C02 stages 1–3, managed-writer exclusion, fixed-watermark projection freshness, and required-listener failure handling are closed and are not backlog items.
 
 ### 1. Reference-policy matrix and validator coverage
 
@@ -597,7 +683,7 @@ The structured result can include:
 - Identity and summary updates
 - Full appended events when `include_events` is enabled
 
-Calls handled by one MCP server process are serialized by a process-level lock. This prevents two turns routed through that server from overlapping their event ranges. Multiple independent MCP server processes must not be pointed at the same database concurrently unless a stronger cross-process serialization mechanism is added.
+The MCP server retains a non-blocking process-local admission gate and rejects overlapping calls in that process. Database-scoped fenced ownership is authoritative: separate MCP subprocesses, one-shot processes, and other governed writers cannot overlap against the same database. A contender acquires only after clean release or lease expiry, or fails explicitly; no automatic queue, hidden wait, or retry is implied. The one-shot context manager releases ownership deterministically, and the runtime establishes required-projection barriers before graph-dependent managed work.
 
 During this development cycle, Codex used `pmm_turn` to conduct the 30-turn PMM conversation and to consult the model operating inside the PMM pipeline about immediate operational improvements. The model reported friction from the bounded ledger state and projections it received. Codex then inspected the repository, corrected assumptions that did not match the implementation, implemented narrowly scoped patches, and ran focused and full regression suites. The PMM consultations and their resulting state changes were appended to the persistent ledger and became available to later turns.
 
@@ -697,25 +783,8 @@ The consultation prompt should require the model to distinguish:
 
 ## Recommended next decision
 
-The next development-control step is to run one real, bounded PMM change through the complete skill lifecycle:
+No next implementation is selected or authorized by this status document. R07 remains queued and requires separate authorization. The reference-policy matrix, deterministic role-bearing relational integrity, semantic adequacy, identity conflict and replacement policy, coherence gating, zero-configuration output budgets, controlled generation retry, and an operational prompt-growth baseline likewise remain separate candidates or policy decisions. Hostile schema modification, forged connection functions, and arbitrary out-of-band SQLite administration remain outside the Stage 3 threat model.
 
-1. Capture the branch, revision, working-tree state, and falsifiable pre-change guarantee.
-2. Audit production, validation, preservation, projection, and promotion paths before implementation.
-3. Implement one explicitly authorized policy change.
-4. Retrace every affected path, run focused and appropriate broader tests, and report omitted verification.
-5. Confirm that the final finding format distinguishes the implemented guarantee from remaining weaker paths.
+Any later authorization should retain the development-audit sequence already exercised by C01 and C02: establish a clean revision and falsifiable guarantee, trace production and alternate paths before change, preserve explicit policy boundaries, retrace the full affected lifecycle afterward, run focused and complete verification proportionate to risk, and review the exact publication scope.
 
-This cycle should exercise the repository-state and post-change requirements added after the successful blind diagnostic cases. Failure in those newer behaviors—not the already-demonstrated diagnostic core—should drive the next skill revision.
-
-The next runtime-integrity step is an inventory, not a patch:
-
-1. Enumerate claim types, reference-bearing fields, producers, validators, consumers, projections, and promotion paths.
-2. Record which paths currently rely on optional evidence, token-only ratification, unknown-type fail-open, optional `about_event`, and unvalidated `supersedes` metadata.
-3. Draft the explicit policy matrix for omission, emptiness, target existence, selected availability, permitted roles, rejection preservation, and authoritative promotion.
-4. Authorize and implement referential coverage and enforcement changes as a separate patch.
-5. Specify deterministic role-bearing relations and constraints as a later relational-integrity patch.
-6. Keep semantic adequacy explicitly open rather than resolving it through another unverified model gate.
-
-The zero-configuration output budget remains a separate product improvement for built-in capable adapters. Keep explicit CLI, MCP, and environment values as advanced overrides, and keep retries, partial-response acceptance, automatic budget increases, and context-window budgeting deferred.
-
-The current system has stronger transport integrity, temporally ordered identity adoption, conditional evidence referential and availability validation, retrieval auditability, and diagnostic visibility than it had at the start of this cycle. It does not yet establish mandatory evidence coverage, identity-anchor relevance, uniform reflection topology, valid supersession relationships, or semantic support.
+The current system now has stronger canonical write governance, transactional hash-chain protection against audited competing writers, mandatory fixed-watermark required-projection freshness on audited managed paths, graph-guided immediate continuity, bounded non-evidentiary conversation rendering, and retained separation between conversational visibility and evidence policy. It also retains temporally ordered identity adoption, conditional evidence referential and availability validation, retrieval auditability, and diagnostic visibility. It still does not establish mandatory evidence coverage for every claim type, uniform permitted-role validation, semantic adequacy, identity-anchor relevance, or universally valid supersession relationships.
