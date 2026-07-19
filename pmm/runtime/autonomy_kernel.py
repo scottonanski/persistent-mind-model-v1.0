@@ -646,15 +646,10 @@ class AutonomyKernel:
                     continue
                 events_since_open = sum(1 for e in events if e["id"] > c["id"])
                 if events_since_open > auto_close_threshold:
-                    eventlog.append(
-                        kind="commitment_close",
-                        content=f"Commitment closed: {cid}",
-                        meta={
-                            "reason": "auto_close_idle_opt",
-                            "cid": cid,
-                            "origin": "autonomy_kernel",
-                            "source": "autonomy_kernel",
-                        },
+                    CommitmentManager(eventlog).close_commitment(
+                        cid,
+                        source="autonomy_kernel",
+                        reason="auto_close_idle_opt",
                     )
 
         # No need to recompute stale flag here; synthesizer computes it deterministically
@@ -1365,16 +1360,7 @@ class AutonomyKernel:
             )
             cid = (open_goal.get("meta") or {}).get("cid")
             if cid:
-                self.eventlog.append(
-                    kind="commitment_close",
-                    content=f"Commitment closed: {cid}",
-                    meta={
-                        "source": "autonomy_kernel",
-                        "cid": cid,
-                        "goal": goal,
-                        "outcome": "analyzed",
-                    },
-                )
+                self.commitment_manager.close_internal(cid, outcome="analyzed")
             return reflection_id
 
     def _is_significant_rsm_change(self, diff: Dict[str, object]) -> bool:
@@ -1458,15 +1444,9 @@ class AutonomyKernel:
         cid = (open_goal.get("meta") or {}).get("cid")
         if not cid:
             return None
-        return self.eventlog.append(
-            kind="commitment_close",
-            content=f"Commitment closed: {cid}",
-            meta={
-                "source": "autonomy_kernel",
-                "cid": cid,
-                "goal": goal,
-                "reason": "rsm_stable",
-            },
+        return self.commitment_manager.close_internal(
+            cid,
+            reason="rsm_stable",
         )
 
     def _stalled_commitments(

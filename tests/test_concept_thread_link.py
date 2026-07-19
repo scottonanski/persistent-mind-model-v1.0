@@ -36,7 +36,7 @@ def test_concept_thread_integration():
     e_close = log.append(
         kind="commitment_close",
         content="Task done",
-        meta={"cid": cid},
+        meta={"cid": cid, "source": "assistant"},
     )
 
     # Rebuild/Sync graphs
@@ -152,7 +152,7 @@ def test_cids_for_event_logic():
     e_close = log.append(
         kind="commitment_close",
         content="done",
-        meta={"cid": cid},
+        meta={"cid": cid, "source": "assistant"},
     )
 
     # Reflection (on assistant)

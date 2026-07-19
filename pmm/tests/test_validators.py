@@ -35,7 +35,11 @@ def test_validate_claims_basic():
     assert ok and msg == "commitment ok"
 
     # Close and expect false for open=True
-    log.append(kind="commitment_close", content="c", meta={"cid": "abcd"})
+    log.append(
+        kind="commitment_close",
+        content="c",
+        meta={"cid": "abcd", "source": "assistant"},
+    )
     ok, msg = validate_claim(
         Claim(type="commitment_status", data={"cid": "abcd", "open": True}), log, mirror
     )

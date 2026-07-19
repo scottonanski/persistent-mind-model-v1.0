@@ -21,16 +21,25 @@ def test_calculate_stability_metrics():
     log.append(kind="user_message", content="Hello")
     log.append(kind="policy_update", content="Policy change")
     log.append(kind="assistant_message", content="Response\nCOMMIT: task")
-    log.append(kind="commitment_close", content="CLOSE: cid123")
+    log.append(
+        kind="commitment_open",
+        content="Commitment opened: task",
+        meta={"cid": "cid123", "source": "assistant"},
+    )
+    log.append(
+        kind="commitment_close",
+        content="CLOSE: cid123",
+        meta={"cid": "cid123", "source": "assistant"},
+    )
     log.append(kind="reflection", content="Reflection")
     log.append(kind="claim", content='CLAIM:type={"key": "value"}')
 
     metrics = calculate_stability_metrics(log, window=10)
 
     assert metrics["window_size"] == 10
-    assert metrics["metrics"]["policy_change_rate"] == 1 / 6  # 1 policy_update
-    assert metrics["metrics"]["commitment_churn"] == 2 / 6  # 1 commit + 1 close
-    assert metrics["metrics"]["reflection_variance"] == 1 / 6  # 1 reflection
+    assert metrics["metrics"]["policy_change_rate"] == 1 / 7  # 1 policy_update
+    assert metrics["metrics"]["commitment_churn"] == 2 / 7  # 1 COMMIT + 1 CLOSE
+    assert metrics["metrics"]["reflection_variance"] == 1 / 7  # 1 reflection
     assert 0.0 <= metrics["stability_score"] <= 1.0
 
 

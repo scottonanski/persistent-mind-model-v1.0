@@ -10,7 +10,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from hashlib import sha1
 
 from .event_log import EventLog
-from .mirror import Mirror
 from .schemas import (
     INTERNAL_COMMITMENT_ORIGIN,
     generate_internal_cid,
@@ -82,18 +81,31 @@ class CommitmentManager:
         )
         return cid
 
-    def close_commitment(self, cid: str, *, source: str = "assistant") -> Optional[int]:
-        """Append a commitment_close event for the provided cid if non-empty."""
+    def close_commitment(
+        self,
+        cid: str,
+        *,
+        source: str = "assistant",
+        outcome: str = "",
+        reason: str = "",
+    ) -> Optional[int]:
+        """Close an existing open commitment, idempotently."""
         cid = (cid or "").strip()
         if not cid:
             return None
-        meta: Dict[str, Any] = {"cid": cid, "origin": source, "source": source}
-        validate_event({"kind": "commitment_close", "meta": meta})
-        return self.eventlog.append(
-            kind="commitment_close",
+        source = (source or "").strip()
+        if not source:
+            return None
+        meta: Dict[str, Any] = {"cid": cid, "source": source}
+        if outcome := (outcome or "").strip():
+            meta["outcome"] = outcome
+        if reason := (reason or "").strip():
+            meta["reason"] = reason
+        event_id, _ = self.eventlog.append_commitment_close(
             content=f"Commitment closed: {cid}",
             meta=meta,
         )
+        return event_id
 
     def apply_closures(
         self, cids: List[str], *, source: str = "assistant"
@@ -102,37 +114,36 @@ class CommitmentManager:
 
         Returns list of cids that were actually closed.
         """
-        mirror = Mirror(self.eventlog, listen=True)
         closed: List[str] = []
         for cid in cids:
-            if mirror.is_commitment_open(cid):
-                self.close_commitment(cid, source=source)
+            cid = (cid or "").strip()
+            source = (source or "").strip()
+            if not cid or not source:
+                continue
+            event_id, created = self.eventlog.append_commitment_close(
+                content=f"Commitment closed: {cid}",
+                meta={"cid": cid, "source": source},
+            )
+            if event_id is not None and created:
                 closed.append(cid)
         return closed
 
-    def close_internal(self, cid: str, outcome: str = "") -> None:
+    def close_internal(
+        self, cid: str, outcome: str = "", reason: str = ""
+    ) -> Optional[int]:
         """Close an internal commitment if it remains open."""
         cid = (cid or "").strip()
         if not cid:
-            return
+            return None
         open_event = self._open_commitment_map().get(cid)
         meta = (open_event or {}).get("meta") or {}
         if meta.get("origin") != INTERNAL_COMMITMENT_ORIGIN:
-            return
-
-        close_meta: Dict[str, Any] = {
-            "cid": cid,
-            "origin": INTERNAL_COMMITMENT_ORIGIN,
-        }
-        outcome = (outcome or "").strip()
-        if outcome:
-            close_meta["outcome"] = outcome
-
-        validate_event({"kind": "commitment_close", "meta": close_meta})
-        self.eventlog.append(
-            kind="commitment_close",
-            content=f"Internal commitment closed: {cid}",
-            meta=close_meta,
+            return None
+        return self.close_commitment(
+            cid,
+            source=INTERNAL_COMMITMENT_ORIGIN,
+            outcome=outcome,
+            reason=reason,
         )
 
     def get_open_commitments(

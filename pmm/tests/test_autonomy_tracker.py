@@ -79,12 +79,20 @@ def test_idempotent_no_emit_when_replay(log: EventLog) -> None:
 
 def test_open_commitments_matches_ledger(log: EventLog) -> None:
     tracker = AutonomyTracker(log)
-    log.append(kind="commitment_open", content="test commitment 1", meta={})
-    log.append(kind="commitment_open", content="test commitment 2", meta={})
-    log.append(kind="commitment_close", content="test close 1", meta={})
+    log.append(kind="commitment_open", content="test commitment 1", meta={"cid": "c1"})
+    log.append(kind="commitment_open", content="test commitment 2", meta={"cid": "c2"})
+    log.append(
+        kind="commitment_close",
+        content="test close 1",
+        meta={"cid": "c1", "source": "autonomy_kernel"},
+    )
     _tick(log, "idle")
     assert tracker.get_metrics()["open_commitments"] == 1
-    log.append(kind="commitment_close", content="test close 2", meta={})
+    log.append(
+        kind="commitment_close",
+        content="test close 2",
+        meta={"cid": "c2", "source": "autonomy_kernel"},
+    )
     _tick(log, "idle")
     assert tracker.get_metrics()["open_commitments"] == 0
 

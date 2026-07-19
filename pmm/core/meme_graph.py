@@ -73,12 +73,22 @@ class MemeGraph:
                 if assistant_node is not None:
                     self.graph.add_edge(event_id, assistant_node, label="commits_to")
         elif kind == "commitment_close":
-            # Link this close event to its corresponding open event by cid
-            cid = (meta or {}).get("cid")
-            if isinstance(cid, str) and cid:
-                open_node = self._find_commitment_open_by_cid(cid)
-                if open_node is not None:
-                    self.graph.add_edge(event_id, open_node, label="closes")
+            # New authoritative closes identify the exact open event. Retain
+            # CID lookup only for replaying legacy history.
+            open_node = (meta or {}).get("open_event_id")
+            if not (
+                isinstance(open_node, int)
+                and self.graph.has_node(open_node)
+                and self.graph.nodes[open_node].get("kind") == "commitment_open"
+            ):
+                cid = (meta or {}).get("cid")
+                open_node = (
+                    self._find_commitment_open_by_cid(cid)
+                    if isinstance(cid, str) and cid
+                    else None
+                )
+            if open_node is not None:
+                self.graph.add_edge(event_id, open_node, label="closes")
         elif kind == "reflection":
             about_event = meta.get("about_event")
             if about_event and self.graph.has_node(about_event):

@@ -74,7 +74,11 @@ def test_render_graph_context_includes_stats_and_threads() -> None:
     log.append(
         kind="commitment_close",
         content="",
-        meta={"cid": "CID-0", "origin": "autonomy_kernel"},
+        meta={
+            "cid": "CID-0",
+            "origin": "autonomy_kernel",
+            "source": "autonomy_kernel",
+        },
     )
 
     result = render_graph_context(log)

@@ -29,6 +29,25 @@ class MockEventLog:
             listener(event)
         return event_id
 
+    def append_commitment_close(self, *, content, meta=None):
+        meta = dict(meta or {})
+        cid = meta.get("cid")
+        latest = next(
+            (
+                event
+                for event in reversed(self.events)
+                if event.get("kind") in {"commitment_open", "commitment_close"}
+                and (event.get("meta") or {}).get("cid") == cid
+            ),
+            None,
+        )
+        if latest is None:
+            return None, False
+        if latest.get("kind") == "commitment_close":
+            return latest["id"], False
+        meta["open_event_id"] = latest["id"]
+        return self.append(kind="commitment_close", content=content, meta=meta), True
+
     def register_listener(self, listener):
         self.listeners.append(listener)
 

@@ -40,14 +40,23 @@ def test_calculate_efficiency_metrics():
     log = EventLog(":memory:")
     log.append(kind="policy_update", content="change")
     log.append(kind="assistant_message", content="COMMIT: task")
-    log.append(kind="commitment_close", content="CLOSE: cid")
+    log.append(
+        kind="commitment_open",
+        content="COMMIT: task",
+        meta={"cid": "cid", "source": "assistant"},
+    )
+    log.append(
+        kind="commitment_close",
+        content="CLOSE: cid",
+        meta={"cid": "cid", "source": "assistant"},
+    )
 
     patterns = [LearningPattern("reflection_to_policy_update", 1, 10.0)]
     metrics = calculate_efficiency_metrics(log, patterns, window=10)
 
     assert metrics.avg_reflection_to_policy_lag == 10.0
-    assert metrics.policy_update_rate == 1 / 3  # 1 policy / 3 events
-    assert metrics.commitment_resolution_rate == 1 / 2  # 1 close / 2 commits
+    assert metrics.policy_update_rate == 1 / 4  # 1 policy / 4 events
+    assert metrics.commitment_resolution_rate == 1 / 3  # 1 close / 3 commits
 
 
 def test_suggest_meta_policy_changes():

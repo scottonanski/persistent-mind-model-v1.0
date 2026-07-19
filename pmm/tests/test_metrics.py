@@ -38,7 +38,11 @@ def test_compute_metrics_counts_and_chain(tmp_path):
     log.append(kind="user_message", content="Hello", meta={})
     log.append(kind="assistant_message", content="Hi", meta={})
     log.append(kind="commitment_open", content="c1", meta={"cid": "c1", "text": "t"})
-    log.append(kind="commitment_close", content="c1", meta={"cid": "c1"})
+    log.append(
+        kind="commitment_close",
+        content="c1",
+        meta={"cid": "c1", "source": "assistant"},
+    )
 
     m = compute_metrics(db)
     assert m["event_count"] == 5
