@@ -1,7 +1,7 @@
 # PMM Improvement Progress and Remaining Work
 
 - **Status date:** 2026-07-19
-- **Audit basis:** Clean, synchronized `main` at `69cbe30d49d817afb8cc1fdf1fdee4865a2f586f`, with divergence `0 0`
+- **Audit basis:** Clean, synchronized `main` at `9d446fc9fc5a27cdb9a332cc1f7ae422312c0535`, with divergence `0 0`
 - **Current recorded verification:** 468 tests passed; the final focused Stage 3 audit suite passed 43 tests; Ruff check and Ruff format check passed on all 24 Python files included in the Stage 3 verification scope; `compileall`, `git diff --check`, publication, and synchronization checks passed. Any verification rerun performed for this documentation-only update is reported separately below.
 - **Scope:** Incremental integrity, continuity, diagnostics, retrieval, and development-audit improvements established through model consultation and source-level verification.
 
@@ -76,6 +76,8 @@ The current integrity position is:
 The relational memory substrate is currently richer than the recursive introspection mechanism. `MemeGraph`, `ConceptGraph`, retrieval provenance, commitments, and event ordering preserve substantial topology. `RecursiveSelfModel` primarily derives bounded counters, lexical-marker tendencies, sliding-window gap signals, hash-prefix uniqueness, and recorded reflection intents. `Mirror` can compare those deterministic projections across time. Together they can establish that recorded patterns changed; they do not yet establish a deep semantic explanation of why an interpretation changed.
 
 The remaining items are a mixture of operational backlog candidates and integrity-policy decisions. Model consultation may generate useful hypotheses, but mechanically specifiable gaps now require repository inventory and explicit policy choices rather than more model consensus.
+
+Recent exploratory use exposed additional backlog candidates in retrieval verification, relational-role representation, and forced-concept relevance. These findings do not contradict the closed continuity and governance guarantees; they concern diagnostic validity, representational adequacy, retrieval policy, and semantic interpretation. C02 makes the immediately prior managed conversation available, and Stage 3 governs writers and projection freshness, but neither guarantees correct relational-role assignment, current-query relevance for forced context, or semantic adequacy.
 
 ## Completed improvements
 
@@ -569,6 +571,8 @@ Inventory every structured claim type, reference-bearing field, producer, valida
 - Whether the reference field is forbidden, optional, or required
 - Whether an empty reference collection is meaningful
 - Whether each target must exist and have been available to the producing turn
+- Whether the structure explicitly distinguishes asserting actor or origin, subject, predicate or relationship type, object or target, and supporting event IDs
+- Whether confidence, status, or promotion state exists at all; those fields require separate authorization rather than being inferred from a source label or event kind
 - What historical form remains after rejection
 - Whether a rejected or unsupported candidate may become a canonical event
 - Which projections or authoritative state may consume it
@@ -578,6 +582,7 @@ This inventory must account for current behavior that could otherwise be mistake
 - `evidence_events` may be omitted for every current claim type. Where the field is accepted, the general validator permits an empty list; `identity_ratify` forbids the field entirely.
 - `identity_ratify` forbids evidence rather than merely making it optional.
 - Unknown structured claim types return `ACCEPTED_UNKNOWN_TYPE` and are promoted to canonical `claim` events with CTL bindings. Reject-by-default must not ship before inventorying behavior that relies on this fallback.
+- Current registered identity claims contain a token, optional proposal description, and optional proposal evidence; they do not distinguish a producing or asserting actor from the subject of the assertion. Unknown claim payloads can preserve arbitrary fields, but PMM has no registered relational-claim policy that validates those fields or gives them uniform projected meaning.
 - `about_event` is optional for reflection producers; an unresolved target silently produces no `reflects_on` edge.
 - The standalone concept schema only type-checks `supersedes`, while the production compiler does not invoke that validator. `ConceptGraph` projects any truthy supplied value without checking target existence, prior-version status, token membership, ordering, or cycle safety.
 
@@ -586,6 +591,14 @@ The general rule is: **“does the referenced thing exist?” belongs to referen
 ### 2. Deterministic relational integrity
 
 Once the policy matrix exists, add explicit role-bearing relations where one overloaded or optional pointer cannot express the lifecycle. A reinterpretation, for example, may need to distinguish the prior interpretation from the event that triggered revision. An identity transition may need distinct proposal, anchor, trigger, evidence, and ratification roles.
+
+The same inventory must distinguish the asserting actor or origin from the assertion's subject, predicate or relationship type, and object or target, while retaining supporting event IDs. Commitment lifecycle metadata provides a limited implementation precedent: `meta.origin` is constrained to `user`, `assistant`, or `autonomy_kernel` on commitment events. That convention is not proof that origin alone is sufficient for general relational assertions, and it does not select a final schema.
+
+A user assertion about the user must not be promoted into the agent's self-directed identity-adoption path merely because identity adoption is the only currently available durable identity primitive.
+
+> Granite's creator-role error exposed both a model interpretation failure and a representational gap. The ledger currently lacks a sufficiently explicit structure for third-party or user-directed relational assertions, so role-correct promotion cannot be enforced uniformly.
+
+The error is an observed runtime symptom rather than implementation proof. Production code confirms the representational boundary: the registered identity path cannot validate the distinct roles in `asserting actor: Scott`, `subject: Scott`, `predicate: creator_of`, and `object: PMM`. It does not establish why the model made the interpretation error.
 
 An illustrative, not-yet-adopted shape is `proposal_event_id`, `anchor_event_id`, `trigger_event_ids[]`, and `evidence_events[]`, supplemented by role-tagged relations when one event participates in more than one function. The same audit must determine whether flat evidence lists can identify which part of a compound assertion each event supports.
 
@@ -653,6 +666,40 @@ A bounded retry design would need to specify:
 
 Retries must never conceal the original failed attempt or allow a partial response to reach semantic parsers.
 
+### Retrieval verification validity and diagnostic isolation
+
+The current autonomy verification path may compare a concept- and topology-influenced hybrid retrieval result against a separately recomputed pure-vector baseline. A disagreement can therefore be expected by design rather than evidence that final retrieval was incorrect.
+
+`AutonomyKernel._verify_recent_selections()` re-ranks message candidates using the configured deterministic embedding model, then asks only whether at least one of its five highest vector matches appears in each final hybrid `retrieval_selection`. The recorded selection may instead contain events admitted or prioritized through forced or sticky concepts, concept bindings, summary handling, thread or graph expansion, topology roots or tails, and vector refinement over a narrower concept-derived candidate set. The verifier does not reproduce those stages or use the recorded per-event reasons when deciding validity. Each autonomy decision cycle that reaches the maintenance block examines up to the same five trailing selections and appends another `reflection`, so overlapping cycles can repeat the same outcome without a per-selection watermark.
+
+Future policy must distinguish at least:
+
+- **Vector-subsystem verification:** compare only vector-ranked candidates and scores under the vector stage's actual candidate set.
+- **Full hybrid reproducibility:** rerun the actual retrieval pipeline using the original configuration, inputs, graph state, concept state, and selection boundary.
+- **Verification scheduling:** verify each `retrieval_selection` once using a watermark or processed-selection ID instead of repeatedly checking overlapping trailing windows.
+- **Diagnostic preservation:** record retrieval verification in a dedicated diagnostic form rather than narrative `reflection`, unless the event genuinely represents reflective interpretation.
+
+Relabeling the event alone would not fix an invalid baseline. Repeated false-positive diagnostics can pollute later retrieval and reflection analysis. No correction is currently authorized or implemented.
+
+### Forced-concept retrieval relevance and attractor control
+
+The audited mechanism is narrower than a general privileged-prefix attractor. `RuntimeLoop.run_turn()` creates a new `RetrievalConfig` for each turn, so that configuration object's `sticky_concepts` does not accumulate indefinitely across the session. `force_concept_prefixes` defaults to `identity.`, `role.`, `policy.`, `commitment.`, and `governance.`, but it filters only concepts already seeded for the turn; it does not scan and inject every matching concept in `ConceptGraph`. The unconditional default seed is `user.identity`, which is handled by a separate force rule as well as the sticky path. Other privileged concepts become forced only when they are seeded through query matching or explicit configuration.
+
+Once seeded, a privileged concept's bound events are force-included without an additional relevance check, and concept-kind topology can add root or tail events to the same forced bucket. Concept and CID bindings can also expand commitment threads and neighboring graph events. Model-emitted first-line `concepts` headers bind the current user and assistant events. If an assistant event carries `meta.concept_ops`, the production compiler can also define and bind concepts from that metadata. Those durable bindings become later retrieval entry points only when the concept is seeded again. Thus a concept such as `governance.risk` or `governance.criterion` could repeatedly reintroduce historical material if it is repeatedly reseeded, but the current production path does not establish that every such concept is injected on every turn.
+
+A conditional feedback loop remains a plausible, not yet causally established, mechanism:
+
+```text
+model emits governance or identity concept
+  -> concept becomes bound
+  -> default or later query/configuration reseeds the concept
+  -> forced retrieval injects its events and topology
+  -> model sees the same frame as dominant context
+  -> model emits or reinforces the concept again
+```
+
+Future policy must decide which concepts are universally mandatory, which require query relevance, whether mandatory concepts receive a bounded budget, whether topology expansion applies to every forced concept, and whether force inclusion needs recency, role, state, or lifecycle gating. It must also specify how closed, failed, superseded, or historical commitments influence forced context and how narrative concentration is detected without treating repetition itself as failure. Simple decay is not established as the required solution. No relevance correction or attractor-control policy is currently authorized or implemented.
+
 ### 8. Operational baseline for prompt growth
 
 The measurement mechanism is implemented. Before adding prompt-reduction behavior, PMM should run a fresh representative 10–20 turn conversation and observe:
@@ -661,10 +708,16 @@ The measurement mechanism is implemented. Before adding prompt-reduction behavio
 - Rendered PMM-context size
 - Provenance and raw-evidence size
 - Selected-event count
+- Retrieval-reason concentration by turn, including the count and proportion of `forced_concept`, `sticky_concept`, `concept_binding`, topology or graph expansion, and `vector_refinement` selections
+- Repeated event IDs and repeated concept tokens across turns
+- Whether query-unrelated forced concepts dominate the rendered context
+- Model-response similarity and repeated self-model language
+- Resulting concept definitions and event or thread bindings
+- Commitments or reflections created from repeatedly injected context
 - Output-token count
 - Control markers, resulting ledger mutations, binding attribution, relational content, and later utility
 
-This baseline is an experiment, not a code change. It should identify whether prompt growth is operationally significant and which component causes it. A later controlled behavioral experiment would be required to determine whether provenance scores improve model self-correction; telemetry alone cannot establish that claim.
+The baseline should distinguish prompt-size growth, retrieval concentration, narrative attractors, and semantic usefulness. Current provenance records generic `graph_expansion`, while concept root or tail additions share the `forced_concept` bucket; a future experiment must identify that observability limit rather than pretending those mechanisms are already separable. This baseline is an experiment, not a code change. It should identify whether prompt growth is operationally significant and which component is associated with it. A later controlled behavioral experiment would be required to test causal explanations or determine whether provenance scores improve model self-correction; telemetry alone cannot establish either claim.
 
 ## MCP bridge and its use in this cycle
 
@@ -783,7 +836,7 @@ The consultation prompt should require the model to distinguish:
 
 ## Recommended next decision
 
-No next implementation is selected or authorized by this status document. R07 remains queued and requires separate authorization. The reference-policy matrix, deterministic role-bearing relational integrity, semantic adequacy, identity conflict and replacement policy, coherence gating, zero-configuration output budgets, controlled generation retry, and an operational prompt-growth baseline likewise remain separate candidates or policy decisions. Hostile schema modification, forged connection functions, and arbitrary out-of-band SQLite administration remain outside the Stage 3 threat model.
+No next implementation is selected or authorized by this status document. R07 remains queued and requires separate authorization. The reference-policy matrix, deterministic role-bearing relational integrity, semantic adequacy, identity conflict and replacement policy, coherence gating, zero-configuration output budgets, controlled generation retry, retrieval-verification validity, forced-concept relevance, and an operational prompt-growth baseline likewise remain separate candidates or policy decisions. Hostile schema modification, forged connection functions, and arbitrary out-of-band SQLite administration remain outside the Stage 3 threat model.
 
 Any later authorization should retain the development-audit sequence already exercised by C01 and C02: establish a clean revision and falsifiable guarantee, trace production and alternate paths before change, preserve explicit policy boundaries, retrace the full affected lifecycle afterward, run focused and complete verification proportionate to risk, and review the exact publication scope.
 
