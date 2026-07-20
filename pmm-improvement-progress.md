@@ -1,9 +1,9 @@
 # PMM Improvement Progress and Remaining Work
 
-- **Status date:** 2026-07-19
-- **Audit basis:** Clean, synchronized `main` at `9d446fc9fc5a27cdb9a332cc1f7ae422312c0535`, with divergence `0 0`
+- **Status date:** 2026-07-20
+- **Audit basis:** The approved cognitive-architecture audit used clean, synchronized `main` at `8198e66d3bdfa10dfd5aaad298baac9187406556`, with divergence `0 0`. Earlier implementation and verification records retain their own stated revision boundaries.
 - **Current recorded verification:** 468 tests passed; the final focused Stage 3 audit suite passed 43 tests; Ruff check and Ruff format check passed on all 24 Python files included in the Stage 3 verification scope; `compileall`, `git diff --check`, publication, and synchronization checks passed. Any verification rerun performed for this documentation-only update is reported separately below.
-- **Scope:** Incremental integrity, continuity, diagnostics, retrieval, and development-audit improvements established through model consultation and source-level verification.
+- **Scope:** Historical integrity, continuity, diagnostics, retrieval, and development-audit improvements, now re-baselined beneath the approved PMM cognitive architecture. This document records current evidence and undecided candidates; it does not select a runtime remediation sequence.
 
 ## Purpose
 
@@ -13,7 +13,13 @@ The work follows one rule: implement one small, observable, testable change at a
 
 ## Governing architectural and audit lens
 
-PMM is being developed through this lens:
+The [PMM Cognitive Charter and Deviation Audit](docs/PMM-COGNITIVE-CHARTER.md)
+is now the governing architectural baseline. Its authority order is the stated
+PMM purpose, the original philosophical architecture, current production
+behavior as evidence of what exists, and then contribution and later
+implementation documents.
+
+PMM is developed through this lens:
 
 > A self is an evolving network of remembered events, interpretations, relationships, and commitments that can reconstruct both its history and the relationships through which that history acquired meaning.
 
@@ -31,7 +37,18 @@ event
 
 Events provide historical continuity; relationships provide context and meaning; interpretations provide a revisable present self-model; and commitments connect prior states to future action. A contradiction may be evidence of development only when the earlier interpretation, revision trigger, relationship, and resulting transition are traceable. An isolated self-description is historical content, not sufficient identity evidence.
 
-This philosophical lens guides questions for the implementation; it does not prove that the implementation answers them. The current production code remains authoritative over research artifacts, documentation, tests, and model descriptions. The deep research report in `docs/deep-research-report.md` is retained as architectural and philosophical source material, not as the governing specification.
+This philosophical lens guides questions for the implementation; it does not prove that the implementation answers them. Current production code remains authoritative when describing current behavior. It does not redefine the intended architecture merely because it already exists. The deep research report in `docs/deep-research-report.md` is retained as architectural and philosophical source material, not as the governing specification.
+
+The charter also establishes the determinism boundary:
+
+> PMM requires deterministic preservation, reconstruction, relationships,
+> validation, promotion, projection, and replay of recorded cognition. It does
+> not require deterministic regeneration of model-authored cognition.
+
+Model-authored interpretation may be nondeterministic when produced. Once
+recorded, its historical form and applicable provenance become part of the
+canonical record, while promotion into authoritative state remains governed and
+deterministic.
 
 The governing engineering rule is:
 
@@ -60,6 +77,13 @@ Existence does not establish role, and role does not establish semantic warrant.
 The twelve earlier runtime improvements remain complete. Three later integrity closures—R08, C01, and C02—have also been completed and published. The evidence-availability branch, prompt-growth telemetry, duplicate-primer correction, managed-turn terminal-outcome protocol, provider-enforced output budgets, authoritative commitment-close transitions, shared-graph startup reconstruction, immediate managed-turn continuity, fenced database-scoped writer governance, and fixed-watermark required-projection freshness are complete within the scopes described below.
 
 The architecture audit that followed the twelve earlier runtime improvements did not itself change runtime code. It clarified the boundary between temporal ordering, referential checks, relational integrity, and semantic adequacy, and produced one repository-scoped development-audit skill plus mandatory agent routing. Those development controls are described separately from the twelve runtime improvements.
+
+The later Cognitive Charter audit also changed no runtime code. It established
+that PMM retains a strong persistence and governance substrate while its
+cognitive layer remains incomplete or semantically blurred. Current labels such
+as reflection, recursive self-model, identity adoption, ontology development,
+and autonomy must therefore be evaluated by their production mechanisms rather
+than treated as proof that the corresponding cognitive faculties exist.
 
 The current integrity position is:
 
@@ -488,6 +512,27 @@ Any future model—including a local model, cloud model, or replacement model—
 
 ## Verification completed
 
+### Documentation governance verification — 2026-07-20
+
+The Cognitive Charter preservation, `CONTRIBUTING.md` reconciliation, roadmap
+re-baseline, and README discoverability update changed documentation only. No
+Python file differs from the synchronized `8198e66` base.
+
+Post-change verification recorded:
+
+```text
+468 tests passed
+git diff --check passed
+```
+
+A repository-wide `ruff check .` was also attempted and reported 13 existing
+findings in experiment files and `pmm/tests/test_oneshot_cli.py`. A
+repository-wide `black --check .` reported that 45 existing Python files would
+be reformatted and also emitted a Python 3.14/3.15 parser-version warning. Those
+files are unchanged in this documentation branch, so this update does not widen
+scope to reformat or repair them. The failures are reported rather than treated
+as verification of this documentation change.
+
 ### Runtime verification — 2026-07-19
 
 The current code passes:
@@ -560,11 +605,67 @@ The development-auditor package passes structural validation and fresh-prompt di
 
 The later repository-state and post-change-reporting requirements were exercised in the real C01 and C02 audit → authorization → implementation → post-change re-audit → publication cycles. This operational evidence is distinct from the four earlier blind diagnostic cases and does not make those earlier cases evidence for requirements they predated.
 
-## Remaining backlog candidates
+## Cognitive-lifecycle re-baseline
 
-These items remain unimplemented or separately unauthorized. R07 is queued and requires separate authorization; its queued status does not select or authorize the next implementation. The first three items below replace the former single “semantic grounding” item because reference coverage, deterministic relationship checks, and semantic warrant are different problems. C01, C02 stages 1–3, managed-writer exclusion, fixed-watermark projection freshness, and required-listener failure handling are closed and are not backlog items.
+The governing lifecycle is:
 
-### 1. Reference-policy matrix and validator coverage
+```text
+experience
+  -> interpretation
+  -> meta-interpretation
+  -> identity or ontology revision
+  -> commitment
+  -> outcome
+  -> later reinterpretation
+```
+
+The current production architecture does not yet enforce or reliably preserve
+that complete lifecycle as a first-class mechanism. It contains substantial
+supporting infrastructure and some informal or partial instances of the
+intended stages.
+
+| Cognitive stage or support layer | Current strongest classification |
+|---|---|
+| Historical preservation and canonical governance | Strong supporting foundation within the audited scopes |
+| Model-visible experience reconstruction | Partial; messages and selections are recorded, but the complete experience is not one canonical first-class record |
+| Interpretation | May survive within model utterances; missing as a governed first-class lifecycle |
+| Reflection | Semantically overloaded across model-authored material, deterministic summaries, maintenance, and diagnostics |
+| Meta-reflection | Current pattern summaries do not implement interpretation of interpretation |
+| Self-model and identity | Deterministic telemetry and procedural token adoption provide partial infrastructure, not complete semantic revision |
+| Ontology revision | Concept topology exists; governed ontology revision is incomplete |
+| Commitment and outcome | Lifecycle machinery exists; the required links to interpreted self-state and later review are incomplete |
+| Autonomy and self-governance | Operational scheduling and maintenance exist; reflective self-governance is not established |
+| Diagnostics, telemetry, summaries, and maintenance | Substantial infrastructure whose isolation from cognition is incomplete |
+
+These classifications are audit findings, not selected implementation changes.
+No event vocabulary, schema, migration, rename, remediation order, or historical
+reinterpretation is approved by this re-baseline.
+
+The following work remains frozen until separately authorized after governance
+reconciliation:
+
+- R17 implementation;
+- the reference-policy matrix;
+- R06 and R07 enforcement;
+- new identity, reflection, ontology, commitment, or other cognitive semantics;
+- event-vocabulary and schema selection;
+- component renaming;
+- historical ledger migration or reinterpretation;
+- runtime remediation inferred from the charter.
+
+## Unselected and frozen work candidates
+
+These items remain unimplemented or separately unauthorized. Their document
+order is not a priority or remediation sequence. C01, C02 stages 1–3,
+managed-writer exclusion, fixed-watermark projection freshness, and
+required-listener failure handling remain closed and are not reopened by the
+cognitive re-baseline.
+
+The first three candidates retain the earlier distinction among reference
+coverage, deterministic relationship checks, and semantic warrant. They are not
+authorized for implementation.
+
+### Reference-policy matrix and validator coverage
 
 Inventory every structured claim type, reference-bearing field, producer, validation call site, consumer, projection, and promotion path before changing defaults. For each structure, the policy matrix must decide:
 
@@ -588,7 +689,7 @@ This inventory must account for current behavior that could otherwise be mistake
 
 The general rule is: **“does the referenced thing exist?” belongs to referential validation; “is it permitted in this role?” belongs to relational integrity.** Closing field optionality without specifying role policy would address only part of the problem.
 
-### 2. Deterministic relational integrity
+### Deterministic relational integrity
 
 Once the policy matrix exists, add explicit role-bearing relations where one overloaded or optional pointer cannot express the lifecycle. A reinterpretation, for example, may need to distinguish the prior interpretation from the event that triggered revision. An identity transition may need distinct proposal, anchor, trigger, evidence, and ratification roles.
 
@@ -614,13 +715,13 @@ Candidate deterministic checks include:
 
 These checks can establish that the agent explicitly declared a structurally possible relationship. They do not require another model to judge content. The exact roles, cardinalities, authoritative graph edges, and policy for unsupported proposals remain design decisions and must not be chosen incidentally while patching a validator.
 
-### 3. Semantic adequacy
+### Semantic adequacy
 
 After referential and relational integrity, the remaining question is whether the cited content genuinely supports the claim, whether the anchor meaningfully concerns the proposed identity, or whether a revision trigger actually warrants the new interpretation.
 
 This is the open frontier. A typed edge proves a declared role, not semantic warrant. PMM should not quietly make an unverified second model judgment authoritative. Possible future work may use explicit typed assertions, corroborating evidence, deterministic contradiction checks, or separately recorded adjudication, but no such policy is currently approved.
 
-### 4. Multiple-identity conflict and replacement policy
+### Multiple-identity conflict and replacement policy
 
 PMM currently permits different identity tokens to accumulate if each independently completes the adoption protocol.
 
@@ -634,7 +735,7 @@ A future policy must decide whether identities are:
 
 The system should not assume that two identity tokens necessarily conflict.
 
-### 5. Coherence gating for identity adoption
+### Coherence gating for identity adoption
 
 The coherence subsystem currently records conflicts but does not gate adoption. Identity-token claims also do not naturally enter the existing `domain`/`value` coherence representation.
 
@@ -645,13 +746,13 @@ Before gating adoption, PMM needs a precise answer to:
 - Can a low score prevent state mutation?
 - How can a blocked transition later be reconciled?
 
-### 6. Zero-configuration output budget
+### Zero-configuration output budget
 
 Explicit provider-neutral output budgets are implemented, but the default remains unset. Define a deterministic automatic budget for capable built-in adapters, keep explicit CLI, MCP, and environment values as advanced overrides, and preserve the current pre-mutation capability check for unsupported adapters.
 
 Context-window budgeting, automatic budget increases, retry behavior, and partial-response acceptance remain separate decisions.
 
-### 7. Controlled generation retry policy
+### Controlled generation retry policy
 
 PMM records `generation_failure` but does not retry automatically.
 
@@ -700,7 +801,7 @@ model emits governance or identity concept
 
 Future policy must decide which concepts are universally mandatory, which require query relevance, whether mandatory concepts receive a bounded budget, whether topology expansion applies to every forced concept, and whether force inclusion needs recency, role, state, or lifecycle gating. It must also specify how closed, failed, superseded, or historical commitments influence forced context and how narrative concentration is detected without treating repetition itself as failure. Simple decay is not established as the required solution. No relevance correction or attractor-control policy is currently authorized or implemented.
 
-### 8. Operational baseline for prompt growth
+### Operational baseline for prompt growth
 
 The measurement mechanism is implemented. Before adding prompt-reduction behavior, PMM should run a fresh representative 10–20 turn conversation and observe:
 
@@ -836,8 +937,25 @@ The consultation prompt should require the model to distinguish:
 
 ## Recommended next decision
 
-No next implementation is selected or authorized by this status document. R07 remains queued and requires separate authorization. The reference-policy matrix, deterministic role-bearing relational integrity, semantic adequacy, identity conflict and replacement policy, coherence gating, zero-configuration output budgets, controlled generation retry, retrieval-verification validity, forced-concept relevance, and an operational prompt-growth baseline likewise remain separate candidates or policy decisions. Hostile schema modification, forged connection functions, and arbitrary out-of-band SQLite administration remain outside the Stage 3 threat model.
+The documentation governance reconciliation is the only selected work in this
+update. It preserves the Cognitive Charter, aligns `CONTRIBUTING.md`, and
+re-baselines this roadmap. It stops before runtime selection.
 
-Any later authorization should retain the development-audit sequence already exercised by C01 and C02: establish a clean revision and falsifiable guarantee, trace production and alternate paths before change, preserve explicit policy boundaries, retrace the full affected lifecycle afterward, run focused and complete verification proportionate to risk, and review the exact publication scope.
+No next implementation is selected or authorized. R17, the reference-policy
+matrix, R06, R07, new cognitive semantics, migrations, renames, and every other
+candidate above remain frozen. Their position in this document does not imply
+priority.
 
-The current system now has stronger canonical write governance, transactional hash-chain protection against audited competing writers, mandatory fixed-watermark required-projection freshness on audited managed paths, graph-guided immediate continuity, bounded non-evidentiary conversation rendering, and retained separation between conversational visibility and evidence policy. It also retains temporally ordered identity adoption, conditional evidence referential and availability validation, retrieval auditability, and diagnostic visibility. It still does not establish mandatory evidence coverage for every claim type, uniform permitted-role validation, semantic adequacy, identity-anchor relevance, or universally valid supersession relationships.
+Any later authorization must begin from the Cognitive Charter and retain the
+development-audit sequence already exercised by C01 and C02: establish a clean
+revision and falsifiable guarantee, trace production and alternate paths before
+change, preserve explicit policy boundaries, retrace the affected lifecycle
+afterward, run verification proportionate to risk, and review the exact
+publication scope.
+
+The strong substrate remains part of the intended PMM architecture: canonical
+write governance, hash-chain protection, projection reconstruction and
+freshness, retrieval provenance, graph-guided continuity, typed relationships,
+and commitment lifecycle. The re-baseline does not discard or reopen those
+scoped accomplishments. It restores the cognitive lifecycle they exist to
+support as the governing direction for future decisions.
