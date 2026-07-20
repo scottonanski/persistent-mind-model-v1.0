@@ -1,131 +1,255 @@
 # Contributing to Persistent Mind Model
 
-> Persistent Mind Model (PMM) is a deterministic, ledger‑recall system. Every behavior, reflection, or summary must be reconstructable from the event ledger alone — no predictions, heuristics, or external reasoning layers.
+The [PMM Cognitive Charter and Deviation Audit](docs/PMM-COGNITIVE-CHARTER.md)
+is the governing architectural baseline. This document is the engineering
+contract beneath it. Current code determines what production behavior exists;
+neither current code nor this contract may silently redefine PMM's intended
+cognitive architecture.
 
-PMM v2 prioritizes determinism, auditability, and autonomy. Every change must preserve byte‑stable behavior when replayed from the ledger. No speculation, no hidden state.
+PMM combines model-authored cognition with a deterministic persistence,
+governance, and projection substrate. Contributors must preserve that boundary.
 
-## 1. Development Setup
+## 1. Development setup
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e ".[full,dev]"
 pytest -q
-ruff check
-black --check .
+ruff check path/to/changed.py
+black --check path/to/changed.py
+git diff --check
 ```
 
-Target: Python 3.10+
-All tests must pass locally before opening a PR.
+PMM supports Python 3.9 and later, as declared in `pyproject.toml`. Run tests and
+formatting checks proportionate to the changed scope. A documentation-only
+change requires documentation review and `git diff --check`; it does not require
+unrelated pre-existing Python formatting findings to be repaired in the same
+commit. Report every broader check attempted and every failure rather than
+silently narrowing the command after it fails.
 
-## 2. Core Rules
+## 2. Architectural contract
 
-### Ledger Integrity
+### Preserve cognition; do not regenerate it on replay
 
-- Every event append must be reproducible from ledger + code alone.
-- No duplicate policy_update when values are unchanged.
-- Never emit events to “make tests pass.”
+Model-authored interpretations and reflections are valid nondeterministic inputs.
+Once produced, their exact recorded form and applicable provenance become part of
+canonical history. Replay reconstructs what happened; it does not call a model to
+regenerate the same thought.
 
-### Determinism
+Determinism applies to:
 
-- No randomness, wall‑clock timing, or env‑based logic.
-- Timestamps are excluded from digests and recorded only once at write‑time.
-- Replays must produce identical hashes across machines.
+- canonical serialization and ledger writes;
+- validation and rejection decisions;
+- authorized promotion and state transitions;
+- deterministic projections and replay;
+- idempotency and convergence rules;
+- recorded provenance, selection, and relationship handling.
 
-### No Env Gates for Behavior
+Do not claim that a model would reproduce byte-identical cognition from the same
+prompt. Do require sufficient recorded information to reconstruct the cognition
+that actually occurred and how PMM governed it.
 
-- Runtime behavior (budgets, cadence) must not depend on env vars.
-- Env vars are allowed only for credentials or external API keys.
+### Keep lifecycle layers distinct
 
-### No Regex / Keyword Heuristics
+Every change must distinguish, where applicable:
 
-- Regex or brittle keyword matching is forbidden in runtime or ledger‑affecting code.
-- Use structured parsing or semantic extractors only.
-- Allowed in tests or tooling only.
+```text
+utterance history
+  -> extracted candidate
+  -> validation result
+  -> canonical event or distinct failure event
+  -> deterministic projection
+  -> authoritative promotion or state mutation
+  -> later retrieval or model-visible context
+```
 
-### No Hidden User Gates
+A preserved utterance is not automatically a canonical claim. A canonical event
+is not automatically authoritative state. A projection is not proof of semantic
+truth.
 
-Autonomy **must** start at process boot and run continuously. It is **forbidden** to:
+### Keep cognitive and operational records distinct
 
-- Tie autonomy to CLI commands (/tick, /animate)
-- Gate autonomy behind config flags
-- Emit actions outside the ledger path
+Interpretation, reflection, meta-reflection, identity, ontology, commitment,
+outcome, and self-governance use the meanings defined by the Cognitive Charter.
 
-Any PR introducing a user-triggered autonomy path will be rejected.
+Diagnostics, telemetry, deterministic summaries, counters, retrieval checks,
+and maintenance output must not masquerade as those cognitive faculties. An
+operational record may become the subject of a later model-authored
+interpretation, but it is not itself that interpretation.
 
-### Idempotency
+Do not select a new event vocabulary, schema, migration, or production rename as
+an incidental part of another patch. Those choices require explicit design and
+authorization.
 
-- If an operation yields no semantic delta, do not emit a new event.
-- Re‑emission is allowed only on validated policy change.
-- `claim_verification` events are emitted **once per unique failed reference target**.
-- Duplicate `REF:` lines pointing to the same `(path, event_id)` pair do not generate redundant events.
-- System prompts are stable and deterministic; truth directive is prepended to ensure consistent enforcement without increasing token bounds.
+## 3. Ledger and governance rules
 
-### Projection Integrity
-- Mirror and MemeGraph **must** be fully rebuildable from `eventlog.read_all()` 
-- `sync()` / `add_event()` **must** be idempotent
-- No hidden state — all queries traceable to ledger events
+### Canonical history
 
-### Telemetry
-- Autonomy telemetry must be ledger-only, rebuildable, and idempotent.
-- `autonomy_metrics` events are emitted every 10 ticks, listener-driven.
-- No model calls or external dependencies in telemetry.
+- Preserve accepted user and model outputs exactly within their defined
+  canonical representation.
+- Preserve rejected structured attempts in their correct historical or failure
+  form without promoting them as accepted state.
+- Never rewrite or delete historical events to make a new projection or policy
+  appear retroactive.
+- Every derived event must identify the inputs, source, version, or other
+  provenance required by its stated guarantee.
+- Never emit events merely to satisfy a test fixture.
 
-### Recursive Self-Model (RSM)
-- RSM must derive solely from `EventLog.read_all()` 
-- No regex; use structured JSON parsing
-- Emit `rsm_update` only on semantic delta
-- Rebuildable and idempotent
+### Writer governance
 
-## 3. Evolution / Reflection Policy
+- Canonical writes must use the governed EventLog writer path.
+- Do not bypass writer ownership, fencing, transactional predecessor selection,
+  or required projection delivery.
+- Source labels are historical metadata, not sufficient authorization by
+  themselves.
+- A failure after canonical commit must remain distinguishable from a failure
+  before commit.
 
-- reflection events are generated deterministically by reflection_synthesizer.py.
-- summary_update events are periodic, every 3 reflections or > 10 events since last.
-- Each reflection: {intent, outcome, next} — no hidden randomness, no model call.
-- Summaries must contain only ledger facts (e.g., open commitments, reflection counts, last event id). No psychometric fields.
-- Do not hand‑edit reflection or summary logic to “sound better.”
+### Deterministic projections
 
-## 4. Testing Requirements
+- Authoritative projections must be rebuildable from canonical ledger history.
+- Incremental delivery and full replay must converge within the projection's
+  declared scope.
+- `sync()`, `add_event()`, and equivalent incremental operations must be
+  idempotent.
+- Required projection failures must follow the established fail-closed delivery
+  path; optional observers must not silently become authoritative.
+- No process-local cache may become hidden authoritative state.
 
-| Scope                  | Must Assert                                      | File Example                           |
-| ---------------------- | ------------------------------------------------ | -------------------------------------- |
-| Reflection Synthesizer | Deterministic identical output                   | tests/test_reflection_synthesizer.py   |
-| Identity Summary       | Deterministic identical output; threshold logic  | tests/test_identity_summary.py         |
-| Ledger Integrity       | No hash breaks                                   | tests/test_determinism.py              |
-| CLI Runtime            | In‑chat commands `/replay /metrics /diag` stable | tests/test_diagnostics.py              |
+### Idempotency and convergence
 
-All new modules must include direct tests. Tests must never stub or simulate unimplemented future behavior.
+- Define idempotency at the operation's actual identity boundary; do not equate
+  similar text with the same historical act.
+- A deterministic derived operation with no new declared state or observation
+  should converge without duplicate effects.
+- Later re-evaluation under a new algorithm, policy, or verifier version may be
+  preserved separately when its version is part of the operation identity.
+- Do not deduplicate distinct model-authored or user-authored historical outputs
+  merely because their content matches.
 
-### Test Size & Performance Guidance
+### Validation and promotion
 
-- Keep performance‑oriented mocks to 200–500 events to ensure local runs complete in < 1s on typical hardware while still validating O(n) behavior.
-- For replay/metrics timing, assert per‑event budgets (e.g., < 0.01 ms/event) rather than absolute wall‑clock time.
-- Avoid multi‑thousand event fixtures in unit tests; reserve larger loads for targeted manual benchmarking if needed.
+- Trace every producer, alternate producer, validator, rejection path,
+  projection, retrieval consumer, and promotion path affected by a change.
+- A validator working when invoked does not establish universal coverage.
+- Distinguish a missing or bypassed check from an incomplete check.
+- Existence of a target establishes referential validity only; it does not prove
+  that the target may serve the declared role.
+- A permitted relationship does not prove semantic warrant.
+- Preserve undecided policy rather than embedding it in a parser, default, or
+  compatibility path.
 
-## 5. Commit & PR Discipline
+### Structured controls and heuristics
 
-- One logical change per commit.
-- Use clear, imperative messages:
-  - Fix: stabilize replay determinism in diagnostics path
-  - Add: deterministic reflection synthesizer
-- Reference issues or sprint IDs when relevant.
-- Ensure CI passes (pytest + ruff + black).
+- Canonical control markers and authoritative state transitions must use explicit
+  structured parsing and validation.
+- Heuristics used for indexing, retrieval, diagnostics, or telemetry must be
+  bounded, attributable, testable, and described as heuristics.
+- Heuristic output must not be promoted as model-authored interpretation,
+  identity, ontology, or semantic truth.
+- Regex or keyword matching must not become an undocumented authority boundary.
 
-## 6. Determinism Checklist (pre‑merge)
+### Configuration and autonomy
 
-- [ ] No new randomness or external calls.
-- [ ] No env‑dependent logic.
-- [ ] All hashes reproduce across replays.
-- [ ] Tests added and passing.
-- [ ] Ledger schema untouched or versioned.
-- [ ] STATUS.md and CHANGELOG.md updated if behavior visible to runtime.
+- Credentials and provider access may use environment variables. Durable PMM
+  behavior and policy must remain explicit and auditable.
+- Interactive, one-shot, MCP, replay, and test surfaces may have different
+  documented autonomy lifecycles. Do not claim autonomy is universally active
+  when a supported path disables it.
+- Autonomous mutations must use the same canonical ledger, validation, writer,
+  and projection-governance paths as other mutations.
+- Scheduling and maintenance are operational autonomy; do not describe them as
+  reflective self-governance unless the Cognitive Charter lifecycle is actually
+  enforced.
 
-## 7. Exceptions
+## 4. Architecture audit requirements
 
-- Regex/keywords may appear only in developer tools or tests.
-- Experimental features must stay behind `--experimental` CLI flag and off by default.
-- All runtime code must remain replay‑safe.
+Changes affecting PMM architecture, runtime behavior, validators, event
+relationships, projections, identity, commitments, retrieval, or claimed
+guarantees must follow the repository's PMM development-auditor workflow.
 
-### Summary
+Before implementation:
 
-PMM = Determinism + Auditability + Autonomy. Any patch that breaks replay equivalence, hides logic in envs, or adds nondeterminism will be rejected.
+1. Record the branch, revision, and working-tree state.
+2. State one falsifiable guarantee.
+3. Trace production, extraction, validation, rejection, preservation, canonical
+   recording, projection, retrieval, and promotion.
+4. Find alternate producers, direct appends, compatibility paths, optional
+   fields, defaults, fail-open handling, and silent degradation.
+5. Identify any policy choice not already settled by the charter or an explicit
+   authorization.
+
+After implementation:
+
+1. Retrace the complete affected lifecycle.
+2. Verify that alternate paths do not provide weaker coverage or enforcement.
+3. Run focused tests and the appropriate broader suite.
+4. Inspect the complete diff and report all verification not performed.
+5. State the strongest conclusion supported by the weakest relevant path.
+
+Documentation, tests, model consensus, and intended design do not substitute for
+production-path analysis.
+
+## 5. Testing requirements
+
+- Add direct tests for new modules and behavior.
+- Test both accepted and rejected paths, including omission, malformed input,
+  duplicate execution, replay, and alternate producers where relevant.
+- Verify historical preservation separately from canonical promotion.
+- Verify incremental projection behavior against full replay.
+- Treat passing tests as evidence for their exercised conditions, not as proof
+  that uninspected bypasses do not exist.
+- Use representative bounded fixtures for ordinary tests and reserve large-ledger
+  runs for targeted performance or lifecycle verification.
+- Do not stub or simulate an unimplemented guarantee and then document it as
+  production behavior.
+
+## 6. Documentation rules
+
+- Describe current production behavior separately from intended architecture and
+  proposed policy.
+- Qualify guarantees by their actual producer, validator, projection, and
+  promotion scope.
+- Preserve historical completion records; add a new audit boundary rather than
+  silently broadening an older claim.
+- Link architectural claims to the Cognitive Charter and implementation claims
+  to current production evidence.
+- Update the roadmap or relevant status document when a user-visible or
+  architectural boundary changes.
+- Do not rewrite historical ledger artifacts to match current terminology.
+
+## 7. Commit and publication discipline
+
+- Keep one logical change per commit.
+- Do not combine documentation governance, runtime changes, schema changes, or
+  migrations unless explicitly authorized as one scope.
+- Review staged, unstaged, and untracked files before committing.
+- Use clear imperative commit messages.
+- Run `git diff --check` and all checks appropriate to the changed scope.
+- Do not push, open a pull request, or publish a release unless that external
+  action is authorized.
+
+## 8. Current implementation freeze
+
+The Cognitive Charter currently freezes:
+
+- R17 implementation;
+- the reference-policy matrix;
+- R06 and R07 enforcement;
+- new cognitive semantics;
+- event-vocabulary and schema selection;
+- component renaming;
+- historical migrations or reinterpretation;
+- runtime remediation inferred from the charter.
+
+Documentation may preserve the approved architecture, reconcile governance, and
+organize undecided work. It must stop before selecting or implementing runtime
+changes.
+
+## Summary
+
+PMM's engineering contract is deterministic preservation, reconstruction,
+validation, promotion, projection, and replay around a model-authored cognitive
+lifecycle. Determinism governs how cognition is recorded and used; it does not
+require a generative model to think the same thought twice.

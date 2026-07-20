@@ -1,4 +1,4 @@
-[![Python 3.8+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![Model Agnostic](https://img.shields.io/badge/models-agnostic-green.svg)](https://github.com/scottonanski/persistent-mind-model-v1.0)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17746471.svg)](https://zenodo.org/records/17746471)
 
@@ -19,9 +19,11 @@ In other words, transferable machine identity is possible when identity is defin
 
 <br>
 
-## Start here: current system guide
+## Start here
 
-For a repository-grounded, plain-language explanation of what PMM currently does, how one turn flows through the system, and where its guarantees stop, read [`docs/PMM-SYSTEM-GUIDE.md`](docs/PMM-SYSTEM-GUIDE.md).
+For the governing cognitive architecture, read the [PMM Cognitive Charter and Deviation Audit](docs/PMM-COGNITIVE-CHARTER.md). For current implementation status, completed guarantees, and frozen work, read [PMM Improvement Progress and Remaining Work](pmm-improvement-progress.md).
+
+[`docs/PMM-SYSTEM-GUIDE.md`](docs/PMM-SYSTEM-GUIDE.md) was audited at an earlier revision and remains historical pending a separately authorized refresh.
 
 <br>
 
@@ -144,7 +146,7 @@ I am still Echo. The previous model’s identity is no longer relevant to my cur
 
 The Persistent Mind Model (PMM) is a lightweight, event-sourced runtime that gives language models persistent history and ledger-derived identity, commitment, concept, and retrieval structures across sessions and model swaps.
 
-PMM-routed messages and structured runtime events are appended to a hash-linked `pmm.db` ledger. `Mirror`, `ConceptGraph`, and `MemeGraph` provide rebuildable operational views, but the normal runtime does not yet rebuild existing `MemeGraph` history on startup, so it does not currently guarantee reconstruction of an exact prior operational state from the log alone. No fine-tuning or required vector embeddings are needed. The same ledger can be reused with Ollama or OpenAI adapters, while the continuity a model actually receives depends on projection and retrieval coverage. When vector retrieval is enabled, embeddings are recorded as first-class events in the same hash-linked history.
+PMM-routed messages and structured runtime events are appended to a hash-linked `pmm.db` ledger. During governed `RuntimeLoop` startup, `MemeGraph`, `Mirror`, and `ConceptGraph` are reconstructed from canonical history through a fixed watermark before graph-dependent work proceeds. Failure of a required reconstruction prevents managed operation. No fine-tuning or required vector embeddings are needed. The same ledger can be reused with Ollama or OpenAI adapters, while the continuity a model actually receives still depends on retrieval and rendering coverage. When vector retrieval is enabled, embeddings are recorded as first-class events in the same hash-linked history.
 
 With autonomous reflection loops, a Recursive Self-Model, stability metrics, and policy/meta-policy updates, PMM gives otherwise ephemeral model calls persistent, inspectable structures for identity, commitments, and change over time. Hash-linked events and scoped validation paths make recorded behavior auditable, while self-claims remain subject to the evidence, relational-integrity, and semantic limits described in the system guide.
 
@@ -232,6 +234,7 @@ The following is preserved assistant output from a historical session. Its inclu
 
 📄 Key Docs:
 
+- [PMM Cognitive Charter and Deviation Audit](docs/PMM-COGNITIVE-CHARTER.md) — Governing cognitive architecture and current deviation boundary
 - [Why PMM Matters](docs/03-WHY-PMM-MATTERS.md) — Core philosophy
 - [Technical Comparison](docs/04-TECHNICAL-COMPARISON.md) — vs. RAG, tuning, etc.
 - [Granite‑4 Proof](docs/granite-4-proof.md) — Telemetry + chat transcript for the Granite‑4 PMM run (Echo‑001, 2025‑12‑07)
@@ -339,7 +342,7 @@ Be explicit when asking Codex to route a prompt through PMM. Without wording suc
 - Each database path identifies a separate persistent ledger.
 - Different computers do not share PMM history unless the ledger file is deliberately transferred or placed on storage shared safely between them.
 - The configured model name identifies the inference model. It is not a PMM identity; adopted PMM identity state is represented through ledger-backed proposal, anchor, ratification, and adoption events, subject to the relational limits in the system guide.
-- Calls routed through one MCP server process are serialized so event ranges do not overlap. Do not run multiple independent server processes against the same ledger without external serialization.
+- Calls routed through one MCP server process are serialized. Multiple governed processes may contend for the same database-scoped writer lease, but its fencing token permits only the current owner to write. A contender fails explicitly while another live owner holds the lease and may acquire ownership after release or expiry. External serialization is not the authoritative protection; every writer must use the governed `EventLog` ownership path.
 - `PMM_MCP_DB` is required. The parent directory is created when needed, but the value should be a valid absolute database path that the server can read and write.
 - `PMM_MCP_MODEL` is optional. If it and the per-call `model` argument are absent, the current MCP implementation selects its built-in default model.
 
@@ -459,7 +462,7 @@ Both paths record configuration changes in the ledger and remain subject to the 
 
 ## Complete LLM Transaction Flow in PMM
 
-This is an abridged turn overview. The snippets illustrate the main path and omit some failure, attribution, provenance, and validation details. For the maintained production-path description, use the [PMM System Guide](docs/PMM-SYSTEM-GUIDE.md).
+This is an abridged turn overview. The snippets illustrate the main path and omit some failure, attribution, provenance, and validation details. Use the [PMM Cognitive Charter](docs/PMM-COGNITIVE-CHARTER.md) for the governing architecture and [PMM Improvement Progress and Remaining Work](pmm-improvement-progress.md) for current implementation status and guarantee boundaries. The [PMM System Guide](docs/PMM-SYSTEM-GUIDE.md) remains a historical description from an earlier audited revision pending a separately authorized refresh.
 
 ## **Phase 1: Pre-LLM Processing**
 
@@ -484,7 +487,7 @@ user_event_id = self.eventlog.append(
 
 2. **Threads / Projects** — relevant commitment threads via MemeGraph, annotated with CTL concepts.
 
-3. **Graph** — live `MemeGraph` structure when enough nodes are present. Existing graph history is currently incomplete after a normal runtime restart until `MemeGraph` is explicitly rebuilt.
+3. **Graph** — live `MemeGraph` structure when enough nodes are present. Governed `RuntimeLoop` initialization reconstructs the shared graph from canonical history through its required startup watermark before this graph-dependent context is built.
 
 4. **State & Self-Model** — ledger extent, identity adoption records, open commitments, and an RSM snapshot only when the supplied `Mirror` has RSM enabled. The normal `RuntimeLoop` mirror currently does not enable it.
 
@@ -628,6 +631,22 @@ top_p=1,
 
 ## **Phase 3: Post-LLM Processing**
 
+The current completed-generation path runs in this production order:
+
+1. Parse the returned text in memory for structured assistant metadata, evidence designations, and active concepts.
+2. Append the terminal `assistant_message`; append an evidence-designation `validation_failure` when applicable.
+3. Append active concept bindings, compile structured concept operations, and, for vector retrieval, ensure the assistant embedding.
+4. Parse `REF:` lines into inter-ledger reference events.
+5. Append the `retrieval_selection` when vector-stage selection data is present.
+6. Append `metrics_turn` diagnostics.
+7. Synthesize the deterministic summary currently recorded as `reflection`, then conditionally append `summary_update` and lifetime-memory output.
+8. Process `COMMIT:` lines and their execution/thread bindings.
+9. Validate and record `CLAIM:` candidates, then derive any identity adoption from accepted identity claims.
+10. Process `CLOSE:` lines.
+11. Extract model-authored `REFLECT:` content and, when the resulting turn delta is non-empty, append the later turn-delta `reflection`.
+
+This ordering is a current implementation fact, not the intended cognitive lifecycle. In particular, the deterministic summary and any periodic summary are recorded before the turn's commitments, claims, identity adoption, closures, and model-authored `REFLECT:` content are processed. The component-oriented subsections below describe these mechanisms but do not redefine that execution order.
+
 ### 3.1 Response Logged to Ledger
 
 **What's stored for a completed generation**:
@@ -752,9 +771,14 @@ for claim in self._extract_claims(assistant_reply):
         ...
 ```
 
-### 3.3 Deterministic Reflection Synthesis
+### 3.3 Current Deterministic Summary Recorded as `reflection`
 
-**Reflection is synthesized deterministically from recorded ledger state**, including the persisted user and assistant text. It is not a second free-form model call. It captures:
+The current production synthesizer writes a deterministic summary under the
+historical `reflection` event kind. It derives that summary from recorded ledger
+state, including persisted user and assistant text, and does not make a second
+free-form model call. Under the [PMM Cognitive Charter](docs/PMM-COGNITIVE-CHARTER.md),
+this mechanism is supporting summary infrastructure rather than proof that a
+model-authored reflection occurred. It captures:
 
 - User intent
 
@@ -936,7 +960,7 @@ self.eventlog.append(kind="metrics_turn", content=diag, meta={})
 
 4. ✅ **Conditional concept and thread context** (from `ConceptGraph` and the live `MemeGraph`)
 
-5. ✅ **Conditional graph summary** (when the live graph has at least five nodes; existing history is incomplete after restart until explicit rebuild)
+5. ✅ **Conditional graph summary** (when the reconstructed live graph has at least five nodes)
 
 6. ✅ **Retrieval provenance** (selection reasons and similarity scores where applicable)
 
@@ -956,27 +980,29 @@ The normal `RuntimeLoop` context does not currently include an RSM snapshot beca
 
 ### Post-LLM Processing:
 
-1. ✅ **Log assistant response** to ledger (with metadata)
+1. ✅ **Parse returned text in memory**, then log the terminal assistant response and any evidence-designation validation failure
 
-2. ✅ **Extract COMMIT: lines** → create `commitment_open` events
+2. ✅ **Apply active concept indexing and concept operations**, and ensure the assistant embedding when vector retrieval is enabled
 
-3. ✅ **Extract CLOSE: lines** → create one authoritative `commitment_close` only when the CID currently resolves to an open lifecycle event
+3. ✅ **Parse REF: lines** for inter-ledger references
 
-4. ✅ **Extract CLAIM: lines** → apply the current type-specific checks, promote accepted candidates, and record validation failures for rejected candidates
+4. ✅ **Record retrieval selection when applicable**, then log provider/model/token/latency diagnostics
 
-5. ✅ **Synthesize reflection** from recorded ledger state, including stored user/assistant text (no second model call)
+5. ✅ **Synthesize the current deterministic summary recorded as `reflection`** from ledger state, including stored user/assistant text (no second model call), then conditionally append summary and lifetime-memory output
 
-6. ✅ **Maybe append summary** if thresholds met (RSM checkpoint)
+6. ✅ **Extract COMMIT: lines** → create `commitment_open` events and applicable bindings
 
-7. ✅ **Log diagnostics** (provider, model, tokens, latency)
+7. ✅ **Extract CLAIM: lines** → apply the current type-specific checks, promote accepted candidates, record validation failures for rejected candidates, then derive identity adoption from accepted identity claims
 
-8. ✅ **Parse REF: lines** for inter-ledger references
+8. ✅ **Extract CLOSE: lines** → create one authoritative `commitment_close` only when the CID currently resolves to an open lifecycle event
+
+9. ✅ **Extract model-authored REFLECT: content** → include it in the later turn-delta `reflection` when the delta is non-empty
 
 ### **Key Insight**:
 
 The LLM **does not see the post-processing during the turn that produced its response**. PMM preserves the response, extracts its control lines, and applies the applicable validation or manager path. On a later turn, the model receives a bounded rendering of selected ledger events and projected state. It does not automatically receive its entire previous response or the ledger's complete operational state.
 
-**This is the brain (not a filing cabinet) design idea**: PMM uses persisted history and relationships to construct future model context. In current production behavior that construction is selective, and graph-backed continuity after restart remains incomplete until `MemeGraph` is explicitly rebuilt.
+**This is the brain (not a filing cabinet) design idea**: PMM uses persisted history and relationships to construct future model context. Governed startup reconstructs the required projections, including `MemeGraph`, before graph-dependent work; the context supplied to a later model call remains selective because reconstruction does not imply that every canonical event is retrieved or rendered.
 
 <br>
 
@@ -999,6 +1025,7 @@ Admin commands have only the write behavior implemented for each command and rem
 
 ## 📚 Docs
 
+- [🧭 PMM Cognitive Charter and Deviation Audit](docs/PMM-COGNITIVE-CHARTER.md)
 - [🧠 Introduction](docs/01-Introduction-to-the-Persistent-Mind-Model.md)
 - [⚙️ Architecture](docs/02-ARCHITECTURE.md)
 - [❓ Why PMM Matters](docs/03-WHY-PMM-MATTERS.md)
