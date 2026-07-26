@@ -1,7 +1,7 @@
 # PMM Improvement Progress and Remaining Work
 
-- **Status date:** 2026-07-20
-- **Audit basis:** The approved cognitive-architecture audit used clean, synchronized `main` at `8198e66d3bdfa10dfd5aaad298baac9187406556`, with divergence `0 0`. Earlier implementation and verification records retain their own stated revision boundaries.
+- **Status date:** 2026-07-26
+- **Audit basis:** The approved cognitive-architecture audit used clean, synchronized `main` at `8198e66d3bdfa10dfd5aaad298baac9187406556`, with divergence `0 0`. Earlier implementation and verification records retain their own stated revision boundaries. The self-referential-projection findings dated 2026-07-26 were audited separately on clean `main` at `a443c6a`; they are documentation-only and change no runtime behavior.
 - **Current recorded verification:** 468 tests passed; the final focused Stage 3 audit suite passed 43 tests; Ruff check and Ruff format check passed on all 24 Python files included in the Stage 3 verification scope; `compileall`, `git diff --check`, publication, and synchronization checks passed. Any verification rerun performed for this documentation-only update is reported separately below.
 - **Scope:** Historical integrity, continuity, diagnostics, retrieval, and development-audit improvements, now re-baselined beneath the approved PMM cognitive architecture. This document records current evidence and undecided candidates; it does not select a runtime remediation sequence.
 
@@ -800,6 +800,246 @@ model emits governance or identity concept
 ```
 
 Future policy must decide which concepts are universally mandatory, which require query relevance, whether mandatory concepts receive a bounded budget, whether topology expansion applies to every forced concept, and whether force inclusion needs recency, role, state, or lifecycle gating. It must also specify how closed, failed, superseded, or historical commitments influence forced context and how narrative concentration is detected without treating repetition itself as failure. Simple decay is not established as the required solution. No relevance correction or attractor-control policy is currently authorized or implemented.
+
+### Self-referential deterministic projections — 2026-07-26
+
+Two independent findings share one root: deterministic machinery whose own
+output re-enters its own input, or whose schedule depends on the emission volume
+of unrelated subsystems. Both were audited on clean `main` at `a443c6a` with
+divergence `0 0`. Neither is authorized for implementation.
+
+The charter already states the governing principle under *Diagnostics,
+telemetry, summaries, and maintenance*:
+
+> They must not enter cognitive projections merely because they share an event
+> kind or convenient consumer path with cognition.
+
+These findings are concrete production instances of that violation. They
+corroborate existing charter classifications rather than opening a new concern.
+
+#### Finding 1 — RSM behavioral-tendency autocatalysis
+
+`synthesize_reflection` writes a self-model description into the reflection
+payload at `pmm/runtime/reflection_synthesizer.py:100`:
+
+```python
+description = f"RSM: {det_refs} determinism refs, {gap_count} knowledge gaps"
+payload["self_model"] = description
+```
+
+That payload is serialized into a canonical `reflection` event.
+`RecursiveSelfModel._BEHAVIORAL_PATTERNS` at `pmm/core/rsm.py:24` registers
+`determinism_emphasis` against event kinds `("assistant_message", "reflection")`
+with markers `("determinism", "deterministic")`, and `_count_markers`
+(`pmm/core/rsm.py:216`) performs a raw substring count over the entire
+serialized event content. The word inside `"N determinism refs"` is
+indistinguishable from a substantive occurrence.
+
+Strongest supported conclusion:
+
+> `determinism_emphasis` counts the sentence that reports `determinism_emphasis`.
+> It increments once per synthesized reflection carrying a `self_model` field,
+> independently of conversational content, and saturates at the hardcoded cap of
+> 50 (`pmm/core/rsm.py:137`).
+
+Reproduced in isolation at this revision: twelve synthesizer-shaped reflection
+events, no `user_message` and no `assistant_message`, produced a strictly
+monotonic sequence `1..12`.
+
+`uniqueness_emphasis` is a separate defect in the same projection. It is
+computed at `pmm/core/rsm.py:141` as
+`int((len(unique_prefixes) / total_events) * 10)` over the first eight
+characters of each event hash. Hash prefixes are unique by hash-chain
+construction, so the ratio is always `1.0`. Measured constant `10` at 5, 50,
+and 200 events. The measure would deviate only on an eight-hex-character
+collision. It reports that hashing functions, not a behavioral tendency.
+
+These are the only two entries in `behavioral_tendencies` observed to populate
+during exploratory runs.
+
+Scope boundary, established by production read:
+
+> The ordinary managed turn does not render the RSM block to the model.
+> `RuntimeLoop` constructs `Mirror(eventlog, auto_rebuild=False)` at
+> `pmm/runtime/loop.py:269`, where `enable_rsm` defaults to `False`, and passes
+> that same mirror to the renderer at `pmm/runtime/loop.py:583`. `rsm_snapshot()`
+> returns `{}` when `_rsm is None`, so `render_rsm` emits nothing.
+
+This confirms the charter's existing production-order finding. The corrupted
+value nevertheless has durable reach by a different path: it is written into
+canonical `reflection` events, which remain ordinary retrievable events and may
+be selected into the raw-evidence channel of later turns. Consumers that
+construct RSM-enabled mirrors directly — `pmm/runtime/context_builder.py:18`,
+`pmm/runtime/identity_summary.py:34`, `pmm/runtime/autonomy_kernel.py:120` and
+`:1344`, `pmm/core/ledger_metrics.py:77`, and CLI paths — observe the live value,
+and `identity_summary` writes canonical events of its own.
+
+This sharpens, rather than revises, the charter's classification of
+`RecursiveSelfModel` as a mislabeled mechanism. The accurate statement is now
+stronger than "lexical rather than semantic": of the two tendencies that ever
+populate, one counts its own output and the other is a constant.
+
+Any future correction must decide, and must not settle incidentally:
+
+- Whether synthesized fields are excluded from scanning, or whether
+  projection-authored events are excluded from that projection entirely.
+- Whether `_track_meta_patterns` and `_track_knowledge_gaps` share the exclusion;
+  they consume the same lowercased content immediately after
+  `_track_behavioral_patterns`.
+- Whether `intent`, which embeds user turn text verbatim, is also synthesized
+  content for this purpose. A marker word in a user message is currently counted
+  once from `user_message` and again from the reflection that echoes it.
+- Replay parity. RSM is a projection, not canonical history. Rebuilding an
+  existing ledger after a scanning change yields different tendency values than
+  were historically recorded, while the original `self_model` strings remain
+  frozen in reflection content. Pre-change and post-change replay of the same
+  ledger will disagree.
+
+#### Finding 2 — meditation scheduling, table drift, and unrecorded model-visible input
+
+Four defects, verified by execution at this revision.
+
+1. **Hardcoded modulus.** `pmm/runtime/reflection_synthesizer.py:202` and `:239`
+   compute `(total_events // 47) % 11` against a 19-element meditation list.
+   Reachable indices are exactly `0–10`. Indices 11–18 can never be recorded
+   through this path.
+2. **Table drift.** `_MEDITATION_CONCEPT_HINTS` (`pmm/runtime/prompts.py:152`)
+   holds 21 entries; `_ONTOLOGICAL_MEDITATIONS` (`:178`) holds 19. The prompt
+   path's modulus at `:108` is bound to the hint dict, so indices 19 and 20
+   resolve to `None` and the `if meditation:` guard silently skips the entire
+   koan block. Hints 19 and 20 name meditations that do not exist, indicating
+   hints were added ahead of meditations.
+3. **Cadence does not match intent.** Both gates use `count % N == 0`, evaluated
+   once per turn, against a counter advancing by roughly 9–15 events per turn.
+   `37` and `47` are prime, so residues cycle and the gate is stepped over most
+   turns. Observed firing rate is approximately one turn in `N` rather than one
+   per `N` events; the miss factor is events-per-turn. The schedule is therefore
+   coupled to the emission volume of unrelated subsystems, including telemetry.
+4. **Two desynchronized counters.** The prompt path uses `eventlog.count()`
+   (`pmm/runtime/loop.py:519`, `:598`). The kernel path uses `len(ledger_slice)`,
+   which at `pmm/runtime/autonomy_kernel.py:635` is the full ledger minus
+   `autonomy_stimulus` events and minus events at or after the current tick — a
+   different population, not merely a different modulus. The kernel path also
+   attaches no concept hint. The ledger record of which koan was contemplated
+   need not correspond to what any model received.
+
+The consequential effect is not koan text. `meditation_active` also gates
+deterministic concept seeding at `pmm/runtime/loop.py:781`, which extends
+`active_concepts` with `ontology.structure`, `identity.evolution`, and
+`awareness.loop` under binding origin `runtime_meditation`. `identity.` is one of
+the five default `force_concept_prefixes`. The cadence defect therefore
+suppresses forced-concept seeding into retrieval, which connects this finding to
+the forced-concept attractor candidate recorded above.
+
+Test coverage exists and pins the drift. `tests/test_ontology_directives.py:57`
+asserts `len(_MEDITATION_CONCEPT_HINTS) == 21` and iterates `range(21)` checking
+only that hints exist, never that a meditation exists for those indices. Its
+docstring states the intended invariant; its assertions check a different one.
+The related tests supply `history_len=74`, a value hand-picked as `2 × 37` to
+satisfy the gate, so the koan path is exercised only at counts constructed to
+pass it. This is why a fully passing suite did not surface defect 3. The
+condition is an enforcement gap, not a coverage gap: structure reaches the check
+and the check tests the wrong property.
+
+Charter-relevant reframe, and the form in which this finding is recordable now:
+
+> A koan injected through `compose_system_prompt` is a model-visible input that
+> never becomes a canonical record. It can shape a response and leave no trace
+> in the ledger.
+
+That is a concrete instance of the re-baseline's existing *Model-visible
+experience reconstruction* classification, and it generalizes to anything else
+composed into the prompt but absent from the ledger. It does not depend on
+whether the modulus is corrected.
+
+Any future correction must also account for two consequences that the defect
+currently masks:
+
+- Unlocking indices 11–18 would introduce `governance.autonomy`,
+  `governance.correction`, and `governance.cost_efficiency` — three
+  `governance.` hints — into the privileged forced-retrieval bucket described
+  above, where forced concepts are injected without a relevance check. This
+  changes what the attractor attracts and must not be shipped in the same change
+  as the primer experiment, or neither result will be attributable.
+- The kernel path records these as `reflection` events with
+  `intent: ontological_meditation`. A scheduled table lookup is not a reflection
+  under the charter's definition, so correcting the modulus increases the
+  activity of an already-overloaded mechanism.
+
+#### Finding 3 — test fixture constant on a canonical write path
+
+`pmm/runtime/autonomy_kernel.py:682` hardcodes `candidate_ref =
+"../other_pmm.db#47"` and injects it into the kernel reflection payload whenever
+open commitments exist. The `REF:` line is later resolved by
+`pmm/runtime/loop.py:445`, which appends an `inter_ledger_ref` event with
+`{"verified": false, "error": "not found"}` when the target cannot be
+dereferenced.
+
+The emission is idempotent. The guard at `pmm/runtime/autonomy_kernel.py:684`
+tests membership in both `failed_refs` and `seen_refs`, and `seen_refs`
+(`:619`) collects every `inter_ledger_ref` regardless of verification status.
+The constant is therefore emitted at most once per ledger and never again.
+
+Strongest supported conclusion:
+
+> A test fixture constant reaches a canonical write path. Its frequency is once
+> per ledger, not continuous. Its reach includes published evidence:
+> `docs/granite-4-ledger.json` contains 16,065 events and exactly one
+> `inter_ledger_ref`, event 76, carrying this string with
+> `{"error":"not found","verified":false}`.
+
+Low priority by frequency; a governance-integrity concern by kind. It is not
+cosmetic, and it does not warrant preempting the other candidates.
+
+#### Verification performed and not performed
+
+Performed at `a443c6a`: production-path reads of the cited files and lines;
+isolated execution reproducing the RSM increment sequence and the
+`uniqueness_emphasis` constant; enumeration of reachable meditation indices and
+table lengths; inspection of `docs/granite-4-ledger.json`.
+
+Not performed: no runtime change; no test executed against a modified tree; no
+multi-turn managed-runtime measurement of firing rates at this revision; no
+verification of the autonomy-path meditation or fixture-ref behavior under a
+live `AutonomyKernel`, both of which remain source-read only. Exploratory
+observations reported from a separate sandbox are recorded here as hypotheses
+that were subsequently checked against production code, not as measurements of
+this repository.
+
+No correction to RSM scanning, meditation scheduling, table alignment, test
+invariants, or the fixture constant is currently authorized or implemented. All
+remain subject to the charter's implementation freeze.
+
+#### Follow-up verification that would close the source-read-only items
+
+Two items above rest on production reads alone. The exploratory run that
+produced them used `autonomy=False`, so `AutonomyKernel.reflect()` never
+executed: the kernel-path meditation at
+`pmm/runtime/reflection_synthesizer.py:239` and the fixture constant at
+`pmm/runtime/autonomy_kernel.py:682` were never observed emitting at this
+revision. `docs/granite-4-ledger.json` establishes that the fixture ref fired
+historically; it does not establish current behavior at `a443c6a`.
+
+One autonomy-enabled run against an isolated throwaway ledger would close both
+and would also replace the structurally inferred firing rate with a measured
+one. It should record:
+
+- Actual events appended per managed turn, and its variance.
+- How many multiples of 37 and of 47 the counter crossed, against how many times
+  each gate evaluated true. The ratio is the predicted miss factor.
+- Whether any `reflection` carries `ontological_inquiry`, and which meditation
+  indices appear. Only `0–10` are reachable through that path.
+- Whether `meditation_active` ever became true, and whether any concept binding
+  carries origin `runtime_meditation`.
+- Whether exactly one `inter_ledger_ref` appears, and whether a second is
+  correctly suppressed by the `seen_refs` guard across separate kernel cycles.
+- `behavioral_tendencies` over time, to confirm the autocatalytic climb and the
+  `uniqueness_emphasis` constant under real hash-chain data rather than in
+  isolation.
+
+This is an experiment, not a code change. It must use an isolated ledger, must
+not run against the configured production or experimental database, and
+establishes no authorization for any correction recorded above.
 
 ### Operational baseline for prompt growth
 
