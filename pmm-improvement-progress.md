@@ -803,10 +803,11 @@ Future policy must decide which concepts are universally mandatory, which requir
 
 ### Self-referential deterministic projections — 2026-07-26
 
-Two independent findings share one root: deterministic machinery whose own
-output re-enters its own input, or whose schedule depends on the emission volume
-of unrelated subsystems. Both were audited on clean `main` at `a443c6a` with
-divergence `0 0`. Neither is authorized for implementation.
+Three findings are recorded below. The first two share one root: deterministic
+machinery whose own output re-enters its own input, or whose schedule depends on
+the emission volume of unrelated subsystems. All three were audited on clean
+`main` at `a443c6a` with divergence `0 0`. None is authorized for
+implementation.
 
 The charter already states the governing principle under *Diagnostics,
 telemetry, summaries, and maintenance*:
