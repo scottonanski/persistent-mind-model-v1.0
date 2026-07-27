@@ -1042,6 +1042,181 @@ This is an experiment, not a code change. It must use an isolated ledger, must
 not run against the configured production or experimental database, and
 establishes no authorization for any correction recorded above.
 
+### R17 retrieval verification — audit record — 2026-07-27
+
+Read-only production-path audit of the retrieval-verification mechanism,
+performed against clean local `main` at
+`83ec4dcea6ea9812e36706531427560b63eeead3` with divergence
+`origin/main...main = 0 1`. This record preserves and re-verifies findings that
+extend the earlier narrative under *Retrieval verification validity and
+diagnostic isolation*. No correction is authorized or implemented.
+
+Guarantee under audit, stated narrowly enough to falsify:
+
+> A canonical retrieval-verification result validly determines whether a
+> recorded retrieval selection was correctly produced and reports that result
+> once with attributable evidence.
+
+The guarantee does not hold. Three findings support that conclusion.
+
+#### Finding 1 — recorded vector parameters cannot describe the call that ran
+
+`RetrievalConfig` (`pmm/retrieval/pipeline.py:23`) declares no `model` and no
+`dims` field. Both production vector calls omit them —
+`pmm/retrieval/pipeline.py:233` passes only `events`, `query_text`, `limit`,
+`cap`, and `pmm/retrieval/pipeline.py:274` adds only `kinds` — so
+`select_by_vector` applies its signature defaults `model="hash64"`, `dims=64`
+(`pmm/retrieval/vector.py:96-106`).
+
+The recorded values come from an unconnected source. `pmm/runtime/loop.py:900`
+reads `model` and `dims` from `self.mirror.current_retrieval_config`
+(`pmm/runtime/loop.py:503`), which is populated from `config` events
+(`pmm/core/mirror.py:101`), and passes them to `selection_digest`
+(`pmm/retrieval/vector.py:169`), which folds them into the hash payload.
+
+Whenever the configured model or dimensions differ from the defaults, the
+recorded digest is **factually wrong** rather than merely unverified, because
+`selection_digest` folds `model` and `dims` into the hashed payload
+(`pmm/retrieval/vector.py:172-178`).
+
+Isolated reproduction, run from the repository root at this revision:
+
+```python
+from pmm.retrieval.vector import selection_digest
+selected    = [11, 12, 13]
+scores      = [0.900000, 0.500000, 0.100000]
+query_text  = "example query"
+applied  = selection_digest(selected=selected, scores=scores,
+                            model="hash64", dims=64, query_text=query_text)
+recorded = selection_digest(selected=selected, scores=scores,
+                            model="hash64_tfidf", dims=8, query_text=query_text)
+```
+
+```text
+applied  (hash64/64)     : bd816436357b819ecf47314a0ee4a1684abdceb0740c22f6073dbe05889d4808
+recorded (hash64_tfidf/8): 3d3ac4f3048ca0aee35ad505d289f733c2b5558a9ca71d3b15564713ad820d8d
+identical                : False
+```
+
+`hash64`/`64` are the parameters the pipeline applies; `hash64_tfidf`/`8` stand
+for any configured pair that differs from them. The divergence is a property of
+the digest payload, not of these particular inputs.
+
+No current production consumer recomputes or otherwise detects the digest
+mismatch, so nothing in the present code path would report it. The auditability
+mechanism is the defective component.
+
+#### Finding 2 — fail-open degradation: OK without established inclusion
+
+`AutonomyKernel._verify_recent_selections()` initialises `ok_all = True`
+(`pmm/runtime/autonomy_kernel.py:795`) and clears it only when a computed
+top-five vector set fails to intersect the recorded selection (`:868-869`).
+
+Two paths skip a selection without clearing it:
+
+- malformed outer JSON (`:797-800`), where the `try` wraps only `json.loads`;
+- a missing query (`:811-812`), when no `user_message` precedes `turn_id`.
+
+A third path preserves `ok_all` without skipping: when the candidate scoring
+produces no entries, the empty-`scored` branch falls through
+(`pmm/runtime/autonomy_kernel.py:870-873`):
+
+```python
+else:
+    # If vector found nothing, we can't verify inclusion. Assume OK if selection happened?
+    # Or just pass.
+    pass
+```
+
+**The supported claim is behavioural: on these degradation paths the mechanism
+can emit `retrieval verification OK` without having established inclusion.**
+Skipped or empty verification work produces neither an unknown nor a failure
+state; it leaves the aggregate outcome at its optimistic initial value, and the
+emitted canonical `reflection` does not distinguish "verified" from "not
+attempted."
+
+Two limits on this finding, stated explicitly:
+
+- **Reachability of the empty-`scored` branch from well-formed current
+  production output is not established.** The sole current production producer
+  emits valid JSON with a preceding user event, so this audit does not
+  demonstrate that a well-formed present-day selection reaches that branch.
+- **No claim is made about design intent.** The source comment records an
+  unresolved question, which is evidence about the branch's handling, not proof
+  of what the mechanism was meant to be.
+
+Note also that a malformed `turn_id` does **not** skip: the conversion at `:801`
+sits outside the `try`, so it raises uncaught rather than degrading.
+
+Compounding the above, the verifier loads the **latest** `config` event rather
+than the selection's historical configuration
+(`pmm/runtime/autonomy_kernel.py:777-788`), so it can score with parameters the
+production pipeline never used — which Finding 1 shows are already the recorded
+rather than the applied ones.
+
+#### Finding 3 — shadowed parameter, maintenance hazard only
+
+`_verify_recent_selections(self, N: int = 5)`
+(`pmm/runtime/autonomy_kernel.py:767`) uses `N` to slice trailing selections at
+`:773`. Inside the TF-IDF branch, `:831` rebinds `N = max(1, len(docs_tokens))`.
+
+**No current defect.** The slice at `:773` completes before the loop, and `N` is
+not read again. Recorded as a maintenance hazard: any future use of `N` after
+`:831` would silently read a document count rather than a selection limit.
+
+#### Strongest supported conclusion
+
+R17 is not a retrieval verifier. It is an optionally invoked, non-idempotent
+top-vector-overlap diagnostic whose recorded parameters can be false, whose OK
+outcome can be emitted without inclusion having been established, and whose
+result carries no attribution to the selections it examined.
+
+Record fidelity is the logical prerequisite for any correction. Finding 1 makes
+this blocking rather than merely ordered: the ledger records parameters
+retrieval demonstrably did not use, so a verifier built before that is corrected
+would be verified against a false record. This applies even to the smallest
+option — a diagnostic that names its parameters must name true ones.
+
+#### Verification performed and not performed
+
+Performed at `83ec4dcea6ea9812e36706531427560b63eeead3`, clean worktree:
+production-path reads of `pmm/retrieval/pipeline.py`, `pmm/retrieval/vector.py`,
+`pmm/runtime/loop.py`, `pmm/core/mirror.py`, and
+`pmm/runtime/autonomy_kernel.py`; programmatic confirmation that
+`RetrievalConfig` declares no `model` or `dims` field; signature inspection of
+`select_by_vector`; isolated reproduction of the digest divergence shown above.
+
+Not performed: no runtime change; no test executed; no full suite; no live
+provider or live `AutonomyKernel` run; no historical-ledger replay; no
+measurement of how often configured parameters differ from the defaults in any
+real ledger. The frequency and blast radius of Finding 1 in existing ledgers
+are therefore unquantified.
+
+Not established: that the empty-`scored` branch is reachable from a well-formed
+selection emitted by the current production producer (Finding 2); that any
+recorded ledger actually contains a divergent digest, as distinct from the
+source-proven conditional divergence; and any claim about the intent behind the
+present implementation.
+
+#### Authorization state
+
+Documentation only. No implementation is authorized. Vector-stage verification,
+full hybrid reproducibility, exactly-once scheduling, failed-turn recording, and
+diagnostic representation remain separate, unselected policy choices, and the
+charter implementation freeze remains active.
+
+```toml
+# work-register attestation: evidence
+id              = "R17"
+guarantee       = "A canonical retrieval-verification result validly determines whether a recorded retrieval selection was correctly produced and reports that result once with attributable evidence."
+audit_revision  = "83ec4dcea6ea9812e36706531427560b63eeead3"
+evidence_status = "audited"
+```
+
+The attestation block above uses the format defined by the work-register
+contract draft. That contract is not placed, no register exists, and no register
+row is created by this record.
+
 ### Operational baseline for prompt growth
 
 The measurement mechanism is implemented. Before adding prompt-reduction behavior, PMM should run a fresh representative 10–20 turn conversation and observe:
