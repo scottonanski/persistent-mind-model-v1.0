@@ -18,6 +18,14 @@ from pmm.core.concept_graph import ConceptGraph
 from pmm.core.meme_graph import MemeGraph
 from pmm.retrieval.vector import select_by_vector, select_by_concepts
 
+# Embedding parameters this pipeline applies to every select_by_vector call.
+# Passed explicitly at each call site rather than relying on that function's
+# defaults, so the recorded provenance is derived from the same values the call
+# receives. Retrieval configuration does not currently select these; changing
+# that is a separate behavioral guarantee.
+VECTOR_EMBEDDING_MODEL = "hash64"
+VECTOR_EMBEDDING_DIMS = 64
+
 
 @dataclass
 class RetrievalConfig:
@@ -69,6 +77,9 @@ class RetrievalResult:
     relevant_cids: List[str]
     active_concepts: List[str]
     provenance: Dict[int, Dict[str, Any]] = field(default_factory=dict)
+    # One entry per select_by_vector invocation that actually ran, recording the
+    # embedding parameters passed to it. Empty when no vector stage executed.
+    vector_embedding_uses: List[Dict[str, Any]] = field(default_factory=list)
 
 
 def run_retrieval_pipeline(
@@ -217,6 +228,11 @@ def run_retrieval_pipeline(
     summary_expanded_ids: Set[int] = set()
     summary_pinned_ids: Set[int] = set()
 
+    # One entry per select_by_vector invocation that actually runs. Each entry is
+    # built at its own call site from the values that call passes, so the record
+    # cannot drift from the invocation it describes.
+    vector_embedding_uses: List[Dict[str, Any]] = []
+
     # Vector stage becomes a refiner over already selected slices only
     def _refine_with_vector(
         candidate_ids: Set[int], limit: int
@@ -230,11 +246,21 @@ def run_retrieval_pipeline(
             ev = eventlog.get(int(eid)) or {}
             ev["id"] = int(eid)
             events_data.append(ev)
+        stage_model, stage_dims = VECTOR_EMBEDDING_MODEL, VECTOR_EMBEDDING_DIMS
         vec_ids, scores = select_by_vector(
             events=events_data,
             query_text=query_text,
             limit=min(limit, len(events_data)),
             cap=len(events_data),
+            model=stage_model,
+            dims=stage_dims,
+        )
+        vector_embedding_uses.append(
+            {
+                "stage": "thread_refinement",
+                "model": stage_model,
+                "dims": stage_dims,
+            }
         )
         return set(vec_ids), dict(zip(vec_ids, scores))
 
@@ -271,12 +297,22 @@ def run_retrieval_pipeline(
             )
         summary_events = sorted(summary_events, key=lambda ev: int(ev.get("id", 0)))
         if summary_events:
+            stage_model, stage_dims = VECTOR_EMBEDDING_MODEL, VECTOR_EMBEDDING_DIMS
             s_vec_ids, s_vec_scores = select_by_vector(
                 events=summary_events,
                 query_text=query_text,
                 limit=config.summary_vector_limit,
                 kinds=config.summary_event_kinds,
                 cap=len(summary_events),
+                model=stage_model,
+                dims=stage_dims,
+            )
+            vector_embedding_uses.append(
+                {
+                    "stage": "summary_search",
+                    "model": stage_model,
+                    "dims": stage_dims,
+                }
             )
             summary_vector_ids.update(s_vec_ids)
             summary_vector_scores.update(dict(zip(s_vec_ids, s_vec_scores)))
@@ -467,4 +503,5 @@ def run_retrieval_pipeline(
         relevant_cids=sorted(relevant_cids),
         active_concepts=seed_concepts_list,
         provenance=provenance,
+        vector_embedding_uses=vector_embedding_uses,
     )
