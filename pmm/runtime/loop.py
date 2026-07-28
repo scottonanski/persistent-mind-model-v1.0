@@ -561,6 +561,7 @@ class RuntimeLoop:
 
         selection_ids = retrieval_result.event_ids
         selection_provenance = retrieval_result.provenance
+        selection_vector_uses = list(retrieval_result.vector_embedding_uses)
         selection_scores = [
             float(
                 (selection_provenance.get(event_id, {}).get("scores") or {}).get(
@@ -894,41 +895,50 @@ class RuntimeLoop:
         # 4a. Parse REF: lines and append inter_ledger_ref events
         self._parse_ref_lines(assistant_reply)
 
-        # 4b. If vector retrieval was used, append retrieval_selection event
+        # 4b. Append retrieval_selection whenever retrieval produced a selection.
+        # This includes turns where no vector stage ran; vector_embedding_uses
+        # distinguishes those, and an empty list carries no digest.
         if selection_ids is not None and selection_scores is not None:
-            # Build provenance digest for auditability
-            model = str((retrieval_cfg or {}).get("model", "hash64"))
-            dims = int((retrieval_cfg or {}).get("dims", 64))
-            dig = selection_digest(
-                selected=selection_ids,
-                scores=selection_scores,
-                model=model,
-                dims=dims,
-                query_text=user_input,
-            )
+            sel_payload = {
+                "turn_id": ai_event_id,
+                "selected": selection_ids,
+                "scores": selection_scores,
+                "provenance": [
+                    {
+                        "event_id": event_id,
+                        **selection_provenance.get(
+                            event_id, {"reasons": [], "scores": {}}
+                        ),
+                    }
+                    for event_id in selection_ids
+                ],
+                "strategy": "hybrid",
+                "record_version": 2,
+                "vector_embedding_uses": selection_vector_uses,
+            }
+            sel_meta: Dict[str, Any] = {}
+            if selection_vector_uses:
+                # Every stage applies the same embedding parameters, so the
+                # digest describes them all. vector_embedding_uses remains the
+                # exhaustive per-invocation record.
+                applied_model = str(selection_vector_uses[0]["model"])
+                applied_dims = int(selection_vector_uses[0]["dims"])
+                sel_payload["model"] = applied_model
+                sel_payload["dims"] = applied_dims
+                sel_meta["digest"] = selection_digest(
+                    selected=selection_ids,
+                    scores=selection_scores,
+                    model=applied_model,
+                    dims=applied_dims,
+                    query_text=user_input,
+                )
             sel_content = json.dumps(
-                {
-                    "turn_id": ai_event_id,
-                    "selected": selection_ids,
-                    "scores": selection_scores,
-                    "provenance": [
-                        {
-                            "event_id": event_id,
-                            **selection_provenance.get(
-                                event_id, {"reasons": [], "scores": {}}
-                            ),
-                        }
-                        for event_id in selection_ids
-                    ],
-                    "strategy": "hybrid",
-                    "model": model,
-                    "dims": dims,
-                },
+                sel_payload,
                 sort_keys=True,
                 separators=(",", ":"),
             )
             self.eventlog.append(
-                kind="retrieval_selection", content=sel_content, meta={"digest": dig}
+                kind="retrieval_selection", content=sel_content, meta=sel_meta
             )
 
         # 4c. Per-turn diagnostics (deterministic formatting)
