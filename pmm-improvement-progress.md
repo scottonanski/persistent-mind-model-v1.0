@@ -644,7 +644,7 @@ reinterpretation is approved by this re-baseline.
 The following work remains frozen until separately authorized after governance
 reconciliation:
 
-- R17 implementation;
+- R17 implementation beyond phase 1 (phase 1 shipped; see below);
 - the reference-policy matrix;
 - R06 and R07 enforcement;
 - new identity, reflection, ontology, commitment, or other cognitive semantics;
@@ -1200,10 +1200,29 @@ present implementation.
 
 #### Authorization state
 
-Documentation only. No implementation is authorized. Vector-stage verification,
-full hybrid reproducibility, exactly-once scheduling, failed-turn recording, and
-diagnostic representation remain separate, unselected policy choices, and the
-charter implementation freeze remains active.
+This record was documentation only when written. One bounded correction has
+since been authorized and published.
+
+**Phase 1 — vector-parameter provenance fidelity. Implemented.** Merged as
+`3853fff` (PR #13, implementation commit `c7bd6ea`) as a narrow exception to the
+charter freeze. Guarantee: for every version-2 retrieval-selection record,
+`vector_embedding_uses` exhaustively identifies the vector stages that ran and
+truthfully records the embedding model and dimensions passed to each invocation.
+Both `select_by_vector` call sites now pass those parameters explicitly and each
+records its own entry from the values it passed; records carry
+`record_version = 2`, and when no vector stage ran the digest and top-level
+parameters are omitted rather than invented. Retrieval behaviour is unchanged,
+and no historical event was rewritten — absence of `record_version` marks a
+record as legacy and potentially unreliable.
+
+Phase 1 addresses Finding 1's recording defect only. It does not make the
+verifier valid: Findings 2 and 3 stand, and the strongest supported conclusion
+above is unchanged.
+
+Still unselected and frozen: making configuration drive retrieval embedding
+parameters, vector-stage verification, full hybrid reproducibility, exactly-once
+scheduling, failed-turn recording, and diagnostic representation. The charter
+implementation freeze otherwise remains active.
 
 ```toml
 # work-register attestation: evidence
@@ -1357,10 +1376,14 @@ The documentation governance reconciliation is the only selected work in this
 update. It preserves the Cognitive Charter, aligns `CONTRIBUTING.md`, and
 re-baselines this roadmap. It stops before runtime selection.
 
-No next implementation is selected or authorized. R17, the reference-policy
-matrix, R06, R07, new cognitive semantics, migrations, renames, and every other
-candidate above remain frozen. Their position in this document does not imply
-priority.
+One bounded R17 correction has since been authorized, implemented, and
+published: phase 1, vector-parameter provenance fidelity, merged as `3853fff`.
+It is the sole exception to the statement below.
+
+No other implementation is selected or authorized. The remainder of R17, the
+reference-policy matrix, R06, R07, new cognitive semantics, migrations, renames,
+and every other candidate above remain frozen. Their position in this document
+does not imply priority.
 
 Any later authorization must begin from the Cognitive Charter and retain the
 development-audit sequence already exercised by C01 and C02: establish a clean
