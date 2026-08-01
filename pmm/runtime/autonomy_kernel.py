@@ -792,14 +792,31 @@ class AutonomyKernel:
             candidate_messages,
         )
 
-        ok_all = True
+        targeted = len(sels)
+        evaluated = 0
+        mismatch = False
         for s in sels:
             try:
                 data = json.loads(s.get("content") or "{}")
             except Exception:
                 continue
-            turn_id = int(data.get("turn_id", 0))
-            selected = data.get("selected") or []
+            if not isinstance(data, dict):
+                continue
+            turn_id = data.get("turn_id")
+            if not isinstance(turn_id, int) or isinstance(turn_id, bool):
+                # Strict identifier typing: booleans are excluded even though
+                # bool is an int subclass, and strings/floats are never
+                # coerced via int(...).
+                continue
+            raw_selected = data.get("selected")
+            if not isinstance(raw_selected, list):
+                continue
+            if any(
+                not isinstance(sid, int) or isinstance(sid, bool)
+                for sid in raw_selected
+            ):
+                continue
+            selected = raw_selected
             # Find last user_message before turn
             query = ""
             for e in reversed(events):
@@ -861,23 +878,35 @@ class AutonomyKernel:
             # AND it may be TRUNCATED (missing lower vector matches) due to recent event priority.
             # Verification: Ensure AT LEAST ONE of the top vector matches is in the selection.
             # This handles tie-breaking differences (Oldest vs Newest) where scores are identical.
-            if scored:
-                # Check top 5 candidates to be safe against sorting variance
-                limit_check = min(len(scored), 5)
-                top_ids = {eid for (eid, _s) in scored[:limit_check]}
-                if not top_ids.intersection(set(selected)):
-                    ok_all = False
-            else:
-                # If vector found nothing, we can't verify inclusion. Assume OK if selection happened?
-                # Or just pass.
-                pass
-        # Emit outcome. Tests expect an explicit OK reflection when matching.
+            if not scored:
+                # Empty scoring cannot establish inclusion either way.
+                continue
+            # Check top 5 candidates to be safe against sorting variance
+            limit_check = min(len(scored), 5)
+            top_ids = {eid for (eid, _s) in scored[:limit_check]}
+            evaluated += 1
+            if not top_ids.intersection(set(selected)):
+                mismatch = True
+
+        # Outcome precedence: mismatch, then inconclusive, then overlap_observed.
+        # A positive (overlap_observed) result requires every targeted selection
+        # to have been evaluated, at least one evaluation to have occurred, and
+        # no evaluated selection to lack the required overlap. This diagnostic
+        # never claims complete hybrid retrieval was verified.
+        if mismatch:
+            outcome = "mismatch"
+        elif evaluated == 0 or evaluated < targeted:
+            outcome = "inconclusive"
+        else:
+            outcome = "overlap_observed"
+
         msg = (
-            "retrieval verification OK" if ok_all else "retrieval verification mismatch"
+            f"vector overlap diagnostic: {outcome} "
+            f"(targeted={targeted}, evaluated={evaluated})"
         )
         self.eventlog.append(
             kind="reflection",
-            content=json.dumps({"intent": msg, "outcome": msg, "next": "continue"}),
+            content=json.dumps({"intent": msg, "outcome": outcome, "next": "continue"}),
             meta={"source": "autonomy_kernel"},
         )
 
