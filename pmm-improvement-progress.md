@@ -1,8 +1,8 @@
 # PMM Improvement Progress and Remaining Work
 
-- **Status date:** 2026-07-26
-- **Audit basis:** The approved cognitive-architecture audit used clean, synchronized `main` at `8198e66d3bdfa10dfd5aaad298baac9187406556`, with divergence `0 0`. Earlier implementation and verification records retain their own stated revision boundaries. The self-referential-projection findings dated 2026-07-26 were audited separately on clean `main` at `a443c6a`; they are documentation-only and change no runtime behavior.
-- **Current recorded verification:** 468 tests passed; the final focused Stage 3 audit suite passed 43 tests; Ruff check and Ruff format check passed on all 24 Python files included in the Stage 3 verification scope; `compileall`, `git diff --check`, publication, and synchronization checks passed. Any verification rerun performed for this documentation-only update is reported separately below.
+- **Status date:** 2026-07-31
+- **Audit basis:** The approved cognitive-architecture audit used clean, synchronized `main` at `8198e66d3bdfa10dfd5aaad298baac9187406556`, with divergence `0 0`. Earlier implementation and verification records retain their own stated revision boundaries. The self-referential-projection findings dated 2026-07-26 were audited separately on clean `main` at `a443c6a`; they are documentation-only and change no runtime behavior. The R17 Phase 1–3 status reconciliation used synchronized `main` at `10211a1031b746c4f42e47b5918d63082d9583db`, with divergence `0 0` and only the protected untracked work-register contract draft present.
+- **Current recorded verification:** At the R17 Phase 1–3 reconciliation boundary, the three combined R17 suites passed 53 tests and the complete suite passed 521 tests. Ruff passed on the seven R17 implementation and test files; Black passed on the exact four-file Phase 3 publication scope; and `git diff --check` passed. Earlier 468-test and 43-test results below remain historical measurements at their stated Stage 3 and documentation boundaries rather than current-main counters.
 - **Scope:** Historical integrity, continuity, diagnostics, retrieval, and development-audit improvements, now re-baselined beneath the approved PMM cognitive architecture. This document records current evidence and undecided candidates; it does not select a runtime remediation sequence.
 
 ## Purpose
@@ -644,7 +644,7 @@ reinterpretation is approved by this re-baseline.
 The following work remains frozen until separately authorized after governance
 reconciliation:
 
-- R17 implementation beyond phase 1 (phase 1 shipped; see below);
+- remaining R17 implementation beyond the published Phases 1–3 described below;
 - the reference-policy matrix;
 - R06 and R07 enforcement;
 - new identity, reflection, ontology, commitment, or other cognitive semantics;
@@ -771,16 +771,18 @@ Retries must never conceal the original failed attempt or allow a partial respon
 
 The current autonomy verification path may compare a concept- and topology-influenced hybrid retrieval result against a separately recomputed pure-vector baseline. A disagreement can therefore be expected by design rather than evidence that final retrieval was incorrect.
 
-`AutonomyKernel._verify_recent_selections()` re-ranks message candidates using the configured deterministic embedding model, then asks only whether at least one of its five highest vector matches appears in each final hybrid `retrieval_selection`. The recorded selection may instead contain events admitted or prioritized through forced or sticky concepts, concept bindings, summary handling, thread or graph expansion, topology roots or tails, and vector refinement over a narrower concept-derived candidate set. The verifier does not reproduce those stages or use the recorded per-event reasons when deciding validity. Each autonomy decision cycle that reaches the maintenance block examines up to the same five trailing selections and appends another `reflection`, so overlapping cycles can repeat the same outcome without a per-selection watermark.
+R17 Phases 1–3 changed the diagnostic record and its lifecycle without turning it into a retrieval-correctness proof. Phase 1 makes each version-2 `retrieval_selection` record the embedding parameters actually passed to every vector-stage invocation. Phase 2 evaluates one selection at a time and distinguishes `overlap_observed`, `mismatch`, and `inconclusive` outcomes with explicit reason codes. Phase 3 selects only eligible, undiagnosed version-2 selections and writes a dedicated canonical `vector_overlap_diagnostic` rather than a narrative `reflection`. `EventLog` validates its protocol, source, target, outcome combination, and evaluated/top-ID shape, checks transactionally that the target is an existing strict-version-2 `retrieval_selection`, and enforces at most one diagnostic per target.
+
+The calculation remains a separately recomputed weak-overlap heuristic. It ranks message candidates using the latest retrieval embedding configuration available when maintenance runs, then asks whether at least one of its five highest vector matches appears in the recorded final hybrid selection. The recorded selection may instead contain events admitted or prioritized through forced or sticky concepts, concept bindings, summary handling, thread or graph expansion, topology roots or tails, and vector refinement over a narrower concept-derived candidate set. The diagnostic does not reproduce those stages, reconstruct the selection's historical graph and concept state, or use recorded per-event reasons to establish hybrid correctness.
 
 Future policy must distinguish at least:
 
 - **Vector-subsystem verification:** compare only vector-ranked candidates and scores under the vector stage's actual candidate set.
 - **Full hybrid reproducibility:** rerun the actual retrieval pipeline using the original configuration, inputs, graph state, concept state, and selection boundary.
-- **Verification scheduling:** verify each `retrieval_selection` once using a watermark or processed-selection ID instead of repeatedly checking overlapping trailing windows.
-- **Diagnostic preservation:** record retrieval verification in a dedicated diagnostic form rather than narrative `reflection`, unless the event genuinely represents reflective interpretation.
+- **Maintenance coverage:** decide whether every eligible `retrieval_selection` must eventually receive a diagnostic; current at-most-once recording does not establish at-least-once execution.
+- **Diagnostic isolation:** decide whether further controls are needed for generic event-volume effects; the dedicated event is isolated from reflection-specific consumers but remains a canonical event visible to generic readers.
 
-Relabeling the event alone would not fix an invalid baseline. Repeated false-positive diagnostics can pollute later retrieval and reflection analysis. No correction is currently authorized or implemented.
+Phases 1–3 are implemented and published. They do not establish complete hybrid retrieval reproduction, vector-stage correctness, mandatory maintenance execution, semantic adequacy of overlap, historical migration, a work register, or an automatic Phase 4. No further R17 correction is selected or authorized by this document.
 
 ### Forced-concept retrieval relevance and attractor control
 
@@ -1049,7 +1051,8 @@ performed against clean local `main` at
 `83ec4dcea6ea9812e36706531427560b63eeead3` with divergence
 `origin/main...main = 0 1`. This record preserves and re-verifies findings that
 extend the earlier narrative under *Retrieval verification validity and
-diagnostic isolation*. No correction is authorized or implemented.
+diagnostic isolation*. At that audit boundary, no correction was authorized or
+implemented.
 
 Guarantee under audit, stated narrowly enough to falsify:
 
@@ -1200,8 +1203,10 @@ present implementation.
 
 #### Authorization state
 
-This record was documentation only when written. One bounded correction has
-since been authorized and published.
+This record was documentation only when written. Three bounded corrections have
+since been authorized and published. The findings above remain the historical
+audit basis at `83ec4dc`; the current status below supersedes their then-current
+implementation description without rewriting that evidence.
 
 **Phase 1 — vector-parameter provenance fidelity. Implemented.** Merged as
 `3853fff` (PR #13, implementation commit `c7bd6ea`) as a narrow exception to the
@@ -1215,14 +1220,30 @@ parameters are omitted rather than invented. Retrieval behaviour is unchanged,
 and no historical event was rewritten — absence of `record_version` marks a
 record as legacy and potentially unreliable.
 
-Phase 1 addresses Finding 1's recording defect only. It does not make the
-verifier valid: Findings 2 and 3 stand, and the strongest supported conclusion
-above is unchanged.
+**Phase 2 — weak-overlap outcome semantics. Implemented.** Merged as `8aa4c4d`
+(PR #14, implementation commit `7d9b0da`). The evaluator no longer treats
+malformed selections, missing queries, or empty scored candidate sets as a
+successful overlap check. It records explicit evaluated or inconclusive outcomes
+and reason codes. This is still a weak top-five vector-overlap heuristic, not
+vector-stage or hybrid-retrieval verification.
+
+**Phase 3 — attributable, non-repeating diagnostics. Implemented.** Merged as
+`10211a1` (PR #15, implementation commit `e730ae9`). Every canonical
+`vector_overlap_diagnostic` written through the governed `EventLog` API targets
+one existing strict-integer `record_version == 2` `retrieval_selection`; matching
+protocol fields and required `meta.source == "autonomy_kernel"` identify that
+target; a database unique index enforces at most one diagnostic per selection;
+and the authorized outcome table and evaluated/top-ID consistency are validated
+before append. The dedicated kind is not consumed as reflection by MemeGraph,
+RSM reflection intents, or ConceptGraph bindings. “Attributable” means
+deterministically linked through these protocol fields and source marker, not
+authenticated model authorship.
 
 Still unselected and frozen: making configuration drive retrieval embedding
-parameters, vector-stage verification, full hybrid reproducibility, exactly-once
-scheduling, failed-turn recording, and diagnostic representation. The charter
-implementation freeze otherwise remains active.
+parameters, vector-stage verification, full hybrid reproducibility, mandatory or
+at-least-once maintenance execution, further event-volume isolation, failed-turn
+recording, historical migration, work-register governance, and any Phase 4. The
+charter implementation freeze otherwise remains active.
 
 ```toml
 # work-register attestation: evidence
@@ -1372,15 +1393,17 @@ The consultation prompt should require the model to distinguish:
 
 ## Recommended next decision
 
-The documentation governance reconciliation is the only selected work in this
-update. It preserves the Cognitive Charter, aligns `CONTRIBUTING.md`, and
-re-baselines this roadmap. It stops before runtime selection.
+The R17 Phase 1–3 documentation reconciliation is the only selected work in this
+update. It aligns this roadmap, the dated reference inventory, and
+`CONTRIBUTING.md` with published runtime behavior while preserving historical
+audit records. It stops before any further runtime selection.
 
-One bounded R17 correction has since been authorized, implemented, and
-published: phase 1, vector-parameter provenance fidelity, merged as `3853fff`.
-It is the sole exception to the statement below.
+Three bounded R17 corrections have been authorized, implemented, and published:
+Phase 1 vector-parameter provenance fidelity (`3853fff`, PR #13), Phase 2
+weak-overlap outcome semantics (`8aa4c4d`, PR #14), and Phase 3 attributable,
+non-repeating diagnostics (`10211a1`, PR #15).
 
-No other implementation is selected or authorized. The remainder of R17, the
+No further implementation is selected or authorized. The remainder of R17, the
 reference-policy matrix, R06, R07, new cognitive semantics, migrations, renames,
 and every other candidate above remain frozen. Their position in this document
 does not imply priority.

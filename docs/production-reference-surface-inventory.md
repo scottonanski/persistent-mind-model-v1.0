@@ -12,6 +12,32 @@ At the audit boundary, local `main`, `HEAD`, and `origin/main` resolved to `a615
 
 The prior inventory was headed at `ef63a8f` and retained older `427`- and `431`-test observations. It already incorporated the subsequently authorized R08 documentation, but it predated C01, C02 stages 1–3, and the current writer/projection control plane. This replacement refreshes the inventory against `a615af5`; it does not convert any open question into policy.
 
+## R17 current-main addendum — 2026-07-31
+
+This inventory remains a pinned audit of `a615af5`. Its R17 row, gap bullet, and
+recommended sequence below are preserved as evidence of what the 2026-07-20
+audit found; they are not a current description of the diagnostic producer.
+
+At synchronized `main` revision
+`10211a1031b746c4f42e47b5918d63082d9583db`, R17 Phases 1–3 are published:
+
+- Phase 1 (`3853fff`, PR #13; implementation `c7bd6ea`) records the embedding
+  parameters actually passed to every vector-stage invocation in version-2
+  retrieval selections.
+- Phase 2 (`8aa4c4d`, PR #14; implementation `7d9b0da`) distinguishes evaluated
+  overlap or mismatch from explicit inconclusive outcomes.
+- Phase 3 (`10211a1`, PR #15; implementation `e730ae9`) writes a dedicated
+  `vector_overlap_diagnostic`, not a narrative `reflection`. The governed
+  `EventLog` append boundary validates the diagnostic protocol and target and
+  enforces at most one diagnostic per eligible version-2 selection.
+
+These phases establish truthful vector-parameter provenance and an attributable,
+non-repeating weak-overlap diagnostic. They do not establish vector-stage
+correctness, full hybrid-retrieval reproduction, mandatory or at-least-once
+maintenance execution, semantic adequacy of overlap, historical migration,
+work-register governance, or an automatic Phase 4. No further R17 implementation
+is selected or authorized by this addendum.
+
 ## Scope, method, and limits
 
 This inventory includes serialized fields and active control structures that production code uses relationally to affect canonical events, deterministic projections, identity, commitments, concept state, graph relationships, fast reconstruction, future retrieval, or authority to write and promote state.
@@ -197,7 +223,7 @@ It does not answer:
 
 > What should be required, optional, forbidden, validated, rejected, preserved, projected, or promoted?
 
-Those decisions belong in a separate policy-matrix artifact. The currently recommended development sequence is:
+Those decisions belong in a separate policy-matrix artifact. At this 2026-07-20 audit boundary, the recommended development sequence was:
 
 ```text
 publish refreshed R01–R28 inventory
@@ -209,3 +235,7 @@ publish refreshed R01–R28 inventory
 ```
 
 R06 is a plausible first relational candidate after the matrix because the current identity structure cannot distinguish user-directed or third-party assertions from self-directed identity adoption. R07 duplicate-open governance remains a separate mechanical policy task. Neither choice is authorized or implemented by this document.
+
+The R17 implementation step in that historical sequence was subsequently bounded
+into the three published phases recorded in the current-main addendum above. The
+addendum does not select the next runtime task or reorder the remaining candidates.
