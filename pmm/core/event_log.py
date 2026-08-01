@@ -24,9 +24,34 @@ from pmm.core.writer_session import (
     WriterSession,
 )
 
-
 TERMINAL_OUTCOME_PROTOCOL = "terminal_outcome.v1"
 TERMINAL_OUTCOME_KINDS = {"assistant_message", "generation_failure"}
+
+VECTOR_OVERLAP_DIAGNOSTIC_KIND = "vector_overlap_diagnostic"
+VECTOR_OVERLAP_DIAGNOSTIC_PROTOCOL = "vector_overlap.v1"
+VECTOR_OVERLAP_DIAGNOSTIC_SOURCE = "autonomy_kernel"
+VECTOR_OVERLAP_OUTCOMES = frozenset({"overlap_observed", "mismatch", "inconclusive"})
+VECTOR_OVERLAP_REASON_CODES = frozenset(
+    {
+        "OVERLAP",
+        "NO_OVERLAP",
+        "MALFORMED_SELECTION",
+        "MISSING_QUERY",
+        "EMPTY_SCORED",
+        "EVALUATOR_ERROR",
+    }
+)
+# Authorized (evaluated, outcome, reason_code) triples from the Phase 3 table.
+VECTOR_OVERLAP_AUTHORIZED_TRIPLES = frozenset(
+    {
+        (1, "overlap_observed", "OVERLAP"),
+        (1, "mismatch", "NO_OVERLAP"),
+        (0, "inconclusive", "MALFORMED_SELECTION"),
+        (0, "inconclusive", "MISSING_QUERY"),
+        (0, "inconclusive", "EMPTY_SCORED"),
+        (0, "inconclusive", "EVALUATOR_ERROR"),
+    }
+)
 
 
 class PostCommitProjectionError(RuntimeError):
@@ -187,8 +212,7 @@ class EventLog:
     def _init_db(self) -> None:
         try:
             self._conn.execute("BEGIN IMMEDIATE")
-            self._conn.execute(
-                """
+            self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     ts TEXT NOT NULL,
@@ -198,8 +222,7 @@ class EventLog:
                     prev_hash TEXT,
                     hash TEXT
                 );
-                """
-            )
+                """)
             # Index to support efficient tail queries (ORDER BY id DESC LIMIT ?).
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_events_id_desc ON events(id DESC);"
@@ -221,26 +244,28 @@ class EventLog:
                 """)
             # Protocol-v1 turns opt in to exactly one linked terminal outcome.
             # Legacy uses of about_event remain outside this constraint.
-            self._conn.execute(
-                """
+            self._conn.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_terminal_outcome_v1
                 ON events(json_extract(meta, '$.about_event'))
                 WHERE kind IN ('assistant_message', 'generation_failure')
                   AND json_extract(meta, '$.turn_protocol') = 'terminal_outcome.v1'
                   AND json_type(meta, '$.about_event') = 'integer';
-                """
-            )
-            self._conn.execute(
-                """
+                """)
+            # R17 Phase 3: at most one vector-overlap diagnostic per selection.
+            self._conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_vector_overlap_diagnostic_about
+                ON events(json_extract(meta, '$.about_event'))
+                WHERE kind = 'vector_overlap_diagnostic'
+                  AND json_type(meta, '$.about_event') = 'integer';
+                """)
+            self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS pmm_database_identity (
                     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                     database_uuid TEXT NOT NULL UNIQUE,
                     control_schema_version INTEGER NOT NULL
                 )
-                """
-            )
-            self._conn.execute(
-                """
+                """)
+            self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS pmm_writer_lease (
                     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                     owner_id TEXT,
@@ -252,10 +277,8 @@ class EventLog:
                     owner_host TEXT,
                     owner_role TEXT
                 )
-                """
-            )
-            self._conn.execute(
-                """
+                """)
+            self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS pmm_projection_status (
                     projection_name TEXT PRIMARY KEY,
                     owner_id TEXT NOT NULL,
@@ -267,8 +290,7 @@ class EventLog:
                     error_message TEXT,
                     updated_at REAL NOT NULL
                 )
-                """
-            )
+                """)
             assert self.writer_session is not None
             if self._owns_writer_session:
                 self.writer_session.acquire_in_transaction(self._conn)
@@ -282,8 +304,7 @@ class EventLog:
                     or str(identity[0]) != self.writer_session.database_uuid
                 ):
                     raise RuntimeError("writer session belongs to a different database")
-            self._conn.execute(
-                """
+            self._conn.execute("""
                 CREATE TRIGGER IF NOT EXISTS pmm_events_require_writer
                 BEFORE INSERT ON events
                 BEGIN
@@ -300,8 +321,7 @@ class EventLog:
                               (julianday('now') - 2440587.5) * 86400.0
                     ) THEN RAISE(ABORT, 'PMM_WRITER_AUTHORITY_LOST') END;
                 END
-                """
-            )
+                """)
             self._conn.commit()
         except Exception:
             self._conn.rollback()
@@ -603,6 +623,17 @@ class EventLog:
                 raise ValueError(f"commitment is not open: {cid!r}")
             return event_id
 
+        if kind == VECTOR_OVERLAP_DIAGNOSTIC_KIND:
+            event_id, _ = self.append_vector_overlap_diagnostic(
+                content=content, meta=meta
+            )
+            if event_id is None:
+                raise ValueError(
+                    "vector_overlap_diagnostic target is missing, wrong kind, "
+                    "or not a strict record_version=2 retrieval_selection"
+                )
+            return event_id
+
         valid_kinds = {
             "user_message",
             "assistant_message",
@@ -649,6 +680,8 @@ class EventLog:
             "claim_from_text",
             "concept_bind_async",
             "violation",
+            # R17 Phase 3 — routed through append_vector_overlap_diagnostic
+            VECTOR_OVERLAP_DIAGNOSTIC_KIND,
         }
         binding_kinds = {
             "metric_check",
@@ -895,6 +928,382 @@ class EventLog:
             }
         )
         return event_id, True
+
+    @staticmethod
+    def is_strict_v2_retrieval_selection_content(content: str) -> bool:
+        """True when content is a JSON object with integer record_version == 2.
+
+        Rejects real 2.0, string \"2\", booleans, missing version, non-objects,
+        and invalid JSON. Booleans are rejected because ``type(True) is bool``.
+        """
+
+        if not isinstance(content, str):
+            return False
+        try:
+            data = json.loads(content)
+        except Exception:
+            return False
+        if not isinstance(data, dict):
+            return False
+        version = data.get("record_version")
+        return type(version) is int and version == 2
+
+    @staticmethod
+    def _parse_vector_overlap_diagnostic_payload(
+        content: str, meta: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Validate protocol payload; return parsed content dict on success."""
+
+        if not isinstance(content, str):
+            raise TypeError("vector_overlap_diagnostic content must be a string")
+        if not isinstance(meta, dict):
+            raise TypeError("vector_overlap_diagnostic meta must be a dict")
+
+        try:
+            data = json.loads(content)
+        except Exception as exc:
+            raise ValueError("vector_overlap_diagnostic content must be JSON") from exc
+        if not isinstance(data, dict):
+            raise ValueError("vector_overlap_diagnostic content must be a JSON object")
+
+        if data.get("diagnostic") != VECTOR_OVERLAP_DIAGNOSTIC_PROTOCOL:
+            raise ValueError(
+                "vector_overlap_diagnostic content diagnostic marker invalid"
+            )
+        if meta.get("diagnostic") != VECTOR_OVERLAP_DIAGNOSTIC_PROTOCOL:
+            raise ValueError("vector_overlap_diagnostic meta diagnostic marker invalid")
+        if meta.get("source") != VECTOR_OVERLAP_DIAGNOSTIC_SOURCE:
+            raise ValueError(
+                "vector_overlap_diagnostic meta.source must be "
+                f"{VECTOR_OVERLAP_DIAGNOSTIC_SOURCE!r}"
+            )
+
+        about = meta.get("about_event")
+        if type(about) is not int or about < 1:
+            raise ValueError(
+                "vector_overlap_diagnostic meta.about_event must be a positive int"
+            )
+
+        target_id = data.get("target_selection_id")
+        if type(target_id) is not int or target_id < 1:
+            raise ValueError(
+                "vector_overlap_diagnostic target_selection_id must be a positive int"
+            )
+        if target_id != about:
+            raise ValueError(
+                "vector_overlap_diagnostic target_selection_id must equal about_event"
+            )
+
+        outcome = data.get("outcome")
+        if outcome not in VECTOR_OVERLAP_OUTCOMES:
+            raise ValueError(f"invalid vector_overlap_diagnostic outcome: {outcome!r}")
+        reason = data.get("reason_code")
+        if reason not in VECTOR_OVERLAP_REASON_CODES:
+            raise ValueError(
+                f"invalid vector_overlap_diagnostic reason_code: {reason!r}"
+            )
+
+        evaluated = data.get("evaluated")
+        if evaluated not in (0, 1) or type(evaluated) is not int:
+            raise ValueError("vector_overlap_diagnostic evaluated must be 0 or 1")
+
+        triple = (evaluated, outcome, reason)
+        if triple not in VECTOR_OVERLAP_AUTHORIZED_TRIPLES:
+            raise ValueError(
+                "vector_overlap_diagnostic unauthorized "
+                f"(evaluated, outcome, reason_code) combination: {triple!r}; "
+                f"allowed={sorted(VECTOR_OVERLAP_AUTHORIZED_TRIPLES)!r}"
+            )
+
+        turn_id = data.get("turn_id")
+        if turn_id is not None and type(turn_id) is not int:
+            raise ValueError("vector_overlap_diagnostic turn_id must be int or null")
+
+        selected_count = data.get("selected_count")
+        if type(selected_count) is not int or selected_count < 0:
+            raise ValueError(
+                "vector_overlap_diagnostic selected_count must be a non-negative int"
+            )
+
+        top_ids = data.get("top_ids")
+        if not isinstance(top_ids, list):
+            raise ValueError("vector_overlap_diagnostic top_ids must be a list")
+        if len(top_ids) > 5:
+            raise ValueError(
+                "vector_overlap_diagnostic top_ids must have at most 5 ids"
+            )
+        for eid in top_ids:
+            if type(eid) is not int:
+                raise ValueError("vector_overlap_diagnostic top_ids must be ints")
+        if evaluated == 0 and top_ids:
+            raise ValueError(
+                "vector_overlap_diagnostic top_ids must be empty when evaluated is 0"
+            )
+        if evaluated == 1 and not top_ids:
+            raise ValueError(
+                "vector_overlap_diagnostic top_ids must be non-empty when evaluated is 1"
+            )
+
+        embedding = data.get("diagnostic_embedding")
+        if not isinstance(embedding, dict):
+            raise ValueError(
+                "vector_overlap_diagnostic diagnostic_embedding must be an object"
+            )
+        model = embedding.get("model")
+        dims = embedding.get("dims")
+        if not isinstance(model, str) or not model:
+            raise ValueError("diagnostic_embedding.model must be a non-empty string")
+        if type(dims) is not int or dims < 1:
+            raise ValueError("diagnostic_embedding.dims must be a positive int")
+
+        required_content_keys = {
+            "diagnostic",
+            "outcome",
+            "reason_code",
+            "target_selection_id",
+            "turn_id",
+            "evaluated",
+            "selected_count",
+            "top_ids",
+            "diagnostic_embedding",
+        }
+        if set(data.keys()) != required_content_keys:
+            raise ValueError(
+                "vector_overlap_diagnostic content must contain exactly the "
+                f"protocol keys; got {sorted(data.keys())}"
+            )
+        required_meta_keys = {"source", "about_event", "diagnostic"}
+        if set(meta.keys()) != required_meta_keys:
+            raise ValueError(
+                "vector_overlap_diagnostic meta must contain exactly "
+                f"{sorted(required_meta_keys)}; got {sorted(meta.keys())}"
+            )
+
+        return data
+
+    @staticmethod
+    def _existing_vector_overlap_markers_valid(
+        content: str, meta: Dict[str, Any]
+    ) -> bool:
+        """Validate required markers on an already-stored diagnostic row."""
+
+        try:
+            data = json.loads(content or "{}")
+        except Exception:
+            return False
+        if not isinstance(data, dict) or not isinstance(meta, dict):
+            return False
+        if data.get("diagnostic") != VECTOR_OVERLAP_DIAGNOSTIC_PROTOCOL:
+            return False
+        if meta.get("diagnostic") != VECTOR_OVERLAP_DIAGNOSTIC_PROTOCOL:
+            return False
+        if meta.get("source") != VECTOR_OVERLAP_DIAGNOSTIC_SOURCE:
+            return False
+        about = meta.get("about_event")
+        target = data.get("target_selection_id")
+        if type(about) is not int or about < 1:
+            return False
+        if type(target) is not int or target != about:
+            return False
+        return True
+
+    def append_vector_overlap_diagnostic(
+        self,
+        *,
+        content: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> tuple[Optional[int], bool]:
+        """Atomically record one weak-overlap diagnostic for a v2 selection.
+
+        Returns ``(event_id, created)``. Ineligible or missing targets return
+        ``(None, False)`` without inserting. A second call for the same
+        ``about_event`` returns the existing id with ``created=False`` when the
+        existing row still carries valid protocol markers.
+        """
+
+        session = self._require_writer()
+        with session.operation():
+            return self._append_vector_overlap_diagnostic_owned(
+                content=content, meta=meta
+            )
+
+    def _append_vector_overlap_diagnostic_owned(
+        self,
+        *,
+        content: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> tuple[Optional[int], bool]:
+        close_meta = dict(meta or {})
+        parsed = self._parse_vector_overlap_diagnostic_payload(content, close_meta)
+        about_event = int(close_meta["about_event"])
+        # Re-canonicalize content so key order is stable for hashing.
+        content = _canonical_json(parsed)
+
+        session = self._require_writer()
+        ts = _iso_now()
+        with session.operation(), self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                session.assert_authority_in_transaction(self._conn)
+
+                target = self._conn.execute(
+                    "SELECT id, kind, content FROM events WHERE id = ?",
+                    (about_event,),
+                ).fetchone()
+                if target is None:
+                    self._conn.commit()
+                    return None, False
+                if target["kind"] != "retrieval_selection":
+                    self._conn.commit()
+                    return None, False
+                if not self.is_strict_v2_retrieval_selection_content(
+                    target["content"] or ""
+                ):
+                    self._conn.commit()
+                    return None, False
+
+                existing = self._conn.execute(
+                    """
+                    SELECT id, content, meta FROM events
+                    WHERE kind = ?
+                      AND json_type(meta, '$.about_event') = 'integer'
+                      AND json_extract(meta, '$.about_event') = ?
+                    ORDER BY id ASC LIMIT 1
+                    """,
+                    (VECTOR_OVERLAP_DIAGNOSTIC_KIND, about_event),
+                ).fetchone()
+                if existing is not None:
+                    existing_meta = json.loads(existing["meta"] or "{}")
+                    if not self._existing_vector_overlap_markers_valid(
+                        existing["content"] or "", existing_meta
+                    ):
+                        self._conn.rollback()
+                        raise ValueError(
+                            "existing vector_overlap_diagnostic failed marker "
+                            f"revalidation for about_event={about_event}"
+                        )
+                    self._conn.commit()
+                    return int(existing["id"]), False
+
+                row = self._conn.execute(
+                    "SELECT hash FROM events ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                prev_hash = row["hash"] if row and row["hash"] else None
+                payload = {
+                    "kind": VECTOR_OVERLAP_DIAGNOSTIC_KIND,
+                    "content": content,
+                    "meta": close_meta,
+                    "prev_hash": prev_hash,
+                }
+                digest = sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+                try:
+                    cur = self._conn.execute(
+                        "INSERT INTO events "
+                        "(ts, kind, content, meta, prev_hash, hash) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            ts,
+                            VECTOR_OVERLAP_DIAGNOSTIC_KIND,
+                            content,
+                            _canonical_json(close_meta),
+                            prev_hash,
+                            digest,
+                        ),
+                    )
+                except sqlite3.IntegrityError:
+                    # Concurrent create: re-read and return existing if valid.
+                    raced = self._conn.execute(
+                        """
+                        SELECT id, content, meta FROM events
+                        WHERE kind = ?
+                          AND json_type(meta, '$.about_event') = 'integer'
+                          AND json_extract(meta, '$.about_event') = ?
+                        ORDER BY id ASC LIMIT 1
+                        """,
+                        (VECTOR_OVERLAP_DIAGNOSTIC_KIND, about_event),
+                    ).fetchone()
+                    if raced is None:
+                        self._conn.rollback()
+                        raise
+                    raced_meta = json.loads(raced["meta"] or "{}")
+                    if not self._existing_vector_overlap_markers_valid(
+                        raced["content"] or "", raced_meta
+                    ):
+                        self._conn.rollback()
+                        raise ValueError(
+                            "raced vector_overlap_diagnostic failed marker "
+                            f"revalidation for about_event={about_event}"
+                        )
+                    self._conn.commit()
+                    return int(raced["id"]), False
+
+                event_id = int(cur.lastrowid)
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+        self._emit(
+            {
+                "id": event_id,
+                "ts": ts,
+                "kind": VECTOR_OVERLAP_DIAGNOSTIC_KIND,
+                "content": content,
+                "meta": close_meta,
+                "prev_hash": prev_hash,
+                "hash": digest,
+            }
+        )
+        return event_id, True
+
+    def list_undiagnosed_v2_retrieval_selections(
+        self, *, limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """Return up to ``limit`` oldest eligible undiagnosed v2 selections.
+
+        Malformed JSON content is excluded via ``json_valid`` and never raises.
+        Eligibility requires JSON object content with strict integer
+        ``record_version == 2`` (not real, string, or boolean).
+        """
+
+        if type(limit) is not int or limit < 1:
+            raise ValueError("limit must be a positive int")
+
+        sql = """
+            SELECT s.id, s.ts, s.kind, s.content, s.meta, s.prev_hash, s.hash
+            FROM events AS s
+            WHERE s.kind = 'retrieval_selection'
+              AND json_valid(s.content)
+              AND json_type(s.content) = 'object'
+              AND json_type(s.content, '$.record_version') = 'integer'
+              AND json_extract(s.content, '$.record_version') = 2
+              AND NOT EXISTS (
+                SELECT 1
+                FROM events AS d
+                WHERE d.kind = 'vector_overlap_diagnostic'
+                  AND json_type(d.meta, '$.about_event') = 'integer'
+                  AND json_extract(d.meta, '$.about_event') = s.id
+              )
+            ORDER BY s.id ASC
+            LIMIT ?
+        """
+        with self._lock:
+            cur = self._conn.execute(sql, (limit,))
+            rows = cur.fetchall()
+            out: List[Dict[str, Any]] = []
+            for row in rows:
+                out.append(
+                    {
+                        "id": row["id"],
+                        "ts": row["ts"],
+                        "kind": row["kind"],
+                        "content": row["content"],
+                        "meta": json.loads(row["meta"] or "{}"),
+                        "prev_hash": row["prev_hash"],
+                        "hash": row["hash"],
+                    }
+                )
+        return out
 
     def append_terminal_outcome(
         self,

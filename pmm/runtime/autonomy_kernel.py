@@ -9,7 +9,12 @@ from typing import Any, Callable, Dict, List, Optional
 import json
 import math
 
-from pmm.core.event_log import EventLog, PostCommitProjectionError
+from pmm.core.event_log import (
+    EventLog,
+    PostCommitProjectionError,
+    VECTOR_OVERLAP_DIAGNOSTIC_PROTOCOL,
+    VECTOR_OVERLAP_DIAGNOSTIC_SOURCE,
+)
 from pmm.core.writer_session import WriterOwnershipError
 from pmm.core.mirror import Mirror
 from pmm.core.commitment_manager import CommitmentManager
@@ -764,16 +769,11 @@ class AutonomyKernel:
                 meta={"source": "autonomy_kernel"},
             )
 
-    def _verify_recent_selections(self, N: int = 5) -> None:
-        events = self.eventlog.read_all()
-        # Only verify if there was a recent retrieval_selection; otherwise skip
-        recent_tail = events[-50:]
-        if not any(e.get("kind") == "retrieval_selection" for e in recent_tail):
-            return
-        sels = [e for e in events if e.get("kind") == "retrieval_selection"][-N:]
-        if not sels:
-            return
-        # Load retrieval cfg
+    def _latest_retrieval_embedding_params(
+        self, events: List[Dict[str, Any]]
+    ) -> tuple[str, int]:
+        """Phase 2 parameter source: latest retrieval config, else defaults."""
+
         cfg = None
         for e in reversed(events):
             if e.get("kind") == "config":
@@ -785,130 +785,282 @@ class AutonomyKernel:
                     cfg = d
                     break
         model = str((cfg or {}).get("model", "hash64"))
-        dims = int((cfg or {}).get("dims", 64))
+        try:
+            dims = int((cfg or {}).get("dims", 64))
+        except (TypeError, ValueError):
+            dims = 64
+        if dims < 1:
+            dims = 64
+        return model, dims
+
+    @staticmethod
+    def evaluate_vector_overlap_for_selection(
+        selection_event: Dict[str, Any],
+        ledger_events: List[Dict[str, Any]],
+        *,
+        model: str,
+        dims: int,
+    ) -> Dict[str, Any]:
+        """Pure Phase 2 weak-overlap evaluation for one selection event.
+
+        Returns a result dict with outcome, reason_code, evaluated, turn_id,
+        selected_count, and top_ids. Performs no I/O and does not append.
+        """
+
         from pmm.retrieval.vector import (
             DeterministicEmbedder,
             cosine,
             candidate_messages,
         )
 
-        targeted = len(sels)
-        evaluated = 0
-        mismatch = False
-        for s in sels:
+        turn_id: Optional[int] = None
+        selected_count = 0
+        top_ids: List[int] = []
+
+        def _result(
+            *,
+            outcome: str,
+            reason_code: str,
+            evaluated: int,
+            turn: Optional[int],
+            selected_count: int,
+            top: List[int],
+        ) -> Dict[str, Any]:
+            return {
+                "outcome": outcome,
+                "reason_code": reason_code,
+                "evaluated": evaluated,
+                "turn_id": turn,
+                "selected_count": selected_count,
+                "top_ids": top,
+            }
+
+        try:
+            data = json.loads(selection_event.get("content") or "{}")
+        except Exception:
+            return _result(
+                outcome="inconclusive",
+                reason_code="MALFORMED_SELECTION",
+                evaluated=0,
+                turn=None,
+                selected_count=0,
+                top=[],
+            )
+        if not isinstance(data, dict):
+            return _result(
+                outcome="inconclusive",
+                reason_code="MALFORMED_SELECTION",
+                evaluated=0,
+                turn=None,
+                selected_count=0,
+                top=[],
+            )
+
+        raw_turn = data.get("turn_id")
+        if type(raw_turn) is int:
+            turn_id = raw_turn
+        raw_selected = data.get("selected")
+        if isinstance(raw_selected, list):
+            selected_count = len(raw_selected)
+
+        if type(raw_turn) is not int:
+            return _result(
+                outcome="inconclusive",
+                reason_code="MALFORMED_SELECTION",
+                evaluated=0,
+                turn=None,
+                selected_count=selected_count if isinstance(raw_selected, list) else 0,
+                top=[],
+            )
+        if not isinstance(raw_selected, list):
+            return _result(
+                outcome="inconclusive",
+                reason_code="MALFORMED_SELECTION",
+                evaluated=0,
+                turn=turn_id,
+                selected_count=0,
+                top=[],
+            )
+        if any(type(sid) is not int for sid in raw_selected):
+            return _result(
+                outcome="inconclusive",
+                reason_code="MALFORMED_SELECTION",
+                evaluated=0,
+                turn=turn_id,
+                selected_count=len(raw_selected),
+                top=[],
+            )
+        selected = list(raw_selected)
+        selected_count = len(selected)
+
+        query = ""
+        for e in reversed(ledger_events):
+            eid = e.get("id", 0)
             try:
-                data = json.loads(s.get("content") or "{}")
-            except Exception:
+                eid_int = int(eid)
+            except (TypeError, ValueError):
                 continue
-            if not isinstance(data, dict):
+            if eid_int >= turn_id:
                 continue
-            turn_id = data.get("turn_id")
-            if not isinstance(turn_id, int) or isinstance(turn_id, bool):
-                # Strict identifier typing: booleans are excluded even though
-                # bool is an int subclass, and strings/floats are never
-                # coerced via int(...).
-                continue
-            raw_selected = data.get("selected")
-            if not isinstance(raw_selected, list):
-                continue
-            if any(
-                not isinstance(sid, int) or isinstance(sid, bool)
-                for sid in raw_selected
-            ):
-                continue
-            selected = raw_selected
-            # Find last user_message before turn
-            query = ""
-            for e in reversed(events):
-                if int(e.get("id", 0)) >= turn_id:
-                    continue
-                if e.get("kind") == "user_message":
-                    query = e.get("content") or ""
-                    break
-            if not query:
-                continue
-            cands = candidate_messages(events, up_to_id=turn_id)
-            scored: List[tuple[int, float]] = []
+            if e.get("kind") == "user_message":
+                query = e.get("content") or ""
+                break
+        if not query:
+            return _result(
+                outcome="inconclusive",
+                reason_code="MISSING_QUERY",
+                evaluated=0,
+                turn=turn_id,
+                selected_count=selected_count,
+                top=[],
+            )
 
-            if model == "hash64_tfidf" and cands:
-                # Mirror the TF-IDF weighting used in select_by_vector.
-                df: Dict[str, int] = {}
-                docs_tokens: List[List[str]] = []
-                for ev in cands:
-                    meta = ev.get("meta") or {}
-                    role_ev = meta.get("role") or ""
-                    extra_ev: List[str] = [f"KIND:{ev.get('kind')}"]
-                    if role_ev:
-                        extra_ev.append(f"ROLE:{role_ev}")
-                    base_toks = [t for t in (ev.get("content") or "").split() if t]
-                    toks = extra_ev + base_toks
-                    docs_tokens.append(toks)
-                    for tok in set(toks):
-                        df[tok] = df.get(tok, 0) + 1
-                N = max(1, len(docs_tokens))
-                idf: Dict[str, float] = {}
-                for tok, freq in df.items():
-                    idf[tok] = math.log((N + 1.0) / (freq + 1.0))
+        cands = candidate_messages(ledger_events, up_to_id=turn_id)
+        scored: List[tuple[int, float]] = []
 
-                embedder = DeterministicEmbedder(model=model, dims=dims)
-                qv = embedder.embed(query, idf=idf, extra_tokens=["ROLE:user"])
-                for ev in cands:
-                    eid = int(ev.get("id", 0))
-                    meta = ev.get("meta") or {}
-                    role_ev = meta.get("role") or ""
-                    extra_ev: List[str] = [f"KIND:{ev.get('kind')}"]
-                    if role_ev:
-                        extra_ev.append(f"ROLE:{role_ev}")
-                    vec = embedder.embed(
-                        ev.get("content") or "", idf=idf, extra_tokens=extra_ev
-                    )
-                    sscore = cosine(qv, vec)
-                    scored.append((eid, sscore))
-            else:
-                # Re-compute full precision embeddings using baseline model.
-                embedder = DeterministicEmbedder(model=model, dims=dims)
-                qv = embedder.embed(query)
-                for ev in cands:
-                    eid = int(ev.get("id", 0))
-                    vec = embedder.embed(ev.get("content") or "")
-                    sscore = cosine(qv, vec)
-                    scored.append((eid, sscore))
-            scored.sort(key=lambda t: (-t[1], t[0]))
-            # The selected list may be LARGER than vector results due to Graph/CTL expansion.
-            # AND it may be TRUNCATED (missing lower vector matches) due to recent event priority.
-            # Verification: Ensure AT LEAST ONE of the top vector matches is in the selection.
-            # This handles tie-breaking differences (Oldest vs Newest) where scores are identical.
-            if not scored:
-                # Empty scoring cannot establish inclusion either way.
-                continue
-            # Check top 5 candidates to be safe against sorting variance
-            limit_check = min(len(scored), 5)
-            top_ids = {eid for (eid, _s) in scored[:limit_check]}
-            evaluated += 1
-            if not top_ids.intersection(set(selected)):
-                mismatch = True
+        if model == "hash64_tfidf" and cands:
+            df: Dict[str, int] = {}
+            docs_tokens: List[List[str]] = []
+            for ev in cands:
+                meta = ev.get("meta") or {}
+                role_ev = meta.get("role") or ""
+                extra_ev: List[str] = [f"KIND:{ev.get('kind')}"]
+                if role_ev:
+                    extra_ev.append(f"ROLE:{role_ev}")
+                base_toks = [t for t in (ev.get("content") or "").split() if t]
+                toks = extra_ev + base_toks
+                docs_tokens.append(toks)
+                for tok in set(toks):
+                    df[tok] = df.get(tok, 0) + 1
+            doc_n = max(1, len(docs_tokens))
+            idf: Dict[str, float] = {}
+            for tok, freq in df.items():
+                idf[tok] = math.log((doc_n + 1.0) / (freq + 1.0))
 
-        # Outcome precedence: mismatch, then inconclusive, then overlap_observed.
-        # A positive (overlap_observed) result requires every targeted selection
-        # to have been evaluated, at least one evaluation to have occurred, and
-        # no evaluated selection to lack the required overlap. This diagnostic
-        # never claims complete hybrid retrieval was verified.
-        if mismatch:
-            outcome = "mismatch"
-        elif evaluated == 0 or evaluated < targeted:
-            outcome = "inconclusive"
+            embedder = DeterministicEmbedder(model=model, dims=dims)
+            qv = embedder.embed(query, idf=idf, extra_tokens=["ROLE:user"])
+            for ev in cands:
+                eid = int(ev.get("id", 0))
+                meta = ev.get("meta") or {}
+                role_ev = meta.get("role") or ""
+                extra_ev = [f"KIND:{ev.get('kind')}"]
+                if role_ev:
+                    extra_ev.append(f"ROLE:{role_ev}")
+                vec = embedder.embed(
+                    ev.get("content") or "", idf=idf, extra_tokens=extra_ev
+                )
+                sscore = cosine(qv, vec)
+                scored.append((eid, sscore))
         else:
-            outcome = "overlap_observed"
+            embedder = DeterministicEmbedder(model=model, dims=dims)
+            qv = embedder.embed(query)
+            for ev in cands:
+                eid = int(ev.get("id", 0))
+                vec = embedder.embed(ev.get("content") or "")
+                sscore = cosine(qv, vec)
+                scored.append((eid, sscore))
 
-        msg = (
-            f"vector overlap diagnostic: {outcome} "
-            f"(targeted={targeted}, evaluated={evaluated})"
+        scored.sort(key=lambda t: (-t[1], t[0]))
+        if not scored:
+            return _result(
+                outcome="inconclusive",
+                reason_code="EMPTY_SCORED",
+                evaluated=0,
+                turn=turn_id,
+                selected_count=selected_count,
+                top=[],
+            )
+
+        limit_check = min(len(scored), 5)
+        top_ids = [eid for (eid, _s) in scored[:limit_check]]
+        if not set(top_ids).intersection(set(selected)):
+            return _result(
+                outcome="mismatch",
+                reason_code="NO_OVERLAP",
+                evaluated=1,
+                turn=turn_id,
+                selected_count=selected_count,
+                top=top_ids,
+            )
+        return _result(
+            outcome="overlap_observed",
+            reason_code="OVERLAP",
+            evaluated=1,
+            turn=turn_id,
+            selected_count=selected_count,
+            top=top_ids,
         )
-        self.eventlog.append(
-            kind="reflection",
-            content=json.dumps({"intent": msg, "outcome": outcome, "next": "continue"}),
-            meta={"source": "autonomy_kernel"},
-        )
+
+    @staticmethod
+    def build_vector_overlap_diagnostic_payload(
+        *,
+        target_selection_id: int,
+        evaluation: Dict[str, Any],
+        model: str,
+        dims: int,
+    ) -> tuple[str, Dict[str, Any]]:
+        """Build pinned protocol content and meta for one diagnostic."""
+
+        content_obj = {
+            "diagnostic": VECTOR_OVERLAP_DIAGNOSTIC_PROTOCOL,
+            "outcome": evaluation["outcome"],
+            "reason_code": evaluation["reason_code"],
+            "target_selection_id": int(target_selection_id),
+            "turn_id": evaluation.get("turn_id"),
+            "evaluated": int(evaluation["evaluated"]),
+            "selected_count": int(evaluation["selected_count"]),
+            "top_ids": list(evaluation.get("top_ids") or []),
+            "diagnostic_embedding": {
+                "model": str(model),
+                "dims": int(dims),
+            },
+        }
+        meta = {
+            "source": VECTOR_OVERLAP_DIAGNOSTIC_SOURCE,
+            "about_event": int(target_selection_id),
+            "diagnostic": VECTOR_OVERLAP_DIAGNOSTIC_PROTOCOL,
+        }
+        return json.dumps(content_obj, sort_keys=True, separators=(",", ":")), meta
+
+    def _verify_recent_selections(self, N: int = 5) -> None:
+        """R17 Phase 3: at-most-once per eligible v2 selection (batch size N)."""
+
+        if type(N) is not int or N < 1:
+            N = 5
+
+        candidates = self.eventlog.list_undiagnosed_v2_retrieval_selections(limit=N)
+        if not candidates:
+            return
+
+        events = self.eventlog.read_all()
+        model, dims = self._latest_retrieval_embedding_params(events)
+
+        for selection in candidates:
+            selection_id = int(selection["id"])
+            try:
+                evaluation = self.evaluate_vector_overlap_for_selection(
+                    selection,
+                    events,
+                    model=model,
+                    dims=dims,
+                )
+            except Exception:
+                # Pure-evaluation failures only. Writer/tx errors must propagate.
+                evaluation = {
+                    "outcome": "inconclusive",
+                    "reason_code": "EVALUATOR_ERROR",
+                    "evaluated": 0,
+                    "turn_id": None,
+                    "selected_count": 0,
+                    "top_ids": [],
+                }
+            content, meta = self.build_vector_overlap_diagnostic_payload(
+                target_selection_id=selection_id,
+                evaluation=evaluation,
+                model=model,
+                dims=dims,
+            )
+            self.eventlog.append_vector_overlap_diagnostic(content=content, meta=meta)
 
     def _maybe_append_checkpoint(self, M: int = 50) -> None:
         events = self.eventlog.read_all()
