@@ -234,7 +234,7 @@ production-path analysis.
 
 The Cognitive Charter currently freezes:
 
-- R17 implementation;
+- R17 implementation beyond the published Phases 1–3;
 - the reference-policy matrix;
 - R06 and R07 enforcement;
 - new cognitive semantics;
@@ -246,6 +246,13 @@ The Cognitive Charter currently freezes:
 Documentation may preserve the approved architecture, reconcile governance, and
 organize undecided work. It must stop before selecting or implementing runtime
 changes.
+
+R17 Phases 1–3 are published exceptions to this freeze: vector-parameter
+provenance fidelity (PR #13), weak-overlap outcome semantics (PR #14), and
+attributable, non-repeating diagnostics (PR #15). Their publication does not
+authorize full hybrid-retrieval reproduction, vector-stage correctness,
+mandatory maintenance execution, semantic adjudication, migration, work-register
+governance, Phase 4, or any other further R17 implementation.
 
 ## Summary
 
