@@ -9,6 +9,7 @@ from pmm.core.commitment_manager import CommitmentManager
 from pmm.core.commitment_outcome import (
     OUTCOME_PROTOCOL_V1,
     OUTCOME_VALIDATOR_SOURCE,
+    REINTERPRETATION_PROTOCOL_V1,
     REVIEW_PROTOCOL_V1,
     attempted_relationship_digest,
     canonical_outcome_content,
@@ -497,6 +498,15 @@ def test_relationship_events_do_not_age_mirror_or_change_rsm() -> None:
             "content": "open",
             "meta": {"cid": "c1", "source": "test"},
             "hash": "open-hash",
+        }
+    )
+    mirror.sync(
+        {
+            "id": 102,
+            "kind": "reflection",
+            "content": "{}",
+            "meta": {"protocol": REINTERPRETATION_PROTOCOL_V1},
+            "hash": "reinterpretation-hash",
         }
     )
     before = mirror.rsm_snapshot()

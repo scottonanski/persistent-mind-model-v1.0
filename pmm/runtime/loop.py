@@ -27,6 +27,7 @@ from pmm.core.semantic_extractor import (
     extract_closures,
     extract_commitment_outcomes,
     extract_commitment_reviews,
+    extract_reflection_reinterpretations,
     extract_reflect,
 )
 from pmm.core.concept_graph import ConceptGraph
@@ -59,6 +60,8 @@ from pmm.learning.outcome_tracker import build_outcome_observation_content
 from pmm.core.commitment_outcome import (
     OUTCOME_PROTOCOL_V1,
     REVIEW_PROTOCOL_V1,
+    REINTERPRETATION_PROTOCOL_V1,
+    canonical_reinterpretation_content,
     canonical_review_content,
 )
 from pmm.runtime.indexer import Indexer
@@ -516,6 +519,45 @@ class RuntimeLoop:
                     "origin_event_id": origin_event_id,
                 }
             self.eventlog.append_commitment_outcome_review(content=content, meta=meta)
+
+        reinterpretation_keys = {
+            "cid",
+            "open_event_id",
+            "outcome_event_id",
+            "review_event_id",
+            "reinterpretation",
+        }
+        for raw, candidate in extract_reflection_reinterpretations(lines):
+            if (
+                isinstance(candidate, dict)
+                and set(candidate) == reinterpretation_keys
+            ):
+                content = canonical_reinterpretation_content(
+                    reinterpretation=candidate.get("reinterpretation")
+                )
+                meta = {
+                    "protocol": REINTERPRETATION_PROTOCOL_V1,
+                    "source": "assistant",
+                    "cid": candidate.get("cid"),
+                    "open_event_id": candidate.get("open_event_id"),
+                    "outcome_event_id": candidate.get("outcome_event_id"),
+                    "review_event_id": candidate.get("review_event_id"),
+                    "origin_event_id": origin_event_id,
+                }
+            else:
+                content = (
+                    json.dumps(candidate, sort_keys=True, separators=(",", ":"))
+                    if isinstance(candidate, dict)
+                    else raw
+                )
+                meta = {
+                    "protocol": REINTERPRETATION_PROTOCOL_V1,
+                    "source": "assistant",
+                    "origin_event_id": origin_event_id,
+                }
+            self.eventlog.append_reflection_reinterpretation(
+                content=content, meta=meta
+            )
 
     def _parse_ref_lines(self, content: str) -> None:
         refs: List[str] = []

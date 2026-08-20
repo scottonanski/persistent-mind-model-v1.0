@@ -363,6 +363,20 @@ def _render_threads(
                             f"      - Later review event {review_event_id} "
                             f"(reviews_outcome event {episode.outcome_event_id})"
                         )
+                        for reinterpretation_event_id in (
+                            episode.reinterpretation_event_ids
+                        ):
+                            reinterpretation = (
+                                eventlog.get(reinterpretation_event_id) or {}
+                            )
+                            reinterpretation_meta = reinterpretation.get("meta") or {}
+                            if reinterpretation_meta.get("review_event_id") != review_event_id:
+                                continue
+                            lines.append(
+                                f"        - Reinterpretation event "
+                                f"{reinterpretation_event_id} "
+                                f"(reinterprets review event {review_event_id})"
+                            )
             continue
 
         thread_ids = mg.get_thread_slice(cid, limit=12)
@@ -497,6 +511,7 @@ def _render_retrieval_provenance(result: RetrievalResult) -> str:
             relationship_role = episode.get("relationship_role")
             outcome_event_id = episode.get("outcome_event_id")
             review_event_id = episode.get("review_event_id")
+            reinterpretation_event_id = episode.get("reinterpretation_event_id")
             trigger_event_ids = episode.get("trigger_event_ids") or []
             if relationship_role == "outcome_for" and isinstance(outcome_event_id, int):
                 details.append(
@@ -509,6 +524,19 @@ def _render_retrieval_provenance(result: RetrievalResult) -> str:
                 details.append(
                     f"relationship=reviews_outcome/open-{open_event_id}/"
                     f"outcome-{outcome_event_id}/review-{review_event_id}"
+                )
+            elif relationship_role == "reinterprets" and all(
+                isinstance(value, int)
+                for value in (
+                    outcome_event_id,
+                    review_event_id,
+                    reinterpretation_event_id,
+                )
+            ):
+                details.append(
+                    f"relationship=reinterprets/open-{open_event_id}/"
+                    f"outcome-{outcome_event_id}/review-{review_event_id}/"
+                    f"reinterpretation-{reinterpretation_event_id}"
                 )
             if trigger_event_ids:
                 details.append(

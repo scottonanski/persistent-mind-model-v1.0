@@ -18,8 +18,10 @@ from typing import Dict, List, Iterable, Literal, Optional, Set
 from .event_log import EventLog, TERMINAL_OUTCOME_PROTOCOL
 from .commitment_outcome import (
     OUTCOME_PROTOCOL_V1,
+    REINTERPRETATION_PROTOCOL_V1,
     REVIEW_PROTOCOL_V1,
     is_v1_authoritative_outcome,
+    is_v1_authoritative_reinterpretation,
     is_v1_authoritative_review,
 )
 from .identity_adoption import is_v1_authoritative_identity_adoption
@@ -58,6 +60,7 @@ class CommitmentEpisode:
     closures: tuple[CommitmentClosure, ...]
     outcome_event_id: int | None
     review_event_ids: tuple[int, ...]
+    reinterpretation_event_ids: tuple[int, ...]
     reflection_event_ids: tuple[int, ...]
     event_ids: tuple[int, ...]
     chronological_event_ids: tuple[int, ...]
@@ -243,6 +246,41 @@ class MemeGraph:
                 ):
                     self.graph.add_edge(
                         event_id, outcome_event_id, label="reviews_outcome"
+                    )
+            elif (meta or {}).get("protocol") == REINTERPRETATION_PROTOCOL_V1:
+                managed_check = getattr(
+                    self.eventlog, "is_managed_assistant", lambda _event_id: False
+                )
+                if not is_v1_authoritative_reinterpretation(
+                    event,
+                    self.eventlog.get,
+                    managed_check,
+                    getattr(
+                        self.eventlog,
+                        "is_registered_commitment_outcome",
+                        lambda _event_id: False,
+                    ),
+                    getattr(
+                        self.eventlog,
+                        "is_registered_commitment_review",
+                        lambda _event_id: False,
+                    ),
+                    getattr(
+                        self.eventlog,
+                        "is_registered_reflection_reinterpretation",
+                        lambda _event_id: False,
+                    ),
+                ):
+                    return
+                review_event_id = (meta or {}).get("review_event_id")
+                if (
+                    isinstance(review_event_id, int)
+                    and not isinstance(review_event_id, bool)
+                    and self.graph.has_node(review_event_id)
+                    and self.graph.nodes[review_event_id].get("kind") == "reflection"
+                ):
+                    self.graph.add_edge(
+                        event_id, review_event_id, label="reinterprets"
                     )
             else:
                 about_event = meta.get("about_event")
@@ -616,6 +654,14 @@ class MemeGraph:
                     review_event_ids.append(int(predecessor))
         review_event_ids = sorted(set(review_event_ids))
 
+        reinterpretation_event_ids: list[int] = []
+        for review_event_id in review_event_ids:
+            for predecessor in self.graph.predecessors(review_event_id):
+                edge = self.graph.get_edge_data(predecessor, review_event_id)
+                if (edge or {}).get("label") == "reinterprets":
+                    reinterpretation_event_ids.append(int(predecessor))
+        reinterpretation_event_ids = sorted(set(reinterpretation_event_ids))
+
         event_ids = tuple(
             opening_assistant_ids
             + [open_event_id]
@@ -624,6 +670,7 @@ class MemeGraph:
             + reflection_event_ids
             + ([outcome_event_id] if outcome_event_id is not None else [])
             + review_event_ids
+            + reinterpretation_event_ids
         )
         return CommitmentEpisode(
             cid=cid,
@@ -632,6 +679,7 @@ class MemeGraph:
             closures=tuple(closures),
             outcome_event_id=outcome_event_id,
             review_event_ids=tuple(review_event_ids),
+            reinterpretation_event_ids=tuple(reinterpretation_event_ids),
             reflection_event_ids=tuple(reflection_event_ids),
             event_ids=event_ids,
             chronological_event_ids=tuple(sorted(set(event_ids))),
@@ -706,7 +754,8 @@ class MemeGraph:
         assistant_message (that issued CLOSE, when recorded) ->
         commitment_close (if any, possibly multiple) -> reflections that
         reflect on either assistant_message -> the authoritative v1 outcome ->
-        its v1 later reviews. All ids are stable within each category.
+        its v1 later reviews -> their v1 reinterpretations. All ids are stable
+        within each category.
         """
         episode = self.current_episode_for_cid(cid)
         return list(episode.event_ids) if episode is not None else []
@@ -781,16 +830,28 @@ class MemeGraph:
             elif kind == "reflection":
                 for successor in self.graph.successors(event_id):
                     edge = self.graph.get_edge_data(event_id, successor)
-                    if (edge or {}).get("label") != "reviews_outcome":
-                        continue
-                    for open_node in self.graph.successors(successor):
-                        outcome_edge = self.graph.get_edge_data(successor, open_node)
-                        if (outcome_edge or {}).get("label") != "outcome_for":
-                            continue
-                        open_event = self.eventlog.get(int(open_node)) or {}
-                        cid = (open_event.get("meta") or {}).get("cid")
-                        if isinstance(cid, str) and cid:
-                            cids.add(cid)
+                    label = (edge or {}).get("label")
+                    outcome_nodes: list[int] = []
+                    if label == "reviews_outcome":
+                        outcome_nodes.append(int(successor))
+                    elif label == "reinterprets":
+                        for outcome_node in self.graph.successors(successor):
+                            review_edge = self.graph.get_edge_data(
+                                successor, outcome_node
+                            )
+                            if (review_edge or {}).get("label") == "reviews_outcome":
+                                outcome_nodes.append(int(outcome_node))
+                    for outcome_node in outcome_nodes:
+                        for open_node in self.graph.successors(outcome_node):
+                            outcome_edge = self.graph.get_edge_data(
+                                outcome_node, open_node
+                            )
+                            if (outcome_edge or {}).get("label") != "outcome_for":
+                                continue
+                            open_event = self.eventlog.get(int(open_node)) or {}
+                            cid = (open_event.get("meta") or {}).get("cid")
+                            if isinstance(cid, str) and cid:
+                                cids.add(cid)
                 # Find assistant it reflects on
                 for succ in self.graph.successors(event_id):
                     edge = self.graph.get_edge_data(event_id, succ)

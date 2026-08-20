@@ -14,10 +14,13 @@ from .semantic_extractor import extract_closures
 
 OUTCOME_PROTOCOL_V1 = "commitment_outcome.v1"
 REVIEW_PROTOCOL_V1 = "commitment_outcome_review.v1"
+REINTERPRETATION_PROTOCOL_V1 = "reflection_reinterpretation.v1"
 OUTCOME_CANDIDATE_PREFIX = "COMMITMENT_OUTCOME:"
 REVIEW_CANDIDATE_PREFIX = "COMMITMENT_REVIEW:"
+REINTERPRETATION_CANDIDATE_PREFIX = "REFLECTION_REINTERPRETATION:"
 OUTCOME_VALIDATOR_SOURCE = "commitment_outcome_validator"
 REVIEW_VALIDATOR_SOURCE = "commitment_outcome_review_validator"
+REINTERPRETATION_VALIDATOR_SOURCE = "reflection_reinterpretation_validator"
 
 OUTCOME_CONTENT_KEYS = frozenset({"observation", "evidence_event_ids"})
 OUTCOME_META_KEYS = frozenset(
@@ -41,6 +44,18 @@ REVIEW_META_KEYS = frozenset(
         "origin_event_id",
     }
 )
+REINTERPRETATION_CONTENT_KEYS = frozenset({"reinterpretation"})
+REINTERPRETATION_META_KEYS = frozenset(
+    {
+        "protocol",
+        "source",
+        "cid",
+        "open_event_id",
+        "outcome_event_id",
+        "review_event_id",
+        "origin_event_id",
+    }
+)
 
 GetEvent = Callable[[int], Optional[Dict[str, Any]]]
 IsManagedAssistant = Callable[[int], bool]
@@ -56,9 +71,11 @@ class CommitmentRelationshipValidation:
     open_event_id: Optional[int] = None
     close_event_id: Optional[int] = None
     outcome_event_id: Optional[int] = None
+    review_event_id: Optional[int] = None
     origin_event_id: Optional[int] = None
     observation: str = ""
     interpretation: str = ""
+    reinterpretation: str = ""
     evidence_event_ids: tuple[int, ...] = ()
 
 
@@ -86,6 +103,7 @@ def _fail(
     open_event_id: Optional[int] = None,
     close_event_id: Optional[int] = None,
     outcome_event_id: Optional[int] = None,
+    review_event_id: Optional[int] = None,
     origin_event_id: Optional[int] = None,
 ) -> CommitmentRelationshipValidation:
     return CommitmentRelationshipValidation(
@@ -96,6 +114,7 @@ def _fail(
         open_event_id=open_event_id,
         close_event_id=close_event_id,
         outcome_event_id=outcome_event_id,
+        review_event_id=review_event_id,
         origin_event_id=origin_event_id,
     )
 
@@ -122,7 +141,13 @@ def strip_commitment_relationship_candidates(text: str) -> str:
     return "\n".join(
         line
         for line in str(text or "").splitlines()
-        if not line.startswith((OUTCOME_CANDIDATE_PREFIX, REVIEW_CANDIDATE_PREFIX))
+        if not line.startswith(
+            (
+                OUTCOME_CANDIDATE_PREFIX,
+                REVIEW_CANDIDATE_PREFIX,
+                REINTERPRETATION_CANDIDATE_PREFIX,
+            )
+        )
     )
 
 
@@ -174,6 +199,10 @@ def canonical_review_content(*, interpretation: str) -> str:
     return _canonical_json({"interpretation": interpretation})
 
 
+def canonical_reinterpretation_content(*, reinterpretation: str) -> str:
+    return _canonical_json({"reinterpretation": reinterpretation})
+
+
 def is_outcome_review_protocol(event: Mapping[str, Any] | None) -> bool:
     """True for protocol-shaped reviews, including invalid preserved rows."""
 
@@ -183,8 +212,22 @@ def is_outcome_review_protocol(event: Mapping[str, Any] | None) -> bool:
     return isinstance(meta, Mapping) and meta.get("protocol") == REVIEW_PROTOCOL_V1
 
 
+def is_governed_commitment_reflection_protocol(
+    event: Mapping[str, Any] | None,
+) -> bool:
+    """True for governed review/reinterpretation reflection shapes."""
+
+    if not isinstance(event, Mapping) or event.get("kind") != "reflection":
+        return False
+    meta = event.get("meta") or {}
+    return isinstance(meta, Mapping) and meta.get("protocol") in {
+        REVIEW_PROTOCOL_V1,
+        REINTERPRETATION_PROTOCOL_V1,
+    }
+
+
 def is_commitment_relationship_protocol(event: Mapping[str, Any] | None) -> bool:
-    """True for either v1 relationship shape, including invalid preserved rows."""
+    """True for governed commitment relationship shapes, including invalid rows."""
 
     if not isinstance(event, Mapping):
         return False
@@ -194,9 +237,7 @@ def is_commitment_relationship_protocol(event: Mapping[str, Any] | None) -> bool
     return (
         event.get("kind") == "outcome_observation"
         and meta.get("protocol") == OUTCOME_PROTOCOL_V1
-    ) or (
-        event.get("kind") == "reflection" and meta.get("protocol") == REVIEW_PROTOCOL_V1
-    )
+    ) or is_governed_commitment_reflection_protocol(event)
 
 
 def _assistant_emitted_candidate(
@@ -656,4 +697,195 @@ def is_v1_authoritative_review(
         review_id=event_id,
         is_managed_assistant=is_managed_assistant,
         is_registered_outcome=is_registered_outcome,
+    ).ok
+
+
+def validate_reinterpretation_payload(
+    content: str,
+    meta: Mapping[str, Any],
+    get_event: GetEvent,
+    *,
+    reinterpretation_id: Optional[int] = None,
+    is_managed_assistant: IsManagedAssistant,
+    is_registered_outcome: IsRegisteredRelationship,
+    is_registered_review: IsRegisteredRelationship,
+) -> CommitmentRelationshipValidation:
+    if not isinstance(content, str) or not isinstance(meta, Mapping):
+        return _fail(
+            "INVALID_REINTERPRETATION_STRUCTURE",
+            "reinterpretation requires string content and object meta",
+        )
+    try:
+        data = json.loads(content)
+    except (TypeError, json.JSONDecodeError):
+        return _fail(
+            "INVALID_REINTERPRETATION_STRUCTURE",
+            "reinterpretation content must be JSON",
+        )
+    if not isinstance(data, dict) or set(data) != REINTERPRETATION_CONTENT_KEYS:
+        return _fail(
+            "INVALID_REINTERPRETATION_STRUCTURE",
+            "reinterpretation content must contain only reinterpretation",
+        )
+    if set(meta) != REINTERPRETATION_META_KEYS:
+        return _fail(
+            "INVALID_REINTERPRETATION_STRUCTURE",
+            "reinterpretation meta must contain exactly the v1 relationship fields",
+        )
+    if (
+        meta.get("protocol") != REINTERPRETATION_PROTOCOL_V1
+        or meta.get("source") != "assistant"
+    ):
+        return _fail(
+            "INVALID_REINTERPRETATION_PRODUCER",
+            "reinterpretation requires reflection_reinterpretation.v1 and assistant source",
+        )
+    cid = _canonical_nonempty(meta.get("cid"))
+    reinterpretation = _canonical_nonempty(data.get("reinterpretation"))
+    open_event_id = _positive_int(meta.get("open_event_id"))
+    outcome_event_id = _positive_int(meta.get("outcome_event_id"))
+    review_event_id = _positive_int(meta.get("review_event_id"))
+    origin_event_id = _positive_int(meta.get("origin_event_id"))
+    if (
+        cid is None
+        or reinterpretation is None
+        or None
+        in {
+            open_event_id,
+            outcome_event_id,
+            review_event_id,
+            origin_event_id,
+        }
+    ):
+        return _fail(
+            "INVALID_REINTERPRETATION_STRUCTURE",
+            "reinterpretation requires canonical text, cid, and positive reference ids",
+            cid=str(meta.get("cid") or ""),
+            open_event_id=open_event_id,
+            outcome_event_id=outcome_event_id,
+            review_event_id=review_event_id,
+            origin_event_id=origin_event_id,
+        )
+    assert review_event_id is not None
+    assert origin_event_id is not None
+    if not (review_event_id < origin_event_id):
+        return _fail(
+            "INVALID_REINTERPRETATION_ORDER",
+            "reinterpretation assistant candidate must follow the target review",
+            cid=cid,
+            open_event_id=open_event_id,
+            outcome_event_id=outcome_event_id,
+            review_event_id=review_event_id,
+            origin_event_id=origin_event_id,
+        )
+    if reinterpretation_id is not None and not (origin_event_id < reinterpretation_id):
+        return _fail(
+            "INVALID_REINTERPRETATION_ORDER",
+            "reinterpretation origin must precede the reinterpretation event",
+            cid=cid,
+            open_event_id=open_event_id,
+            outcome_event_id=outcome_event_id,
+            review_event_id=review_event_id,
+            origin_event_id=origin_event_id,
+        )
+    review = get_event(review_event_id)
+    if not isinstance(review, Mapping) or not is_v1_authoritative_review(
+        review,
+        get_event,
+        is_managed_assistant,
+        is_registered_outcome,
+        is_registered_review,
+    ):
+        return _fail(
+            "INVALID_REINTERPRETATION_REVIEW",
+            "review_event_id must identify an authoritative v1 outcome review",
+            cid=cid,
+            open_event_id=open_event_id,
+            outcome_event_id=outcome_event_id,
+            review_event_id=review_event_id,
+            origin_event_id=origin_event_id,
+        )
+    review_meta = review.get("meta") or {}
+    if (
+        review_meta.get("cid") != cid
+        or review_meta.get("open_event_id") != open_event_id
+        or review_meta.get("outcome_event_id") != outcome_event_id
+    ):
+        return _fail(
+            "REINTERPRETATION_EPISODE_MISMATCH",
+            "reinterpretation episode references must match the exact target review",
+            cid=cid,
+            open_event_id=open_event_id,
+            outcome_event_id=outcome_event_id,
+            review_event_id=review_event_id,
+            origin_event_id=origin_event_id,
+        )
+    expected_candidate = {
+        "cid": cid,
+        "open_event_id": open_event_id,
+        "outcome_event_id": outcome_event_id,
+        "reinterpretation": reinterpretation,
+        "review_event_id": review_event_id,
+    }
+    if not _assistant_emitted_candidate(
+        get_event(origin_event_id),
+        get_event=get_event,
+        origin_event_id=origin_event_id,
+        before_event_id=reinterpretation_id,
+        prefix=REINTERPRETATION_CANDIDATE_PREFIX,
+        expected=expected_candidate,
+        is_managed_assistant=is_managed_assistant,
+    ):
+        return _fail(
+            "INVALID_REINTERPRETATION_PRODUCER",
+            "origin_event_id must identify the assistant that emitted the exact reinterpretation candidate",
+            cid=cid,
+            open_event_id=open_event_id,
+            outcome_event_id=outcome_event_id,
+            review_event_id=review_event_id,
+            origin_event_id=origin_event_id,
+        )
+    return CommitmentRelationshipValidation(
+        True,
+        "VALID",
+        "reflection reinterpretation valid",
+        cid=cid,
+        open_event_id=open_event_id,
+        outcome_event_id=outcome_event_id,
+        review_event_id=review_event_id,
+        origin_event_id=origin_event_id,
+        reinterpretation=reinterpretation,
+    )
+
+
+def is_v1_authoritative_reinterpretation(
+    event: Mapping[str, Any],
+    get_event: GetEvent,
+    is_managed_assistant: IsManagedAssistant,
+    is_registered_outcome: IsRegisteredRelationship,
+    is_registered_review: IsRegisteredRelationship,
+    is_registered_reinterpretation: IsRegisteredRelationship,
+) -> bool:
+    if event.get("kind") != "reflection":
+        return False
+    meta = event.get("meta") or {}
+    if (
+        not isinstance(meta, Mapping)
+        or meta.get("protocol") != REINTERPRETATION_PROTOCOL_V1
+    ):
+        return False
+    content = event.get("content")
+    if not isinstance(content, str):
+        return False
+    event_id = _positive_int(event.get("id"))
+    if event_id is None or not is_registered_reinterpretation(event_id):
+        return False
+    return validate_reinterpretation_payload(
+        content,
+        meta,
+        get_event,
+        reinterpretation_id=event_id,
+        is_managed_assistant=is_managed_assistant,
+        is_registered_outcome=is_registered_outcome,
+        is_registered_review=is_registered_review,
     ).ok

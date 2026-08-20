@@ -292,6 +292,7 @@ def run_retrieval_pipeline(
             current_episode = meme_graph.current_episode_for_cid(cid)
             if current_episode is not None:
                 relationship_ids = set(current_episode.review_event_ids)
+                relationship_ids.update(current_episode.reinterpretation_event_ids)
                 if current_episode.outcome_event_id is not None:
                     relationship_ids.add(current_episode.outcome_event_id)
                 slice_ids = [
@@ -522,6 +523,7 @@ def run_retrieval_pipeline(
         episode_event_ids = list(episode.event_ids)
         if not trigger_event_ids:
             relationship_ids = set(episode.review_event_ids)
+            relationship_ids.update(episode.reinterpretation_event_ids)
             if episode.outcome_event_id is not None:
                 relationship_ids.add(episode.outcome_event_id)
             episode_event_ids = [
@@ -556,6 +558,19 @@ def run_retrieval_pipeline(
                         "review_event_id": int(episode_event_id),
                     }
                 )
+            elif episode_event_id in episode.reinterpretation_event_ids:
+                reinterpretation_event = eventlog.get(int(episode_event_id)) or {}
+                reinterpretation_meta = reinterpretation_event.get("meta") or {}
+                episode_detail.update(
+                    {
+                        "relationship_role": "reinterprets",
+                        "outcome_event_id": int(episode.outcome_event_id),
+                        "review_event_id": int(
+                            reinterpretation_meta.get("review_event_id")
+                        ),
+                        "reinterpretation_event_id": int(episode_event_id),
+                    }
+                )
             event_episode_details.setdefault(int(episode_event_id), []).append(
                 episode_detail
             )
@@ -575,6 +590,8 @@ def run_retrieval_pipeline(
                 continue
             is_relationship = event_id == episode.outcome_event_id or (
                 event_id in episode.review_event_ids
+            ) or (
+                event_id in episode.reinterpretation_event_ids
             )
             if not is_relationship or episode_triggers.get(open_event_id):
                 return True

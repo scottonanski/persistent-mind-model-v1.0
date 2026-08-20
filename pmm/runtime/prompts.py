@@ -58,6 +58,7 @@ MARKER_INSTRUCTIONS = (
     "CLOSE: <CID>\n"
     'COMMITMENT_OUTCOME:{"cid":"<CID>","open_event_id":<id>,"close_event_id":<id>,"observation":"<what happened>","evidence_event_ids":[<ids>]}\n'
     'COMMITMENT_REVIEW:{"cid":"<CID>","open_event_id":<id>,"outcome_event_id":<id>,"interpretation":"<what it came to mean>"}\n'
+    'REFLECTION_REINTERPRETATION:{"cid":"<CID>","open_event_id":<id>,"outcome_event_id":<id>,"review_event_id":<id>,"reinterpretation":"<what the exact review now means>"}\n'
     "CLAIM:<type>=<json>\n"
     "REFLECT:<json>\n"
     "One marker per line, starting exactly at column 0 with no leading spaces, indentation, or markdown. "
@@ -149,7 +150,11 @@ def compose_system_prompt(
         "Use COMMITMENT_OUTCOME only after the exact episode has an authoritative close, "
         "and only with ledger IDs visible in context. One outcome is allowed per open_event_id.\n"
         "Use COMMITMENT_REVIEW only on a later turn to interpret an existing exact outcome.\n"
-        "Never infer these relationships from CID text, closure, or ordinary reflection."
+        "Use REFLECTION_REINTERPRETATION only on a later turn to reinterpret one exact "
+        "authoritative COMMITMENT_REVIEW. The target may not be an ordinary reflection "
+        "or another reinterpretation.\n"
+        "Never infer these relationships from CID text, closure, chronology, similarity, "
+        "or ordinary reflection."
     )
 
     return "\n\n".join(parts)
