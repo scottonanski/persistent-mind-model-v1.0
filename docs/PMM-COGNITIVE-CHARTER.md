@@ -29,6 +29,12 @@ Current code does not silently redefine the intended architecture merely because
 it already exists. The charter does not turn intended behavior into an
 implemented guarantee merely by describing it.
 
+The technical and architectural prose in `LICENSE.md` is part of the PMM-1.0
+license and prior-art disclosure. It records historical design claims and legal
+terms; it does not supersede this charter, current production code, or the
+System Guide as a description of present implementation. This classification
+does not alter the license terms.
+
 ## Cognitive lifecycle
 
 PMM is directed toward a reconstructable lifecycle:

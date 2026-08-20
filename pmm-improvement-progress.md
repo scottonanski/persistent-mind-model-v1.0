@@ -1,6 +1,6 @@
 # PMM Current Status and Roadmap
 
-**Baseline:** `cbb477040d18fb443f681cee2d29b3d0ba9cd758` on `main`
+**Audited runtime baseline:** `cbb477040d18fb443f681cee2d29b3d0ba9cd758`
 
 **Status date:** 2026-08-20
 
