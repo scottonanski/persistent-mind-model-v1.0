@@ -616,6 +616,10 @@ class EventLog:
     def _append_owned(
         self, *, kind: str, content: str, meta: Optional[Dict[str, Any]] = None
     ) -> int:
+        if kind == "commitment_open":
+            event_id, _ = self.append_commitment_open(content=content, meta=meta)
+            return event_id
+
         if kind == "commitment_close":
             event_id, _ = self.append_commitment_close(content=content, meta=meta)
             if event_id is None:
@@ -826,6 +830,111 @@ class EventLog:
         }
         self._emit(ev, canonical_created=canonical_created)
         return ev_id
+
+    def append_commitment_open(
+        self,
+        *,
+        content: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> tuple[int, bool]:
+        session = self._require_writer()
+        with session.operation():
+            return self._append_commitment_open_owned(content=content, meta=meta)
+
+    def _append_commitment_open_owned(
+        self,
+        *,
+        content: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> tuple[int, bool]:
+        """Atomically record at most one active commitment_open per CID.
+
+        Returns ``(event_id, created)``. When the CID's latest lifecycle event
+        is already a ``commitment_open``, that open's id is returned with
+        ``created=False`` and no canonical event is appended. A CID with no
+        lifecycle history, or whose latest lifecycle event is an authoritative
+        ``commitment_close``, receives a new open on the normal hash chain, so
+        reopening after a close remains permitted.
+        """
+
+        if not isinstance(content, str):
+            raise TypeError("Commitment open content must be a string")
+
+        open_meta = dict(meta or {})
+        cid = open_meta.get("cid")
+        if not isinstance(cid, str) or not cid.strip():
+            raise ValueError("commitment_open requires non-empty cid")
+        cid = cid.strip()
+        open_meta["cid"] = cid
+
+        session = self._require_writer()
+        ts = _iso_now()
+        with session.operation(), self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                session.assert_authority_in_transaction(self._conn)
+                latest = self._conn.execute(
+                    """
+                    SELECT id, kind FROM events
+                    WHERE kind IN ('commitment_open', 'commitment_close')
+                      AND json_extract(meta, '$.cid') = ?
+                    ORDER BY id DESC LIMIT 1
+                    """,
+                    (cid,),
+                ).fetchone()
+
+                if latest is not None and latest["kind"] == "commitment_open":
+                    self._conn.commit()
+                    return int(latest["id"]), False
+
+                row = self._conn.execute(
+                    "SELECT hash FROM events ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                prev_hash = row["hash"] if row and row["hash"] else None
+                payload = {
+                    "kind": "commitment_open",
+                    "content": content,
+                    "meta": open_meta,
+                    "prev_hash": prev_hash,
+                }
+                digest = sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+                cur = self._conn.execute(
+                    "INSERT OR IGNORE INTO events "
+                    "(ts, kind, content, meta, prev_hash, hash) "
+                    "VALUES (?, 'commitment_open', ?, ?, ?, ?)",
+                    (ts, content, _canonical_json(open_meta), prev_hash, digest),
+                )
+                if cur.rowcount == 0:
+                    # Identical digest already on the chain: keep the generic
+                    # append's hash-idempotent behavior rather than inserting.
+                    existing = self._conn.execute(
+                        "SELECT id FROM events WHERE hash = ?", (digest,)
+                    ).fetchone()
+                    if existing is None:
+                        raise RuntimeError(
+                            "Invariant violation: hash conflict without row"
+                        )
+                    self._conn.commit()
+                    return int(existing["id"]), False
+
+                event_id = int(cur.lastrowid)
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+        self._emit(
+            {
+                "id": event_id,
+                "ts": ts,
+                "kind": "commitment_open",
+                "content": content,
+                "meta": open_meta,
+                "prev_hash": prev_hash,
+                "hash": digest,
+            }
+        )
+        return event_id, True
 
     def append_commitment_close(
         self,

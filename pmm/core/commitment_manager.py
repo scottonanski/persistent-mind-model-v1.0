@@ -55,15 +55,31 @@ class CommitmentManager:
 
     # General (non-internal) commitments opened by assistant/user
     def open_commitment(self, text: str, *, source: str = "assistant") -> str:
-        """Open a general commitment with canonical cid and schema-compliant meta.
+        """Open a general commitment and return its CID.
+
+        Compatibility wrapper around ``open_commitment_status``. Callers that
+        must distinguish a newly created open from reuse of an already-active
+        CID should use the status API.
+        """
+        cid, _created = self.open_commitment_status(text, source=source)
+        return cid
+
+    def open_commitment_status(
+        self, text: str, *, source: str = "assistant"
+    ) -> tuple[str, bool]:
+        """Open a general commitment and report whether a canonical open was created.
 
         - cid: first 8 hex of sha1(text)
         - origin: one of VALID_COMMITMENT_ORIGINS (defaults to 'assistant')
         - text: original commitment text (for display/graph matching)
+
+        Returns ``(cid, created)``. Empty text returns ``("", False)``. When
+        the CID is already actively open, EventLog records no second
+        ``commitment_open`` and ``created`` is False.
         """
         text = (text or "").strip()
         if not text:
-            return ""
+            return "", False
         cid = sha1(text.encode("utf-8")).hexdigest()[:8]
         meta: Dict[str, Any] = {
             "cid": cid,
@@ -74,12 +90,11 @@ class CommitmentManager:
         impact = CommitmentEvaluator(self.eventlog).compute_impact_score(text)
         meta["impact_score"] = impact
         validate_event({"kind": "commitment_open", "meta": meta})
-        self.eventlog.append(
-            kind="commitment_open",
+        _event_id, created = self.eventlog.append_commitment_open(
             content=f"Commitment opened: {text}",
             meta=meta,
         )
-        return cid
+        return cid, created
 
     def close_commitment(
         self,
