@@ -24,6 +24,7 @@ from pmm.core.concept_metrics import check_concept_health
 from pmm.core.concept_schemas import create_concept_bind_event_payload
 from pmm.core.binding_attribution import binding_attribution_meta
 from pmm.runtime.reflection_synthesizer import synthesize_kernel_reflection
+from pmm.core.commitment_outcome import is_outcome_review_protocol
 from pmm.context.context_graph import ContextGraph
 from pmm.stability.stability_monitor import (
     calculate_stability_metrics,
@@ -1193,7 +1194,7 @@ class AutonomyKernel:
                     data = {}
                 if (data or {}).get("decision") == "idle":
                     idle_count += 1
-            elif k == "reflection":
+            elif k == "reflection" and not is_outcome_review_protocol(e):
                 reflect_count += 1
                 last_reflection_id = int(e.get("id", 0))
                 # Count reflections that use the {intent,...} shape

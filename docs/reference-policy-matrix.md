@@ -6,11 +6,16 @@
 - **Method:** PMM development-auditor; current production paths before historical material
 - **Change authority:** Analysis and documentation only. This document does not authorize runtime, schema, migration, default, or semantic-policy changes.
 
+> **Post-audit status:** The matrix is an audit snapshot of the revision above.
+> Its selected R06 guarantee was subsequently implemented, verified, published,
+> and merged in `b0f139d13f7ca360751556830168694ff4aafd8c`. Current next-surface
+> selection is maintained in `pmm-improvement-progress.md`.
+
 ## Purpose and reading rules
 
-This matrix records what the current working-tree implementation does with PMM's reference-bearing structures. It does not restore the deleted historical inventory and does not convert its `R01`-`R28` labels into roadmap stages.
+This matrix records what the audited implementation did with PMM's reference-bearing structures at the revision named above. It does not restore the deleted historical inventory and does not convert its `R01`-`R28` labels into roadmap stages.
 
-Requiredness below describes current code, not desired policy:
+Requiredness below describes code at the audited revision, not desired policy:
 
 - **Required**: the named producer or append boundary cannot create the promoted form without the field.
 - **Optional**: omission is accepted and the event or enclosing structure can still be canonical or promoted.
@@ -123,9 +128,9 @@ The current substrate can host stricter reference policies without replacing its
 - Whether diagnostic and learning records may influence cognitive retrieval without validated provenance.
 - How semantic adequacy is adjudicated. No deterministic structural check here proves it.
 
-## Selected next relational surface: R06 identity adoption
+## Post-audit disposition: R06 identity adoption completed
 
-R06 is selected only for a proposal, not implementation. It is a bounded high-impact surface where current canonical promotion can change identity retrieval while the relationship lacks explicit subject/anchor governance.
+At this audit boundary, R06 was selected only for a proposal, not implementation. It was a bounded high-impact surface where canonical promotion could change identity retrieval while the relationship lacked explicit subject/anchor governance.
 
 ### Proposed falsifiable guarantee
 
@@ -140,7 +145,7 @@ This is falsified by any governed append that creates an adoption with a missing
 - Whether operator-authored/direct adoptions are forbidden or use a separately authorized protocol.
 - Failure-event shape and whether legacy adoptions are preserved-only or remain projected during rebuild.
 
-No choice above is settled by this audit. Implementation requires separate authorization.
+No choice above was settled by this audit. Those choices were subsequently authorized and resolved by R06 v1; its implementation and lifecycle verification are recorded in commit `bf180d28125ad8f37ad51c65bcc86c76eee4a2cc`, merged on `main` at `b0f139d13f7ca360751556830168694ff4aafd8c`.
 
 ## Verification at the audit boundary
 
@@ -197,4 +202,4 @@ Post-change verification:
 : Full suite: `548 passed in 22.49s`; documentation whitespace check passed; no runtime post-change lifecycle audit is applicable because runtime code was not changed.
 
 Proposed changes:
-: One R06 guarantee is proposed above. No implementation, schema, migration, default, or semantic adjudication is authorized by this document.
+: At the audited boundary, one R06 guarantee was proposed above. This audit document itself authorized no implementation, schema, migration, default, or semantic adjudication; the later R06 work proceeded under separate authorization.

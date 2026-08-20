@@ -10,6 +10,10 @@ import json
 from typing import Any, Deque, Dict, Iterable, List, Optional, Tuple
 
 from .event_log import EventLog
+from .commitment_outcome import (
+    is_commitment_relationship_protocol,
+    strip_commitment_relationship_candidates,
+)
 from .concept_metrics import compute_concept_metrics
 
 
@@ -82,7 +86,11 @@ class RecursiveSelfModel:
         # After full rebuild, ensure uniqueness cache reflects all events.
         if self.eventlog is not None:
             try:
-                all_events = self.eventlog.read_all()
+                all_events = [
+                    event
+                    for event in self.eventlog.read_all()
+                    if not is_commitment_relationship_protocol(event)
+                ]
                 self._unique_prefixes = {
                     (e.get("hash") or "")[:8] for e in all_events if e.get("hash")
                 }
@@ -94,6 +102,8 @@ class RecursiveSelfModel:
     def observe(self, event: Optional[Dict[str, Any]]) -> None:
         """Process a single event incrementally."""
         if not event:
+            return
+        if is_commitment_relationship_protocol(event):
             return
         kind = event.get("kind")
         if kind == "rsm_update":
@@ -110,6 +120,8 @@ class RecursiveSelfModel:
         self._event_index += 1
         event_idx = self._event_index
         content = (event.get("content") or "").strip()
+        if event.get("kind") == "assistant_message":
+            content = strip_commitment_relationship_candidates(content).strip()
         content_lower = content.lower()
         meta = event.get("meta") or {}
         # Track uniqueness from event hash prefix

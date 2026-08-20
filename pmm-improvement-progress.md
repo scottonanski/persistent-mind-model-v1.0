@@ -1,6 +1,6 @@
 # PMM Current Status and Roadmap
 
-**Audited runtime baseline:** `cbb477040d18fb443f681cee2d29b3d0ba9cd758`
+**Audited runtime baseline:** `b0f139d13f7ca360751556830168694ff4aafd8c`
 
 **Status date:** 2026-08-20
 
@@ -44,6 +44,10 @@ mechanism.
   provenance on new assistant-produced events.
 - A stable CID can expose separate current and historical open-to-close episodes
   without flattening them into one current obligation.
+- R06 v1 makes governed identity adoption subject/token-specific, requires an
+  explicitly related reflection anchor and assistant claim provenance, records
+  typed rejection, and filters legacy or invalid adoptions from authoritative
+  projections.
 - Vector-overlap maintenance records bounded, attributable diagnostics without
   presenting them as complete retrieval verification.
 
@@ -53,8 +57,6 @@ mechanism.
 - Declared evidence can be referentially valid without being relationally or
   semantically adequate.
 - Unknown structured claim types still have a fail-open compatibility path.
-- Identity adoption enforces temporal ordering but not anchor relevance or full
-  actor/subject/object role separation.
 - Reflection and self-model terminology still covers mechanisms with different
   cognitive meaning.
 - Concept supersession lacks a complete ledger-aware relationship policy.
@@ -66,44 +68,56 @@ mechanism.
   yet mandatory.
 - Semantic adequacy remains unresolved; typed structure does not prove meaning.
 
-## Next task
+## Completed since the prior baseline
 
-### Reference-policy matrix audit
+- The reference-policy matrix audit inventoried the current reference-bearing
+  and authority surfaces and selected R06 identity adoption for a bounded
+  falsifiable guarantee.
+- R06 v1 policy, implementation, verification, publication, and merge are
+  complete. The implementation is on `main` at the audited baseline above.
+- The bounded commitment outcome/later-review contract was selected from the
+  existing matrix, explicitly authorized, and implemented. It governs one exact
+  outcome per closed commitment episode and zero or more exact later reviews;
+  preserves invalid attempts durably; isolates legacy outcome learning and
+  identity/adaptive consumers; and exposes only validated relationships through
+  MemeGraph and episode-aware retrieval.
+- Post-change verification passed `575` tests, Ruff across `pmm`, exact-diff
+  whitespace checks, rebuild/incremental parity, hostile malformed-input and
+  producer-forgery counterexamples, and final hostile exact-diff review with no
+  actionable high- or medium-severity defect.
 
-Create a current-main matrix of every reference-bearing structure before
-changing runtime policy.
+## Completed next-surface selection
 
-For each field and event type, record:
+The matrix has already supplied the comparison evidence. The remaining
+candidates differ mainly in how directly they advance the cognitive lifecycle
+and how much unsettled policy they require:
 
-- every producer and alternate producer;
-- whether the field is currently forbidden, optional, or required;
-- structural and referential validation;
-- permitted target kinds, ordering, identity, CID, token, version, and
-  cardinality checks;
-- rejection behavior and what historical form remains;
-- every projection, retrieval path, and authoritative consumer;
-- fail-open, compatibility, and silent-degradation paths;
-- policy questions that remain unresolved.
+| Candidate | Matrix-grounded selection note |
+|---|---|
+| Identity conflict, replacement, and coherence | Important after adoption, but conflict authority and replacement semantics remain wholly unsettled. |
+| Reflection-target and reinterpretation roles | R02 is optional and weakly checked, making this central but broad unless narrowed to one role. |
+| Concept supersession and version history | R10 has concrete lineage, ordering, version, successor, and cycle gaps; primarily topology hardening. |
+| Forced-concept relevance and attractor control | R13/R14/R23 can steer retrieval without complete target or authority checks; relevance policy remains unresolved. |
+| Hybrid-retrieval reproducibility / vector verification | R17/R17D provide attributable diagnostics but do not reproduce or prove the full hybrid selection. |
+| Diagnostic, telemetry, summary, and maintenance isolation | Several rows can influence projections or replay, but this spans multiple distinct producers and consumers. |
+| Governed commitment outcome and later review | R07/R08 already identify exact episodes, while episode consumers lack mandatory outcome and later-review links. |
+| Controlled generation retry | A runtime reliability policy, less directly relational than the current roadmap direction. |
+| Concept-authorship experiment | Explicitly bounded nonproduction research whose stopping conditions remain closed. |
+| Continuity-fallback ablation | Explicitly bounded to its isolated experiment harness rather than a production relational guarantee. |
 
-The audit must include claims and evidence, reflection targets, identity
-proposal/anchor/ratification/adoption relationships, concept supersession and
-bindings, commitment open/close provenance and episode selection, terminal
-managed-turn links, summaries, diagnostics, and retrieval records.
+**Selected and completed:** the governed commitment outcome and later-review
+lifecycle, bounded to explicit links from an outcome and a later review to one
+exact commitment episode. It extends the governed R07/R08 episode substrate into
+the missing `commitment -> outcome -> later reinterpretation` portion of PMM's
+stated cognitive lifecycle. The implemented contract is recorded in
+`docs/commitment-outcome-later-review-policy.md`.
 
-This is a read-only architecture audit. It does not authorize a schema,
-migration, default change, semantic adjudicator, or runtime enforcement patch.
-
-## After the matrix
-
-Select one relational surface and define one falsifiable enforcement guarantee.
-R06 identity-role separation is a plausible candidate because the current
-identity structure cannot uniformly distinguish asserting actor, subject,
-predicate, object, and evidence. The completed matrix must confirm the choice;
-this roadmap does not pre-authorize it.
+There is no authorized next implementation after this bounded surface. The
+remaining candidates below require a new selection and explicit authorization.
 
 ## Later candidates
 
-These are unselected. Their order is not priority.
+These remain unselected. Their order is not priority.
 
 - Identity conflict, replacement, and coherence policy.
 - Reflection-target and reinterpretation role integrity.
@@ -113,7 +127,6 @@ These are unselected. Their order is not priority.
   verification.
 - Isolation of diagnostics, telemetry, summaries, and maintenance from cognitive
   projections.
-- A governed commitment outcome and later-review lifecycle.
 - Controlled generation retry policy.
 - Further concept-authorship research only after its nonproduction stopping
   conditions are deliberately reopened.

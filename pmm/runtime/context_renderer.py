@@ -353,6 +353,16 @@ def _render_threads(
                     f"  - {role_label} (open event {open_event_id}): "
                     f"{status} - {str(goal)[:80]}"
                 )
+                if episode.outcome_event_id is not None:
+                    lines.append(
+                        f"    - Outcome event {episode.outcome_event_id} "
+                        f"(outcome_for open event {open_event_id})"
+                    )
+                    for review_event_id in episode.review_event_ids:
+                        lines.append(
+                            f"      - Later review event {review_event_id} "
+                            f"(reviews_outcome event {episode.outcome_event_id})"
+                        )
             continue
 
         thread_ids = mg.get_thread_slice(cid, limit=12)
@@ -484,6 +494,27 @@ def _render_retrieval_provenance(result: RetrievalResult) -> str:
             role = episode.get("role")
             if cid and isinstance(open_event_id, int) and role:
                 details.append(f"episode={cid}/open-{open_event_id}/{role}")
+            relationship_role = episode.get("relationship_role")
+            outcome_event_id = episode.get("outcome_event_id")
+            review_event_id = episode.get("review_event_id")
+            trigger_event_ids = episode.get("trigger_event_ids") or []
+            if relationship_role == "outcome_for" and isinstance(outcome_event_id, int):
+                details.append(
+                    f"relationship=outcome_for/open-{open_event_id}/"
+                    f"outcome-{outcome_event_id}"
+                )
+            elif relationship_role == "reviews_outcome" and all(
+                isinstance(value, int) for value in (outcome_event_id, review_event_id)
+            ):
+                details.append(
+                    f"relationship=reviews_outcome/open-{open_event_id}/"
+                    f"outcome-{outcome_event_id}/review-{review_event_id}"
+                )
+            if trigger_event_ids:
+                details.append(
+                    "episode_triggers="
+                    + ",".join(str(trigger_id) for trigger_id in trigger_event_ids)
+                )
         for score_name in sorted(scores):
             try:
                 score = float(scores[score_name])

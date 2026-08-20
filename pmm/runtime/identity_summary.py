@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 import json
 
 from pmm.core.event_log import EventLog
+from pmm.core.commitment_outcome import is_outcome_review_protocol
 from pmm.core.mirror import Mirror
 
 
@@ -29,7 +30,11 @@ def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
     """
     events = eventlog.read_tail(limit=500)
     since = _events_since_last(events, "summary_update")
-    reflections = [e for e in since if e.get("kind") == "reflection"]
+    reflections = [
+        e
+        for e in since
+        if e.get("kind") == "reflection" and not is_outcome_review_protocol(e)
+    ]
     # Derive open commitments via Mirror for canonical meta-based state
     mirror = Mirror(eventlog, enable_rsm=True, listen=False)
     open_commitments = len(mirror.get_open_commitment_events())
