@@ -1,265 +1,248 @@
 # PMM System Guide
 
-This is the plain-language guide to the Persistent Mind Model as it exists in the repository today. It was checked against production code at commit `adf3e57df35f8141b9a88f72e6be0b548286b18e`.
+This guide describes Persistent Mind Model as implemented on the current
+documentation baseline. Current production code remains authoritative if this
+guide and the repository diverge.
 
-It explains what PMM does, how its parts fit together, and where its present guarantees stop. It is not a statement that every recorded claim is true, every relationship is semantically justified, or every planned integrity rule has been implemented.
+## System model
 
-## What PMM is now
-
-PMM is a persistent runtime around a language model. It records a conversation and the system activity around it in a SQLite event ledger, derives useful working views from that ledger, retrieves a bounded selection of prior material for each new turn, and gives that material to the next model call.
-
-The language model still generates the words. PMM supplies continuity around those generations:
-
-- what the user and assistant previously said;
-- which structured statements passed the validator that handled them;
-- which commitments are currently open;
-- which events, concepts, and commitment threads are connected;
-- which earlier events were selected for the current turn;
-- which summaries, reflections, and operational decisions were recorded.
-
-The most useful mental model is:
+PMM wraps model generation with a persistent event ledger and deterministic
+runtime services:
 
 ```text
-persisted events
-    -> validated typed events
-    -> rebuildable projections
-    -> bounded retrieval
-    -> model-visible context
-    -> a new response and new events
+EventLog
+  -> required projections: Mirror, MemeGraph, ConceptGraph
+  -> bounded retrieval and context rendering
+  -> model adapter
+  -> preserved result or explicit failure
+  -> structured extraction, validation, and governed writes
 ```
 
-These stages must remain separate. A model utterance is history, not automatically a fact. A typed event means a production path accepted a structure under its current rules, not that its meaning is universally true. A graph edge is a deterministic relationship recorded or inferred by code, not proof of semantic relevance.
+The language model generates text. PMM records that text, reconstructs selected
+state from prior events, and governs specific structured consequences. PMM does
+not treat fluent self-description as proof of identity, correctness, or semantic
+warrant.
 
-## The current architecture
+## Canonical history and writer governance
 
-```mermaid
-flowchart TD
-    U[User or CLI] --> L[RuntimeLoop]
-    L -->|append user_message| E[(EventLog / SQLite ledger)]
+`pmm/core/event_log.py` stores canonical events in SQLite. Events include a
+hash-linked predecessor and content digest so chain integrity can be checked.
 
-    E --> M[Mirror]
-    E --> G[MemeGraph]
-    E --> C[ConceptGraph / CTL]
+Managed writers acquire database-scoped ownership with a fencing token.
+Canonical predecessor selection and guarded inserts occur inside the write
+transaction. Competing managed writers do not silently share authority.
 
-    M --> R[Retrieval pipeline]
-    G --> R
-    C --> R
-    E --> R
-    R --> X[Context renderer]
-    X --> L
+Some generic append calls route into specialized transactional boundaries. In
+particular, commitment opens and closes and vector-overlap diagnostics receive
+additional lifecycle validation. A governed append path is not equivalent to
+uniform schema or semantic validation for every event kind.
 
-    L --> A[Model adapter]
-    A -->|generated text or failure| L
+## Required projections
 
-    L --> P[Exact-prefix parsers<br/>validators and managers]
-    P -->|canonical events or validation failures| E
+`RuntimeLoop` registers three required projections before graph-dependent work:
 
-    K[Autonomy supervisor and kernel] -->|ticks and maintenance events| E
-    E --> K
+- `Mirror` provides fast operational state such as open commitments and
+  staleness.
+- `MemeGraph` reconstructs selected event relationships and managed-turn links.
+- `ConceptGraph` reconstructs concepts, aliases, relations, and bindings.
+
+Each projection is rebuilt from canonical history and registered for incremental
+delivery while the EventLog prevents a gap between replay and observation. A
+fixed-watermark projection barrier confirms required projections are caught up.
+Required rebuild or delivery failure is explicit and fail-closed for managed
+operation.
+
+The projections are authoritative only within their declared mechanisms. A
+graph edge records a relationship established or inferred by code; it does not
+prove semantic adequacy.
+
+## One managed turn
+
+The primary production path is `RuntimeLoop.run_turn` in
+`pmm/runtime/loop.py`.
+
+1. PMM appends the managed `user_message`.
+2. Required projections are brought through the current canonical watermark.
+3. The retrieval pipeline selects bounded prior context.
+4. PMM renders retrieval, projected state, and one prior completed managed pair.
+5. The adapter receives the system prompt and current user prompt.
+6. A complete generation becomes the turn's `assistant_message`; an incomplete
+   or failed generation becomes a linked `generation_failure`.
+7. PMM records retrieval and turn diagnostics.
+8. Exact-prefix parsers inspect the already-preserved assistant output for
+   commitments, closures, claims, reflections, and concept controls.
+9. Accepted structured effects append new canonical events; rejected extracted
+   claims can append typed validation failures.
+10. Required projections consume the resulting events.
+
+The prior completed managed pair is conversational context, not evidence. Its
+IDs are not added to claim evidence availability or retrieval selection merely
+because the pair is rendered.
+
+## Generation results
+
+Adapters return a provider-neutral result with visible text and a status of
+`complete`, `empty`, `truncated`, or `indeterminate`.
+
+Only a complete generation can become an `assistant_message` and reach semantic
+parsers. Other statuses produce `generation_failure`. Partial visible output may
+remain in the failure record, but it cannot create commitments, claims,
+closures, identity transitions, or concept operations.
+
+The application-level default output budget is 2,048 tokens for built-in
+provider adapters. An explicit argument or `PMM_OUTPUT_BUDGET_TOKENS` overrides
+that default. Unsupported custom adapters fail before canonical turn mutation
+when an enforced budget cannot be honored.
+
+## Retrieval
+
+`pmm/retrieval/pipeline.py` combines several bounded mechanisms:
+
+- concepts seeded from the current event or configuration;
+- events and CIDs bound through `ConceptGraph`;
+- current commitment episodes;
+- independently triggered historical commitment episodes;
+- graph-neighbor expansion;
+- lifetime-memory records and summary search;
+- optional vector refinement using the configured deterministic hash embedding.
+
+The result stores selected event IDs, relevant CIDs, active concepts, per-event
+reason tags, applicable scores, commitment-episode selection metadata, and the
+embedding parameters actually used by vector stages.
+
+Concept-to-CID retrieval selects the current episode by default. A historical
+episode is expanded only when an independently selected base event belongs to
+that exact reconstructed episode, and historical episode count and event count
+have separate caps. Current and historical episodes render separately.
+
+Selection provenance explains mechanics. It does not establish that a selected
+event is true, authoritative, or semantically sufficient evidence.
+
+## Commitments
+
+Assistant commitments use exact `COMMIT:` lines. The CID is derived from the
+commitment text, while each canonical opening remains a distinct historical act.
+
+On governed EventLog paths:
+
+- one CID can have at most one active open;
+- repeating an already active commitment reuses the existing open rather than
+  creating a second one;
+- a close allows a later reopen;
+- a new assistant-produced open records and validates the exact originating
+  assistant event;
+- a close records the exact open event it transitions from;
+- an assistant-produced close records and validates the assistant event that
+  emitted the matching `CLOSE:<cid>` line.
+
+`MemeGraph` reconstructs each open-to-close `CommitmentEpisode`, exposes the
+ordered history for a CID, and preserves whether opening and closing origins are
+explicit, legacy-inferred, absent, or invalid. Legacy history remains immutable.
+
+This establishes bounded lifecycle and provenance integrity. It does not prove
+that two episodes are semantically the same obligation or that closure text
+constitutes genuine fulfillment.
+
+## Claims and evidence
+
+Assistant output can contain `CLAIM:type=JSON` lines. The runtime validates
+successfully extracted candidates before appending canonical `claim` events.
+Rejected candidates can produce `validation_failure` events while the original
+assistant utterance remains in history.
+
+Current limits:
+
+- `evidence_events` can be omitted;
+- declared evidence IDs must exist, and the managed runtime also requires them
+  to have been selected for the turn;
+- existence and selection do not prove that an event is permitted or adequate
+  for the claimed role;
+- `identity_ratify` currently forbids evidence fields;
+- unknown structured claim types currently pass through an
+  `ACCEPTED_UNKNOWN_TYPE` compatibility path.
+
+Malformed exact-prefix JSON may remain only in utterance history because it can
+fail before a typed claim candidate exists.
+
+## Identity adoption
+
+The current identity manager recognizes validated `identity_proposal` and
+`identity_ratify` claims with the same token. Adoption requires a later
+reflection or commitment lifecycle event between proposal and ratification.
+
+That mechanism enforces temporal order for manager-produced adoption. It does
+not establish that the intervening event is relevant to the identity proposal,
+and the registered claim structure does not fully distinguish asserting actor,
+subject, predicate, object, and supporting roles.
+
+## Concepts and bindings
+
+`ConceptGraph` consumes concept definitions, aliases, relations, event bindings,
+and CID-thread bindings. Bindings retain attribution such as operator-declared,
+model-declared, runtime-derived, or legacy-unknown origin when available.
+
+The production concept-operations compiler can define and bind concepts from
+structured assistant metadata. Current supersession handling is not a complete
+ledger-aware version policy: some paths type-check a supplied identifier without
+uniformly enforcing existence, same-token history, ordering, or cycle safety.
+
+## Reflections, summaries, and self-model signals
+
+PMM records several structures that have historically shared reflection-like
+language. Their mechanisms must remain distinct:
+
+- model-authored reflection content is preserved model output;
+- deterministic synthesized reflections summarize bounded runtime deltas;
+- lifetime memory compresses older spans while retaining representative handles;
+- the Recursive Self-Model derives bounded counters and lexical signals;
+- diagnostics and maintenance report operational behavior.
+
+These mechanisms can support later interpretation. They do not themselves prove
+deep semantic introspection or reflective self-governance.
+
+## Autonomy
+
+The one-shot and MCP paths construct `RuntimeLoop` with the background autonomy
+supervisor disabled. Interactive or explicitly configured runtimes may enable
+scheduled autonomy. Autonomous mutations still use governed EventLog paths and
+the same required projections.
+
+Scheduling maintenance is operational autonomy. The full charter lifecycle from
+interpretation through later reinterpretation is not yet a mandatory
+first-class mechanism.
+
+## Entry points
+
+After installation:
+
+```bash
+pmm
+pmm-turn --db ./pmm.db --provider dummy --prompt "Hello"
 ```
 
-The arrows into `Mirror`, `MemeGraph`, and `ConceptGraph` represent deterministic observation of ledger events. Those components do not replace the ledger. They have rebuild paths, although normal runtime startup currently rebuilds `Mirror` and `ConceptGraph` but not the existing `MemeGraph` history. That restart boundary is described under current gaps.
+The equivalent modules are:
 
-## What happens during a normal turn
-
-The production path is `RuntimeLoop.run_turn` in [`pmm/runtime/loop.py`](../pmm/runtime/loop.py).
-
-1. **The user message is persisted.** The runtime appends a `user_message` event. Managed turns use the terminal-outcome protocol so that this user event can have one linked `assistant_message` or `generation_failure`.
-
-2. **PMM prepares retrieval.** The runtime reads the current retrieval configuration, a recent ledger tail, projected open commitments, and concept tokens found in the user query. It asks the retrieval pipeline for a bounded set of prior event IDs. The recent tail's contents are not automatically inserted as a sliding conversation window; prior content must be selected by retrieval to appear as raw evidence.
-
-3. **Retrieval combines several views.** The pipeline can select concept-bound events, commitment-thread slices, graph neighbors, lifetime-memory records, and vector refinements over eligible candidates. It merges them in stable ledger order and retains selection provenance. Selection means “made available to this turn,” not “proved relevant or true.”
-
-4. **The selected state is rendered.** The context renderer turns the result into model-readable sections for concepts, threads, graph structure, state information, optional self-model information, retrieval provenance, and raw event evidence. The normal system prompt and the new user input are added.
-
-5. **The model adapter is called.** A complete generation proceeds to semantic processing. A transport error or incomplete generation becomes a linked `generation_failure` and does not reach commitment, claim, closure, or reflection parsers.
-
-6. **The assistant utterance is preserved first.** PMM appends the complete response as the turn's `assistant_message`. An optional first-line JSON object may declare structured response fields, evidence designations, active concepts, or concept operations. Invalid evidence designations produce a `validation_failure`; they do not erase the assistant's words.
-
-7. **The turn is indexed.** The user and assistant events are bound to active concepts. If the model declared none, the runtime currently applies a continuity fallback. Structured concept operations may create additional concept events. When configured, embeddings are also recorded.
-
-8. **Retrieval and runtime diagnostics are recorded.** A `retrieval_selection` event preserves selected IDs, scores, provenance, and a digest. A `metrics_turn` event records prompt/output measurements and adapter diagnostics.
-
-9. **Deterministic maintenance runs.** The runtime may synthesize a reflection, update a summary, or create a lifetime-memory record according to the applicable thresholds.
-
-10. **Structured lines are interpreted.** Exact-prefix parsers inspect the already-preserved assistant response:
-
-    - `COMMIT:` lines are passed to the commitment manager with the current assistant event ID. A new or previously closed CID may create a `commitment_open` that records that exact origin; an already active CID reuses its existing opening while later bindings may still be recorded.
-    - `CLAIM:type=JSON` lines are validated. Passing claims become canonical `claim` events and receive concept bindings; rejected claims produce `validation_failure` events.
-    - validated identity proposal and ratification claims may lead the identity manager to create an `identity_adoption` event when its ordered protocol is satisfied.
-    - `CLOSE:<cid>` lines are passed through the authoritative commitment-close boundary.
-    - a `REFLECT:` block contributes to a final turn-delta reflection when the turn changed structured state.
-
-11. **Required projections are rebuilt and kept current.** The governed runtime rebuilds `MemeGraph`, `Mirror`, and `ConceptGraph` from canonical history before graph-dependent work, registers required delivery, and confirms fixed-watermark freshness. Required delivery failure is durable and fail-closed. A projection can still accept an event while omitting a semantically unresolved relationship; freshness does not prove semantic adequacy.
-
-The exact number and order of maintenance events between the assistant message and a commitment event can vary with configuration and ledger state. The lifecycle above describes the production control flow, not a promise that every turn has the same event count.
-
-## The major components
-
-| Component | What it does | What it does not establish |
-|---|---|---|
-| `EventLog` | Persists ordered events in SQLite, records `prev_hash` and `hash`, deduplicates identical hash payloads, and provides specialized atomic boundaries for managed turn outcomes and authoritative commitment opens and closes. | It does not make arbitrary direct database edits impossible. Hash checks make chain damage detectable; they do not authenticate the semantic truth of event content. Generic append validation is not uniform across every event kind. |
-| `RuntimeLoop` | Orchestrates one turn: persistence, retrieval, prompt assembly, generation, preservation, extraction, validation, projection-producing events, and diagnostics. | It does not turn model text into truth merely by recording it. |
-| `Mirror` | Maintains fast projected state: open commitments, staleness flags, reflection counts, current retrieval configuration, and optionally the recursive self-model. | It is not primary history. A projection can ignore malformed or unresolved legacy events. |
-| `MemeGraph` | Rebuilds and incrementally maintains a directed event graph for replies, commitments, closes, identity adoption, reflections, and summaries. It supports thread and neighborhood retrieval and is a required managed-runtime projection. | An edge records the code's relationship rule; it does not prove semantic adequacy. Some older or weaker relationships are inferred or silently absent. |
-| `ConceptGraph` | Rebuilds the Concept Token Layer: concept definitions and versions, aliases, concept relations, event bindings, commitment-thread bindings, and attribution records. | It does not yet guarantee complete target, version, supersession, authorship, or relation governance across every producer. |
-| `CommitmentManager` | Opens general and internal commitments, reports whether an opening was created or reused, carries an explicit assistant origin when supplied, queries open state, and routes opens and closes through atomic EventLog lifecycle transitions. | It does not decide whether a commitment is wise, fulfilled, relevant to identity, or semantically equivalent to differently worded obligations. CID generation and multi-episode reconstruction remain separate policy surfaces. |
-| Identity manager | Scans validated identity proposal and ratification claims and creates one adoption after an ordered intervening reflection or commitment lifecycle event. | The current protocol proves order and token agreement, not that the intervening anchor is semantically relevant to the proposed identity. |
-| Retrieval pipeline | Selects bounded prior events using concepts, commitment threads, graph expansion, lifetime-memory records, and optional vector refinement; it records why events were selected. | Retrieval inclusion is not evidence quality, and omission is not proof of irrelevance. Limits can leave useful history out of a turn. |
-| Autonomy supervisor and kernel | Schedules ledger-derived maintenance decisions such as reflecting, summarizing, and indexing, and records ticks, decisions, observations, and policy-related events. It uses the same ledger and commitment-close boundary. | It is not an independent source of semantic truth. Its decisions are only as strong as the events, projections, thresholds, and relationship checks it consumes. |
-
-## What is authoritative
-
-PMM has several kinds of authority, not one.
-
-| Layer | Meaning |
-|---|---|
-| Utterance history | The ledger establishes that a user or model emitted the recorded content through the runtime path. The content can include failed, unsupported, or rejected assertions. |
-| Extracted candidate | A parser recognized a structured form such as `COMMIT:`, `CLAIM:`, or `CLOSE:`. Recognition alone changes no canonical state. |
-| Validation or manager decision | A named production mechanism accepted or rejected the candidate under its current checks. Different structures currently receive different levels of referential and relational validation. |
-| Canonical typed event | A typed event records accepted structure or a successful state transition. Its authority is scoped to the guarantee of its producer. A `validation_failure` separately preserves a rejected promotion attempt. |
-| Projection | `Mirror`, `MemeGraph`, and `ConceptGraph` provide the operational state used by retrieval and runtime decisions. They are derived and rebuildable, so the ledger remains the source from which they are reconstructed. |
-| Model-visible context | Retrieval and rendering decide which persisted and projected material the next model call can see. Visibility can influence behavior, but it does not itself promote a claim or relationship. |
-
-For example, a model can write `CLOSE:unknown`. The assistant event authoritatively preserves that attempted instruction as history. R08 now prevents it from becoming an authoritative `commitment_close` state transition.
-
-## A commitment from opening to future recall, closure, and reopening
-
-The following is the verified R08 lifecycle in ordinary language.
-
-```text
-user asks
-  -> retrieval builds context
-  -> model response contains COMMIT
-  -> full assistant response is preserved
-  -> EventLog atomically creates or reuses the CID's active opening
-  -> a new RuntimeLoop opening records the exact assistant origin
-  -> only a new canonical opening is reflected as "Opened commitments"
-  -> concept-to-event and concept-to-CID bindings support later retrieval
-  -> a later turn retrieves the open state or thread
-  -> model response contains CLOSE:<cid>
-  -> full assistant response is preserved
-  -> EventLog atomically resolves the latest open lifecycle event
-  -> one commitment_close records cid, source, and exact open_event_id
-  -> Mirror removes the CID from open state
-  -> MemeGraph adds close -> open with label "closes"
-  -> reopen and replay reconstruct the same closed state and edge
+```bash
+.venv/bin/python -m pmm.runtime.cli
+.venv/bin/python -m pmm.runtime.oneshot_cli --db ./pmm.db --provider dummy --prompt "Hello"
 ```
 
-A fresh, disposable, on-disk runtime acceptance run exercised this path through four production `RuntimeLoop` turns. In that observed run:
+The STDIO MCP server is:
 
-- event `15` was the opening event;
-- event `28` was the only canonical close;
-- close event `28` recorded `open_event_id: 15` and its production source;
-- a duplicate close attempt and an unknown-CID attempt still produced assistant-message history but no additional `commitment_close`;
-- after fully closing and reopening the database, `Mirror` reconstructed the commitment as closed and `MemeGraph` reconstructed the exact `28 -> 15` `closes` edge;
-- the repository's hash-chain, replay, and checkpoint checks passed for that database.
+```bash
+PMM_MCP_DB=/absolute/path/to/pmm.db \
+.venv/bin/python -m pmm.runtime.mcp_server
+```
 
-That run is direct local acceptance evidence for the exercised close lifecycle. R07 subsequently added the open-side rule: an already active CID reuses its existing opening, while an authoritative close permits a later reopen. Neither result proves every semantic relationship in PMM.
+`PMM_MCP_DB` is required. `PMM_MCP_MODEL` selects the default model for MCP
+turns. Calls against one database must remain serialized.
 
-### Why closing is now different from merely saying “close”
+## Strongest current boundary
 
-For newly written history, a canonical `commitment_close` means that PMM performed a successful transition from the exact latest open event for that CID. An unknown CID creates no close. Repeating a close is idempotent and creates no second close. Generic `EventLog.append(kind="commitment_close", ...)` cannot bypass this boundary.
+PMM has a strong persistence, writer-governance, projection, commitment, and
+retrieval substrate within audited managed-runtime paths. General reference
+coverage and role enforcement remain uneven, and semantic adequacy remains
+unresolved.
 
-Legacy close events without `open_event_id` remain replayable. `MemeGraph` uses CID lookup as a compatibility fallback for those records. That compatibility behavior is historical preservation, not the rule for new authoritative closes.
-
-## How information can affect future behavior
-
-Persisting an event makes it available to later code, but it does not guarantee that every future prompt will contain it. Information affects a later turn through one or more of these routes:
-
-- `Mirror` state, especially open commitments and the optional recursive self-model;
-- concept bindings selected through `ConceptGraph`;
-- commitment threads and neighboring events selected through `MemeGraph`;
-- summary or lifetime-memory records;
-- vector refinement over an eligible candidate set;
-- autonomy decisions based on ledger and projection state.
-
-The retrieval selection is itself recorded, including per-event reasons and scores. That makes it possible to ask “what did this turn receive?” It does not answer the harder semantic question “was this the best or sufficient evidence?”
-
-## Current guarantees, in plain language
-
-The current repository supports these bounded statements:
-
-- Production EventLog writes create ordered, hash-linked records, and repository checks can detect a broken chain.
-- A managed user turn has one protocol-linked terminal outcome: an assistant message or a generation failure.
-- Incomplete or failed model generations do not reach semantic state parsers.
-- Complete assistant responses are preserved before their structured contents are promoted or rejected.
-- New commitment opens are mandatory lifecycle transitions through one atomic boundary: an already active CID is reused rather than opened twice, while close followed by reopen remains permitted.
-- New RuntimeLoop commitment openings record the exact prior assistant event that emitted the matching `COMMIT:` line; live and rebuilt `MemeGraph` projections use that reference for `commits_to`.
-- New commitment closes are mandatory successful transitions through one atomic boundary: the target CID must have a latest open lifecycle event, the exact open event is recorded, and repeats are idempotent.
-- The three main managed-runtime projections are rebuilt from canonical history and reconciled through fixed-watermark required delivery before graph-dependent work.
-- When claim evidence references are supplied through the normal runtime claim path, their ID shape, ledger existence, and availability in that turn's retrieval selection are checked.
-- Retrieval selections retain production provenance explaining how selected events entered the context set.
-
-Each statement is scoped to the named production path. It should not be expanded into “all PMM memory is true,” “every reference is relationally valid,” or “the database cannot be altered outside PMM.”
-
-## Current gaps and unsettled policy
-
-These are active boundaries, not hidden guarantees:
-
-- **Multi-episode commitment history:** `thread_for_cid` currently reconstructs the latest opening episode. The repository has not selected whether one consumer should receive that current episode, the complete ordered open/close history for the CID, or separately named views for both.
-- **CID identity policy:** general commitment CIDs remain derived from a short hash of text. R07 governs lifecycle state for the resulting CID; it does not decide semantic equivalence, collision policy, or whether differently worded commitments represent one obligation.
-- **Optional evidence:** several claim/reference fields may be omitted or supplied as empty collections. The repository has not adopted one universal meaning for absence or emptiness.
-- **Unknown claim types:** the current claim validator accepts an unregistered type as `ACCEPTED_UNKNOWN_TYPE`; the runtime can promote it to a canonical claim and concept binding. Reject-versus-promote policy remains unsettled.
-- **Identity anchor relevance:** adoption requires proposal, intervening anchor, and matching ratification in order, but the code does not establish that the chosen anchor is substantively about that identity.
-- **Reflection topology:** reflection producers do not all identify referents in the same way, and unresolved targets can result in no graph edge.
-- **Concept governance:** concept definitions, aliases, relations, versions, supersession, bindings, and attribution have nonuniform enforcement. Existence of a token or edge does not by itself establish permitted authorship, target role, or semantic warrant.
-- **Reference roles:** some validators establish that an event exists without establishing that its kind, role, thread, version, or relationship is appropriate for the claim being made.
-- **Source labels:** a `source` value records production attribution used by code; it is not a general cryptographic authentication system.
-- **Semantic adequacy:** deterministic checks can establish shape, existence, order, and selected relationships. They do not prove that cited content actually warrants every interpretation.
-
-The complete engineering inventory is [`production-reference-surface-inventory.md`](production-reference-surface-inventory.md). That document is intentionally more detailed and should be used when changing a validator, event relationship, projection, or policy.
-
-## Glossary
-
-**Assistant utterance:** The complete generated response stored as an `assistant_message`. Its preservation does not mean every embedded instruction or claim was accepted.
-
-**Binding:** A persisted association between a concept token and an event or commitment thread. Bindings have relations and attribution metadata, but their semantic adequacy may remain unproven.
-
-**Canonical event:** A typed ledger event produced by an accepted production path. “Canonical” is scoped: it says the event passed that path's current rules, not that all of its meaning is objectively true.
-
-**CID (commitment ID):** The string used to identify a commitment lifecycle. General commitments currently derive an eight-character CID from the commitment text; internal commitments use a separate generated form.
-
-**Concept:** A named token with optional definition, version, aliases, relations, and bindings. Concepts organize retrieval and continuity; they are not model weights.
-
-**ConceptGraph:** The rebuildable projection of concept definitions, aliases, relations, event bindings, thread bindings, and attribution.
-
-**CTL (Concept Token Layer):** The persisted concept vocabulary and its relationships as represented by concept events and reconstructed by `ConceptGraph`.
-
-**Evidence designation:** An optional model-supplied declaration that a selected event supports some stated point. The runtime validates its structure and current-turn availability, not its full semantic adequacy.
-
-**EventLog / ledger:** The ordered SQLite record of PMM events. Events contain an ID, timestamp, kind, content, metadata, previous hash, and hash.
-
-**Historical preservation:** Keeping what was attempted or said even when a structured interpretation is rejected. PMM commonly preserves the assistant utterance and adds a separate validation failure.
-
-**MemeGraph:** The rebuildable directed graph of selected event kinds and relationships such as `replies_to`, `commits_to`, `closes`, and `reflects_on`.
-
-**Mirror:** The fast, rebuildable operational view of open commitments, staleness, reflection counts, retrieval configuration, and optional recursive self-model state.
-
-**Promotion:** Moving from recorded text or an extracted candidate into a canonical typed event or projected state that can affect later retrieval and runtime behavior.
-
-**Projection:** A working view calculated from ledger events. Projections are disposable in the sense that PMM can rebuild them; the source events remain persisted.
-
-**Reflection:** A persisted interpretation or summary of prior activity. It is a new event about history, not a rewrite of the history it discusses.
-
-**Relational integrity:** Evidence that a referenced target is permitted to play its claimed role: for example, the right kind, order, CID, token, thread, version, or cardinality. Existence alone is weaker than relational integrity.
-
-**Retrieval provenance:** The recorded reasons and scores explaining why an event entered a turn's selected context.
-
-**RSM (Recursive Self-Model):** A deterministic projection of ledger signals used to summarize patterns, tendencies, and gaps. It is computed state, not an independently verified identity authority.
-
-## Where to read the implementation
-
-- Turn orchestration: [`pmm/runtime/loop.py`](../pmm/runtime/loop.py)
-- Persistent event ledger: [`pmm/core/event_log.py`](../pmm/core/event_log.py)
-- Commitment lifecycle: [`pmm/core/commitment_manager.py`](../pmm/core/commitment_manager.py)
-- Fast state projection: [`pmm/core/mirror.py`](../pmm/core/mirror.py)
-- Event relationship graph: [`pmm/core/meme_graph.py`](../pmm/core/meme_graph.py)
-- Concept projection: [`pmm/core/concept_graph.py`](../pmm/core/concept_graph.py)
-- Identity adoption: [`pmm/core/identity_manager.py`](../pmm/core/identity_manager.py)
-- Claim and evidence checks: [`pmm/core/validators.py`](../pmm/core/validators.py)
-- Retrieval selection: [`pmm/retrieval/pipeline.py`](../pmm/retrieval/pipeline.py)
-- Context rendering: [`pmm/runtime/context_renderer.py`](../pmm/runtime/context_renderer.py)
-- Autonomous maintenance: [`pmm/runtime/autonomy_kernel.py`](../pmm/runtime/autonomy_kernel.py)
-
-When these production paths change, this guide should be updated alongside the implementation. Narrow integrity work should still begin with the reference-surface inventory and an explicit policy decision; this guide is the maintained human map, not a substitute for an audit.
+The next project task is recorded in the
+[Current Status and Roadmap](../pmm-improvement-progress.md).

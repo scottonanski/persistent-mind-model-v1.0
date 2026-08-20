@@ -1,58 +1,24 @@
 # Contributing to Persistent Mind Model
 
-The [PMM Cognitive Charter and Deviation Audit](docs/PMM-COGNITIVE-CHARTER.md)
-is the governing architectural baseline. This document is the engineering
-contract beneath it. Current code determines what production behavior exists;
-neither current code nor this contract may silently redefine PMM's intended
-cognitive architecture.
+The [PMM Cognitive Charter](docs/PMM-COGNITIVE-CHARTER.md) defines the intended
+architecture. Current code establishes what is implemented. The
+[System Guide](docs/PMM-SYSTEM-GUIDE.md) explains the current implementation,
+and the [roadmap](pmm-improvement-progress.md) records the next selected task.
 
-PMM combines model-authored cognition with a deterministic persistence,
-governance, and projection substrate. Contributors must preserve that boundary.
-
-## 1. Development setup
+## Development setup
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[full,dev]"
-pytest -q
-ruff check path/to/changed.py
-black --check path/to/changed.py
-git diff --check
+.venv/bin/pytest -q
 ```
 
-PMM supports Python 3.9 and later, as declared in `pyproject.toml`. Run tests and
-formatting checks proportionate to the changed scope. A documentation-only
-change requires documentation review and `git diff --check`; it does not require
-unrelated pre-existing Python formatting findings to be repaired in the same
-commit. Report every broader check attempted and every failure rather than
-silently narrowing the command after it fails.
+PMM supports Python 3.9 and later.
 
-## 2. Architectural contract
+## Architectural discipline
 
-### Preserve cognition; do not regenerate it on replay
-
-Model-authored interpretations and reflections are valid nondeterministic inputs.
-Once produced, their exact recorded form and applicable provenance become part of
-canonical history. Replay reconstructs what happened; it does not call a model to
-regenerate the same thought.
-
-Determinism applies to:
-
-- canonical serialization and ledger writes;
-- validation and rejection decisions;
-- authorized promotion and state transitions;
-- deterministic projections and replay;
-- idempotency and convergence rules;
-- recorded provenance, selection, and relationship handling.
-
-Do not claim that a model would reproduce byte-identical cognition from the same
-prompt. Do require sufficient recorded information to reconstruct the cognition
-that actually occurred and how PMM governed it.
-
-### Keep lifecycle layers distinct
-
-Every change must distinguish, where applicable:
+Keep these lifecycle layers distinct:
 
 ```text
 utterance history
@@ -64,208 +30,100 @@ utterance history
   -> later retrieval or model-visible context
 ```
 
-A preserved utterance is not automatically a canonical claim. A canonical event
-is not automatically authoritative state. A projection is not proof of semantic
-truth.
+A preserved utterance is not automatically a canonical claim. A canonical
+event is not automatically authoritative state. A projection or graph edge is
+not proof of semantic truth.
 
-### Keep cognitive and operational records distinct
+Determinism governs preservation, validation, promotion, projection, retrieval,
+and replay of recorded cognition. It does not require a model to regenerate the
+same words from the same prompt.
 
-Interpretation, reflection, meta-reflection, identity, ontology, commitment,
-outcome, and self-governance use the meanings defined by the Cognitive Charter.
+## Audit requirements
 
-Diagnostics, telemetry, deterministic summaries, counters, retrieval checks,
-and maintenance output must not masquerade as those cognitive faculties. An
-operational record may become the subject of a later model-authored
-interpretation, but it is not itself that interpretation.
-
-Do not select a new event vocabulary, schema, migration, or production rename as
-an incidental part of another patch. Those choices require explicit design and
-authorization.
-
-## 3. Ledger and governance rules
-
-### Canonical history
-
-- Preserve accepted user and model outputs exactly within their defined
-  canonical representation.
-- Preserve rejected structured attempts in their correct historical or failure
-  form without promoting them as accepted state.
-- Never rewrite or delete historical events to make a new projection or policy
-  appear retroactive.
-- Every derived event must identify the inputs, source, version, or other
-  provenance required by its stated guarantee.
-- Never emit events merely to satisfy a test fixture.
-
-### Writer governance
-
-- Canonical writes must use the governed EventLog writer path.
-- Do not bypass writer ownership, fencing, transactional predecessor selection,
-  or required projection delivery.
-- Source labels are historical metadata, not sufficient authorization by
-  themselves.
-- A failure after canonical commit must remain distinguishable from a failure
-  before commit.
-
-### Deterministic projections
-
-- Authoritative projections must be rebuildable from canonical ledger history.
-- Incremental delivery and full replay must converge within the projection's
-  declared scope.
-- `sync()`, `add_event()`, and equivalent incremental operations must be
-  idempotent.
-- Required projection failures must follow the established fail-closed delivery
-  path; optional observers must not silently become authoritative.
-- No process-local cache may become hidden authoritative state.
-
-### Idempotency and convergence
-
-- Define idempotency at the operation's actual identity boundary; do not equate
-  similar text with the same historical act.
-- A deterministic derived operation with no new declared state or observation
-  should converge without duplicate effects.
-- Later re-evaluation under a new algorithm, policy, or verifier version may be
-  preserved separately when its version is part of the operation identity.
-- Do not deduplicate distinct model-authored or user-authored historical outputs
-  merely because their content matches.
-
-### Validation and promotion
-
-- Trace every producer, alternate producer, validator, rejection path,
-  projection, retrieval consumer, and promotion path affected by a change.
-- A validator working when invoked does not establish universal coverage.
-- Distinguish a missing or bypassed check from an incomplete check.
-- Existence of a target establishes referential validity only; it does not prove
-  that the target may serve the declared role.
-- A permitted relationship does not prove semantic warrant.
-- Preserve undecided policy rather than embedding it in a parser, default, or
-  compatibility path.
-
-### Structured controls and heuristics
-
-- Canonical control markers and authoritative state transitions must use explicit
-  structured parsing and validation.
-- Heuristics used for indexing, retrieval, diagnostics, or telemetry must be
-  bounded, attributable, testable, and described as heuristics.
-- Heuristic output must not be promoted as model-authored interpretation,
-  identity, ontology, or semantic truth.
-- Regex or keyword matching must not become an undocumented authority boundary.
-
-### Configuration and autonomy
-
-- Credentials and provider access may use environment variables. Durable PMM
-  behavior and policy must remain explicit and auditable.
-- Interactive, one-shot, MCP, replay, and test surfaces may have different
-  documented autonomy lifecycles. Do not claim autonomy is universally active
-  when a supported path disables it.
-- Autonomous mutations must use the same canonical ledger, validation, writer,
-  and projection-governance paths as other mutations.
-- Scheduling and maintenance are operational autonomy; do not describe them as
-  reflective self-governance unless the Cognitive Charter lifecycle is actually
-  enforced.
-
-## 4. Architecture audit requirements
-
-Changes affecting PMM architecture, runtime behavior, validators, event
+Changes affecting architecture, runtime behavior, validators, event
 relationships, projections, identity, commitments, retrieval, or claimed
-guarantees must follow the repository's PMM development-auditor workflow.
+guarantees must use the repository's PMM development-auditor workflow.
 
 Before implementation:
 
-1. Record the branch, revision, and working-tree state.
+1. Record branch, revision, and working-tree state.
 2. State one falsifiable guarantee.
 3. Trace production, extraction, validation, rejection, preservation, canonical
    recording, projection, retrieval, and promotion.
 4. Find alternate producers, direct appends, compatibility paths, optional
-   fields, defaults, fail-open handling, and silent degradation.
-5. Identify any policy choice not already settled by the charter or an explicit
-   authorization.
+   fields, defaults, exception handling, and silent degradation.
+5. Identify every policy choice not already settled and authorized.
 
 After implementation:
 
-1. Retrace the complete affected lifecycle.
-2. Verify that alternate paths do not provide weaker coverage or enforcement.
+1. Retrace the affected lifecycle.
+2. Confirm alternate paths do not provide weaker coverage or enforcement.
 3. Run focused tests and the appropriate broader suite.
-4. Inspect the complete diff and report all verification not performed.
+4. Inspect the complete diff and report verification not performed.
 5. State the strongest conclusion supported by the weakest relevant path.
 
-Documentation, tests, model consensus, and intended design do not substitute for
-production-path analysis.
+A validator working when invoked is not a system guarantee. Tests corroborate
+their exercised paths; they do not establish universal coverage.
 
-## 5. Testing requirements
+## Ledger and projection rules
 
-- Add direct tests for new modules and behavior.
-- Test both accepted and rejected paths, including omission, malformed input,
-  duplicate execution, replay, and alternate producers where relevant.
-- Verify historical preservation separately from canonical promotion.
-- Verify incremental projection behavior against full replay.
-- Treat passing tests as evidence for their exercised conditions, not as proof
-  that uninspected bypasses do not exist.
-- Use representative bounded fixtures for ordinary tests and reserve large-ledger
-  runs for targeted performance or lifecycle verification.
-- Do not stub or simulate an unimplemented guarantee and then document it as
-  production behavior.
+- Use governed EventLog writer paths for canonical writes.
+- Do not bypass writer ownership, fencing, transactional predecessor selection,
+  or required projection delivery.
+- Preserve user and model output in its correct historical form.
+- Preserve rejected structured attempts without promoting them as accepted
+  state.
+- Keep authoritative projections rebuildable from canonical events.
+- Require replay and incremental delivery to converge within the projection's
+  scope.
+- Do not make a process-local cache hidden authoritative state.
+- Do not rewrite historical events to make a new policy appear retroactive.
 
-## 6. Documentation rules
+## Relationship and policy rules
 
-- Describe current production behavior separately from intended architecture and
-  proposed policy.
-- Qualify guarantees by their actual producer, validator, projection, and
-  promotion scope.
-- Preserve historical completion records; add a new audit boundary rather than
-  silently broadening an older claim.
-- Link architectural claims to the Cognitive Charter and implementation claims
-  to current production evidence.
-- Update the roadmap or relevant status document when a user-visible or
-  architectural boundary changes.
-- Do not rewrite historical ledger artifacts to match current terminology.
+- Trace every producer, validator, rejection path, consumer, and promotion path.
+- Separate omitted checks from incomplete checks.
+- Separate target existence from permitted-role validation.
+- Do not infer authority from a source label alone.
+- Do not silently choose reference requirements, roles, cardinalities, graph
+  authority, semantic adjudication, schemas, or migration policy.
+- Keep heuristics bounded, attributable, and outside authoritative semantic
+  promotion unless explicitly governed.
 
-## 7. Commit and publication discipline
+## Testing
+
+Run checks proportionate to the change:
+
+```bash
+.venv/bin/pytest -q path/to/focused/tests
+.venv/bin/pytest -q
+.venv/bin/ruff check path/to/changed.py
+.venv/bin/black --check path/to/changed.py
+git diff --check
+```
+
+Test accepted, rejected, omitted, malformed, duplicate, replay, and alternate
+producer paths where relevant. Verify historical preservation separately from
+canonical promotion.
+
+Documentation-only changes require source review, link and command validation,
+and `git diff --check`. They do not require unrelated runtime changes.
+
+## Documentation
+
+- Keep the README short and navigational.
+- Keep the charter about intended architecture, not completion history.
+- Keep the System Guide tied to current production code.
+- Keep the roadmap limited to current state, boundaries, and next work.
+- Replace stale active sections instead of appending chronology.
+- Let Git history preserve superseded audits and completion records.
+- Keep experiments under `experiments/` and clearly nonproduction.
+- Update links whenever an active document is replaced or removed.
+
+## Commits and publication
 
 - Keep one logical change per commit.
-- Do not combine documentation governance, runtime changes, schema changes, or
-  migrations unless explicitly authorized as one scope.
+- Do not combine documentation cleanup with runtime, schema, or migration work.
 - Review staged, unstaged, and untracked files before committing.
-- Use clear imperative commit messages.
-- Run `git diff --check` and all checks appropriate to the changed scope.
-- Do not push, open a pull request, or publish a release unless that external
-  action is authorized.
-
-## 8. Current implementation freeze
-
-The Cognitive Charter currently freezes:
-
-- R17 implementation beyond the published Phases 1–3;
-- the reference-policy matrix;
-- R06 enforcement;
-- new cognitive semantics;
-- event-vocabulary and schema selection;
-- component renaming;
-- historical migrations or reinterpretation;
-- runtime remediation inferred from the charter.
-
-Documentation may preserve the approved architecture, reconcile governance, and
-organize undecided work. It must stop before selecting or implementing runtime
-changes.
-
-R17 Phases 1–3 are published exceptions to this freeze: vector-parameter
-provenance fidelity (PR #13), weak-overlap outcome semantics (PR #14), and
-attributable, non-repeating diagnostics (PR #15). Their publication does not
-authorize full hybrid-retrieval reproduction, vector-stage correctness,
-mandatory maintenance execution, semantic adjudication, migration, work-register
-governance, Phase 4, or any other further R17 implementation.
-
-R07 is also a published exception (PR #17). It enforces one active
-`commitment_open` per CID on audited EventLog paths, preserves close/reopen
-lifecycles and existing history, and prevents rediscovery from being reflected
-as a new opening. PR #18 records and validates the exact assistant origin for
-new RuntimeLoop openings so `MemeGraph.commits_to` reconstructs the correct
-reopening episode. These changes do not authorize CID-policy changes,
-multi-episode composition, identity-anchor semantics, legacy migration, or
-broader commitment redesign.
-
-## Summary
-
-PMM's engineering contract is deterministic preservation, reconstruction,
-validation, promotion, projection, and replay around a model-authored cognitive
-lifecycle. Determinism governs how cognition is recorded and used; it does not
-require a generative model to think the same thought twice.
+- Run `git diff --check` and scope-appropriate validation.
+- Do not push, open a pull request, merge, or publish without authorization.
