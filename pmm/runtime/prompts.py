@@ -136,8 +136,8 @@ def compose_system_prompt(
     parts.append(
         "## Identity Adoption Protocol (Option C)\n"
         "To adopt a new identity:\n"
-        "- Propose: CLAIM:identity_proposal={\"token\": \"<identity_token>\", \"description\": \"<desc>\", \"evidence_events\": [<ids>]}\n"
-        "- Ratify (after reflection/commitment): CLAIM:identity_ratify={\"token\": \"<identity_token>\"}\n"
+        "- Propose: CLAIM:identity_proposal={\"token\": \"<identity_token>\", \"subject_id\": \"pmm.self\", \"description\": \"<desc>\", \"evidence_events\": [<ids>]}\n"
+        "- Ratify on a later turn: CLAIM:identity_ratify={\"token\": \"<identity_token>\", \"subject_id\": \"pmm.self\"}\n"
         "- ONLY then will an identity_adoption event append automatically.\n"
         "- NEVER claim an identity_adoption exists unless you locate it in the ledger window.\n"
         "Emit these as bare CLAIM: lines per marker rules above."

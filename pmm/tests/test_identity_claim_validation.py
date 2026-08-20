@@ -12,16 +12,23 @@ from pmm.runtime.loop import RuntimeLoop
 @pytest.mark.parametrize(
     "claim",
     [
-        Claim(type="identity_proposal", data={"token": "identity.TestSelf"}),
+        Claim(
+            type="identity_proposal",
+            data={"token": "identity.TestSelf", "subject_id": "pmm.self"},
+        ),
         Claim(
             type="identity_proposal",
             data={
                 "token": "identity.TestSelf",
+                "subject_id": "pmm.self",
                 "description": "A persistent identity",
                 "evidence_events": [],
             },
         ),
-        Claim(type="identity_ratify", data={"token": "identity.TestSelf"}),
+        Claim(
+            type="identity_ratify",
+            data={"token": "identity.TestSelf", "subject_id": "pmm.self"},
+        ),
     ],
 )
 def test_valid_identity_claim_structures_are_accepted(claim) -> None:
@@ -38,25 +45,51 @@ def test_valid_identity_claim_structures_are_accepted(claim) -> None:
         Claim(type="identity_proposal", data={"token": "   "}),
         Claim(type="identity_proposal", data={"token": 7}),
         Claim(type="identity_proposal", data="identity.TestSelf"),  # type: ignore[arg-type]
+        Claim(type="identity_proposal", data={"token": "identity.TestSelf"}),
         Claim(
             type="identity_proposal",
-            data={"token": "identity.TestSelf", "description": ""},
+            data={"token": "identity.TestSelf", "subject_id": "user"},
+        ),
+        Claim(type="identity_ratify", data={"token": "identity.TestSelf"}),
+        Claim(
+            type="identity_proposal",
+            data={
+                "token": "identity.TestSelf",
+                "subject_id": "pmm.self",
+                "description": "",
+            },
         ),
         Claim(
             type="identity_proposal",
-            data={"token": "identity.TestSelf", "evidence_events": "1"},
+            data={
+                "token": "identity.TestSelf",
+                "subject_id": "pmm.self",
+                "evidence_events": "1",
+            },
         ),
         Claim(
             type="identity_proposal",
-            data={"token": "identity.TestSelf", "evidence_events": [0, True, "1"]},
+            data={
+                "token": "identity.TestSelf",
+                "subject_id": "pmm.self",
+                "evidence_events": [0, True, "1"],
+            },
         ),
         Claim(
             type="identity_proposal",
-            data={"token": "identity.TestSelf", "unexpected": True},
+            data={
+                "token": "identity.TestSelf",
+                "subject_id": "pmm.self",
+                "unexpected": True,
+            },
         ),
         Claim(
             type="identity_ratify",
-            data={"token": "identity.TestSelf", "description": "not allowed"},
+            data={
+                "token": "identity.TestSelf",
+                "subject_id": "pmm.self",
+                "description": "not allowed",
+            },
         ),
     ],
 )
@@ -73,7 +106,7 @@ def test_invalid_identity_claim_does_not_persist_or_trigger_adoption() -> None:
             return (
                 'CLAIM:identity_proposal={"token":"identity.Invalid",'
                 '"unsupported":true}\n'
-                'CLAIM:identity_ratify={"token":"identity.Invalid"}'
+                'CLAIM:identity_ratify={"token":"identity.Invalid","subject_id":"pmm.self"}'
             )
 
     log = EventLog(":memory:")

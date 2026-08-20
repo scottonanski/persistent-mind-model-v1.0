@@ -16,6 +16,7 @@ import networkx as nx
 from typing import Dict, List, Iterable, Literal, Optional, Set
 
 from .event_log import EventLog, TERMINAL_OUTCOME_PROTOCOL
+from .identity_adoption import is_v1_authoritative_identity_adoption
 
 OriginAttribution = Literal[
     "explicit",
@@ -121,11 +122,13 @@ class MemeGraph:
                 if last_user is not None:
                     self.graph.add_edge(event_id, last_user, label="replies_to")
         elif kind == "identity_adoption":
-            # Link identity adoption to the most recent assistant_message or
-            # reflection to form explicit identity threads.
-            anchor = self._find_last_of_kinds(("assistant_message", "reflection"))
-            if anchor is not None:
-                self.graph.add_edge(event_id, anchor, label="adopts_identity_for")
+            if not is_v1_authoritative_identity_adoption(event, self.eventlog.get):
+                return
+            recorded_anchor = (meta or {}).get("anchor_event_id")
+            if self.graph.has_node(recorded_anchor):
+                self.graph.add_edge(
+                    event_id, recorded_anchor, label="adopts_identity_for"
+                )
         elif kind == "commitment_open":
             # New RuntimeLoop opens identify their exact producing assistant.
             # Older rows lack that field and retain the historical fallback.
@@ -228,14 +231,6 @@ class MemeGraph:
     def _find_last(self, kind: str) -> int | None:
         candidates = [
             n for n in self.graph.nodes if self.graph.nodes[n]["kind"] == kind
-        ]
-        return max(candidates) if candidates else None
-
-    def _find_last_of_kinds(self, kinds: Iterable[str]) -> int | None:
-        """Return the most recent node id whose kind is in kinds, if any."""
-        kind_set = {str(k) for k in kinds}
-        candidates = [
-            n for n in self.graph.nodes if self.graph.nodes[n].get("kind") in kind_set
         ]
         return max(candidates) if candidates else None
 
