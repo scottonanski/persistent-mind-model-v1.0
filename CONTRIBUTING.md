@@ -257,8 +257,11 @@ governance, Phase 4, or any other further R17 implementation.
 R07 is also a published exception (PR #17). It enforces one active
 `commitment_open` per CID on audited EventLog paths, preserves close/reopen
 lifecycles and existing history, and prevents rediscovery from being reflected
-as a new opening. It does not authorize CID-policy changes, identity-anchor
-semantics, legacy migration, or broader commitment redesign.
+as a new opening. PR #18 records and validates the exact assistant origin for
+new RuntimeLoop openings so `MemeGraph.commits_to` reconstructs the correct
+reopening episode. These changes do not authorize CID-policy changes,
+multi-episode composition, identity-anchor semantics, legacy migration, or
+broader commitment redesign.
 
 ## Summary
 

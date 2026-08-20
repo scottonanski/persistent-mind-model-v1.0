@@ -693,7 +693,11 @@ def extract_commitments(lines: List[str]) -> List[str]:
 ```python
 # 5. Commitments (open)
 for c in self._extract_commitments(assistant_reply):
-    cid, created = self.commitments.open_commitment_status(c, source="assistant")
+    cid, created = self.commitments.open_commitment_status(
+        c,
+        source="assistant",
+        origin_event_id=ai_event_id,
+    )
     if cid:
         if created:
             delta.opened.append(cid)
@@ -716,7 +720,9 @@ Extracted: ["implement authentication system", "write unit tests"]
 → Creates one active `commitment_open` for each text-derived CID. Repeating an
 already active commitment preserves the utterance and later bindings but reuses
 the existing opening. A close followed by the same commitment creates a new
-opening in that CID's later lifecycle episode.
+opening in that CID's later lifecycle episode. Each new RuntimeLoop opening
+records the exact preserved assistant message that produced it, so graph
+reconstruction does not confuse recurrence with origin.
 ```
 
 #### 3.2b Closures

@@ -84,7 +84,7 @@ The production path is `RuntimeLoop.run_turn` in [`pmm/runtime/loop.py`](../pmm/
 
 10. **Structured lines are interpreted.** Exact-prefix parsers inspect the already-preserved assistant response:
 
-    - `COMMIT:` lines are passed to the commitment manager. A new or previously closed CID may create a `commitment_open`; an already active CID reuses its existing opening while later bindings may still be recorded.
+    - `COMMIT:` lines are passed to the commitment manager with the current assistant event ID. A new or previously closed CID may create a `commitment_open` that records that exact origin; an already active CID reuses its existing opening while later bindings may still be recorded.
     - `CLAIM:type=JSON` lines are validated. Passing claims become canonical `claim` events and receive concept bindings; rejected claims produce `validation_failure` events.
     - validated identity proposal and ratification claims may lead the identity manager to create an `identity_adoption` event when its ordered protocol is satisfied.
     - `CLOSE:<cid>` lines are passed through the authoritative commitment-close boundary.
@@ -103,7 +103,7 @@ The exact number and order of maintenance events between the assistant message a
 | `Mirror` | Maintains fast projected state: open commitments, staleness flags, reflection counts, current retrieval configuration, and optionally the recursive self-model. | It is not primary history. A projection can ignore malformed or unresolved legacy events. |
 | `MemeGraph` | Rebuilds and incrementally maintains a directed event graph for replies, commitments, closes, identity adoption, reflections, and summaries. It supports thread and neighborhood retrieval and is a required managed-runtime projection. | An edge records the code's relationship rule; it does not prove semantic adequacy. Some older or weaker relationships are inferred or silently absent. |
 | `ConceptGraph` | Rebuilds the Concept Token Layer: concept definitions and versions, aliases, concept relations, event bindings, commitment-thread bindings, and attribution records. | It does not yet guarantee complete target, version, supersession, authorship, or relation governance across every producer. |
-| `CommitmentManager` | Opens general and internal commitments, reports whether an opening was created or reused, queries open state, and routes opens and closes through atomic EventLog lifecycle transitions. | It does not decide whether a commitment is wise, fulfilled, relevant to identity, or semantically equivalent to differently worded obligations. CID generation and multi-episode reconstruction remain separate policy surfaces. |
+| `CommitmentManager` | Opens general and internal commitments, reports whether an opening was created or reused, carries an explicit assistant origin when supplied, queries open state, and routes opens and closes through atomic EventLog lifecycle transitions. | It does not decide whether a commitment is wise, fulfilled, relevant to identity, or semantically equivalent to differently worded obligations. CID generation and multi-episode reconstruction remain separate policy surfaces. |
 | Identity manager | Scans validated identity proposal and ratification claims and creates one adoption after an ordered intervening reflection or commitment lifecycle event. | The current protocol proves order and token agreement, not that the intervening anchor is semantically relevant to the proposed identity. |
 | Retrieval pipeline | Selects bounded prior events using concepts, commitment threads, graph expansion, lifetime-memory records, and optional vector refinement; it records why events were selected. | Retrieval inclusion is not evidence quality, and omission is not proof of irrelevance. Limits can leave useful history out of a turn. |
 | Autonomy supervisor and kernel | Schedules ledger-derived maintenance decisions such as reflecting, summarizing, and indexing, and records ticks, decisions, observations, and policy-related events. It uses the same ledger and commitment-close boundary. | It is not an independent source of semantic truth. Its decisions are only as strong as the events, projections, thresholds, and relationship checks it consumes. |
@@ -133,6 +133,7 @@ user asks
   -> model response contains COMMIT
   -> full assistant response is preserved
   -> EventLog atomically creates or reuses the CID's active opening
+  -> a new RuntimeLoop opening records the exact assistant origin
   -> only a new canonical opening is reflected as "Opened commitments"
   -> concept-to-event and concept-to-CID bindings support later retrieval
   -> a later turn retrieves the open state or thread
@@ -184,6 +185,7 @@ The current repository supports these bounded statements:
 - Incomplete or failed model generations do not reach semantic state parsers.
 - Complete assistant responses are preserved before their structured contents are promoted or rejected.
 - New commitment opens are mandatory lifecycle transitions through one atomic boundary: an already active CID is reused rather than opened twice, while close followed by reopen remains permitted.
+- New RuntimeLoop commitment openings record the exact prior assistant event that emitted the matching `COMMIT:` line; live and rebuilt `MemeGraph` projections use that reference for `commits_to`.
 - New commitment closes are mandatory successful transitions through one atomic boundary: the target CID must have a latest open lifecycle event, the exact open event is recorded, and repeats are idempotent.
 - The three main managed-runtime projections are rebuilt from canonical history and reconciled through fixed-watermark required delivery before graph-dependent work.
 - When claim evidence references are supplied through the normal runtime claim path, their ID shape, ledger existence, and availability in that turn's retrieval selection are checked.
@@ -195,7 +197,7 @@ Each statement is scoped to the named production path. It should not be expanded
 
 These are active boundaries, not hidden guarantees:
 
-- **Commitment episode reconstruction:** R07 permits a legitimate second opening after close. The latest episode agrees across `Mirror`, `MemeGraph`, and the close path, but the relationship from a reopened event to the assistant utterance that produced it requires a separate production-path audit.
+- **Multi-episode commitment history:** `thread_for_cid` currently reconstructs the latest opening episode. The repository has not selected whether one consumer should receive that current episode, the complete ordered open/close history for the CID, or separately named views for both.
 - **CID identity policy:** general commitment CIDs remain derived from a short hash of text. R07 governs lifecycle state for the resulting CID; it does not decide semantic equivalence, collision policy, or whether differently worded commitments represent one obligation.
 - **Optional evidence:** several claim/reference fields may be omitted or supplied as empty collections. The repository has not adopted one universal meaning for absence or emptiness.
 - **Unknown claim types:** the current claim validator accepts an unregistered type as `ACCEPTED_UNKNOWN_TYPE`; the runtime can promote it to a canonical claim and concept binding. Reject-versus-promote policy remains unsettled.

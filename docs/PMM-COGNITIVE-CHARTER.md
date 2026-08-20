@@ -356,12 +356,16 @@ audit revision. It is not rewritten after later bounded authorizations.
 R17 Phases 1–3 were subsequently authorized and published as truthful vector
 provenance and attributable weak-overlap diagnostics. R07 was subsequently
 authorized and published through PR #17 as one active `commitment_open` per CID
-on audited EventLog paths.
+on audited EventLog paths. PR #18 then recorded the exact preserved assistant
+origin for each new RuntimeLoop opening and made that explicit relationship
+authoritative for `MemeGraph.commits_to`.
 
 R07 operationalizes, but does not complete, the charter's account of commitment.
 A repeated utterance remains part of history and may acquire later relational
 attribution, but recurrence alone is not promoted into a second act of
 obligation. A close followed by reopen remains a traceable later episode. The
-change does not establish commitment meaning or fulfillment, identity-anchor
-relevance, semantic CID identity, or the complete
+later opening now identifies the utterance that produced that episode rather
+than relying on textual recurrence. These changes do not establish commitment
+meaning or fulfillment, identity-anchor relevance, semantic CID identity,
+complete multi-episode composition, or the complete
 commitment-to-outcome-to-reinterpretation chain.

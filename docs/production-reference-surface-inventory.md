@@ -64,6 +64,28 @@ fulfillment, identity-anchor relevance, CID semantic equivalence or collision
 policy, full multi-episode reconstruction, historical migration, or protection
 against hostile out-of-band SQLite administration.
 
+## Commitment opening-origin addendum — 2026-08-19
+
+PR #18 published exact assistant provenance for new RuntimeLoop commitment
+openings at merge commit `edb63f98ed2b360d9fa7617b37aa487ce3d89e73`.
+`RuntimeLoop` passes the already-preserved assistant event ID through
+`CommitmentManager`; the created `commitment_open` stores it as
+`meta.origin_event_id`.
+
+When the field is supplied, EventLog requires a positive integer, assistant
+origin, an existing `assistant_message`, and a matching exact `COMMIT:` line.
+The check occurs inside the opening transaction before R07's reuse-or-create
+decision. `MemeGraph` rechecks that the explicit event is prior, tracked as an
+assistant, and contains the matching line before creating `commits_to`.
+Malformed explicit references do not fall back to text inference. Historical
+rows without the field retain the pre-existing compatibility fallback.
+
+This establishes exact opening provenance for RuntimeLoop-produced canonical
+opens and governed referential/role checks for every explicit origin accepted
+through EventLog. It does not prove same-turn provenance for arbitrary generic
+callers, alter active-CID reuse, migrate legacy rows, compose all CID episodes
+into one thread, or settle semantic commitment identity.
+
 ## Scope, method, and limits
 
 This inventory includes serialized fields and active control structures that production code uses relationally to affect canonical events, deterministic projections, identity, commitments, concept state, graph relationships, fast reconstruction, future retrieval, or authority to write and promote state.

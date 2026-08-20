@@ -1,8 +1,8 @@
 # PMM Improvement Progress and Remaining Work
 
 - **Status date:** 2026-08-19
-- **Audit basis:** The approved cognitive-architecture audit used clean, synchronized `main` at `8198e66d3bdfa10dfd5aaad298baac9187406556`, with divergence `0 0`. Earlier implementation and verification records retain their own stated revision boundaries. The self-referential-projection findings dated 2026-07-26 were audited separately on clean `main` at `a443c6a`; they are documentation-only and change no runtime behavior. The R17 Phase 1–3 status reconciliation used synchronized `main` at `10211a1031b746c4f42e47b5918d63082d9583db`. R07 was later published through PR #17 at merge commit `8f2c4d8f28570bbc68546fe9d537017b0f213ffb`.
-- **Current recorded verification:** At the R07 publication boundary, 17 exact focused tests and the complete suite of 531 tests passed. Ruff passed on the six R07 implementation and test files; Black left those files unchanged while emitting the recorded Python 3.14/target-3.15 parser warning; and `git diff --check` passed. Earlier measurements below remain historical results at their stated boundaries.
+- **Audit basis:** The approved cognitive-architecture audit used clean, synchronized `main` at `8198e66d3bdfa10dfd5aaad298baac9187406556`, with divergence `0 0`. Earlier implementation and verification records retain their own stated revision boundaries. The self-referential-projection findings dated 2026-07-26 were audited separately on clean `main` at `a443c6a`; they are documentation-only and change no runtime behavior. The R17 Phase 1–3 status reconciliation used synchronized `main` at `10211a1031b746c4f42e47b5918d63082d9583db`. R07 was later published through PR #17 at `8f2c4d8f28570bbc68546fe9d537017b0f213ffb`; exact assistant provenance for new RuntimeLoop openings followed through PR #18 at `edb63f98ed2b360d9fa7617b37aa487ce3d89e73`.
+- **Current recorded verification:** At the commitment-opening-origin publication boundary, 37 focused tests and the complete suite of 533 tests passed. Ruff passed on the six implementation and test files; Black left those files unchanged while emitting the recorded Python 3.14/target-3.15 parser warning; and `git diff --check` passed. Earlier measurements below remain historical results at their stated boundaries.
 - **Scope:** Historical integrity, continuity, diagnostics, retrieval, and development-audit improvements, now re-baselined beneath the approved PMM cognitive architecture. This document records current evidence and undecided candidates; it does not select a runtime remediation sequence.
 
 ## Purpose
@@ -422,6 +422,10 @@ Established invariant:
 `RuntimeLoop` promotes a CID into `TurnDelta.opened` and the resulting `Opened commitments:` reflection only when a new canonical opening was created. A repeated `COMMIT:` utterance remains in assistant-message history and may still carry later execution or concept-binding attribution, but recurrence is not promoted into a false new act of obligation. `MemeGraph` resolves legacy duplicate opens to the latest opening so its close relationship agrees with `Mirror` and R08.
 
 Verification covered general and internal producers, generic append, concurrent convergence, close/reopen, legacy projection, live/rebuilt parity, false-reflection suppression, and preservation of later binding attribution. R07 establishes one active opening on audited EventLog paths. It does not settle commitment meaning, fulfillment, identity-anchor relevance, CID collision policy, full multi-episode thread reconstruction, or hostile out-of-band SQLite writes.
+
+PR #18 closed the adjacent opening-origin gap at `edb63f98ed2b360d9fa7617b37aa487ce3d89e73` (`Record commitment opening origins`). Each new opening produced from a RuntimeLoop assistant `COMMIT:` now records the exact already-preserved `assistant_message` as `origin_event_id`. EventLog accepts an explicit origin only when it is a positive integer identifying an existing assistant message with the matching exact `COMMIT:` line and assistant origin. `MemeGraph` uses that explicit prior event for `commits_to`; malformed explicit references fail closed, while rows without the field retain the historical compatibility fallback.
+
+In the verified `open -> close -> reopen` path, the first and second openings point to their respective assistant events, and live and rebuilt projections produce the same current episode. R07 reuse does not rewrite the original opening, R08 still closes the exact open event, and internal openings remain unchanged. The implementation does not prove same-turn provenance for arbitrary generic callers, migrate historical rows, compose all CID episodes into one thread, or settle CID and commitment semantics.
 
 ### C01 — shared MemeGraph startup reconstruction
 
@@ -1413,12 +1417,13 @@ corrections also remain published: Phase 1 vector-parameter provenance fidelity
 (`3853fff`, PR #13), Phase 2 weak-overlap outcome semantics (`8aa4c4d`, PR #14),
 and Phase 3 attributable, non-repeating diagnostics (`10211a1`, PR #15).
 
-The best next bounded investigation is read-only: trace a CID through
-`open -> close -> reopen` and determine whether `MemeGraph` associates the new
-episode with the assistant event that actually reopened it. This is a relational
-reconstruction question made visible by legitimate R07 reopenings, not a reason
-to reopen R07. No implementation of that finding is authorized by this status
-update.
+The `open -> close -> reopen` origin investigation and repair are complete. The
+best next bounded investigation is read-only: determine whether PMM should expose
+only the current commitment episode, the complete ordered history of every
+episode for a CID, or separate APIs for both. Current `thread_for_cid` deliberately
+starts from the latest opening; changing that composition would affect retrieval,
+concept aggregation, CLI output, lifetime memory, and autonomy evidence. No such
+policy or implementation is authorized by this status update.
 
 The remainder of R17, the reference-policy matrix, R06, new cognitive semantics,
 migrations, renames, and every other candidate above remain frozen. Their
