@@ -41,7 +41,7 @@ def test_compute_metrics_counts_and_chain(tmp_path):
     log.append(
         kind="commitment_close",
         content="c1",
-        meta={"cid": "c1", "source": "assistant"},
+        meta={"cid": "c1", "source": "test_fixture"},
     )
 
     m = compute_metrics(db)

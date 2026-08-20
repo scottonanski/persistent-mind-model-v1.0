@@ -18,7 +18,7 @@ def test_concept_bind_thread_rebuild_and_queries():
         log, "commitment_open", "", meta={"cid": "cid_a", "text": "Do thing"}
     )
     close_id = _append(
-        log, "commitment_close", "", meta={"cid": "cid_a", "source": "assistant"}
+        log, "commitment_close", "", meta={"cid": "cid_a", "source": "test_fixture"}
     )
     bind_payload = json.dumps(
         {"cid": "cid_a", "tokens": ["topic.test"], "relation": "relevant_to"},
@@ -49,7 +49,7 @@ def test_retrieval_pipeline_uses_thread_bindings():
     _append(log, "assistant_message", "response", meta={"role": "assistant"})
     _append(log, "commitment_open", "", meta={"cid": "cid_b", "text": "Goal"})
     close_id = _append(
-        log, "commitment_close", "", meta={"cid": "cid_b", "source": "assistant"}
+        log, "commitment_close", "", meta={"cid": "cid_b", "source": "test_fixture"}
     )
     bind_payload = json.dumps(
         {"cid": "cid_b", "tokens": ["topic.pipeline"], "relation": "relevant_to"},

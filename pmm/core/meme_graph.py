@@ -108,19 +108,32 @@ class MemeGraph:
             # New authoritative closes identify the exact open event. Retain
             # CID lookup only for replaying legacy history.
             open_node = (meta or {}).get("open_event_id")
-            if not (
+            valid_explicit_open = (
                 isinstance(open_node, int)
+                and not isinstance(open_node, bool)
                 and self.graph.has_node(open_node)
                 and self.graph.nodes[open_node].get("kind") == "commitment_open"
-            ):
+            )
+            if not valid_explicit_open and "open_event_id" not in (meta or {}):
                 cid = (meta or {}).get("cid")
                 open_node = (
                     self._find_commitment_open_by_cid(cid)
                     if isinstance(cid, str) and cid
                     else None
                 )
+            elif not valid_explicit_open:
+                open_node = None
             if open_node is not None:
                 self.graph.add_edge(event_id, open_node, label="closes")
+            if "origin_event_id" in (meta or {}):
+                assistant_node = self._validated_commitment_close_origin(
+                    closing_id=event_id,
+                    open_event_id=open_node,
+                    origin_event_id=(meta or {}).get("origin_event_id"),
+                    cid=(meta or {}).get("cid"),
+                )
+                if assistant_node is not None:
+                    self.graph.add_edge(event_id, assistant_node, label="issued_by")
         elif kind == "reflection":
             about_event = meta.get("about_event")
             if about_event and self.graph.has_node(about_event):
@@ -234,6 +247,39 @@ class MemeGraph:
             str(assistant.get("content") or "").splitlines()
         )
         return origin_event_id if text.strip() in commitments else None
+
+    def _validated_commitment_close_origin(
+        self,
+        *,
+        closing_id: int,
+        open_event_id: object,
+        origin_event_id: object,
+        cid: object,
+    ) -> int | None:
+        """Resolve a closing assistant that emitted CLOSE for this episode."""
+        if (
+            not isinstance(open_event_id, int)
+            or isinstance(open_event_id, bool)
+            or not isinstance(origin_event_id, int)
+            or isinstance(origin_event_id, bool)
+            or not isinstance(cid, str)
+            or not cid.strip()
+            or origin_event_id >= closing_id
+            or not self.graph.has_node(origin_event_id)
+            or self.graph.nodes[origin_event_id].get("kind") != "assistant_message"
+        ):
+            return None
+
+        if origin_event_id <= open_event_id:
+            open_event = self.eventlog.get(open_event_id) or {}
+            if (open_event.get("meta") or {}).get("origin_event_id") != origin_event_id:
+                return None
+
+        from pmm.core.semantic_extractor import extract_closures
+
+        assistant = self.eventlog.get(origin_event_id) or {}
+        closures = extract_closures(str(assistant.get("content") or "").splitlines())
+        return origin_event_id if cid.strip() in closures else None
 
     def _find_commitment_open_by_cid(self, cid: str) -> int | None:
         """Return the greatest commitment_open node id recorded for a cid.
@@ -354,9 +400,10 @@ class MemeGraph:
         """Return ordered event ids forming the thread for a commitment cid.
 
         Order: assistant_message (that issued COMMIT) -> commitment_open ->
+        assistant_message (that issued CLOSE, when recorded) ->
         commitment_close (if any, possibly multiple) -> reflections that
-        reflect on the assistant_message. All ids sorted ascending within
-        each category to keep stable ordering.
+        reflect on either assistant_message. All ids are stable within each
+        category.
         """
         cid = (cid or "").strip()
         if not cid:
@@ -382,9 +429,19 @@ class MemeGraph:
                     close_nodes.append(int(pred))
             close_nodes.sort()
 
-            # reflections that reflect on the assistant
+            closing_assistant_nodes: list[int] = []
+            for close_node in close_nodes:
+                for succ in self.graph.successors(close_node):
+                    edge = self.graph.get_edge_data(close_node, succ)
+                    if (edge or {}).get("label") == "issued_by":
+                        closing_assistant_nodes.append(int(succ))
+            closing_assistant_nodes = sorted(
+                set(closing_assistant_nodes) - set(assistant_nodes)
+            )
+
+            # Reflections that interpret either lifecycle assistant event.
             reflection_nodes: list[int] = []
-            for an in assistant_nodes:
+            for an in assistant_nodes + closing_assistant_nodes:
                 for pred in self.graph.predecessors(an):
                     edge = self.graph.get_edge_data(pred, an)
                     if (edge or {}).get("label") == "reflects_on":
@@ -394,6 +451,7 @@ class MemeGraph:
             ordered: list[int] = []
             ordered.extend(assistant_nodes)
             ordered.append(int(open_node))
+            ordered.extend(closing_assistant_nodes)
             ordered.extend(close_nodes)
             ordered.extend(reflection_nodes)
             return ordered
@@ -426,7 +484,7 @@ class MemeGraph:
 
         Logic:
         - commitment_open/close: direct meta.cid
-        - assistant_message: if an open points to it via commits_to, use that open's cid
+        - assistant_message: use opens/closes that identify it as their origin
         - reflection: if it points to an assistant via reflects_on, use that assistant's cids
         """
         with self._lock:
@@ -445,13 +503,12 @@ class MemeGraph:
                     cids.add(cid)
 
             elif kind == "assistant_message":
-                # Find opens that point to this assistant
+                # Find lifecycle events that identify this assistant as origin.
                 for pred in self.graph.predecessors(event_id):
                     edge = self.graph.get_edge_data(pred, event_id)
-                    if (edge or {}).get("label") == "commits_to":
-                        # pred is the open event
-                        open_event = self.eventlog.get(pred)
-                        cid = (open_event.get("meta") or {}).get("cid")
+                    if (edge or {}).get("label") in {"commits_to", "issued_by"}:
+                        lifecycle_event = self.eventlog.get(pred)
+                        cid = (lifecycle_event.get("meta") or {}).get("cid")
                         if cid:
                             cids.add(cid)
 
@@ -466,9 +523,12 @@ class MemeGraph:
                         # We just duplicate the assistant logic for safety and clarity
                         for pred_of_succ in self.graph.predecessors(succ):
                             edge_pos = self.graph.get_edge_data(pred_of_succ, succ)
-                            if (edge_pos or {}).get("label") == "commits_to":
-                                open_event = self.eventlog.get(pred_of_succ)
-                                cid = (open_event.get("meta") or {}).get("cid")
+                            if (edge_pos or {}).get("label") in {
+                                "commits_to",
+                                "issued_by",
+                            }:
+                                lifecycle_event = self.eventlog.get(pred_of_succ)
+                                cid = (lifecycle_event.get("meta") or {}).get("cid")
                                 if cid:
                                     cids.add(cid)
 

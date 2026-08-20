@@ -117,32 +117,71 @@ class CommitmentManager:
         cid: str,
         *,
         source: str = "assistant",
+        origin_event_id: int | None = None,
         outcome: str = "",
         reason: str = "",
     ) -> Optional[int]:
-        """Close an existing open commitment, idempotently."""
+        """Close an existing open commitment, idempotently.
+
+        Assistant-sourced closes require the exact assistant ``origin_event_id``.
+        Non-assistant lifecycle producers must omit it.
+
+        Compatibility wrapper around ``close_commitment_status``. Callers that
+        must distinguish a newly created close from reuse of an existing close
+        should use the status API.
+        """
+        event_id, _created = self.close_commitment_status(
+            cid,
+            source=source,
+            origin_event_id=origin_event_id,
+            outcome=outcome,
+            reason=reason,
+        )
+        return event_id
+
+    def close_commitment_status(
+        self,
+        cid: str,
+        *,
+        source: str = "assistant",
+        origin_event_id: int | None = None,
+        outcome: str = "",
+        reason: str = "",
+    ) -> tuple[Optional[int], bool]:
+        """Close a commitment and report whether a canonical close was created.
+
+        Assistant-sourced closes require the exact assistant ``origin_event_id``.
+        Non-assistant lifecycle producers must omit it. Idempotent reuse returns
+        the existing close ID with ``created=False``.
+        """
         cid = (cid or "").strip()
         if not cid:
-            return None
+            return None, False
         source = (source or "").strip()
         if not source:
-            return None
+            return None, False
         meta: Dict[str, Any] = {"cid": cid, "source": source}
+        if origin_event_id is not None:
+            meta["origin_event_id"] = origin_event_id
         if outcome := (outcome or "").strip():
             meta["outcome"] = outcome
         if reason := (reason or "").strip():
             meta["reason"] = reason
-        event_id, _ = self.eventlog.append_commitment_close(
+        return self.eventlog.append_commitment_close(
             content=f"Commitment closed: {cid}",
             meta=meta,
         )
-        return event_id
 
     def apply_closures(
-        self, cids: List[str], *, source: str = "assistant"
+        self,
+        cids: List[str],
+        *,
+        source: str = "assistant",
+        origin_event_id: int | None = None,
     ) -> List[str]:
         """Close only those commitments currently open; idempotent.
 
+        Assistant-sourced closes require the exact assistant ``origin_event_id``.
         Returns list of cids that were actually closed.
         """
         closed: List[str] = []
@@ -151,9 +190,10 @@ class CommitmentManager:
             source = (source or "").strip()
             if not cid or not source:
                 continue
-            event_id, created = self.eventlog.append_commitment_close(
-                content=f"Commitment closed: {cid}",
-                meta={"cid": cid, "source": source},
+            event_id, created = self.close_commitment_status(
+                cid,
+                source=source,
+                origin_event_id=origin_event_id,
             )
             if event_id is not None and created:
                 closed.append(cid)

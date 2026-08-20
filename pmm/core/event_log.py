@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Any, Callable, Dict, List, Optional
 
-from pmm.core.semantic_extractor import extract_commitments
+from pmm.core.semantic_extractor import extract_closures, extract_commitments
 from pmm.core.writer_session import (
     WriterOwnershipBusy,
     WriterOwnershipError,
@@ -1004,8 +1004,6 @@ class EventLog:
             raise TypeError("Commitment close content must be a string")
 
         close_meta = dict(meta or {})
-        if "origin_event_id" in close_meta:
-            raise ValueError("origin_event_id is reserved for commitment_open")
         cid = close_meta.get("cid")
         if not isinstance(cid, str) or not cid.strip():
             raise ValueError("commitment_close requires non-empty cid")
@@ -1040,6 +1038,49 @@ class EventLog:
                     return int(latest["id"]), False
 
                 open_event_id = int(latest["id"])
+                origin_event_id = close_meta.get("origin_event_id")
+                if source == "assistant":
+                    if (
+                        not isinstance(origin_event_id, int)
+                        or isinstance(origin_event_id, bool)
+                        or origin_event_id <= 0
+                    ):
+                        raise ValueError(
+                            "assistant commitment_close requires a positive "
+                            "origin_event_id"
+                        )
+                    origin_row = self._conn.execute(
+                        "SELECT kind, content FROM events WHERE id = ?",
+                        (origin_event_id,),
+                    ).fetchone()
+                    if origin_row is None or origin_row["kind"] != "assistant_message":
+                        raise ValueError(
+                            "commitment_close origin_event_id must reference an "
+                            "existing assistant_message"
+                        )
+                    if origin_event_id <= open_event_id:
+                        try:
+                            open_meta = json.loads(latest["meta"] or "{}")
+                        except (TypeError, json.JSONDecodeError):
+                            open_meta = {}
+                        if open_meta.get("origin_event_id") != origin_event_id:
+                            raise ValueError(
+                                "commitment_close origin_event_id must follow the open "
+                                "event or be its recorded origin"
+                            )
+                    origin_closures = extract_closures(
+                        str(origin_row["content"] or "").splitlines()
+                    )
+                    if cid not in origin_closures:
+                        raise ValueError(
+                            "commitment_close origin_event_id assistant must contain "
+                            "the matching CLOSE line"
+                        )
+                elif "origin_event_id" in close_meta:
+                    raise ValueError(
+                        "commitment_close origin_event_id is reserved for "
+                        "assistant-produced closes"
+                    )
                 close_meta["cid"] = cid
                 close_meta["source"] = source
                 close_meta["open_event_id"] = open_event_id

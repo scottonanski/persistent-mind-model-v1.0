@@ -38,8 +38,7 @@ def _append_turn(log: EventLog, idx: int) -> None:
             content=f"Commitment closed: {cid}",
             meta={
                 "cid": cid,
-                "origin": "assistant",
-                "source": "assistant",
+                "source": "test_fixture",
             },
         )
     if idx % 3 == 0:

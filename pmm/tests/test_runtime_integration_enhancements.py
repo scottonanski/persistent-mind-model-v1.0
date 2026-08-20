@@ -88,8 +88,7 @@ def test_metrics_include_stability_block(tmp_path: Path) -> None:
             content=f"Commitment closed: {cid}",
             meta={
                 "cid": cid,
-                "origin": "assistant",
-                "source": "assistant",
+                "source": "test_fixture",
             },
         )
 

@@ -1103,7 +1103,11 @@ class RuntimeLoop:
 
         # 7. Closures
         to_close = self._extract_closures(assistant_reply)
-        actually_closed = self.commitments.apply_closures(to_close, source="assistant")
+        actually_closed = self.commitments.apply_closures(
+            to_close,
+            source="assistant",
+            origin_event_id=ai_event_id,
+        )
         delta.closed.extend(actually_closed)
 
         # 8. REFLECT block

@@ -4,7 +4,6 @@
 # Path: pmm/tests/test_stability_monitor.py
 """Tests for stability monitor."""
 
-
 from pmm.core.event_log import EventLog
 from pmm.stability.stability_monitor import (
     build_stability_metrics_event_content,
@@ -29,7 +28,7 @@ def test_calculate_stability_metrics():
     log.append(
         kind="commitment_close",
         content="CLOSE: cid123",
-        meta={"cid": "cid123", "source": "assistant"},
+        meta={"cid": "cid123", "source": "test_fixture"},
     )
     log.append(kind="reflection", content="Reflection")
     log.append(kind="claim", content='CLAIM:type={"key": "value"}')

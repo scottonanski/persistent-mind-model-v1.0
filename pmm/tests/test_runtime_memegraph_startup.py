@@ -53,7 +53,7 @@ def _append_seed_history(log: EventLog) -> dict[str, int | str]:
     close_id = log.append(
         kind="commitment_close",
         content="Commitment closed: restore01",
-        meta={"cid": "restore01", "source": "assistant"},
+        meta={"cid": "restore01", "source": "test_fixture"},
     )
     log.append(
         kind="concept_define",

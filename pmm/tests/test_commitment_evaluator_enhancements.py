@@ -31,8 +31,7 @@ def _append_commitment_close(log: EventLog, cid: str) -> None:
         content=f"Commitment closed: {cid}",
         meta={
             "cid": cid,
-            "origin": "assistant",
-            "source": "assistant",
+            "source": "test_fixture",
         },
     )
 

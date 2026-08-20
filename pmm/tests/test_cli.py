@@ -109,7 +109,7 @@ def _seed_graph_events(log: EventLog) -> None:
     log.append(
         kind="commitment_close",
         content="Commitment closed: task1",
-        meta={"source": "assistant", "cid": "task1"},
+        meta={"source": "test_fixture", "cid": "task1"},
     )
 
 

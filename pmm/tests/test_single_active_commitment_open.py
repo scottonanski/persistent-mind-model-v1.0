@@ -29,7 +29,7 @@ def _open(log: EventLog, cid: str = "c1", *, content: str | None = None) -> int:
     )
 
 
-def _close(log: EventLog, cid: str = "c1", *, source: str = "assistant") -> int:
+def _close(log: EventLog, cid: str = "c1", *, source: str = "autonomy_kernel") -> int:
     return log.append(
         kind="commitment_close",
         content=f"Commitment closed: {cid}",
@@ -92,7 +92,7 @@ def test_open_commitment_status_reports_created_and_preserves_str_wrapper() -> N
     assert reuse_created is False
     assert len(log.read_by_kind("commitment_open")) == 1
 
-    manager.close_commitment(cid, source="assistant")
+    manager.close_commitment(cid, source="autonomy_kernel")
     reopened_cid, reopened = manager.open_commitment_status(
         "ship the audit", source="assistant"
     )
@@ -143,6 +143,16 @@ def test_runtime_opened_reflection_tracks_canonical_create_not_rediscovery() -> 
     assert opens[0]["id"] < second_assistant["id"]
 
     loop.run_turn("close")
+    closing_assistant = log.read_by_kind("assistant_message")[-1]
+    close_event = log.read_by_kind("commitment_close")[-1]
+    first_open_id = opens[0]["id"]
+    assert close_event["meta"]["origin_event_id"] == closing_assistant["id"]
+    assert close_event["meta"]["open_event_id"] == first_open_id
+    assert (
+        loop.memegraph.graph[close_event["id"]][closing_assistant["id"]]["label"]
+        == "issued_by"
+    )
+    assert loop.memegraph.cids_for_event(closing_assistant["id"]) == [cid]
     loop.run_turn("reopen")
     reopened = log.read_by_kind("commitment_open")
     reopening_assistant = log.read_by_kind("assistant_message")[-1]
@@ -229,10 +239,10 @@ def test_commitment_open_origin_reference_is_enforced() -> None:
     )
     assert log.get(created)["meta"]["origin_event_id"] == assistant_id
 
-    with pytest.raises(ValueError, match="reserved for commitment_open"):
+    with pytest.raises(ValueError, match="matching CLOSE line"):
         log.append(
             kind="commitment_close",
-            content="invalid close metadata",
+            content="invalid prior close origin",
             meta={
                 "cid": "c1",
                 "source": "assistant",

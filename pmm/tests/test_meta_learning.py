@@ -4,7 +4,6 @@
 # Path: pmm/tests/test_meta_learning.py
 """Tests for meta-learning subsystem."""
 
-
 from pmm.core.event_log import EventLog
 from pmm.meta_learning.efficiency_metrics import (
     EfficiencyMetrics,
@@ -48,7 +47,7 @@ def test_calculate_efficiency_metrics():
     log.append(
         kind="commitment_close",
         content="CLOSE: cid",
-        meta={"cid": "cid", "source": "assistant"},
+        meta={"cid": "cid", "source": "test_fixture"},
     )
 
     patterns = [LearningPattern("reflection_to_policy_update", 1, 10.0)]

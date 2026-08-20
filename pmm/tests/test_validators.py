@@ -38,7 +38,7 @@ def test_validate_claims_basic():
     log.append(
         kind="commitment_close",
         content="c",
-        meta={"cid": "abcd", "source": "assistant"},
+        meta={"cid": "abcd", "source": "test_fixture"},
     )
     ok, msg = validate_claim(
         Claim(type="commitment_status", data={"cid": "abcd", "open": True}), log, mirror
