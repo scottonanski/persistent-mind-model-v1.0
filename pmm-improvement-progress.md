@@ -1,6 +1,6 @@
 # PMM Current Status and Roadmap
 
-**Audited runtime baseline:** `b0f139d13f7ca360751556830168694ff4aafd8c`
+**Audited runtime baseline:** `e3fe3a625587732ae748b14bde4db66e17b67be5`
 
 **Status date:** 2026-08-20
 
@@ -85,6 +85,9 @@ mechanism.
   whitespace checks, rebuild/incremental parity, hostile malformed-input and
   producer-forgery counterexamples, and final hostile exact-diff review with no
   actionable high- or medium-severity defect.
+- The implementation was published in PR #22 and merged on `main` at the
+  audited runtime baseline above; implementation commit `c0ad07d` is retained
+  in the merge history.
 
 ## Completed next-surface selection
 
