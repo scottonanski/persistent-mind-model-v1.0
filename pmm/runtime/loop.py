@@ -56,7 +56,6 @@ import asyncio
 import threading
 import time
 
-
 DEBUG = False  # Set to True for debugging
 
 
@@ -977,9 +976,12 @@ class RuntimeLoop:
 
         # 5. Commitments (open)
         for c in self._extract_commitments(assistant_reply):
-            cid = self.commitments.open_commitment(c, source="assistant")
+            cid, created = self.commitments.open_commitment_status(
+                c, source="assistant"
+            )
             if cid:
-                delta.opened.append(cid)
+                if created:
+                    delta.opened.append(cid)
                 extract_exec_binds(self.eventlog, c, cid)
 
                 # Bind concepts to this thread/CID for thread-first retrieval.

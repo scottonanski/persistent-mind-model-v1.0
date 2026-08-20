@@ -198,13 +198,22 @@ class MemeGraph:
         return None
 
     def _find_commitment_open_by_cid(self, cid: str) -> int | None:
+        """Return the greatest commitment_open node id recorded for a cid.
+
+        Legacy ledgers may hold several opens for one cid. Resolving the
+        greatest id selects the latest open, which is the one the authoritative
+        close path transitions from and the one Mirror projects as open.
+        """
+        latest: int | None = None
         for node in self.graph.nodes:
             if self.graph.nodes[node]["kind"] == "commitment_open":
                 full_event = self.eventlog.get(node)
                 meta = full_event.get("meta", {})
                 if meta.get("cid") == cid:
-                    return node
-        return None
+                    node_id = int(node)
+                    if latest is None or node_id > latest:
+                        latest = node_id
+        return latest
 
     # Read-only helpers (deterministic, rebuildable)
     def graph_stats(self) -> dict:

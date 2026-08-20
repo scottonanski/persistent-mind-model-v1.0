@@ -102,10 +102,14 @@ def test_model_rediscovery_does_not_erase_authorship() -> None:
     loop.run_turn("first")
     loop.run_turn("second")
 
+    # Rediscovering an already-active commitment is an idempotent open: the CID
+    # keeps its single canonical commitment_open from the first turn. Binding
+    # authorship must not depend on that collapse. RuntimeLoop emits the later
+    # concept_bind_thread independently once CommitmentManager returns the
+    # existing CID, so no second commitment_open is needed to preserve it.
     opens = log.read_by_kind("commitment_open")
-    assert len(opens) == 2
+    assert len(opens) == 1
     cid = opens[0]["meta"]["cid"]
-    assert opens[1]["meta"]["cid"] == cid
 
     graph = ConceptGraph(log)
     graph.rebuild()
@@ -119,6 +123,9 @@ def test_model_rediscovery_does_not_erase_authorship() -> None:
     )
     second_assistant = log.read_by_kind("assistant_message")[1]
     assert model["origin_event_id"] == second_assistant["id"]
+    # Authorship is attributed to the second turn even though the sole canonical
+    # open for this CID was recorded on the first.
+    assert opens[0]["id"] < second_assistant["id"]
     assert graph.resolve_concepts_for_cid(cid) == {"identity.continuity"}
 
 
@@ -162,13 +169,15 @@ def test_protocol_v1_rejects_invalid_origin_and_nonassistant_declarer() -> None:
 def test_attribution_preserves_retrieval_and_provider_context() -> None:
     def build(attributed: bool):
         log = EventLog(":memory:")
-        user_id = log.append(kind="user_message", content="memory", meta={"role": "user"})
+        user_id = log.append(
+            kind="user_message", content="memory", meta={"role": "user"}
+        )
         assistant_id = log.append(
-            kind="assistant_message", content="memory persists", meta={"role": "assistant"}
+            kind="assistant_message",
+            content="memory persists",
+            meta={"role": "assistant"},
         )
-        content = _binding_content(
-            event_id=assistant_id, token="memory.persistence"
-        )
+        content = _binding_content(event_id=assistant_id, token="memory.persistence")
         meta = {"source": "active_indexing"}
         if attributed:
             meta = binding_attribution_meta(
