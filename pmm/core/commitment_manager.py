@@ -54,18 +54,32 @@ class CommitmentManager:
         return cid
 
     # General (non-internal) commitments opened by assistant/user
-    def open_commitment(self, text: str, *, source: str = "assistant") -> str:
+    def open_commitment(
+        self,
+        text: str,
+        *,
+        source: str = "assistant",
+        origin_event_id: int | None = None,
+    ) -> str:
         """Open a general commitment and return its CID.
 
         Compatibility wrapper around ``open_commitment_status``. Callers that
         must distinguish a newly created open from reuse of an already-active
         CID should use the status API.
         """
-        cid, _created = self.open_commitment_status(text, source=source)
+        cid, _created = self.open_commitment_status(
+            text,
+            source=source,
+            origin_event_id=origin_event_id,
+        )
         return cid
 
     def open_commitment_status(
-        self, text: str, *, source: str = "assistant"
+        self,
+        text: str,
+        *,
+        source: str = "assistant",
+        origin_event_id: int | None = None,
     ) -> tuple[str, bool]:
         """Open a general commitment and report whether a canonical open was created.
 
@@ -87,6 +101,8 @@ class CommitmentManager:
             "source": source,
             "text": text,
         }
+        if origin_event_id is not None:
+            meta["origin_event_id"] = origin_event_id
         impact = CommitmentEvaluator(self.eventlog).compute_impact_score(text)
         meta["impact_score"] = impact
         validate_event({"kind": "commitment_open", "meta": meta})
