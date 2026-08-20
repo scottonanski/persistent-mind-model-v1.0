@@ -153,6 +153,19 @@ class CommitmentOutcomeReviewRejected(ValueError):
         )
 
 
+class ReflectionReinterpretationRejected(ValueError):
+    """A governed reinterpretation was rejected after durable failure."""
+
+    def __init__(self, *, failure_event_id: int, reason_code: str) -> None:
+        self.failure_event_id = failure_event_id
+        self.reason_code = reason_code
+        self.canonical_commit_succeeded = True
+        super().__init__(
+            "reflection reinterpretation rejected; validation_failure "
+            f"{failure_event_id} records {reason_code}"
+        )
+
+
 @dataclass
 class _ListenerRegistration:
     name: str
@@ -391,6 +404,16 @@ class EventLog:
                         outcome_event_id,
                         content
                     ),
+                    FOREIGN KEY(event_id) REFERENCES events(id)
+                )
+                """)
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS pmm_reflection_reinterpretation_authority (
+                    origin_event_id INTEGER NOT NULL,
+                    review_event_id INTEGER NOT NULL,
+                    content TEXT NOT NULL,
+                    event_id INTEGER NOT NULL UNIQUE,
+                    PRIMARY KEY(origin_event_id, review_event_id, content),
                     FOREIGN KEY(event_id) REFERENCES events(id)
                 )
                 """)
@@ -778,6 +801,7 @@ class EventLog:
 
         from pmm.core.commitment_outcome import (
             OUTCOME_PROTOCOL_V1,
+            REINTERPRETATION_PROTOCOL_V1,
             REVIEW_PROTOCOL_V1,
         )
 
@@ -790,6 +814,7 @@ class EventLog:
                     kind=kind,
                     content=content,
                     meta=meta,
+                    relationship_protocol=OUTCOME_PROTOCOL_V1,
                 )
             )
             if event_id is None:
@@ -809,6 +834,7 @@ class EventLog:
                     kind=kind,
                     content=content,
                     meta=meta,
+                    relationship_protocol=REVIEW_PROTOCOL_V1,
                 )
             )
             if event_id is None:
@@ -817,6 +843,29 @@ class EventLog:
                         "commitment outcome review rejected without a durable failure record"
                     )
                 raise CommitmentOutcomeReviewRejected(
+                    failure_event_id=failure_id,
+                    reason_code=reason_code or "UNKNOWN",
+                )
+            return event_id
+
+        if (
+            kind == "reflection"
+            and (meta or {}).get("protocol") == REINTERPRETATION_PROTOCOL_V1
+        ):
+            event_id, _created, failure_id, reason_code = (
+                self._append_commitment_relationship_owned(
+                    kind=kind,
+                    content=content,
+                    meta=meta,
+                    relationship_protocol=REINTERPRETATION_PROTOCOL_V1,
+                )
+            )
+            if event_id is None:
+                if failure_id is None:
+                    raise RuntimeError(
+                        "reflection reinterpretation rejected without a durable failure record"
+                    )
+                raise ReflectionReinterpretationRejected(
                     failure_event_id=failure_id,
                     reason_code=reason_code or "UNKNOWN",
                 )
@@ -1027,7 +1076,10 @@ class EventLog:
         with session.operation():
             event_id, created, _failure_id, _reason = (
                 self._append_commitment_relationship_owned(
-                    kind="outcome_observation", content=content, meta=meta
+                    kind="outcome_observation",
+                    content=content,
+                    meta=meta,
+                    relationship_protocol="commitment_outcome.v1",
                 )
             )
         return event_id, created
@@ -1044,7 +1096,30 @@ class EventLog:
         with session.operation():
             event_id, created, _failure_id, _reason = (
                 self._append_commitment_relationship_owned(
-                    kind="reflection", content=content, meta=meta
+                    kind="reflection",
+                    content=content,
+                    meta=meta,
+                    relationship_protocol="commitment_outcome_review.v1",
+                )
+            )
+        return event_id, created
+
+    def append_reflection_reinterpretation(
+        self,
+        *,
+        content: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> tuple[Optional[int], bool]:
+        """Append or reuse one governed v1 review reinterpretation."""
+
+        session = self._require_writer()
+        with session.operation():
+            event_id, created, _failure_id, _reason = (
+                self._append_commitment_relationship_owned(
+                    kind="reflection",
+                    content=content,
+                    meta=meta,
+                    relationship_protocol="reflection_reinterpretation.v1",
                 )
             )
         return event_id, created
@@ -1055,8 +1130,9 @@ class EventLog:
         kind: str,
         content: Any,
         meta: Optional[Dict[str, Any]],
+        relationship_protocol: str,
     ) -> tuple[Optional[int], bool, Optional[int], Optional[str]]:
-        """Shared transaction for v1 outcomes and reviews.
+        """Shared transaction for v1 outcomes, reviews, and reinterpretations.
 
         The final two return values identify a durable rejection. They keep the
         managed RuntimeLoop non-throwing while allowing generic ``append`` to
@@ -1067,34 +1143,46 @@ class EventLog:
             CommitmentRelationshipValidation,
             OUTCOME_PROTOCOL_V1,
             OUTCOME_VALIDATOR_SOURCE,
+            REINTERPRETATION_PROTOCOL_V1,
+            REINTERPRETATION_VALIDATOR_SOURCE,
             REVIEW_PROTOCOL_V1,
             REVIEW_VALIDATOR_SOURCE,
             attempted_relationship_digest,
             canonical_outcome_content,
+            canonical_reinterpretation_content,
             canonical_review_content,
             is_v1_authoritative_outcome,
+            is_v1_authoritative_reinterpretation,
             is_v1_authoritative_review,
             stable_attempted_value,
             validate_outcome_payload,
+            validate_reinterpretation_payload,
             validate_review_payload,
         )
 
         if kind not in {"outcome_observation", "reflection"}:
             raise ValueError(f"unsupported commitment relationship kind: {kind}")
+        valid_relationships = {
+            ("outcome_observation", OUTCOME_PROTOCOL_V1),
+            ("reflection", REVIEW_PROTOCOL_V1),
+            ("reflection", REINTERPRETATION_PROTOCOL_V1),
+        }
+        if (kind, relationship_protocol) not in valid_relationships:
+            raise ValueError(
+                f"unsupported commitment relationship protocol: {relationship_protocol}"
+            )
         submitted_meta = dict(meta or {})
-        protocol = (
-            OUTCOME_PROTOCOL_V1 if kind == "outcome_observation" else REVIEW_PROTOCOL_V1
-        )
-        validator_source = (
-            OUTCOME_VALIDATOR_SOURCE
-            if kind == "outcome_observation"
-            else REVIEW_VALIDATOR_SOURCE
-        )
-        validation_type = (
-            "commitment_outcome"
-            if kind == "outcome_observation"
-            else "commitment_outcome_review"
-        )
+        protocol = relationship_protocol
+        validator_source = {
+            OUTCOME_PROTOCOL_V1: OUTCOME_VALIDATOR_SOURCE,
+            REVIEW_PROTOCOL_V1: REVIEW_VALIDATOR_SOURCE,
+            REINTERPRETATION_PROTOCOL_V1: REINTERPRETATION_VALIDATOR_SOURCE,
+        }[protocol]
+        validation_type = {
+            OUTCOME_PROTOCOL_V1: "commitment_outcome",
+            REVIEW_PROTOCOL_V1: "commitment_outcome_review",
+            REINTERPRETATION_PROTOCOL_V1: "reflection_reinterpretation",
+        }[protocol]
         attempted_digest = attempted_relationship_digest(
             kind=kind, content=content, meta=submitted_meta
         )
@@ -1118,6 +1206,7 @@ class EventLog:
                     "open_event_id": validation.open_event_id,
                     "origin_event_id": validation.origin_event_id,
                     "outcome_event_id": validation.outcome_event_id,
+                    "review_event_id": validation.review_event_id,
                     "reason": validation.message,
                     "reason_code": validation.code,
                     "validation_type": validation_type,
@@ -1141,14 +1230,14 @@ class EventLog:
             try:
                 self._conn.execute("BEGIN IMMEDIATE")
                 session.assert_authority_in_transaction(self._conn)
-                if kind == "outcome_observation":
+                if protocol == OUTCOME_PROTOCOL_V1:
                     validation = validate_outcome_payload(
                         content,
                         submitted_meta,
                         get_event,
                         is_managed_assistant=self.is_managed_assistant,
                     )
-                else:
+                elif protocol == REVIEW_PROTOCOL_V1:
                     validation = validate_review_payload(
                         content,
                         submitted_meta,
@@ -1156,10 +1245,19 @@ class EventLog:
                         is_managed_assistant=self.is_managed_assistant,
                         is_registered_outcome=self.is_registered_commitment_outcome,
                     )
+                else:
+                    validation = validate_reinterpretation_payload(
+                        content,
+                        submitted_meta,
+                        get_event,
+                        is_managed_assistant=self.is_managed_assistant,
+                        is_registered_outcome=self.is_registered_commitment_outcome,
+                        is_registered_review=self.is_registered_commitment_review,
+                    )
 
                 canonical_content = ""
                 canonical_meta: Dict[str, Any] = {}
-                if validation.ok and kind == "outcome_observation":
+                if validation.ok and protocol == OUTCOME_PROTOCOL_V1:
                     canonical_content = canonical_outcome_content(
                         observation=validation.observation,
                         evidence_event_ids=validation.evidence_event_ids,
@@ -1212,7 +1310,7 @@ class EventLog:
                             close_event_id=validation.close_event_id,
                             origin_event_id=validation.origin_event_id,
                         )
-                elif validation.ok:
+                elif validation.ok and protocol == REVIEW_PROTOCOL_V1:
                     canonical_content = canonical_review_content(
                         interpretation=validation.interpretation
                     )
@@ -1270,6 +1368,63 @@ class EventLog:
                             )
                         self._conn.commit()
                         return int(existing_event["id"]), False, None, None
+                elif validation.ok:
+                    canonical_content = canonical_reinterpretation_content(
+                        reinterpretation=validation.reinterpretation
+                    )
+                    canonical_meta = {
+                        "protocol": REINTERPRETATION_PROTOCOL_V1,
+                        "source": "assistant",
+                        "cid": validation.cid,
+                        "open_event_id": validation.open_event_id,
+                        "outcome_event_id": validation.outcome_event_id,
+                        "review_event_id": validation.review_event_id,
+                        "origin_event_id": validation.origin_event_id,
+                    }
+                    existing = self._conn.execute(
+                        """
+                        SELECT event.*
+                        FROM pmm_reflection_reinterpretation_authority AS authority
+                        JOIN events AS event ON event.id = authority.event_id
+                        WHERE authority.origin_event_id = ?
+                          AND authority.review_event_id = ?
+                          AND authority.content = ?
+                        """,
+                        (
+                            validation.origin_event_id,
+                            validation.review_event_id,
+                            canonical_content,
+                        ),
+                    ).fetchone()
+                    existing_event = None
+                    if existing is not None:
+                        existing_event = _event_from_row(existing)
+                        if not is_v1_authoritative_reinterpretation(
+                            existing_event,
+                            get_event,
+                            self.is_managed_assistant,
+                            self.is_registered_commitment_outcome,
+                            self.is_registered_commitment_review,
+                            self.is_registered_reflection_reinterpretation,
+                        ):
+                            self._conn.execute(
+                                "DELETE FROM pmm_reflection_reinterpretation_authority "
+                                "WHERE origin_event_id = ? AND review_event_id = ? "
+                                "AND content = ?",
+                                (
+                                    validation.origin_event_id,
+                                    validation.review_event_id,
+                                    canonical_content,
+                                ),
+                            )
+                            existing_event = None
+                    if existing_event is not None:
+                        if existing_event["meta"] != canonical_meta:
+                            raise RuntimeError(
+                                "authoritative reinterpretation metadata corrupted"
+                            )
+                        self._conn.commit()
+                        return int(existing_event["id"]), False, None, None
 
                 if validation.ok:
                     row = self._conn.execute(
@@ -1298,13 +1453,13 @@ class EventLog:
                         ),
                     )
                     event_id = int(cur.lastrowid)
-                    if kind == "outcome_observation":
+                    if protocol == OUTCOME_PROTOCOL_V1:
                         self._conn.execute(
                             "INSERT INTO pmm_commitment_outcome_authority "
                             "(open_event_id, event_id) VALUES (?, ?)",
                             (validation.open_event_id, event_id),
                         )
-                    else:
+                    elif protocol == REVIEW_PROTOCOL_V1:
                         self._conn.execute(
                             "INSERT INTO pmm_commitment_review_authority "
                             "(origin_event_id, open_event_id, outcome_event_id, "
@@ -1313,6 +1468,18 @@ class EventLog:
                                 validation.origin_event_id,
                                 validation.open_event_id,
                                 validation.outcome_event_id,
+                                canonical_content,
+                                event_id,
+                            ),
+                        )
+                    else:
+                        self._conn.execute(
+                            "INSERT INTO pmm_reflection_reinterpretation_authority "
+                            "(origin_event_id, review_event_id, content, event_id) "
+                            "VALUES (?, ?, ?, ?)",
+                            (
+                                validation.origin_event_id,
+                                validation.review_event_id,
                                 canonical_content,
                                 event_id,
                             ),
@@ -1959,6 +2126,19 @@ class EventLog:
         with self._lock:
             row = self._conn.execute(
                 "SELECT 1 FROM pmm_commitment_review_authority WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+        return row is not None
+
+    def is_registered_reflection_reinterpretation(self, event_id: int) -> bool:
+        """Return whether the governed transaction registered this reinterpretation."""
+
+        if not isinstance(event_id, int) or isinstance(event_id, bool) or event_id <= 0:
+            return False
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM pmm_reflection_reinterpretation_authority "
+                "WHERE event_id = ?",
                 (event_id,),
             ).fetchone()
         return row is not None

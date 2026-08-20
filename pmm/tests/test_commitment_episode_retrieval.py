@@ -7,8 +7,10 @@ import json
 from pmm.adapters.dummy_adapter import DummyAdapter
 from pmm.core.commitment_outcome import (
     OUTCOME_PROTOCOL_V1,
+    REINTERPRETATION_PROTOCOL_V1,
     REVIEW_PROTOCOL_V1,
     canonical_outcome_content,
+    canonical_reinterpretation_content,
     canonical_review_content,
 )
 from pmm.core.commitment_manager import CommitmentManager
@@ -125,6 +127,42 @@ def _outcome_and_review(
         },
     )
     return outcome_event_id, review_event_id
+
+
+def _reinterpretation(
+    log: EventLog,
+    *,
+    cid: str,
+    open_event_id: int,
+    outcome_event_id: int,
+    review_event_id: int,
+) -> int:
+    text = "The exact review now warrants a narrower interpretation."
+    candidate = {
+        "cid": cid,
+        "open_event_id": open_event_id,
+        "outcome_event_id": outcome_event_id,
+        "review_event_id": review_event_id,
+        "reinterpretation": text,
+    }
+    origin_id = _managed_assistant(
+        log,
+        "REFLECTION_REINTERPRETATION:"
+        + json.dumps(candidate, sort_keys=True, separators=(",", ":")),
+    )
+    return log.append(
+        kind="reflection",
+        content=canonical_reinterpretation_content(reinterpretation=text),
+        meta={
+            "protocol": REINTERPRETATION_PROTOCOL_V1,
+            "source": "assistant",
+            "cid": cid,
+            "open_event_id": open_event_id,
+            "outcome_event_id": outcome_event_id,
+            "review_event_id": review_event_id,
+            "origin_event_id": origin_id,
+        },
+    )
 
 
 def _bind_event(log: EventLog, event_id: int, token: str) -> None:
@@ -354,6 +392,13 @@ def test_selected_exact_episode_includes_outcome_review_and_provenance() -> None
         open_event_id=open_event_id,
         close_event_id=close_event_id,
     )
+    reinterpretation_event_id = _reinterpretation(
+        log,
+        cid=cid,
+        open_event_id=open_event_id,
+        outcome_event_id=outcome_event_id,
+        review_event_id=review_event_id,
+    )
     binding_event_id = _bind_thread(log, cid, "topic.outcome")
 
     rebuilt, incremental, concepts = _graphs(log)
@@ -364,6 +409,7 @@ def test_selected_exact_episode_includes_outcome_review_and_provenance() -> None
     result = rebuilt_result
     assert outcome_event_id in result.event_ids
     assert review_event_id in result.event_ids
+    assert reinterpretation_event_id in result.event_ids
     assert result.provenance[outcome_event_id]["episodes"] == [
         {
             "cid": cid,
@@ -383,6 +429,18 @@ def test_selected_exact_episode_includes_outcome_review_and_provenance() -> None
             "relationship_role": "reviews_outcome",
             "outcome_event_id": outcome_event_id,
             "review_event_id": review_event_id,
+        }
+    ]
+    assert result.provenance[reinterpretation_event_id]["episodes"] == [
+        {
+            "cid": cid,
+            "open_event_id": open_event_id,
+            "role": "current",
+            "trigger_event_ids": [binding_event_id],
+            "relationship_role": "reinterprets",
+            "outcome_event_id": outcome_event_id,
+            "review_event_id": review_event_id,
+            "reinterpretation_event_id": reinterpretation_event_id,
         }
     ]
 
@@ -407,4 +465,13 @@ def test_selected_exact_episode_includes_outcome_review_and_provenance() -> None
     assert (
         f"relationship=reviews_outcome/open-{open_event_id}/"
         f"outcome-{outcome_event_id}/review-{review_event_id}"
+    ) in rendered
+    assert (
+        f"Reinterpretation event {reinterpretation_event_id} "
+        f"(reinterprets review event {review_event_id})"
+    ) in rendered
+    assert (
+        f"relationship=reinterprets/open-{open_event_id}/"
+        f"outcome-{outcome_event_id}/review-{review_event_id}/"
+        f"reinterpretation-{reinterpretation_event_id}"
     ) in rendered

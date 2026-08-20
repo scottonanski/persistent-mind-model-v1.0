@@ -193,12 +193,19 @@ language. Their mechanisms must remain distinct:
 
 - model-authored reflection content is preserved model output;
 - deterministic synthesized reflections summarize bounded runtime deltas;
+- governed outcome reviews may receive later governed reinterpretations through
+  one exact `reinterprets` relationship, without rewriting the review;
 - lifetime memory compresses older spans while retaining representative handles;
 - the Recursive Self-Model derives bounded counters and lexical signals;
 - diagnostics and maintenance report operational behavior.
 
 These mechanisms can support later interpretation. They do not themselves prove
 deep semantic introspection or reflective self-governance.
+
+`reflection_reinterpretation.v1` is deliberately not a general reflection
+framework. Its only eligible target is an exact authoritative
+`commitment_outcome_review.v1`; ordinary reflections and reinterpretations are
+not eligible targets.
 
 ## Autonomy
 

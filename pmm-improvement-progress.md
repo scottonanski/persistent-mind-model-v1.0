@@ -81,6 +81,18 @@ mechanism.
   preserves invalid attempts durably; isolates legacy outcome learning and
   identity/adaptive consumers; and exposes only validated relationships through
   MemeGraph and episode-aware retrieval.
+- The bounded reflection reinterpretation contract extends one authoritative
+  outcome review with zero or more explicit later reinterpretations. It requires
+  exact review and episode lineage, managed-assistant provenance, durable typed
+  rejection, idempotent replay, and one authoritative `reinterprets` edge per
+  event. General R02 remains unchanged, and the new relationship is isolated
+  from Mirror, RSM, identity, commitment state, adaptive learning, and policy.
+- Reflection reinterpretation post-change verification passed `583` tests,
+  Ruff across `pmm` and `pmm/tests`, exact-diff whitespace checks,
+  rebuild/incremental and reopen parity, exact retrieval provenance, hostile
+  malformed/forged/raw/wrong-lineage/recursive counterexamples, and a final
+  hostile production-path review with no actionable high- or medium-severity
+  defect.
 - Post-change verification passed `575` tests, Ruff across `pmm`, exact-diff
   whitespace checks, rebuild/incremental parity, hostile malformed-input and
   producer-forgery counterexamples, and final hostile exact-diff review with no
@@ -89,7 +101,7 @@ mechanism.
   audited runtime baseline above; implementation commit `c0ad07d` is retained
   in the merge history.
 
-## Completed next-surface selection
+## Completed surface selections
 
 The matrix has already supplied the comparison evidence. The remaining
 candidates differ mainly in how directly they advance the cognitive lifecycle
@@ -115,6 +127,13 @@ the missing `commitment -> outcome -> later reinterpretation` portion of PMM's
 stated cognitive lifecycle. The implemented contract is recorded in
 `docs/commitment-outcome-later-review-policy.md`.
 
+**Selected and completed:** governed reinterpretation of one exact authoritative
+outcome review. The bounded contract permits multiple distinct later
+reinterpretations with exact replay idempotency, rejects ordinary or recursive
+targets, and exposes the relationship only through MemeGraph and exact-episode
+retrieval. The implemented contract is recorded in
+`docs/reflection-reinterpretation-policy.md`.
+
 There is no authorized next implementation after this bounded surface. The
 remaining candidates below require a new selection and explicit authorization.
 
@@ -123,7 +142,6 @@ remaining candidates below require a new selection and explicit authorization.
 These remain unselected. Their order is not priority.
 
 - Identity conflict, replacement, and coherence policy.
-- Reflection-target and reinterpretation role integrity.
 - Concept supersession and version-history integrity.
 - Forced-concept relevance and attractor control.
 - Complete hybrid-retrieval reproducibility or narrower vector-stage

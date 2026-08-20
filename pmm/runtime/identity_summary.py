@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 import json
 
 from pmm.core.event_log import EventLog
-from pmm.core.commitment_outcome import is_outcome_review_protocol
+from pmm.core.commitment_outcome import is_governed_commitment_reflection_protocol
 from pmm.core.mirror import Mirror
 
 
@@ -33,7 +33,8 @@ def maybe_append_summary(eventlog: EventLog) -> Optional[int]:
     reflections = [
         e
         for e in since
-        if e.get("kind") == "reflection" and not is_outcome_review_protocol(e)
+        if e.get("kind") == "reflection"
+        and not is_governed_commitment_reflection_protocol(e)
     ]
     # Derive open commitments via Mirror for canonical meta-based state
     mirror = Mirror(eventlog, enable_rsm=True, listen=False)

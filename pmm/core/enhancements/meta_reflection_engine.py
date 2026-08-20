@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List
 
 from pmm.core.event_log import EventLog
-from pmm.core.commitment_outcome import is_outcome_review_protocol
+from pmm.core.commitment_outcome import is_governed_commitment_reflection_protocol
 from pmm.core.meme_graph import MemeGraph
 
 
@@ -56,7 +56,8 @@ class MetaReflectionEngine:
             reflections = sum(
                 1
                 for ev in window
-                if ev.get("kind") == "reflection" and not is_outcome_review_protocol(ev)
+                if ev.get("kind") == "reflection"
+                and not is_governed_commitment_reflection_protocol(ev)
             )
             patterns.append(
                 {

@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Tuple
 
 COMMITMENT_OUTCOME_PREFIX = "COMMITMENT_OUTCOME:"
 COMMITMENT_REVIEW_PREFIX = "COMMITMENT_REVIEW:"
+REFLECTION_REINTERPRETATION_PREFIX = "REFLECTION_REINTERPRETATION:"
 
 
 def extract_commitments(lines: List[str]) -> List[str]:
@@ -89,3 +90,11 @@ def extract_commitment_reviews(
     """Return every exact COMMITMENT_REVIEW candidate without batch fail-open."""
 
     return _extract_json_candidates(lines, COMMITMENT_REVIEW_PREFIX)
+
+
+def extract_reflection_reinterpretations(
+    lines: List[str],
+) -> List[Tuple[str, Dict[str, Any] | None]]:
+    """Return every exact reinterpretation candidate without batch fail-open."""
+
+    return _extract_json_candidates(lines, REFLECTION_REINTERPRETATION_PREFIX)

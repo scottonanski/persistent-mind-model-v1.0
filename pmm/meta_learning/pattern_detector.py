@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import List
 
 from pmm.core.event_log import EventLog
-from pmm.core.commitment_outcome import is_outcome_review_protocol
+from pmm.core.commitment_outcome import is_governed_commitment_reflection_protocol
 
 
 @dataclass(frozen=True)
@@ -26,7 +26,8 @@ def detect_learning_patterns(log: EventLog, window: int = 500) -> List[LearningP
     reflections = [
         e
         for e in events
-        if e.get("kind") == "reflection" and not is_outcome_review_protocol(e)
+        if e.get("kind") == "reflection"
+        and not is_governed_commitment_reflection_protocol(e)
     ]
     policy_updates = [e for e in events if e.get("kind") == "policy_update"]
 
