@@ -29,7 +29,7 @@ def test_markers_to_ledger_events(temp_eventlog: EventLog) -> None:
 Test response.
 
 COMMIT: {title}
-CLAIM:identity_proposal={{\"token\": \"test_self\", \"description\": \"Test identity\", \"evidence_events\": []}}
+CLAIM:identity_proposal={{\"token\": \"test_self\", \"subject_id\": \"pmm.self\", \"description\": \"Test identity\", \"evidence_events\": []}}
 REFLECT: {{\"observations\": [\"obs1\"], \"next\": [\"continue\"], \"corrections\": []}}
 CLOSE: {cid}
 
@@ -74,12 +74,12 @@ def test_identity_adoption_flow(temp_eventlog: EventLog) -> None:
     propose_response = """
 Propose.
 
-CLAIM:identity_proposal={"token": "test_self", "description": "Test", "evidence_events": []}
+CLAIM:identity_proposal={"token": "test_self", "subject_id": "pmm.self", "description": "Test", "evidence_events": []}
 """
     ratify_response = """
 Ratify.
 
-CLAIM:identity_ratify={"token": "test_self"}
+CLAIM:identity_ratify={"token": "test_self", "subject_id": "pmm.self"}
 """
 
     adapter = MockAdapter(propose_response)

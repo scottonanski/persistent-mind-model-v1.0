@@ -4,139 +4,130 @@
 # Path: pmm/core/identity_manager.py
 """Deterministic identity adoption manager.
 
-Implements the Option C protocol:
-
-- Identity proposals and ratifications are expressed as structured CLAIMs
-  written into the ledger:
-
-    CLAIM:identity_proposal={"token":"identity.Echo"}
-    CLAIM:identity_ratify={"token":"identity.Echo"}
-
-- This module scans the ledger for validated claim events with those
-  claim types and requires an ordered proposal -> reflection/commitment ->
-  ratification sequence for a given token. When that sequence exists and
-  no identity_adoption event exists for the token, it appends one.
-
-All logic is ledger-only, replay-safe, and idempotent. No regex, no
-heuristics – only structured parsing of claim content.
+R06 v1: construct identity_adoption payloads from ledger structure and submit
+them through the EventLog identity_adoption boundary. The manager does not
+trust meta.validated and does not append the kind directly.
 """
 
 from __future__ import annotations
 
 import json
-from bisect import bisect_right
 from typing import Dict, List, Optional, Set, Tuple
 
 from .event_log import EventLog
+from .identity_adoption import (
+    ADOPTION_PROTOCOL_V1,
+    IDENTITY_SUBJECT_ID_V1,
+    canonical_identity_adoption_content,
+    is_v1_authoritative_identity_adoption,
+    parse_identity_anchor,
+    parse_identity_claim_event,
+    validate_identity_adoption_payload,
+)
 
 
 def maybe_append_identity_adoptions(eventlog: EventLog) -> None:
     """Append identity_adoption events deterministically where warranted.
 
-    For each identity token:
-      - A validated CLAIM:identity_proposal must exist.
-      - A reflection or commitment lifecycle event must follow it.
-      - A validated CLAIM:identity_ratify for the same token must follow
-        that anchor event.
-      - No existing identity_adoption event for that token may exist yet.
+    For each ``(pmm.self, token)`` that does not already have an r06.v1
+    adoption, submit the earliest proposal/anchor/ratify chain that:
 
-    For each such token, append exactly one identity_adoption event with
-    content:
-      {"token": "<token>",
-       "reason": "identity_proposal+anchor+ratification"}
+    - uses structurally valid identity claims (reparsed from content);
+    - has a reflection carrying an exact v1 identity relation to that proposal;
+    - has a ratification whose originating assistant is later than the anchor.
 
-    and meta:
-      {"source": "identity_manager",
-       "proposal_event_id": <int>,
-       "anchor_event_id": <int>,
-       "anchor_kind": <str>,
-       "ratify_event_id": <int>}
-
-    Idempotent: calling this function multiple times over the same
-    ledger will not emit duplicate identity_adoption events.
+    The EventLog boundary revalidates the chain and enforces uniqueness.
+    Incomplete chains are not attempts. Repeated scans are idempotent.
     """
-    events = eventlog.read_all()
 
-    proposals: Dict[str, List[int]] = {}
-    ratifications: Dict[str, List[int]] = {}
-    anchor_events: List[Tuple[int, str]] = []
+    events = eventlog.read_all()
+    proposals: Dict[str, List[dict]] = {}
+    ratifications: Dict[str, List[dict]] = {}
+    anchors_by_proposal: Dict[int, List[dict]] = {}
     adopted_tokens: Set[str] = set()
 
     for ev in events:
         kind = ev.get("kind")
         if kind == "identity_adoption":
-            # Existing adoption – record token so we do not re-emit.
+            if not is_v1_authoritative_identity_adoption(ev, eventlog.get):
+                continue
             try:
                 data = json.loads(ev.get("content") or "{}")
             except (TypeError, json.JSONDecodeError):
                 continue
             token = data.get("token")
-            if isinstance(token, str) and token.strip():
+            subject_id = data.get("subject_id")
+            if (
+                isinstance(token, str)
+                and token.strip()
+                and isinstance(subject_id, str)
+                and subject_id.strip() == IDENTITY_SUBJECT_ID_V1
+            ):
                 adopted_tokens.add(token.strip())
             continue
 
-        if kind in {"reflection", "commitment_open", "commitment_close"}:
-            ev_id = ev.get("id")
-            if isinstance(ev_id, int):
-                anchor_events.append((ev_id, str(kind)))
-            continue
-
-        if kind != "claim":
-            continue
-
-        meta = ev.get("meta") or {}
-        if meta.get("validated") is not True:
-            continue
-        claim_type = meta.get("claim_type")
-        if claim_type not in {"identity_proposal", "identity_ratify"}:
-            continue
-
-        content = ev.get("content") or ""
-        if not content.startswith("CLAIM:"):
-            # Not in the expected structured form; skip.
-            continue
-        try:
-            head, payload = content.split("=", 1)
-        except ValueError:
-            continue
-        # Optional consistency check: header type should match meta claim_type.
-        header_type = head.removeprefix("CLAIM:").strip()
-        if header_type and header_type != str(claim_type):
-            # Inconsistent header/meta – ignore to preserve determinism.
-            continue
-        try:
-            data = json.loads(payload)
-        except (TypeError, json.JSONDecodeError):
-            continue
-        if not isinstance(data, dict):
-            continue
-        token = data.get("token")
-        if not isinstance(token, str) or not token.strip():
-            continue
-        token = token.strip()
-
-        ev_id = ev.get("id")
-        if not isinstance(ev_id, int):
-            continue
-
-        if claim_type == "identity_proposal":
-            proposals.setdefault(token, []).append(ev_id)
-        elif claim_type == "identity_ratify":
-            ratifications.setdefault(token, []).append(ev_id)
-
-    anchor_ids = [event_id for event_id, _ in anchor_events]
-
-    def valid_sequence(token: str) -> Optional[Tuple[int, int, str, int]]:
-        """Return the earliest deterministic proposal/anchor/ratify tuple."""
-
-        for proposal_id in proposals.get(token, []):
-            anchor_index = bisect_right(anchor_ids, proposal_id)
-            if anchor_index >= len(anchor_events):
+        if kind == "reflection":
+            parsed_anchor = parse_identity_anchor(ev)
+            if parsed_anchor is None:
                 continue
-            anchor_id, anchor_kind = anchor_events[anchor_index]
-            for ratify_id in ratifications.get(token, []):
-                if anchor_id < ratify_id:
-                    return proposal_id, anchor_id, anchor_kind, ratify_id
+            anchors_by_proposal.setdefault(
+                parsed_anchor["proposal_event_id"], []
+            ).append(parsed_anchor)
+            continue
+
+        parsed_claim = parse_identity_claim_event(ev)
+        if parsed_claim is None or parsed_claim["origin_event_id"] is None:
+            continue
+        token = parsed_claim["token"]
+        if parsed_claim["subject_id"] != IDENTITY_SUBJECT_ID_V1:
+            continue
+        if parsed_claim["claim_type"] == "identity_proposal":
+            proposals.setdefault(token, []).append(parsed_claim)
+        elif parsed_claim["claim_type"] == "identity_ratify":
+            ratifications.setdefault(token, []).append(parsed_claim)
+
+    def valid_sequence(token: str) -> Optional[Tuple[int, int, int, int, int]]:
+        adoption_content = canonical_identity_adoption_content(
+            token=token, subject_id=IDENTITY_SUBJECT_ID_V1
+        )
+        for proposal in proposals.get(token, []):
+            proposal_id = proposal["id"]
+            for anchor in anchors_by_proposal.get(proposal_id, []):
+                if (
+                    anchor["token"] != token
+                    or anchor["subject_id"] != IDENTITY_SUBJECT_ID_V1
+                ):
+                    continue
+                if anchor["id"] <= proposal_id:
+                    continue
+                for ratify in ratifications.get(token, []):
+                    origin = ratify["origin_event_id"]
+                    if origin is None:
+                        continue
+                    if (
+                        proposal_id < anchor["id"] < ratify["id"]
+                        and origin > anchor["id"]
+                    ):
+                        sequence = (
+                            proposal_id,
+                            anchor["id"],
+                            ratify["id"],
+                            proposal["origin_event_id"],
+                            origin,
+                        )
+                        candidate_meta = {
+                            "adoption_protocol": ADOPTION_PROTOCOL_V1,
+                            "proposal_event_id": sequence[0],
+                            "anchor_event_id": sequence[1],
+                            "anchor_kind": "reflection",
+                            "ratify_event_id": sequence[2],
+                            "proposal_origin_event_id": sequence[3],
+                            "ratify_origin_event_id": sequence[4],
+                        }
+                        if validate_identity_adoption_payload(
+                            adoption_content, candidate_meta, eventlog.get
+                        ).ok:
+                            return sequence
         return None
 
     candidate_tokens = sorted(
@@ -146,20 +137,19 @@ def maybe_append_identity_adoptions(eventlog: EventLog) -> None:
         sequence = valid_sequence(token)
         if sequence is None:
             continue
-        proposal_id, anchor_id, anchor_kind, ratify_id = sequence
-        content_dict = {
-            "token": token,
-            "reason": "identity_proposal+anchor+ratification",
-        }
-        meta = {
-            "source": "identity_manager",
-            "proposal_event_id": proposal_id,
-            "anchor_event_id": anchor_id,
-            "anchor_kind": anchor_kind,
-            "ratify_event_id": ratify_id,
-        }
-        eventlog.append(
-            kind="identity_adoption",
-            content=json.dumps(content_dict, sort_keys=True, separators=(",", ":")),
-            meta=meta,
+        proposal_id, anchor_id, ratify_id, proposal_origin, ratify_origin = sequence
+        eventlog.append_identity_adoption(
+            content=canonical_identity_adoption_content(
+                token=token, subject_id=IDENTITY_SUBJECT_ID_V1
+            ),
+            meta={
+                "source": "identity_manager",
+                "adoption_protocol": ADOPTION_PROTOCOL_V1,
+                "proposal_event_id": proposal_id,
+                "anchor_event_id": anchor_id,
+                "anchor_kind": "reflection",
+                "ratify_event_id": ratify_id,
+                "proposal_origin_event_id": proposal_origin,
+                "ratify_origin_event_id": ratify_origin,
+            },
         )

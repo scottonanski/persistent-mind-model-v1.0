@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 from .event_log import EventLog
 from .binding_attribution import projected_binding_origin
+from .identity_adoption import is_v1_authoritative_identity_adoption
 
 if TYPE_CHECKING:
     from .meme_graph import MemeGraph
@@ -189,13 +190,13 @@ class ConceptGraph:
             self.concept_kinds[token] = concept_def.concept_kind
 
     def _process_identity_adoption(self, event: Dict[str, Any]) -> None:
-        """Process identity_adoption event as implicit evidence for an identity concept.
+        """Project an R06 v1 identity_adoption as identity-concept evidence.
 
-        Binds the adopted identity token (e.g., "identity.Echo") to the
-        identity_adoption event id, updating concept_event_bindings and
-        event_to_concepts. Concept kind is recorded as "identity" if not
-        already present from a prior concept_define.
+        Legacy or invalid adoption rows remain canonical history and do not
+        bind tokens or set concept kind.
         """
+        if not is_v1_authoritative_identity_adoption(event, self.eventlog.get):
+            return
         try:
             data = json.loads(event.get("content") or "{}")
         except (TypeError, json.JSONDecodeError):

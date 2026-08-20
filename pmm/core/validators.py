@@ -14,6 +14,7 @@ from typing import Any, Iterable, List, Tuple
 
 from .schemas import Claim
 from .event_log import EventLog
+from .identity_adoption import identity_claim_structure_error
 from .mirror import Mirror
 
 
@@ -132,29 +133,11 @@ def _validate_evidence_references(
 def _validate_identity_claim_structure(claim: Claim) -> Tuple[bool, str]:
     """Validate identity claim shape without applying adoption policy."""
 
-    if not isinstance(claim.data, dict):
-        return False, "identity payload must be an object"
-
-    token = claim.data.get("token")
-    if not isinstance(token, str) or not token.strip():
-        return False, "identity token must be a non-empty string"
-
+    error = identity_claim_structure_error(claim.type, claim.data)
+    if error:
+        return False, error
     if claim.type == "identity_ratify":
-        unexpected = set(claim.data) - {"token"}
-        if unexpected:
-            return False, "identity ratification contains unsupported fields"
         return True, "identity ratification structure valid"
-
-    allowed = {"token", "description", "evidence_events"}
-    unexpected = set(claim.data) - allowed
-    if unexpected:
-        return False, "identity proposal contains unsupported fields"
-
-    if "description" in claim.data:
-        description = claim.data["description"]
-        if not isinstance(description, str) or not description.strip():
-            return False, "identity description must be a non-empty string"
-
     return True, "identity proposal structure valid"
 
 

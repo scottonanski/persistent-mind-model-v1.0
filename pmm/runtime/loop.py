@@ -33,6 +33,10 @@ from pmm.core.binding_attribution import binding_attribution_meta
 from pmm.commitments.binding import extract_exec_binds
 from pmm.runtime.autonomy_kernel import AutonomyKernel, KernelDecision
 from pmm.runtime.prompts import compose_system_prompt
+from pmm.core.identity_adoption import (
+    IDENTITY_CLAIM_TYPES,
+    identity_anchor_meta,
+)
 from pmm.core.identity_manager import maybe_append_identity_adoptions
 from pmm.runtime.reflection import TurnDelta, build_reflection_text
 from pmm.retrieval.pipeline import run_retrieval_pipeline, RetrievalConfig
@@ -1043,11 +1047,40 @@ class RuntimeLoop:
                     f"CLAIM:{claim.type}="
                     f"{json.dumps(claim.data, sort_keys=True, separators=(',', ':'))}"
                 )
+                claim_meta: Dict[str, Any] = {
+                    "claim_type": claim.type,
+                    "validated": True,
+                }
+                if claim.type in IDENTITY_CLAIM_TYPES:
+                    claim_meta["origin_event_id"] = ai_event_id
                 claim_event_id = self.eventlog.append(
                     kind="claim",
                     content=claim_content,
-                    meta={"claim_type": claim.type, "validated": True},
+                    meta=claim_meta,
                 )
+                if claim.type == "identity_proposal":
+                    token = str(claim.data["token"]).strip()
+                    subject_id = str(claim.data["subject_id"]).strip()
+                    anchor_payload = {
+                        "proposal_event_id": claim_event_id,
+                        "reason": "identity_proposal_anchor",
+                        "subject_id": subject_id,
+                        "token": token,
+                    }
+                    self.eventlog.append(
+                        kind="reflection",
+                        content=json.dumps(
+                            anchor_payload, sort_keys=True, separators=(",", ":")
+                        ),
+                        meta={
+                            "about_event": ai_event_id,
+                            "identity_anchor": identity_anchor_meta(
+                                token=token,
+                                subject_id=subject_id,
+                                proposal_event_id=claim_event_id,
+                            ),
+                        },
+                    )
                 # Auto-bind all validated claims into CTL for long-term recall
                 target_token = claim.type
                 already_bound = claim_event_id in self.concept_graph.events_for_concept(

@@ -112,6 +112,19 @@ class ProjectionBarrierError(RuntimeError):
         )
 
 
+class IdentityAdoptionRejected(ValueError):
+    """A governed adoption was rejected and its failure record committed."""
+
+    def __init__(self, *, failure_event_id: int, reason_code: str) -> None:
+        self.failure_event_id = failure_event_id
+        self.reason_code = reason_code
+        self.canonical_commit_succeeded = True
+        super().__init__(
+            "identity_adoption rejected; validation_failure "
+            f"{failure_event_id} records {reason_code}"
+        )
+
+
 @dataclass
 class _ListenerRegistration:
     name: str
@@ -126,6 +139,18 @@ def _iso_now() -> str:
 
 def _canonical_json(obj: Any) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"))
+
+
+def _event_from_row(row: sqlite3.Row) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "ts": row["ts"],
+        "kind": row["kind"],
+        "content": row["content"],
+        "meta": json.loads(row["meta"] or "{}"),
+        "prev_hash": row["prev_hash"],
+        "hash": row["hash"],
+    }
 
 
 class EventLog:
@@ -258,6 +283,17 @@ class EventLog:
                 ON events(json_extract(meta, '$.about_event'))
                 WHERE kind = 'vector_overlap_diagnostic'
                   AND json_type(meta, '$.about_event') = 'integer';
+                """)
+            # R06 v1: at most one authoritative identity_adoption per
+            # (subject_id, token). Legacy rows lack adoption_protocol.
+            self._conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_identity_adoption_r06_v1
+                ON events(
+                    json_extract(content, '$.subject_id'),
+                    json_extract(content, '$.token')
+                )
+                WHERE kind = 'identity_adoption'
+                  AND json_extract(meta, '$.adoption_protocol') = 'r06.v1';
                 """)
             self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS pmm_database_identity (
@@ -639,6 +675,39 @@ class EventLog:
                 )
             return event_id
 
+        if kind == "identity_adoption":
+            event_id, _ = self.append_identity_adoption(content=content, meta=meta)
+            if event_id is None:
+                from pmm.core.identity_adoption import (
+                    IDENTITY_ADOPTION_VALIDATOR_SOURCE,
+                    attempted_identity_adoption_digest,
+                )
+
+                attempted_digest = attempted_identity_adoption_digest(
+                    content, dict(meta or {})
+                )
+                failure = next(
+                    (
+                        event
+                        for event in reversed(self.read_all())
+                        if event.get("kind") == "validation_failure"
+                        and (event.get("meta") or {}).get("source")
+                        == IDENTITY_ADOPTION_VALIDATOR_SOURCE
+                        and (event.get("meta") or {}).get("attempted_digest")
+                        == attempted_digest
+                    ),
+                    None,
+                )
+                if failure is None:
+                    raise RuntimeError(
+                        "identity_adoption rejected without a durable failure record"
+                    )
+                raise IdentityAdoptionRejected(
+                    failure_event_id=int(failure["id"]),
+                    reason_code=str((failure.get("meta") or {}).get("reason_code") or "UNKNOWN"),
+                )
+            return event_id
+
         valid_kinds = {
             "user_message",
             "assistant_message",
@@ -831,6 +900,231 @@ class EventLog:
         }
         self._emit(ev, canonical_created=canonical_created)
         return ev_id
+
+    def append_identity_adoption(
+        self,
+        *,
+        content: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> tuple[Optional[int], bool]:
+        session = self._require_writer()
+        with session.operation():
+            return self._append_identity_adoption_owned(content=content, meta=meta)
+
+    def _append_identity_adoption_owned(
+        self,
+        *,
+        content: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> tuple[Optional[int], bool]:
+        """Atomically record at most one R06 v1 identity_adoption per subject/token.
+
+        Returns ``(event_id, created)``. An already-canonical v1 adoption for
+        the same ``(subject_id, token)`` returns that id with ``created=False``.
+        A rejected attempt appends ``validation_failure`` (idempotent on the
+        attempted digest) and returns ``(None, False)``. Generic ``append``
+        raises if this helper returns ``None``, matching other special kinds.
+        """
+
+        from pmm.core.identity_adoption import (
+            IDENTITY_ADOPTION_VALIDATOR_SOURCE,
+            attempted_identity_adoption_digest,
+            canonical_identity_adoption_content,
+            validate_identity_adoption_payload,
+        )
+
+        if not isinstance(content, str):
+            raise TypeError("identity_adoption content must be a string")
+        submitted_meta = dict(meta or {})
+        attempted_digest = attempted_identity_adoption_digest(content, submitted_meta)
+
+        def get_event(event_id: int) -> Optional[Dict[str, Any]]:
+            row = self._conn.execute(
+                "SELECT * FROM events WHERE id = ?", (event_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            return _event_from_row(row)
+
+        session = self._require_writer()
+        ts = _iso_now()
+        with session.operation(), self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                session.assert_authority_in_transaction(self._conn)
+                validation = validate_identity_adoption_payload(
+                    content, submitted_meta, get_event
+                )
+                if validation.ok:
+                    existing = self._conn.execute(
+                        """
+                        SELECT id FROM events
+                        WHERE kind = 'identity_adoption'
+                          AND json_extract(meta, '$.adoption_protocol') = 'r06.v1'
+                          AND json_extract(content, '$.subject_id') = ?
+                          AND json_extract(content, '$.token') = ?
+                        ORDER BY id ASC LIMIT 1
+                        """,
+                        (validation.subject_id, validation.token),
+                    ).fetchone()
+                    if existing is not None:
+                        self._conn.commit()
+                        return int(existing["id"]), False
+
+                    adoption_content = canonical_identity_adoption_content(
+                        token=validation.token, subject_id=validation.subject_id
+                    )
+                    adoption_meta = dict(submitted_meta)
+                    adoption_meta["adoption_protocol"] = "r06.v1"
+                    adoption_meta["proposal_event_id"] = validation.proposal_event_id
+                    adoption_meta["anchor_event_id"] = validation.anchor_event_id
+                    adoption_meta["ratify_event_id"] = validation.ratify_event_id
+                    adoption_meta["anchor_kind"] = "reflection"
+                    row = self._conn.execute(
+                        "SELECT hash FROM events ORDER BY id DESC LIMIT 1"
+                    ).fetchone()
+                    prev_hash = row["hash"] if row and row["hash"] else None
+                    payload = {
+                        "kind": "identity_adoption",
+                        "content": adoption_content,
+                        "meta": adoption_meta,
+                        "prev_hash": prev_hash,
+                    }
+                    digest = sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+                    try:
+                        cur = self._conn.execute(
+                            "INSERT INTO events "
+                            "(ts, kind, content, meta, prev_hash, hash) "
+                            "VALUES (?, 'identity_adoption', ?, ?, ?, ?)",
+                            (
+                                ts,
+                                adoption_content,
+                                _canonical_json(adoption_meta),
+                                prev_hash,
+                                digest,
+                            ),
+                        )
+                    except sqlite3.IntegrityError:
+                        raced = self._conn.execute(
+                            """
+                            SELECT id FROM events
+                            WHERE kind = 'identity_adoption'
+                              AND json_extract(meta, '$.adoption_protocol') = 'r06.v1'
+                              AND json_extract(content, '$.subject_id') = ?
+                              AND json_extract(content, '$.token') = ?
+                            ORDER BY id ASC LIMIT 1
+                            """,
+                            (validation.subject_id, validation.token),
+                        ).fetchone()
+                        if raced is None:
+                            self._conn.rollback()
+                            raise
+                        self._conn.commit()
+                        return int(raced["id"]), False
+                    event_id = int(cur.lastrowid)
+                    self._conn.commit()
+                    created = True
+                    kind_written = "identity_adoption"
+                    content_written = adoption_content
+                    meta_written = adoption_meta
+                    hash_written = digest
+                    prev_written = prev_hash
+                else:
+                    existing_failure = self._conn.execute(
+                        """
+                        SELECT id FROM events
+                        WHERE kind = 'validation_failure'
+                          AND json_extract(meta, '$.source') = ?
+                          AND json_extract(meta, '$.attempted_digest') = ?
+                        ORDER BY id ASC LIMIT 1
+                        """,
+                        (IDENTITY_ADOPTION_VALIDATOR_SOURCE, attempted_digest),
+                    ).fetchone()
+                    if existing_failure is not None:
+                        self._conn.commit()
+                        return None, False
+
+                    failure_content = _canonical_json(
+                        {
+                            "attempted_content": content,
+                            "attempted_digest": attempted_digest,
+                            "attempted_meta": submitted_meta,
+                            "anchor_event_id": validation.anchor_event_id,
+                            "proposal_event_id": validation.proposal_event_id,
+                            "ratify_event_id": validation.ratify_event_id,
+                            "reason": validation.message,
+                            "reason_code": validation.code,
+                            "subject_id": validation.subject_id,
+                            "token": validation.token,
+                            "validation_type": "identity_adoption",
+                        }
+                    )
+                    failure_meta: Dict[str, Any] = {
+                        "adoption_protocol": "r06.v1",
+                        "attempted_digest": attempted_digest,
+                        "reason_code": validation.code,
+                        "source": IDENTITY_ADOPTION_VALIDATOR_SOURCE,
+                    }
+                    if validation.ratify_event_id is not None:
+                        ratify_event = get_event(validation.ratify_event_id)
+                        ratify_origin = (ratify_event or {}).get("meta") or {}
+                        origin_id = ratify_origin.get("origin_event_id")
+                        if (
+                            isinstance(origin_id, int)
+                            and not isinstance(origin_id, bool)
+                            and origin_id > 0
+                            and get_event(origin_id) is not None
+                        ):
+                            failure_meta["about_event"] = origin_id
+                    row = self._conn.execute(
+                        "SELECT hash FROM events ORDER BY id DESC LIMIT 1"
+                    ).fetchone()
+                    prev_hash = row["hash"] if row and row["hash"] else None
+                    payload = {
+                        "kind": "validation_failure",
+                        "content": failure_content,
+                        "meta": failure_meta,
+                        "prev_hash": prev_hash,
+                    }
+                    digest = sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+                    cur = self._conn.execute(
+                        "INSERT INTO events "
+                        "(ts, kind, content, meta, prev_hash, hash) "
+                        "VALUES (?, 'validation_failure', ?, ?, ?, ?)",
+                        (
+                            ts,
+                            failure_content,
+                            _canonical_json(failure_meta),
+                            prev_hash,
+                            digest,
+                        ),
+                    )
+                    event_id = int(cur.lastrowid)
+                    self._conn.commit()
+                    created = True
+                    kind_written = "validation_failure"
+                    content_written = failure_content
+                    meta_written = failure_meta
+                    hash_written = digest
+                    prev_written = prev_hash
+            except Exception:
+                self._conn.rollback()
+                raise
+
+        self._emit(
+            {
+                "id": event_id,
+                "ts": ts,
+                "kind": kind_written,
+                "content": content_written,
+                "meta": meta_written,
+                "prev_hash": prev_written,
+                "hash": hash_written,
+            }
+        )
+        if kind_written == "identity_adoption":
+            return event_id, created
+        return None, False
 
     def append_commitment_open(
         self,
