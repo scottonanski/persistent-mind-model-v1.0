@@ -10,11 +10,49 @@ Append-only directed graph using NetworkX DiGraph.
 from __future__ import annotations
 
 from bisect import bisect_left
+from dataclasses import dataclass
 import threading
 import networkx as nx
 from typing import Dict, List, Iterable, Literal, Optional, Set
 
 from .event_log import EventLog, TERMINAL_OUTCOME_PROTOCOL
+
+OriginAttribution = Literal[
+    "explicit",
+    "legacy_inferred",
+    "absent",
+    "invalid_explicit",
+]
+
+
+@dataclass(frozen=True)
+class CommitmentOrigin:
+    """One episode origin and how that relationship was established."""
+
+    event_id: int | None
+    attribution: OriginAttribution
+
+
+@dataclass(frozen=True)
+class CommitmentClosure:
+    """One close event and its assistant-command provenance, if established."""
+
+    event_id: int
+    origin: CommitmentOrigin
+
+
+@dataclass(frozen=True)
+class CommitmentEpisode:
+    """One bounded open-to-close episode for a stable commitment CID."""
+
+    cid: str
+    open_event_id: int
+    opening_origin: CommitmentOrigin
+    closures: tuple[CommitmentClosure, ...]
+    reflection_event_ids: tuple[int, ...]
+    event_ids: tuple[int, ...]
+    chronological_event_ids: tuple[int, ...]
+    status: Literal["open", "closed"]
 
 
 class MemeGraph:
@@ -101,7 +139,10 @@ class MemeGraph:
                 if assistant_node is not None:
                     self.graph.add_edge(event_id, assistant_node, label="commits_to")
             elif isinstance(text, str) and text:
-                assistant_node = self._find_assistant_with_commit_text(text)
+                assistant_node = self._find_assistant_with_commit_text(
+                    text,
+                    before_event_id=event_id,
+                )
                 if assistant_node is not None:
                     self.graph.add_edge(event_id, assistant_node, label="commits_to")
         elif kind == "commitment_close":
@@ -206,12 +247,19 @@ class MemeGraph:
                     return node
         return None
 
-    def _find_assistant_with_commit_text(self, text: str) -> int | None:
-        """Legacy fallback for opens that predate explicit origin recording."""
+    def _find_assistant_with_commit_text(
+        self,
+        text: str,
+        *,
+        before_event_id: int,
+    ) -> int | None:
+        """Infer the latest prior matching assistant for a legacy open."""
         target = (text or "").strip()
         from pmm.core.semantic_extractor import extract_commitments
 
-        for node in self.graph.nodes:
+        for node in sorted(self.graph.nodes, reverse=True):
+            if int(node) >= before_event_id:
+                continue
             if self.graph.nodes[node]["kind"] == "assistant_message":
                 full_event = self.eventlog.get(node)
                 content = full_event.get("content", "")
@@ -396,8 +444,163 @@ class MemeGraph:
                     break
             return sorted(candidates)
 
+    @staticmethod
+    def _episode_origin(
+        *,
+        meta: Dict,
+        related_event_ids: Iterable[int],
+        allow_legacy_inference: bool,
+    ) -> CommitmentOrigin:
+        """Classify an origin without promoting malformed explicit metadata."""
+        related = sorted({int(event_id) for event_id in related_event_ids})
+        if "origin_event_id" in meta:
+            declared = meta.get("origin_event_id")
+            if (
+                isinstance(declared, int)
+                and not isinstance(declared, bool)
+                and declared in related
+            ):
+                return CommitmentOrigin(declared, "explicit")
+            return CommitmentOrigin(None, "invalid_explicit")
+        if allow_legacy_inference and related:
+            return CommitmentOrigin(related[0], "legacy_inferred")
+        return CommitmentOrigin(None, "absent")
+
+    def _episode_for_open_locked(self, open_event_id: int) -> CommitmentEpisode | None:
+        if (
+            not isinstance(open_event_id, int)
+            or isinstance(open_event_id, bool)
+            or open_event_id <= 0
+            or not self.graph.has_node(open_event_id)
+            or self.graph.nodes[open_event_id].get("kind") != "commitment_open"
+        ):
+            return None
+
+        open_event = self.eventlog.get(open_event_id) or {}
+        open_meta = open_event.get("meta") or {}
+        cid = open_meta.get("cid")
+        if not isinstance(cid, str) or not cid.strip():
+            return None
+        cid = cid.strip()
+
+        opening_assistant_ids: list[int] = []
+        for successor in self.graph.successors(open_event_id):
+            edge = self.graph.get_edge_data(open_event_id, successor)
+            if (edge or {}).get("label") == "commits_to":
+                opening_assistant_ids.append(int(successor))
+        opening_assistant_ids.sort()
+        opening_origin = self._episode_origin(
+            meta=open_meta,
+            related_event_ids=opening_assistant_ids,
+            allow_legacy_inference=True,
+        )
+
+        close_event_ids: list[int] = []
+        for predecessor in self.graph.predecessors(open_event_id):
+            edge = self.graph.get_edge_data(predecessor, open_event_id)
+            if (edge or {}).get("label") == "closes":
+                close_event_ids.append(int(predecessor))
+        close_event_ids.sort()
+
+        closures: list[CommitmentClosure] = []
+        closing_assistant_ids: list[int] = []
+        for close_event_id in close_event_ids:
+            close_event = self.eventlog.get(close_event_id) or {}
+            close_meta = close_event.get("meta") or {}
+            issued_by_ids: list[int] = []
+            for successor in self.graph.successors(close_event_id):
+                edge = self.graph.get_edge_data(close_event_id, successor)
+                if (edge or {}).get("label") == "issued_by":
+                    issued_by_ids.append(int(successor))
+            issued_by_ids.sort()
+            closing_assistant_ids.extend(issued_by_ids)
+            closures.append(
+                CommitmentClosure(
+                    event_id=close_event_id,
+                    origin=self._episode_origin(
+                        meta=close_meta,
+                        related_event_ids=issued_by_ids,
+                        allow_legacy_inference=False,
+                    ),
+                )
+            )
+
+        closing_thread_assistant_ids = sorted(
+            set(closing_assistant_ids) - set(opening_assistant_ids)
+        )
+        all_assistant_ids = sorted(
+            set(opening_assistant_ids).union(closing_assistant_ids)
+        )
+        reflection_event_ids: list[int] = []
+        for assistant_id in all_assistant_ids:
+            for predecessor in self.graph.predecessors(assistant_id):
+                edge = self.graph.get_edge_data(predecessor, assistant_id)
+                if (edge or {}).get("label") == "reflects_on":
+                    reflection_event_ids.append(int(predecessor))
+        reflection_event_ids = sorted(set(reflection_event_ids))
+
+        event_ids = tuple(
+            opening_assistant_ids
+            + [open_event_id]
+            + closing_thread_assistant_ids
+            + close_event_ids
+            + reflection_event_ids
+        )
+        return CommitmentEpisode(
+            cid=cid,
+            open_event_id=open_event_id,
+            opening_origin=opening_origin,
+            closures=tuple(closures),
+            reflection_event_ids=tuple(reflection_event_ids),
+            event_ids=event_ids,
+            chronological_event_ids=tuple(sorted(set(event_ids))),
+            status="closed" if closures else "open",
+        )
+
+    def episode_for_open(self, open_event_id: int) -> CommitmentEpisode | None:
+        """Return one exact episode anchored by ``open_event_id``.
+
+        Only validated graph relationships are promoted into the episode.
+        Explicit malformed provenance is reported as ``invalid_explicit`` and
+        never replaced with a heuristic relationship.
+        """
+        with self._lock:
+            return self._episode_for_open_locked(open_event_id)
+
+    def history_for_cid(self, cid: str) -> list[CommitmentEpisode]:
+        """Return all reconstructed episodes for ``cid`` in open-event order."""
+        cid = (cid or "").strip()
+        if not cid:
+            return []
+        with self._lock:
+            open_event_ids: list[int] = []
+            for node in self.graph.nodes:
+                if self.graph.nodes[node].get("kind") != "commitment_open":
+                    continue
+                event = self.eventlog.get(int(node)) or {}
+                if (event.get("meta") or {}).get("cid") == cid:
+                    open_event_ids.append(int(node))
+
+            episodes: list[CommitmentEpisode] = []
+            for open_event_id in sorted(open_event_ids):
+                episode = self._episode_for_open_locked(open_event_id)
+                if episode is not None:
+                    episodes.append(episode)
+            return episodes
+
+    def current_episode_for_cid(self, cid: str) -> CommitmentEpisode | None:
+        """Return the latest episode for ``cid`` without flattening history."""
+        cid = (cid or "").strip()
+        if not cid:
+            return None
+        with self._lock:
+            open_event_id = self._find_commitment_open_by_cid(cid)
+            if open_event_id is None:
+                return None
+            return self._episode_for_open_locked(open_event_id)
+
     def thread_for_cid(self, cid: str) -> list[int]:
-        """Return ordered event ids forming the thread for a commitment cid.
+        """Compatibility view of the current episode's semantic event order.
 
         Order: assistant_message (that issued COMMIT) -> commitment_open ->
         assistant_message (that issued CLOSE, when recorded) ->
@@ -405,56 +608,8 @@ class MemeGraph:
         reflect on either assistant_message. All ids are stable within each
         category.
         """
-        cid = (cid or "").strip()
-        if not cid:
-            return []
-        with self._lock:
-            open_node = self._find_commitment_open_by_cid(cid)
-            if open_node is None:
-                return []
-
-            # assistant that triggered this open (edge label commits_to from open -> assistant)
-            assistant_nodes: list[int] = []
-            for succ in self.graph.successors(open_node):
-                edge = self.graph.get_edge_data(open_node, succ)
-                if (edge or {}).get("label") == "commits_to":
-                    assistant_nodes.append(int(succ))
-            assistant_nodes.sort()
-
-            # closes pointing to this open (edge label closes from close -> open)
-            close_nodes: list[int] = []
-            for pred in self.graph.predecessors(open_node):
-                edge = self.graph.get_edge_data(pred, open_node)
-                if (edge or {}).get("label") == "closes":
-                    close_nodes.append(int(pred))
-            close_nodes.sort()
-
-            closing_assistant_nodes: list[int] = []
-            for close_node in close_nodes:
-                for succ in self.graph.successors(close_node):
-                    edge = self.graph.get_edge_data(close_node, succ)
-                    if (edge or {}).get("label") == "issued_by":
-                        closing_assistant_nodes.append(int(succ))
-            closing_assistant_nodes = sorted(
-                set(closing_assistant_nodes) - set(assistant_nodes)
-            )
-
-            # Reflections that interpret either lifecycle assistant event.
-            reflection_nodes: list[int] = []
-            for an in assistant_nodes + closing_assistant_nodes:
-                for pred in self.graph.predecessors(an):
-                    edge = self.graph.get_edge_data(pred, an)
-                    if (edge or {}).get("label") == "reflects_on":
-                        reflection_nodes.append(int(pred))
-            reflection_nodes = sorted(set(reflection_nodes))
-
-            ordered: list[int] = []
-            ordered.extend(assistant_nodes)
-            ordered.append(int(open_node))
-            ordered.extend(closing_assistant_nodes)
-            ordered.extend(close_nodes)
-            ordered.extend(reflection_nodes)
-            return ordered
+        episode = self.current_episode_for_cid(cid)
+        return list(episode.event_ids) if episode is not None else []
 
     def get_thread_slice(self, cid: str, *, limit: int = 12) -> List[int]:
         """Return a deterministic slice of a thread, capped by limit.
