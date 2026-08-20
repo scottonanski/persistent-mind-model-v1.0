@@ -4,12 +4,10 @@
 import io
 import json
 import os
-import sys
 from hashlib import sha1
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from pmm.core.event_log import EventLog
 from pmm.runtime.oneshot_cli import (
     run_one_turn,
     main,

@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional
 
 from .event_log import EventLog
+from .commitment_outcome import is_commitment_relationship_protocol
 from .rsm import RecursiveSelfModel
 import json
 
@@ -69,6 +70,8 @@ class Mirror:
             self.last_event_id = event_id
 
     def _process_event(self, event: Dict) -> None:
+        if is_commitment_relationship_protocol(event):
+            return
         kind = event.get("kind")
         meta = event.get("meta", {})
         if kind == "commitment_open":

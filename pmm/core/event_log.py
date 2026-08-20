@@ -9,10 +9,12 @@ Minimal deterministic append/query API for PMM.
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import sqlite3
 import threading
+import weakref
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -125,6 +127,32 @@ class IdentityAdoptionRejected(ValueError):
         )
 
 
+class CommitmentOutcomeRejected(ValueError):
+    """A governed outcome was rejected after its failure record committed."""
+
+    def __init__(self, *, failure_event_id: int, reason_code: str) -> None:
+        self.failure_event_id = failure_event_id
+        self.reason_code = reason_code
+        self.canonical_commit_succeeded = True
+        super().__init__(
+            "commitment outcome rejected; validation_failure "
+            f"{failure_event_id} records {reason_code}"
+        )
+
+
+class CommitmentOutcomeReviewRejected(ValueError):
+    """A governed later review was rejected after its failure record committed."""
+
+    def __init__(self, *, failure_event_id: int, reason_code: str) -> None:
+        self.failure_event_id = failure_event_id
+        self.reason_code = reason_code
+        self.canonical_commit_succeeded = True
+        super().__init__(
+            "commitment outcome review rejected; validation_failure "
+            f"{failure_event_id} records {reason_code}"
+        )
+
+
 @dataclass
 class _ListenerRegistration:
     name: str
@@ -202,6 +230,7 @@ class EventLog:
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.RLock()
         self._listeners: List[_ListenerRegistration] = []
+        self._managed_assistant_producers: weakref.WeakSet[Any] = weakref.WeakSet()
         self._conn.create_function(
             "pmm_writer_owner",
             0,
@@ -295,6 +324,12 @@ class EventLog:
                 WHERE kind = 'identity_adoption'
                   AND json_extract(meta, '$.adoption_protocol') = 'r06.v1';
                 """)
+            # Authority is registered only by the governed transaction below.
+            # Protocol-shaped raw history must not reserve cardinality.
+            self._conn.execute("DROP INDEX IF EXISTS idx_commitment_outcome_v1_open")
+            self._conn.execute(
+                "DROP INDEX IF EXISTS idx_commitment_outcome_review_v1_exact"
+            )
             self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS pmm_database_identity (
                     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -326,6 +361,37 @@ class EventLog:
                     error_type TEXT,
                     error_message TEXT,
                     updated_at REAL NOT NULL
+                )
+                """)
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS pmm_managed_terminal_outcomes (
+                    event_id INTEGER PRIMARY KEY,
+                    user_event_id INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    FOREIGN KEY(event_id) REFERENCES events(id)
+                )
+                """)
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS pmm_commitment_outcome_authority (
+                    open_event_id INTEGER PRIMARY KEY,
+                    event_id INTEGER NOT NULL UNIQUE,
+                    FOREIGN KEY(event_id) REFERENCES events(id)
+                )
+                """)
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS pmm_commitment_review_authority (
+                    origin_event_id INTEGER NOT NULL,
+                    open_event_id INTEGER NOT NULL,
+                    outcome_event_id INTEGER NOT NULL,
+                    content TEXT NOT NULL,
+                    event_id INTEGER NOT NULL UNIQUE,
+                    PRIMARY KEY(
+                        origin_event_id,
+                        open_event_id,
+                        outcome_event_id,
+                        content
+                    ),
+                    FOREIGN KEY(event_id) REFERENCES events(id)
                 )
                 """)
             assert self.writer_session is not None
@@ -704,7 +770,55 @@ class EventLog:
                     )
                 raise IdentityAdoptionRejected(
                     failure_event_id=int(failure["id"]),
-                    reason_code=str((failure.get("meta") or {}).get("reason_code") or "UNKNOWN"),
+                    reason_code=str(
+                        (failure.get("meta") or {}).get("reason_code") or "UNKNOWN"
+                    ),
+                )
+            return event_id
+
+        from pmm.core.commitment_outcome import (
+            OUTCOME_PROTOCOL_V1,
+            REVIEW_PROTOCOL_V1,
+        )
+
+        if (
+            kind == "outcome_observation"
+            and (meta or {}).get("protocol") == OUTCOME_PROTOCOL_V1
+        ):
+            event_id, _created, failure_id, reason_code = (
+                self._append_commitment_relationship_owned(
+                    kind=kind,
+                    content=content,
+                    meta=meta,
+                )
+            )
+            if event_id is None:
+                if failure_id is None:
+                    raise RuntimeError(
+                        "commitment outcome rejected without a durable failure record"
+                    )
+                raise CommitmentOutcomeRejected(
+                    failure_event_id=failure_id,
+                    reason_code=reason_code or "UNKNOWN",
+                )
+            return event_id
+
+        if kind == "reflection" and (meta or {}).get("protocol") == REVIEW_PROTOCOL_V1:
+            event_id, _created, failure_id, reason_code = (
+                self._append_commitment_relationship_owned(
+                    kind=kind,
+                    content=content,
+                    meta=meta,
+                )
+            )
+            if event_id is None:
+                if failure_id is None:
+                    raise RuntimeError(
+                        "commitment outcome review rejected without a durable failure record"
+                    )
+                raise CommitmentOutcomeReviewRejected(
+                    failure_event_id=failure_id,
+                    reason_code=reason_code or "UNKNOWN",
                 )
             return event_id
 
@@ -901,6 +1015,393 @@ class EventLog:
         self._emit(ev, canonical_created=canonical_created)
         return ev_id
 
+    def append_commitment_outcome(
+        self,
+        *,
+        content: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> tuple[Optional[int], bool]:
+        """Append or reuse one governed v1 outcome; preserve rejection durably."""
+
+        session = self._require_writer()
+        with session.operation():
+            event_id, created, _failure_id, _reason = (
+                self._append_commitment_relationship_owned(
+                    kind="outcome_observation", content=content, meta=meta
+                )
+            )
+        return event_id, created
+
+    def append_commitment_outcome_review(
+        self,
+        *,
+        content: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> tuple[Optional[int], bool]:
+        """Append or reuse one governed v1 later review; preserve rejection durably."""
+
+        session = self._require_writer()
+        with session.operation():
+            event_id, created, _failure_id, _reason = (
+                self._append_commitment_relationship_owned(
+                    kind="reflection", content=content, meta=meta
+                )
+            )
+        return event_id, created
+
+    def _append_commitment_relationship_owned(
+        self,
+        *,
+        kind: str,
+        content: Any,
+        meta: Optional[Dict[str, Any]],
+    ) -> tuple[Optional[int], bool, Optional[int], Optional[str]]:
+        """Shared transaction for v1 outcomes and reviews.
+
+        The final two return values identify a durable rejection. They keep the
+        managed RuntimeLoop non-throwing while allowing generic ``append`` to
+        raise only after the failure event has committed.
+        """
+
+        from pmm.core.commitment_outcome import (
+            CommitmentRelationshipValidation,
+            OUTCOME_PROTOCOL_V1,
+            OUTCOME_VALIDATOR_SOURCE,
+            REVIEW_PROTOCOL_V1,
+            REVIEW_VALIDATOR_SOURCE,
+            attempted_relationship_digest,
+            canonical_outcome_content,
+            canonical_review_content,
+            is_v1_authoritative_outcome,
+            is_v1_authoritative_review,
+            stable_attempted_value,
+            validate_outcome_payload,
+            validate_review_payload,
+        )
+
+        if kind not in {"outcome_observation", "reflection"}:
+            raise ValueError(f"unsupported commitment relationship kind: {kind}")
+        submitted_meta = dict(meta or {})
+        protocol = (
+            OUTCOME_PROTOCOL_V1 if kind == "outcome_observation" else REVIEW_PROTOCOL_V1
+        )
+        validator_source = (
+            OUTCOME_VALIDATOR_SOURCE
+            if kind == "outcome_observation"
+            else REVIEW_VALIDATOR_SOURCE
+        )
+        validation_type = (
+            "commitment_outcome"
+            if kind == "outcome_observation"
+            else "commitment_outcome_review"
+        )
+        attempted_digest = attempted_relationship_digest(
+            kind=kind, content=content, meta=submitted_meta
+        )
+
+        def get_event(event_id: int) -> Optional[Dict[str, Any]]:
+            row = self._conn.execute(
+                "SELECT * FROM events WHERE id = ?", (event_id,)
+            ).fetchone()
+            return _event_from_row(row) if row is not None else None
+
+        def failure_material(
+            validation: CommitmentRelationshipValidation,
+        ) -> tuple[str, Dict[str, Any]]:
+            failure_content = _canonical_json(
+                {
+                    "attempted_content": stable_attempted_value(content),
+                    "attempted_digest": attempted_digest,
+                    "attempted_meta": stable_attempted_value(submitted_meta),
+                    "cid": validation.cid,
+                    "close_event_id": validation.close_event_id,
+                    "open_event_id": validation.open_event_id,
+                    "origin_event_id": validation.origin_event_id,
+                    "outcome_event_id": validation.outcome_event_id,
+                    "reason": validation.message,
+                    "reason_code": validation.code,
+                    "validation_type": validation_type,
+                }
+            )
+            failure_meta: Dict[str, Any] = {
+                "attempted_digest": attempted_digest,
+                "protocol": protocol,
+                "reason_code": validation.code,
+                "source": validator_source,
+            }
+            origin_id = validation.origin_event_id
+            if origin_id is not None and get_event(origin_id) is not None:
+                failure_meta["about_event"] = origin_id
+            return failure_content, failure_meta
+
+        session = self._require_writer()
+        ts = _iso_now()
+        emitted: Optional[Dict[str, Any]] = None
+        with session.operation(), self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                session.assert_authority_in_transaction(self._conn)
+                if kind == "outcome_observation":
+                    validation = validate_outcome_payload(
+                        content,
+                        submitted_meta,
+                        get_event,
+                        is_managed_assistant=self.is_managed_assistant,
+                    )
+                else:
+                    validation = validate_review_payload(
+                        content,
+                        submitted_meta,
+                        get_event,
+                        is_managed_assistant=self.is_managed_assistant,
+                        is_registered_outcome=self.is_registered_commitment_outcome,
+                    )
+
+                canonical_content = ""
+                canonical_meta: Dict[str, Any] = {}
+                if validation.ok and kind == "outcome_observation":
+                    canonical_content = canonical_outcome_content(
+                        observation=validation.observation,
+                        evidence_event_ids=validation.evidence_event_ids,
+                    )
+                    canonical_meta = {
+                        "protocol": OUTCOME_PROTOCOL_V1,
+                        "source": "assistant",
+                        "cid": validation.cid,
+                        "open_event_id": validation.open_event_id,
+                        "close_event_id": validation.close_event_id,
+                        "origin_event_id": validation.origin_event_id,
+                    }
+                    existing = self._conn.execute(
+                        """
+                        SELECT event.*
+                        FROM pmm_commitment_outcome_authority AS authority
+                        JOIN events AS event ON event.id = authority.event_id
+                        WHERE authority.open_event_id = ?
+                        """,
+                        (validation.open_event_id,),
+                    ).fetchone()
+                    existing_event = None
+                    if existing is not None:
+                        existing_event = _event_from_row(existing)
+                        if not is_v1_authoritative_outcome(
+                            existing_event,
+                            get_event,
+                            self.is_managed_assistant,
+                            self.is_registered_commitment_outcome,
+                        ):
+                            self._conn.execute(
+                                "DELETE FROM pmm_commitment_outcome_authority "
+                                "WHERE open_event_id = ?",
+                                (validation.open_event_id,),
+                            )
+                            existing_event = None
+                    if existing_event is not None:
+                        if (
+                            existing_event["content"] == canonical_content
+                            and existing_event["meta"] == canonical_meta
+                        ):
+                            self._conn.commit()
+                            return int(existing_event["id"]), False, None, None
+                        validation = CommitmentRelationshipValidation(
+                            False,
+                            "OUTCOME_ALREADY_RECORDED",
+                            "the exact commitment episode already has a distinct v1 outcome",
+                            cid=validation.cid,
+                            open_event_id=validation.open_event_id,
+                            close_event_id=validation.close_event_id,
+                            origin_event_id=validation.origin_event_id,
+                        )
+                elif validation.ok:
+                    canonical_content = canonical_review_content(
+                        interpretation=validation.interpretation
+                    )
+                    canonical_meta = {
+                        "protocol": REVIEW_PROTOCOL_V1,
+                        "source": "assistant",
+                        "cid": validation.cid,
+                        "open_event_id": validation.open_event_id,
+                        "outcome_event_id": validation.outcome_event_id,
+                        "origin_event_id": validation.origin_event_id,
+                    }
+                    existing = self._conn.execute(
+                        """
+                        SELECT event.*
+                        FROM pmm_commitment_review_authority AS authority
+                        JOIN events AS event ON event.id = authority.event_id
+                        WHERE authority.origin_event_id = ?
+                          AND authority.open_event_id = ?
+                          AND authority.outcome_event_id = ?
+                          AND authority.content = ?
+                        """,
+                        (
+                            validation.origin_event_id,
+                            validation.open_event_id,
+                            validation.outcome_event_id,
+                            canonical_content,
+                        ),
+                    ).fetchone()
+                    existing_event = None
+                    if existing is not None:
+                        existing_event = _event_from_row(existing)
+                        if not is_v1_authoritative_review(
+                            existing_event,
+                            get_event,
+                            self.is_managed_assistant,
+                            self.is_registered_commitment_outcome,
+                            self.is_registered_commitment_review,
+                        ):
+                            self._conn.execute(
+                                "DELETE FROM pmm_commitment_review_authority "
+                                "WHERE origin_event_id = ? AND open_event_id = ? "
+                                "AND outcome_event_id = ? AND content = ?",
+                                (
+                                    validation.origin_event_id,
+                                    validation.open_event_id,
+                                    validation.outcome_event_id,
+                                    canonical_content,
+                                ),
+                            )
+                            existing_event = None
+                    if existing_event is not None:
+                        if existing_event["meta"] != canonical_meta:
+                            raise RuntimeError(
+                                "authoritative review metadata corrupted"
+                            )
+                        self._conn.commit()
+                        return int(existing_event["id"]), False, None, None
+
+                if validation.ok:
+                    row = self._conn.execute(
+                        "SELECT hash FROM events ORDER BY id DESC LIMIT 1"
+                    ).fetchone()
+                    prev_hash = row["hash"] if row and row["hash"] else None
+                    payload = {
+                        "kind": kind,
+                        "content": canonical_content,
+                        "meta": canonical_meta,
+                        "prev_hash": prev_hash,
+                    }
+                    digest = sha256(
+                        _canonical_json(payload).encode("utf-8")
+                    ).hexdigest()
+                    cur = self._conn.execute(
+                        "INSERT INTO events (ts, kind, content, meta, prev_hash, hash) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            ts,
+                            kind,
+                            canonical_content,
+                            _canonical_json(canonical_meta),
+                            prev_hash,
+                            digest,
+                        ),
+                    )
+                    event_id = int(cur.lastrowid)
+                    if kind == "outcome_observation":
+                        self._conn.execute(
+                            "INSERT INTO pmm_commitment_outcome_authority "
+                            "(open_event_id, event_id) VALUES (?, ?)",
+                            (validation.open_event_id, event_id),
+                        )
+                    else:
+                        self._conn.execute(
+                            "INSERT INTO pmm_commitment_review_authority "
+                            "(origin_event_id, open_event_id, outcome_event_id, "
+                            "content, event_id) VALUES (?, ?, ?, ?, ?)",
+                            (
+                                validation.origin_event_id,
+                                validation.open_event_id,
+                                validation.outcome_event_id,
+                                canonical_content,
+                                event_id,
+                            ),
+                        )
+                    self._conn.commit()
+                    emitted = {
+                        "id": event_id,
+                        "ts": ts,
+                        "kind": kind,
+                        "content": canonical_content,
+                        "meta": canonical_meta,
+                        "prev_hash": prev_hash,
+                        "hash": digest,
+                    }
+                    result = (event_id, True, None, None)
+                else:
+                    failure_content, failure_meta = failure_material(validation)
+                    candidates = self._conn.execute(
+                        """
+                        SELECT * FROM events
+                        WHERE kind = 'validation_failure'
+                          AND json_extract(meta, '$.source') = ?
+                          AND json_extract(meta, '$.attempted_digest') = ?
+                        ORDER BY id ASC
+                        """,
+                        (validator_source, attempted_digest),
+                    ).fetchall()
+                    exact_failure = next(
+                        (
+                            row
+                            for row in candidates
+                            if row["content"] == failure_content
+                            and json.loads(row["meta"] or "{}") == failure_meta
+                        ),
+                        None,
+                    )
+                    if exact_failure is not None:
+                        self._conn.commit()
+                        return (
+                            None,
+                            False,
+                            int(exact_failure["id"]),
+                            validation.code,
+                        )
+                    row = self._conn.execute(
+                        "SELECT hash FROM events ORDER BY id DESC LIMIT 1"
+                    ).fetchone()
+                    prev_hash = row["hash"] if row and row["hash"] else None
+                    payload = {
+                        "kind": "validation_failure",
+                        "content": failure_content,
+                        "meta": failure_meta,
+                        "prev_hash": prev_hash,
+                    }
+                    digest = sha256(
+                        _canonical_json(payload).encode("utf-8")
+                    ).hexdigest()
+                    cur = self._conn.execute(
+                        "INSERT INTO events "
+                        "(ts, kind, content, meta, prev_hash, hash) "
+                        "VALUES (?, 'validation_failure', ?, ?, ?, ?)",
+                        (
+                            ts,
+                            failure_content,
+                            _canonical_json(failure_meta),
+                            prev_hash,
+                            digest,
+                        ),
+                    )
+                    failure_id = int(cur.lastrowid)
+                    self._conn.commit()
+                    emitted = {
+                        "id": failure_id,
+                        "ts": ts,
+                        "kind": "validation_failure",
+                        "content": failure_content,
+                        "meta": failure_meta,
+                        "prev_hash": prev_hash,
+                        "hash": digest,
+                    }
+                    result = (None, False, failure_id, validation.code)
+            except Exception:
+                self._conn.rollback()
+                raise
+
+        if emitted is not None:
+            self._emit(emitted)
+        return result
+
     def append_identity_adoption(
         self,
         *,
@@ -990,7 +1491,9 @@ class EventLog:
                         "meta": adoption_meta,
                         "prev_hash": prev_hash,
                     }
-                    digest = sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+                    digest = sha256(
+                        _canonical_json(payload).encode("utf-8")
+                    ).hexdigest()
                     try:
                         cur = self._conn.execute(
                             "INSERT INTO events "
@@ -1086,7 +1589,9 @@ class EventLog:
                         "meta": failure_meta,
                         "prev_hash": prev_hash,
                     }
-                    digest = sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+                    digest = sha256(
+                        _canonical_json(payload).encode("utf-8")
+                    ).hexdigest()
                     cur = self._conn.execute(
                         "INSERT INTO events "
                         "(ts, kind, content, meta, prev_hash, hash) "
@@ -1414,6 +1919,49 @@ class EventLog:
             }
         )
         return event_id, True
+
+    def is_managed_assistant(self, event_id: int) -> bool:
+        """Return whether EventLog's managed terminal boundary created this assistant."""
+
+        if not isinstance(event_id, int) or isinstance(event_id, bool) or event_id <= 0:
+            return False
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT 1
+                FROM pmm_managed_terminal_outcomes AS managed
+                JOIN events AS event ON event.id = managed.event_id
+                WHERE managed.event_id = ?
+                  AND managed.kind = 'assistant_message'
+                  AND event.kind = 'assistant_message'
+                """,
+                (event_id,),
+            ).fetchone()
+        return row is not None
+
+    def is_registered_commitment_outcome(self, event_id: int) -> bool:
+        """Return whether the governed transaction registered this outcome."""
+
+        if not isinstance(event_id, int) or isinstance(event_id, bool) or event_id <= 0:
+            return False
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM pmm_commitment_outcome_authority WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+        return row is not None
+
+    def is_registered_commitment_review(self, event_id: int) -> bool:
+        """Return whether the governed transaction registered this later review."""
+
+        if not isinstance(event_id, int) or isinstance(event_id, bool) or event_id <= 0:
+            return False
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM pmm_commitment_review_authority WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+        return row is not None
 
     @staticmethod
     def is_strict_v2_retrieval_selection_content(content: str) -> bool:
@@ -1808,6 +2356,48 @@ class EventLog:
                 meta=meta,
             )
 
+    def _register_managed_assistant_producer(self, producer: Any) -> None:
+        """Register one live RuntimeLoop as an assistant-origin authority."""
+
+        from pmm.runtime.loop import RuntimeLoop
+
+        caller = inspect.currentframe()
+        caller = caller.f_back if caller is not None else None
+        if (
+            type(producer) is not RuntimeLoop
+            or getattr(producer, "eventlog", None) is not self
+            or getattr(producer, "_managed_assistant_producer_ready", False) is not True
+            or caller is None
+            or caller.f_code is not RuntimeLoop.__init__.__code__
+            or caller.f_locals.get("self") is not producer
+        ):
+            raise PermissionError(
+                "managed assistant producer must be a live RuntimeLoop"
+            )
+        self._managed_assistant_producers.add(producer)
+
+    def _append_managed_assistant_outcome(
+        self,
+        *,
+        producer: Any,
+        user_event_id: int,
+        content: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> tuple[int, bool]:
+        """Append a generated assistant message for a registered RuntimeLoop."""
+
+        if producer not in self._managed_assistant_producers:
+            raise PermissionError("unregistered managed assistant producer")
+        session = self._require_writer()
+        with session.operation():
+            return self._append_terminal_outcome_owned(
+                user_event_id=user_event_id,
+                kind="assistant_message",
+                content=content,
+                meta=meta,
+                managed_assistant=True,
+            )
+
     def _append_terminal_outcome_owned(
         self,
         *,
@@ -1815,6 +2405,7 @@ class EventLog:
         kind: str,
         content: str,
         meta: Optional[Dict[str, Any]] = None,
+        managed_assistant: bool = False,
     ) -> tuple[int, bool]:
         """Atomically append the sole protocol-v1 outcome for a managed turn.
 
@@ -1876,6 +2467,12 @@ class EventLog:
                     (ts, kind, content, meta_json, prev_hash, digest),
                 )
                 event_id = int(cur.lastrowid)
+                if managed_assistant and kind == "assistant_message":
+                    self._conn.execute(
+                        "INSERT INTO pmm_managed_terminal_outcomes "
+                        "(event_id, user_event_id, kind) VALUES (?, ?, ?)",
+                        (event_id, user_event_id, kind),
+                    )
                 self._conn.commit()
             except Exception:
                 self._conn.rollback()

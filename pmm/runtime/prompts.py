@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from typing import List, Dict, Any, Optional
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Core primer – the “soul” of the model
 # ─────────────────────────────────────────────────────────────────────────────
@@ -57,6 +56,8 @@ MARKER_INSTRUCTIONS = (
     "After your normal response, add a blank line followed by optional control lines:\n"
     "COMMIT: <title>\n"
     "CLOSE: <CID>\n"
+    'COMMITMENT_OUTCOME:{"cid":"<CID>","open_event_id":<id>,"close_event_id":<id>,"observation":"<what happened>","evidence_event_ids":[<ids>]}\n'
+    'COMMITMENT_REVIEW:{"cid":"<CID>","open_event_id":<id>,"outcome_event_id":<id>,"interpretation":"<what it came to mean>"}\n'
     "CLAIM:<type>=<json>\n"
     "REFLECT:<json>\n"
     "One marker per line, starting exactly at column 0 with no leading spaces, indentation, or markdown. "
@@ -136,11 +137,19 @@ def compose_system_prompt(
     parts.append(
         "## Identity Adoption Protocol (Option C)\n"
         "To adopt a new identity:\n"
-        "- Propose: CLAIM:identity_proposal={\"token\": \"<identity_token>\", \"subject_id\": \"pmm.self\", \"description\": \"<desc>\", \"evidence_events\": [<ids>]}\n"
-        "- Ratify on a later turn: CLAIM:identity_ratify={\"token\": \"<identity_token>\", \"subject_id\": \"pmm.self\"}\n"
+        '- Propose: CLAIM:identity_proposal={"token": "<identity_token>", "subject_id": "pmm.self", "description": "<desc>", "evidence_events": [<ids>]}\n'
+        '- Ratify on a later turn: CLAIM:identity_ratify={"token": "<identity_token>", "subject_id": "pmm.self"}\n'
         "- ONLY then will an identity_adoption event append automatically.\n"
         "- NEVER claim an identity_adoption exists unless you locate it in the ledger window.\n"
         "Emit these as bare CLAIM: lines per marker rules above."
+    )
+    parts.append(
+        "## Commitment Outcome Protocol (v1)\n"
+        "A CLOSE line changes commitment state; it does not record success or an outcome.\n"
+        "Use COMMITMENT_OUTCOME only after the exact episode has an authoritative close, "
+        "and only with ledger IDs visible in context. One outcome is allowed per open_event_id.\n"
+        "Use COMMITMENT_REVIEW only on a later turn to interpret an existing exact outcome.\n"
+        "Never infer these relationships from CID text, closure, or ordinary reflection."
     )
 
     return "\n\n".join(parts)

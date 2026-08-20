@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence
 
 from pmm.core.event_log import EventLog
+from pmm.core.commitment_outcome import OUTCOME_PROTOCOL_V1
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,8 @@ def extract_outcome_observations(log: EventLog) -> List[OutcomeObservation]:
     observations = []
     for event in log.read_all():
         if event.get("kind") == "outcome_observation":
+            if (event.get("meta") or {}).get("protocol") == OUTCOME_PROTOCOL_V1:
+                continue
             try:
                 data = json.loads(event.get("content") or "{}")
                 if isinstance(data, dict):

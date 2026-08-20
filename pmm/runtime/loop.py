@@ -25,6 +25,8 @@ from pmm.core.semantic_extractor import (
     extract_commitments,
     extract_claims,
     extract_closures,
+    extract_commitment_outcomes,
+    extract_commitment_reviews,
     extract_reflect,
 )
 from pmm.core.concept_graph import ConceptGraph
@@ -54,6 +56,11 @@ from pmm.runtime.bindings import ExecBindRouter
 from pmm.runtime.autonomy_supervisor import AutonomySupervisor
 from pmm.core.autonomy_tracker import AutonomyTracker
 from pmm.learning.outcome_tracker import build_outcome_observation_content
+from pmm.core.commitment_outcome import (
+    OUTCOME_PROTOCOL_V1,
+    REVIEW_PROTOCOL_V1,
+    canonical_review_content,
+)
 from pmm.runtime.indexer import Indexer
 from pmm.runtime.ctl_injector import CTLLookupInjector
 import asyncio
@@ -241,6 +248,12 @@ class RuntimeLoop:
                 autonomy=autonomy,
                 thresholds=thresholds,
             )
+        self._managed_assistant_producer_ready = True
+        register_managed_producer = getattr(
+            self.eventlog, "_register_managed_assistant_producer", None
+        )
+        if callable(register_managed_producer):
+            register_managed_producer(self)
 
     def _initialize_runtime(
         self,
@@ -427,6 +440,82 @@ class RuntimeLoop:
             # Keep runtime robust: skip malformed claim lines
             parsed = []
         return [Claim(type=ctype, data=data) for ctype, data in parsed]
+
+    def _append_commitment_relationship_candidates(
+        self, text: str, *, origin_event_id: int
+    ) -> None:
+        """Validate each managed v1 candidate without dropping malformed siblings."""
+
+        lines = (text or "").splitlines()
+        outcome_keys = {
+            "cid",
+            "open_event_id",
+            "close_event_id",
+            "observation",
+            "evidence_event_ids",
+        }
+        for raw, candidate in extract_commitment_outcomes(lines):
+            if isinstance(candidate, dict) and set(candidate) == outcome_keys:
+                content = json.dumps(
+                    {
+                        "observation": candidate.get("observation"),
+                        "evidence_event_ids": candidate.get("evidence_event_ids"),
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                meta = {
+                    "protocol": OUTCOME_PROTOCOL_V1,
+                    "source": "assistant",
+                    "cid": candidate.get("cid"),
+                    "open_event_id": candidate.get("open_event_id"),
+                    "close_event_id": candidate.get("close_event_id"),
+                    "origin_event_id": origin_event_id,
+                }
+            else:
+                content = (
+                    json.dumps(candidate, sort_keys=True, separators=(",", ":"))
+                    if isinstance(candidate, dict)
+                    else raw
+                )
+                meta = {
+                    "protocol": OUTCOME_PROTOCOL_V1,
+                    "source": "assistant",
+                    "origin_event_id": origin_event_id,
+                }
+            self.eventlog.append_commitment_outcome(content=content, meta=meta)
+
+        review_keys = {
+            "cid",
+            "open_event_id",
+            "outcome_event_id",
+            "interpretation",
+        }
+        for raw, candidate in extract_commitment_reviews(lines):
+            if isinstance(candidate, dict) and set(candidate) == review_keys:
+                content = canonical_review_content(
+                    interpretation=candidate.get("interpretation")
+                )
+                meta = {
+                    "protocol": REVIEW_PROTOCOL_V1,
+                    "source": "assistant",
+                    "cid": candidate.get("cid"),
+                    "open_event_id": candidate.get("open_event_id"),
+                    "outcome_event_id": candidate.get("outcome_event_id"),
+                    "origin_event_id": origin_event_id,
+                }
+            else:
+                content = (
+                    json.dumps(candidate, sort_keys=True, separators=(",", ":"))
+                    if isinstance(candidate, dict)
+                    else raw
+                )
+                meta = {
+                    "protocol": REVIEW_PROTOCOL_V1,
+                    "source": "assistant",
+                    "origin_event_id": origin_event_id,
+                }
+            self.eventlog.append_commitment_outcome_review(content=content, meta=meta)
 
     def _parse_ref_lines(self, content: str) -> None:
         refs: List[str] = []
@@ -810,12 +899,23 @@ class RuntimeLoop:
             # Validated runtime metadata is authoritative over provider metadata.
             ai_meta["evidence_designations_validated"] = True
             ai_meta["evidence_designations"] = evidence_designations
-        ai_event_id, terminal_created = self.eventlog.append_terminal_outcome(
-            user_event_id=user_event_id,
-            kind="assistant_message",
-            content=assistant_reply,
-            meta=ai_meta,
+        managed_append = getattr(
+            self.eventlog, "_append_managed_assistant_outcome", None
         )
+        if callable(managed_append):
+            ai_event_id, terminal_created = managed_append(
+                producer=self,
+                user_event_id=user_event_id,
+                content=assistant_reply,
+                meta=ai_meta,
+            )
+        else:
+            ai_event_id, terminal_created = self.eventlog.append_terminal_outcome(
+                user_event_id=user_event_id,
+                kind="assistant_message",
+                content=assistant_reply,
+                meta=ai_meta,
+            )
         if not terminal_created:
             return self.eventlog.read_since(user_event_id - 1, limit=200)
 
@@ -1142,6 +1242,13 @@ class RuntimeLoop:
             origin_event_id=ai_event_id,
         )
         delta.closed.extend(actually_closed)
+
+        # 7a. Governed outcome/review candidates. The assistant message remains
+        # source history; exact closure processing above establishes the latest
+        # lifecycle state before any relationship is validated.
+        self._append_commitment_relationship_candidates(
+            assistant_reply, origin_event_id=ai_event_id
+        )
 
         # 8. REFLECT block
         delta.reflect_block = self._extract_reflect(assistant_reply)

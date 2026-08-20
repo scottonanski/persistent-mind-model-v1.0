@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import List
 
 from pmm.core.event_log import EventLog
+from pmm.core.commitment_outcome import is_outcome_review_protocol
 
 
 @dataclass(frozen=True)
@@ -22,7 +23,11 @@ class LearningPattern:
 def detect_learning_patterns(log: EventLog, window: int = 500) -> List[LearningPattern]:
     """Detect learning patterns from recent events."""
     events = log.read_tail(max(1, int(window)))
-    reflections = [e for e in events if e.get("kind") == "reflection"]
+    reflections = [
+        e
+        for e in events
+        if e.get("kind") == "reflection" and not is_outcome_review_protocol(e)
+    ]
     policy_updates = [e for e in events if e.get("kind") == "policy_update"]
 
     # Pattern: reflection -> policy_update

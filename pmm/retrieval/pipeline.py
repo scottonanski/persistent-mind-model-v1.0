@@ -144,6 +144,7 @@ def run_retrieval_pipeline(
     # 2. CTL Selection
     ctl_event_ids: Set[int] = set()
     relevant_cids: Set[str] = set()
+    cid_trigger_event_ids: Dict[str, Set[int]] = {}
     sticky_event_ids: Set[int] = set()
     forced_event_ids: Set[int] = set()
 
@@ -166,7 +167,18 @@ def run_retrieval_pipeline(
         if bound_cids:
             # Respect per-concept cap by truncating sorted bound_cids
             sorted_cids = sorted(bound_cids)
-            relevant_cids.update(sorted_cids[:concept_thread_limit])
+            selected_bound_cids = sorted_cids[:concept_thread_limit]
+            relevant_cids.update(selected_bound_cids)
+            for token in seed_concepts_list:
+                for cid in selected_bound_cids:
+                    for attribution in concept_graph.attributions_for_thread_binding(
+                        token, cid
+                    ):
+                        binding_event_id = attribution.get("binding_event_id")
+                        if isinstance(binding_event_id, int):
+                            cid_trigger_event_ids.setdefault(cid, set()).add(
+                                binding_event_id
+                            )
 
     if sticky_tokens:
         sticky_bound = select_by_concepts(
@@ -277,6 +289,16 @@ def run_retrieval_pipeline(
     if relevant_cids:
         for cid in sorted(relevant_cids):
             slice_ids = meme_graph.get_thread_slice(cid, limit=thread_event_limit)
+            current_episode = meme_graph.current_episode_for_cid(cid)
+            if current_episode is not None:
+                relationship_ids = set(current_episode.review_event_ids)
+                if current_episode.outcome_event_id is not None:
+                    relationship_ids.add(current_episode.outcome_event_id)
+                slice_ids = [
+                    event_id
+                    for event_id in slice_ids
+                    if event_id not in relationship_ids
+                ]
             thread_expanded_ids.update(slice_ids)
 
     # 3b. Optional vector refinement over thread slices
@@ -436,7 +458,12 @@ def run_retrieval_pipeline(
     for cid in sorted(relevant_cids):
         current = meme_graph.current_episode_for_cid(cid)
         if current is not None:
-            _select_episode(current)
+            triggers = sorted(cid_trigger_event_ids.get(cid, set()))
+            if triggers:
+                for trigger_event_id in triggers:
+                    _select_episode(current, trigger_event_id)
+            else:
+                _select_episode(current)
 
     for event_id in sorted(base_ids):
         for episode in _episodes_for_event(event_id):
@@ -492,19 +519,45 @@ def run_retrieval_pipeline(
         episode_limit = (
             thread_event_limit if role == "current" else historical_episode_event_limit
         )
-        episode_slice = sorted(set(episode.event_ids), reverse=True)[:episode_limit]
+        episode_event_ids = list(episode.event_ids)
+        if not trigger_event_ids:
+            relationship_ids = set(episode.review_event_ids)
+            if episode.outcome_event_id is not None:
+                relationship_ids.add(episode.outcome_event_id)
+            episode_event_ids = [
+                event_id
+                for event_id in episode_event_ids
+                if event_id not in relationship_ids
+            ]
+        episode_slice = sorted(set(episode_event_ids), reverse=True)[:episode_limit]
         if role == "current":
             thread_expanded_ids.update(episode_slice)
         else:
             historical_episode_expanded_ids.update(episode_slice)
-        for episode_event_id in episode.event_ids:
+        for episode_event_id in episode_event_ids:
+            episode_detail: Dict[str, Any] = {
+                "cid": episode.cid,
+                "open_event_id": open_event_id,
+                "role": role,
+                "trigger_event_ids": trigger_event_ids,
+            }
+            if episode.outcome_event_id == episode_event_id:
+                episode_detail.update(
+                    {
+                        "relationship_role": "outcome_for",
+                        "outcome_event_id": int(episode_event_id),
+                    }
+                )
+            elif episode_event_id in episode.review_event_ids:
+                episode_detail.update(
+                    {
+                        "relationship_role": "reviews_outcome",
+                        "outcome_event_id": int(episode.outcome_event_id),
+                        "review_event_id": int(episode_event_id),
+                    }
+                )
             event_episode_details.setdefault(int(episode_event_id), []).append(
-                {
-                    "cid": episode.cid,
-                    "open_event_id": open_event_id,
-                    "role": role,
-                    "trigger_event_ids": trigger_event_ids,
-                }
+                episode_detail
             )
 
     expanded_ids.update(thread_expanded_ids)
@@ -516,7 +569,16 @@ def run_retrieval_pipeline(
             return True
         if event_id in historical_episode_expanded_ids:
             return True
-        return any(episode.open_event_id in current_open_ids for episode in episodes)
+        for episode in episodes:
+            open_event_id = int(episode.open_event_id)
+            if open_event_id not in current_open_ids:
+                continue
+            is_relationship = event_id == episode.outcome_event_id or (
+                event_id in episode.review_event_ids
+            )
+            if not is_relationship or episode_triggers.get(open_event_id):
+                return True
+        return False
 
     # Expand generic neighbors
     for eid in list(base_ids):

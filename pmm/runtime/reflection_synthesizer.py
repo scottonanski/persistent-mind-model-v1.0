@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, List, Tuple, TYPE_CHECKING
 import json
 
 from pmm.core.event_log import EventLog
+from pmm.core.commitment_outcome import is_outcome_review_protocol
 from pmm.core.mirror import Mirror
 from pmm.core.commitment_manager import CommitmentManager
 from pmm.core.enhancements.meta_reflection_engine import MetaReflectionEngine
@@ -68,7 +69,11 @@ def synthesize_reflection(
                 for c in internal
             ]
 
-        reflection_count = sum(1 for e in events if e.get("kind") == "reflection")
+        reflection_count = sum(
+            1
+            for e in events
+            if e.get("kind") == "reflection" and not is_outcome_review_protocol(e)
+        )
         if reflection_count >= 5:
             mirror = Mirror(eventlog, enable_rsm=True, listen=False)
             snapshot = mirror.rsm_snapshot()

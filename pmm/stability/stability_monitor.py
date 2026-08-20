@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from pmm.core.event_log import EventLog
+from pmm.core.commitment_outcome import is_outcome_review_protocol
 from pmm.core.semantic_extractor import extract_closures, extract_commitments
 
 
@@ -37,7 +38,11 @@ def calculate_stability_metrics(log: EventLog, window: int = 100) -> Dict[str, A
     )
 
     # Reflection variance proxy: count of reflection events
-    reflections = sum(1 for e in recent if e.get("kind") == "reflection")
+    reflections = sum(
+        1
+        for e in recent
+        if e.get("kind") == "reflection" and not is_outcome_review_protocol(e)
+    )
 
     # Claim stability proxy: count of claim events
     claims = sum(1 for e in recent if e.get("kind") == "claim")

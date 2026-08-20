@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+import json
+
+from pmm.adapters.dummy_adapter import DummyAdapter
+from pmm.core.commitment_outcome import (
+    OUTCOME_PROTOCOL_V1,
+    REVIEW_PROTOCOL_V1,
+    canonical_outcome_content,
+    canonical_review_content,
+)
 from pmm.core.commitment_manager import CommitmentManager
-from pmm.core.event_log import EventLog, _canonical_json
+from pmm.core.event_log import EventLog, TERMINAL_OUTCOME_PROTOCOL, _canonical_json
 from pmm.core.meme_graph import CommitmentOrigin, MemeGraph
+from pmm.runtime.loop import RuntimeLoop
 
 
 def _assistant(log: EventLog, content: str) -> int:
@@ -34,6 +44,25 @@ def _incremental(log: EventLog) -> MemeGraph:
     for event in log.read_all():
         graph.add_event(event)
     return graph
+
+
+def _managed_assistant(log: EventLog, content: str) -> int:
+    producer = getattr(log, "_test_managed_runtime", None)
+    if producer is None:
+        producer = RuntimeLoop(eventlog=log, adapter=DummyAdapter(), autonomy=False)
+        log._test_managed_runtime = producer
+    user_id = log.append(
+        kind="user_message",
+        content="record the structured relationship",
+        meta={"role": "user", "turn_protocol": TERMINAL_OUTCOME_PROTOCOL},
+    )
+    assistant_id, _ = log._append_managed_assistant_outcome(
+        producer=producer,
+        user_event_id=user_id,
+        content=content,
+        meta={"role": "assistant"},
+    )
+    return assistant_id
 
 
 def test_history_preserves_episode_boundaries_and_current_view() -> None:
@@ -286,3 +315,154 @@ def test_episode_queries_reject_non_open_and_unknown_inputs() -> None:
     assert graph.history_for_cid("") == []
     assert graph.history_for_cid("missing") == []
     assert graph.current_episode_for_cid("missing") is None
+
+
+def test_authoritative_outcome_and_reviews_are_exact_episode_members() -> None:
+    log = EventLog(":memory:")
+    cid = "c1"
+    opening_assistant = _assistant(log, "COMMIT: observe the result")
+    open_event_id = _open(
+        log,
+        cid=cid,
+        text="observe the result",
+        assistant_id=opening_assistant,
+    )
+    closing_assistant = _assistant(log, f"CLOSE: {cid}")
+    close_event_id = CommitmentManager(log).close_commitment(
+        cid,
+        source="assistant",
+        origin_event_id=closing_assistant,
+    )
+    assert close_event_id is not None
+
+    outcome_candidate = {
+        "cid": cid,
+        "open_event_id": open_event_id,
+        "close_event_id": close_event_id,
+        "observation": "The bounded work completed.",
+        "evidence_event_ids": [close_event_id],
+    }
+    outcome_origin = _managed_assistant(
+        log,
+        "COMMITMENT_OUTCOME:"
+        + json.dumps(outcome_candidate, sort_keys=True, separators=(",", ":")),
+    )
+    outcome_event_id = log.append(
+        kind="outcome_observation",
+        content=canonical_outcome_content(
+            observation=outcome_candidate["observation"],
+            evidence_event_ids=outcome_candidate["evidence_event_ids"],
+        ),
+        meta={
+            "protocol": OUTCOME_PROTOCOL_V1,
+            "source": "assistant",
+            "cid": cid,
+            "open_event_id": open_event_id,
+            "close_event_id": close_event_id,
+            "origin_event_id": outcome_origin,
+        },
+    )
+
+    review_ids: list[int] = []
+    for interpretation in (
+        "It proved the boundary.",
+        "It also exposed follow-up work.",
+    ):
+        review_candidate = {
+            "cid": cid,
+            "open_event_id": open_event_id,
+            "outcome_event_id": outcome_event_id,
+            "interpretation": interpretation,
+        }
+        review_origin = _managed_assistant(
+            log,
+            "COMMITMENT_REVIEW:"
+            + json.dumps(review_candidate, sort_keys=True, separators=(",", ":")),
+        )
+        review_ids.append(
+            log.append(
+                kind="reflection",
+                content=canonical_review_content(interpretation=interpretation),
+                meta={
+                    "protocol": REVIEW_PROTOCOL_V1,
+                    "source": "assistant",
+                    "cid": cid,
+                    "open_event_id": open_event_id,
+                    "outcome_event_id": outcome_event_id,
+                    "origin_event_id": review_origin,
+                },
+            )
+        )
+
+    reopening_assistant = _assistant(log, "COMMIT: observe the result")
+    reopened_event_id = _open(
+        log,
+        cid=cid,
+        text="observe the result",
+        assistant_id=reopening_assistant,
+    )
+
+    rebuilt = MemeGraph(log)
+    rebuilt.rebuild(log.read_all())
+    incremental = _incremental(log)
+
+    for graph in (rebuilt, incremental):
+        episode = graph.episode_for_open(open_event_id)
+        assert episode is not None
+        assert episode.status == "closed"
+        assert episode.outcome_event_id == outcome_event_id
+        assert episode.review_event_ids == tuple(review_ids)
+        assert episode.event_ids[-3:] == (outcome_event_id, *review_ids)
+        assert graph.graph[outcome_event_id][open_event_id]["label"] == "outcome_for"
+        assert all(
+            graph.graph[review_id][outcome_event_id]["label"] == "reviews_outcome"
+            for review_id in review_ids
+        )
+        assert graph.cids_for_event(outcome_event_id) == [cid]
+        assert all(graph.cids_for_event(review_id) == [cid] for review_id in review_ids)
+        assert graph.episodes_for_event(outcome_event_id) == [episode]
+        assert all(
+            graph.episodes_for_event(review_id) == [episode] for review_id in review_ids
+        )
+        current = graph.current_episode_for_cid(cid)
+        assert current is not None
+        assert current.open_event_id == reopened_event_id
+        assert current.outcome_event_id is None
+        assert current.review_event_ids == ()
+        assert outcome_event_id not in current.event_ids
+        assert all(review_id not in current.event_ids for review_id in review_ids)
+
+    assert rebuilt.history_for_cid(cid) == incremental.history_for_cid(cid)
+
+
+def test_legacy_outcome_and_generic_reflection_do_not_join_an_episode() -> None:
+    log = EventLog(":memory:")
+    opening_assistant = _assistant(log, "COMMIT: legacy boundary")
+    open_event_id = _open(
+        log,
+        cid="legacy",
+        text="legacy boundary",
+        assistant_id=opening_assistant,
+    )
+    legacy_outcome = log.append(
+        kind="outcome_observation",
+        content=json.dumps({"commitment_id": "legacy", "observed_result": "success"}),
+        meta={"cid": "legacy"},
+    )
+    generic_reflection = log.append(
+        kind="reflection",
+        content="This resembles a later review.",
+        meta={"cid": "legacy", "about_event": legacy_outcome},
+    )
+
+    graph = MemeGraph(log)
+    graph.rebuild(log.read_all())
+    episode = graph.episode_for_open(open_event_id)
+
+    assert episode is not None
+    assert episode.outcome_event_id is None
+    assert episode.review_event_ids == ()
+    assert legacy_outcome not in episode.event_ids
+    assert generic_reflection not in episode.event_ids
+    assert graph.cids_for_event(legacy_outcome) == []
+    assert graph.cids_for_event(generic_reflection) == []
