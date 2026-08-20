@@ -89,9 +89,18 @@ class MemeGraph:
             if anchor is not None:
                 self.graph.add_edge(event_id, anchor, label="adopts_identity_for")
         elif kind == "commitment_open":
-            # Link open → assistant_message that emitted a matching COMMIT line by meta.text
+            # New RuntimeLoop opens identify their exact producing assistant.
+            # Older rows lack that field and retain the historical fallback.
             text = (meta or {}).get("text")
-            if isinstance(text, str) and text:
+            if "origin_event_id" in (meta or {}):
+                assistant_node = self._validated_commitment_origin(
+                    opening_id=event_id,
+                    origin_event_id=(meta or {}).get("origin_event_id"),
+                    text=text,
+                )
+                if assistant_node is not None:
+                    self.graph.add_edge(event_id, assistant_node, label="commits_to")
+            elif isinstance(text, str) and text:
                 assistant_node = self._find_assistant_with_commit_text(text)
                 if assistant_node is not None:
                     self.graph.add_edge(event_id, assistant_node, label="commits_to")
@@ -185,6 +194,7 @@ class MemeGraph:
         return None
 
     def _find_assistant_with_commit_text(self, text: str) -> int | None:
+        """Legacy fallback for opens that predate explicit origin recording."""
         target = (text or "").strip()
         from pmm.core.semantic_extractor import extract_commitments
 
@@ -196,6 +206,34 @@ class MemeGraph:
                 if target in commitments:
                     return node
         return None
+
+    def _validated_commitment_origin(
+        self,
+        *,
+        opening_id: int,
+        origin_event_id: object,
+        text: object,
+    ) -> int | None:
+        """Resolve an explicit, prior assistant that emitted this COMMIT line."""
+        if (
+            not isinstance(origin_event_id, int)
+            or isinstance(origin_event_id, bool)
+            or origin_event_id <= 0
+            or origin_event_id >= opening_id
+            or not self.graph.has_node(origin_event_id)
+            or self.graph.nodes[origin_event_id].get("kind") != "assistant_message"
+            or not isinstance(text, str)
+            or not text.strip()
+        ):
+            return None
+
+        from pmm.core.semantic_extractor import extract_commitments
+
+        assistant = self.eventlog.get(origin_event_id) or {}
+        commitments = extract_commitments(
+            str(assistant.get("content") or "").splitlines()
+        )
+        return origin_event_id if text.strip() in commitments else None
 
     def _find_commitment_open_by_cid(self, cid: str) -> int | None:
         """Return the greatest commitment_open node id recorded for a cid.

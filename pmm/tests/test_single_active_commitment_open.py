@@ -119,9 +119,11 @@ def test_runtime_opened_reflection_tracks_canonical_create_not_rediscovery() -> 
     )
 
     loop.run_turn("first")
+    first_assistant = log.read_by_kind("assistant_message")[0]
     opens = log.read_by_kind("commitment_open")
     assert len(opens) == 1
     assert opens[0]["meta"]["cid"] == cid
+    assert opens[0]["meta"]["origin_event_id"] == first_assistant["id"]
     opened = _opened_commitment_reflections(log)
     assert len(opened) == 1
     assert cid in opened[0]["content"]
@@ -143,11 +145,130 @@ def test_runtime_opened_reflection_tracks_canonical_create_not_rediscovery() -> 
     loop.run_turn("close")
     loop.run_turn("reopen")
     reopened = log.read_by_kind("commitment_open")
+    reopening_assistant = log.read_by_kind("assistant_message")[-1]
     assert len(reopened) == 2
     assert all(event["meta"]["cid"] == cid for event in reopened)
+    assert reopened[-1]["meta"]["origin_event_id"] == reopening_assistant["id"]
     opened_after_reopen = _opened_commitment_reflections(log)
     assert len(opened_after_reopen) == 2
     assert all(cid in event["content"] for event in opened_after_reopen)
+
+    latest_open_id = reopened[-1]["id"]
+    graph = loop.memegraph
+    assert graph.graph[latest_open_id][reopening_assistant["id"]]["label"] == (
+        "commits_to"
+    )
+    assert not graph.graph.has_edge(latest_open_id, first_assistant["id"])
+    current_thread = graph.thread_for_cid(cid)
+    assert reopening_assistant["id"] in current_thread
+    assert first_assistant["id"] not in current_thread
+    assert opens[0]["id"] not in current_thread
+
+    rebuilt = MemeGraph(log)
+    rebuilt.rebuild(log.read_all())
+    assert rebuilt.thread_for_cid(cid) == current_thread
+    assert rebuilt.cids_for_event(reopening_assistant["id"]) == [cid]
+    assert rebuilt.cids_for_event(first_assistant["id"]) == [cid]
+
+
+def test_commitment_open_origin_reference_is_enforced() -> None:
+    log = EventLog(":memory:")
+    user_id = log.append(kind="user_message", content="please commit", meta={})
+    assistant_id = log.append(
+        kind="assistant_message",
+        content="I will.\nCOMMIT: ship the audit",
+        meta={"role": "assistant"},
+    )
+    base_meta = {
+        "cid": "c1",
+        "origin": "assistant",
+        "source": "assistant",
+        "text": "ship the audit",
+    }
+
+    with pytest.raises(ValueError, match="positive integer"):
+        log.append(
+            kind="commitment_open",
+            content="bad origin type",
+            meta={**base_meta, "origin_event_id": True},
+        )
+    with pytest.raises(ValueError, match="positive integer"):
+        log.append(
+            kind="commitment_open",
+            content="null origin",
+            meta={**base_meta, "origin_event_id": None},
+        )
+    with pytest.raises(ValueError, match="requires assistant origin"):
+        log.append(
+            kind="commitment_open",
+            content="user cannot claim assistant origin",
+            meta={
+                **base_meta,
+                "origin": "user",
+                "source": "user",
+                "origin_event_id": assistant_id,
+            },
+        )
+    with pytest.raises(ValueError, match="existing assistant_message"):
+        log.append(
+            kind="commitment_open",
+            content="wrong origin kind",
+            meta={**base_meta, "origin_event_id": user_id},
+        )
+    with pytest.raises(ValueError, match="matching COMMIT line"):
+        log.append(
+            kind="commitment_open",
+            content="wrong origin text",
+            meta={**base_meta, "text": "different", "origin_event_id": assistant_id},
+        )
+
+    created = log.append(
+        kind="commitment_open",
+        content="valid explicit origin",
+        meta={**base_meta, "origin_event_id": assistant_id},
+    )
+    assert log.get(created)["meta"]["origin_event_id"] == assistant_id
+
+    with pytest.raises(ValueError, match="reserved for commitment_open"):
+        log.append(
+            kind="commitment_close",
+            content="invalid close metadata",
+            meta={
+                "cid": "c1",
+                "source": "assistant",
+                "origin_event_id": assistant_id,
+            },
+        )
+
+
+def test_explicit_origin_does_not_fall_back_when_legacy_row_is_malformed() -> None:
+    log = EventLog(":memory:")
+    first_assistant = log.append(
+        kind="assistant_message",
+        content="COMMIT: same",
+        meta={},
+    )
+    malformed_open = _insert_legacy_open(log, "c1", content="legacy malformed")
+    with log._lock:
+        meta = _canonical_json(
+            {
+                "cid": "c1",
+                "origin": "assistant",
+                "source": "assistant",
+                "text": "same",
+                "origin_event_id": 9999,
+            }
+        )
+        log._conn.execute(
+            "UPDATE events SET meta = ? WHERE id = ?",
+            (meta, malformed_open),
+        )
+
+    graph = MemeGraph(log)
+    graph.rebuild(log.read_all())
+
+    assert not graph.graph.has_edge(malformed_open, first_assistant)
+    assert list(graph.graph.successors(malformed_open)) == []
 
 
 def test_repeated_general_open_writes_one_canonical_open() -> None:

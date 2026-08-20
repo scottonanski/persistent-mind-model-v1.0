@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Any, Callable, Dict, List, Optional
 
+from pmm.core.semantic_extractor import extract_commitments
 from pmm.core.writer_session import (
     WriterOwnershipBusy,
     WriterOwnershipError,
@@ -873,6 +874,45 @@ class EventLog:
             try:
                 self._conn.execute("BEGIN IMMEDIATE")
                 session.assert_authority_in_transaction(self._conn)
+                if "origin_event_id" in open_meta:
+                    origin_event_id = open_meta.get("origin_event_id")
+                    if (
+                        not isinstance(origin_event_id, int)
+                        or isinstance(origin_event_id, bool)
+                        or origin_event_id <= 0
+                    ):
+                        raise ValueError(
+                            "commitment_open origin_event_id must be a positive integer"
+                        )
+                    if open_meta.get("origin") != "assistant":
+                        raise ValueError(
+                            "commitment_open origin_event_id requires assistant origin"
+                        )
+                    origin_row = self._conn.execute(
+                        "SELECT kind, content FROM events WHERE id = ?",
+                        (origin_event_id,),
+                    ).fetchone()
+                    if origin_row is None or origin_row["kind"] != "assistant_message":
+                        raise ValueError(
+                            "commitment_open origin_event_id must reference an "
+                            "existing assistant_message"
+                        )
+                    commitment_text = open_meta.get("text")
+                    if (
+                        not isinstance(commitment_text, str)
+                        or not commitment_text.strip()
+                    ):
+                        raise ValueError(
+                            "commitment_open with origin_event_id requires non-empty text"
+                        )
+                    origin_commitments = extract_commitments(
+                        str(origin_row["content"] or "").splitlines()
+                    )
+                    if commitment_text.strip() not in origin_commitments:
+                        raise ValueError(
+                            "commitment_open origin_event_id assistant must contain "
+                            "the matching COMMIT line"
+                        )
                 latest = self._conn.execute(
                     """
                     SELECT id, kind FROM events
@@ -964,6 +1004,8 @@ class EventLog:
             raise TypeError("Commitment close content must be a string")
 
         close_meta = dict(meta or {})
+        if "origin_event_id" in close_meta:
+            raise ValueError("origin_event_id is reserved for commitment_open")
         cid = close_meta.get("cid")
         if not isinstance(cid, str) or not cid.strip():
             raise ValueError("commitment_close requires non-empty cid")

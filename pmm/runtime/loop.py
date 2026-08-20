@@ -977,7 +977,9 @@ class RuntimeLoop:
         # 5. Commitments (open)
         for c in self._extract_commitments(assistant_reply):
             cid, created = self.commitments.open_commitment_status(
-                c, source="assistant"
+                c,
+                source="assistant",
+                origin_event_id=ai_event_id,
             )
             if cid:
                 if created:

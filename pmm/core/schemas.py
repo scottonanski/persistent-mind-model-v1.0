@@ -15,7 +15,6 @@ from typing import Any, Dict, Optional
 
 import json
 
-
 VALID_COMMITMENT_ORIGINS = {"user", "assistant", "autonomy_kernel"}
 INTERNAL_COMMITMENT_ORIGIN = "autonomy_kernel"
 INTERNAL_COMMITMENT_PREFIX = "mc_"
@@ -69,6 +68,21 @@ def _validate_commitment_meta(kind: str, meta: Dict[str, Any]) -> None:
             raise ValueError("internal commitments require goal text")
     elif "goal" in meta:
         raise ValueError("goal is reserved for internal commitments")
+
+    if "origin_event_id" in meta:
+        origin_event_id = meta.get("origin_event_id")
+        if kind != "commitment_open":
+            raise ValueError("origin_event_id is reserved for commitment_open")
+        if (
+            not isinstance(origin_event_id, int)
+            or isinstance(origin_event_id, bool)
+            or origin_event_id <= 0
+        ):
+            raise ValueError("commitment origin_event_id must be a positive integer")
+        if origin != "assistant":
+            raise ValueError(
+                "commitment origin_event_id is reserved for assistant-produced opens"
+            )
 
 
 def validate_event(event: Dict[str, Any]) -> None:
