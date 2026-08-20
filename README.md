@@ -693,9 +693,10 @@ def extract_commitments(lines: List[str]) -> List[str]:
 ```python
 # 5. Commitments (open)
 for c in self._extract_commitments(assistant_reply):
-    cid = self.commitments.open_commitment(c, source="assistant")
+    cid, created = self.commitments.open_commitment_status(c, source="assistant")
     if cid:
-        delta.opened.append(cid)
+        if created:
+            delta.opened.append(cid)
         extract_exec_binds(self.eventlog, c, cid)
 ```
 
@@ -712,7 +713,10 @@ COMMIT: write unit tests
 
 Extracted: ["implement authentication system", "write unit tests"]
 
-→ Creates `commitment_open` events with text-derived CIDs. Repository-wide duplicate-open governance remains the separate R07 policy surface.
+→ Creates one active `commitment_open` for each text-derived CID. Repeating an
+already active commitment preserves the utterance and later bindings but reuses
+the existing opening. A close followed by the same commitment creates a new
+opening in that CID's later lifecycle episode.
 ```
 
 #### 3.2b Closures

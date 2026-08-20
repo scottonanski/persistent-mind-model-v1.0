@@ -84,13 +84,13 @@ The production path is `RuntimeLoop.run_turn` in [`pmm/runtime/loop.py`](../pmm/
 
 10. **Structured lines are interpreted.** Exact-prefix parsers inspect the already-preserved assistant response:
 
-    - `COMMIT:` lines are passed to the commitment manager and may create `commitment_open` events.
+    - `COMMIT:` lines are passed to the commitment manager. A new or previously closed CID may create a `commitment_open`; an already active CID reuses its existing opening while later bindings may still be recorded.
     - `CLAIM:type=JSON` lines are validated. Passing claims become canonical `claim` events and receive concept bindings; rejected claims produce `validation_failure` events.
     - validated identity proposal and ratification claims may lead the identity manager to create an `identity_adoption` event when its ordered protocol is satisfied.
     - `CLOSE:<cid>` lines are passed through the authoritative commitment-close boundary.
     - a `REFLECT:` block contributes to a final turn-delta reflection when the turn changed structured state.
 
-11. **Listeners update the live projections.** Every newly appended event is offered to the projections. Unsupported or malformed projection input may be ignored, depending on that projection's rules. `Mirror` automatically reads existing history and the runtime explicitly rebuilds `ConceptGraph`. `MemeGraph` is rebuildable, but normal `RuntimeLoop` initialization currently registers it only for new events without first replaying existing history.
+11. **Required projections are rebuilt and kept current.** The governed runtime rebuilds `MemeGraph`, `Mirror`, and `ConceptGraph` from canonical history before graph-dependent work, registers required delivery, and confirms fixed-watermark freshness. Required delivery failure is durable and fail-closed. A projection can still accept an event while omitting a semantically unresolved relationship; freshness does not prove semantic adequacy.
 
 The exact number and order of maintenance events between the assistant message and a commitment event can vary with configuration and ledger state. The lifecycle above describes the production control flow, not a promise that every turn has the same event count.
 
@@ -98,12 +98,12 @@ The exact number and order of maintenance events between the assistant message a
 
 | Component | What it does | What it does not establish |
 |---|---|---|
-| `EventLog` | Persists ordered events in SQLite, records `prev_hash` and `hash`, deduplicates identical hash payloads, and provides specialized atomic boundaries for managed turn outcomes and authoritative commitment closes. | It does not make arbitrary direct database edits impossible. Hash checks make chain damage detectable; they do not authenticate the semantic truth of event content. Generic append validation is not uniform across every event kind. |
+| `EventLog` | Persists ordered events in SQLite, records `prev_hash` and `hash`, deduplicates identical hash payloads, and provides specialized atomic boundaries for managed turn outcomes and authoritative commitment opens and closes. | It does not make arbitrary direct database edits impossible. Hash checks make chain damage detectable; they do not authenticate the semantic truth of event content. Generic append validation is not uniform across every event kind. |
 | `RuntimeLoop` | Orchestrates one turn: persistence, retrieval, prompt assembly, generation, preservation, extraction, validation, projection-producing events, and diagnostics. | It does not turn model text into truth merely by recording it. |
 | `Mirror` | Maintains fast projected state: open commitments, staleness flags, reflection counts, current retrieval configuration, and optionally the recursive self-model. | It is not primary history. A projection can ignore malformed or unresolved legacy events. |
-| `MemeGraph` | Builds a directed event graph for replies, commitments, closes, identity adoption, reflections, and summaries. It supports thread and neighborhood retrieval and has an explicit full-rebuild method. | An edge records the code's relationship rule; it does not prove semantic adequacy. Some older or weaker relationships are inferred or silently absent. `RuntimeLoop` does not currently call the full rebuild when it opens an existing ledger. |
+| `MemeGraph` | Rebuilds and incrementally maintains a directed event graph for replies, commitments, closes, identity adoption, reflections, and summaries. It supports thread and neighborhood retrieval and is a required managed-runtime projection. | An edge records the code's relationship rule; it does not prove semantic adequacy. Some older or weaker relationships are inferred or silently absent. |
 | `ConceptGraph` | Rebuilds the Concept Token Layer: concept definitions and versions, aliases, concept relations, event bindings, commitment-thread bindings, and attribution records. | It does not yet guarantee complete target, version, supersession, authorship, or relation governance across every producer. |
-| `CommitmentManager` | Opens general and internal commitments, queries open state, and routes closures through the atomic EventLog transition. | General CID generation and duplicate-open governance are not fully resolved; that is the queued R07 policy surface. |
+| `CommitmentManager` | Opens general and internal commitments, reports whether an opening was created or reused, queries open state, and routes opens and closes through atomic EventLog lifecycle transitions. | It does not decide whether a commitment is wise, fulfilled, relevant to identity, or semantically equivalent to differently worded obligations. CID generation and multi-episode reconstruction remain separate policy surfaces. |
 | Identity manager | Scans validated identity proposal and ratification claims and creates one adoption after an ordered intervening reflection or commitment lifecycle event. | The current protocol proves order and token agreement, not that the intervening anchor is semantically relevant to the proposed identity. |
 | Retrieval pipeline | Selects bounded prior events using concepts, commitment threads, graph expansion, lifetime-memory records, and optional vector refinement; it records why events were selected. | Retrieval inclusion is not evidence quality, and omission is not proof of irrelevance. Limits can leave useful history out of a turn. |
 | Autonomy supervisor and kernel | Schedules ledger-derived maintenance decisions such as reflecting, summarizing, and indexing, and records ticks, decisions, observations, and policy-related events. It uses the same ledger and commitment-close boundary. | It is not an independent source of semantic truth. Its decisions are only as strong as the events, projections, thresholds, and relationship checks it consumes. |
@@ -123,7 +123,7 @@ PMM has several kinds of authority, not one.
 
 For example, a model can write `CLOSE:unknown`. The assistant event authoritatively preserves that attempted instruction as history. R08 now prevents it from becoming an authoritative `commitment_close` state transition.
 
-## A commitment from opening to future recall and closure
+## A commitment from opening to future recall, closure, and reopening
 
 The following is the verified R08 lifecycle in ordinary language.
 
@@ -132,7 +132,8 @@ user asks
   -> retrieval builds context
   -> model response contains COMMIT
   -> full assistant response is preserved
-  -> commitment_open is appended with a CID
+  -> EventLog atomically creates or reuses the CID's active opening
+  -> only a new canonical opening is reflected as "Opened commitments"
   -> concept-to-event and concept-to-CID bindings support later retrieval
   -> a later turn retrieves the open state or thread
   -> model response contains CLOSE:<cid>
@@ -153,7 +154,7 @@ A fresh, disposable, on-disk runtime acceptance run exercised this path through 
 - after fully closing and reopening the database, `Mirror` reconstructed the commitment as closed and `MemeGraph` reconstructed the exact `28 -> 15` `closes` edge;
 - the repository's hash-chain, replay, and checkpoint checks passed for that database.
 
-That run is direct local acceptance evidence for the exercised lifecycle. It does not broaden R08 into a duplicate-open policy, prove every semantic relationship in PMM, or authorize R07.
+That run is direct local acceptance evidence for the exercised close lifecycle. R07 subsequently added the open-side rule: an already active CID reuses its existing opening, while an authoritative close permits a later reopen. Neither result proves every semantic relationship in PMM.
 
 ### Why closing is now different from merely saying “close”
 
@@ -182,8 +183,9 @@ The current repository supports these bounded statements:
 - A managed user turn has one protocol-linked terminal outcome: an assistant message or a generation failure.
 - Incomplete or failed model generations do not reach semantic state parsers.
 - Complete assistant responses are preserved before their structured contents are promoted or rejected.
+- New commitment opens are mandatory lifecycle transitions through one atomic boundary: an already active CID is reused rather than opened twice, while close followed by reopen remains permitted.
 - New commitment closes are mandatory successful transitions through one atomic boundary: the target CID must have a latest open lifecycle event, the exact open event is recorded, and repeats are idempotent.
-- The three main projections have rebuild procedures over persisted events. The R08 acceptance run directly demonstrated the same commitment state and exact close edge after an explicit rebuild; normal runtime startup does not currently invoke every one of those procedures.
+- The three main managed-runtime projections are rebuilt from canonical history and reconciled through fixed-watermark required delivery before graph-dependent work.
 - When claim evidence references are supplied through the normal runtime claim path, their ID shape, ledger existence, and availability in that turn's retrieval selection are checked.
 - Retrieval selections retain production provenance explaining how selected events entered the context set.
 
@@ -193,9 +195,8 @@ Each statement is scoped to the named production path. It should not be expanded
 
 These are active boundaries, not hidden guarantees:
 
-- **R07 duplicate opens:** general commitment CIDs are derived from text, while generic append and projection behavior do not yet provide a repository-wide duplicate-CID policy. A later open with the same CID can replace the earlier one in `Mirror`'s open map. R08 closes the currently authoritative latest open; it does not resolve how duplicate opens should be governed.
-- **MemeGraph after restart:** `RuntimeLoop` creates a new `MemeGraph` and listens for future events, but does not replay the existing ledger into it. Until an explicit rebuild occurs, graph- and thread-based retrieval after reopening can be weaker than retrieval in the original live runtime.
-- **No automatic recent-message window:** the runtime reads a recent tail for prompt construction, but the current prompt composer does not render that tail's content. A prior message that is not otherwise selected can therefore be absent from the next model context.
+- **Commitment episode reconstruction:** R07 permits a legitimate second opening after close. The latest episode agrees across `Mirror`, `MemeGraph`, and the close path, but the relationship from a reopened event to the assistant utterance that produced it requires a separate production-path audit.
+- **CID identity policy:** general commitment CIDs remain derived from a short hash of text. R07 governs lifecycle state for the resulting CID; it does not decide semantic equivalence, collision policy, or whether differently worded commitments represent one obligation.
 - **Optional evidence:** several claim/reference fields may be omitted or supplied as empty collections. The repository has not adopted one universal meaning for absence or emptiness.
 - **Unknown claim types:** the current claim validator accepts an unregistered type as `ACCEPTED_UNKNOWN_TYPE`; the runtime can promote it to a canonical claim and concept binding. Reject-versus-promote policy remains unsettled.
 - **Identity anchor relevance:** adoption requires proposal, intervening anchor, and matching ratification in order, but the code does not establish that the chosen anchor is substantively about that identity.

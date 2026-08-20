@@ -38,6 +38,32 @@ maintenance execution, semantic adequacy of overlap, historical migration,
 work-register governance, or an automatic Phase 4. No further R17 implementation
 is selected or authorized by this addendum.
 
+## R07 current-main addendum — 2026-08-19
+
+This inventory remains a pinned audit of `a615af5`. Its R07 rows, gap bullets,
+and recommended sequence below are preserved as the findings that motivated the
+later repair; they are not current descriptions of the commitment-open producer.
+
+R07 was published through PR #17 at merge commit
+`8f2c4d8f28570bbc68546fe9d537017b0f213ffb`. On audited EventLog paths, the
+latest lifecycle event for a CID is now checked inside the fenced write
+transaction. An already active CID returns its existing open event without a
+second append; a close permits a later reopen. Generic
+`EventLog.append(kind="commitment_open", ...)` routes through the same guard.
+
+The triggering assistant utterance remains historical even when its repeated
+`COMMIT:` does not create a new open. `RuntimeLoop` reports a CID as newly opened
+only when the canonical opening was created, while later binding attribution may
+still attach to the repeated utterance. Legacy duplicate rows are preserved, and
+`MemeGraph` resolves their close relationship from the latest opening to agree
+with `Mirror` and R08.
+
+R07 establishes relational lifecycle integrity for one active opening per CID
+on audited EventLog paths. It does not establish commitment wisdom or
+fulfillment, identity-anchor relevance, CID semantic equivalence or collision
+policy, full multi-episode reconstruction, historical migration, or protection
+against hostile out-of-band SQLite administration.
+
 ## Scope, method, and limits
 
 This inventory includes serialized fields and active control structures that production code uses relationally to affect canonical events, deterministic projections, identity, commitments, concept state, graph relationships, fast reconstruction, future retrieval, or authority to write and promote state.

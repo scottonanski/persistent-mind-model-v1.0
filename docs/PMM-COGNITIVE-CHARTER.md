@@ -347,3 +347,21 @@ Until separately authorized governance and design decisions are complete:
 Documentation may record current evidence, reconcile development rules with this
 charter, and organize undecided work around the cognitive lifecycle. It must stop
 before selecting or implementing runtime changes.
+
+### Governance reconciliation — 2026-08-19
+
+The freeze above records the governance boundary established at this charter's
+audit revision. It is not rewritten after later bounded authorizations.
+
+R17 Phases 1–3 were subsequently authorized and published as truthful vector
+provenance and attributable weak-overlap diagnostics. R07 was subsequently
+authorized and published through PR #17 as one active `commitment_open` per CID
+on audited EventLog paths.
+
+R07 operationalizes, but does not complete, the charter's account of commitment.
+A repeated utterance remains part of history and may acquire later relational
+attribution, but recurrence alone is not promoted into a second act of
+obligation. A close followed by reopen remains a traceable later episode. The
+change does not establish commitment meaning or fulfillment, identity-anchor
+relevance, semantic CID identity, or the complete
+commitment-to-outcome-to-reinterpretation chain.

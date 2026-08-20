@@ -236,7 +236,7 @@ The Cognitive Charter currently freezes:
 
 - R17 implementation beyond the published Phases 1–3;
 - the reference-policy matrix;
-- R06 and R07 enforcement;
+- R06 enforcement;
 - new cognitive semantics;
 - event-vocabulary and schema selection;
 - component renaming;
@@ -253,6 +253,12 @@ attributable, non-repeating diagnostics (PR #15). Their publication does not
 authorize full hybrid-retrieval reproduction, vector-stage correctness,
 mandatory maintenance execution, semantic adjudication, migration, work-register
 governance, Phase 4, or any other further R17 implementation.
+
+R07 is also a published exception (PR #17). It enforces one active
+`commitment_open` per CID on audited EventLog paths, preserves close/reopen
+lifecycles and existing history, and prevents rediscovery from being reflected
+as a new opening. It does not authorize CID-policy changes, identity-anchor
+semantics, legacy migration, or broader commitment redesign.
 
 ## Summary
 

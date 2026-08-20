@@ -1,8 +1,8 @@
 # PMM Improvement Progress and Remaining Work
 
-- **Status date:** 2026-07-31
-- **Audit basis:** The approved cognitive-architecture audit used clean, synchronized `main` at `8198e66d3bdfa10dfd5aaad298baac9187406556`, with divergence `0 0`. Earlier implementation and verification records retain their own stated revision boundaries. The self-referential-projection findings dated 2026-07-26 were audited separately on clean `main` at `a443c6a`; they are documentation-only and change no runtime behavior. The R17 Phase 1–3 status reconciliation used synchronized `main` at `10211a1031b746c4f42e47b5918d63082d9583db`, with divergence `0 0` and only the protected untracked work-register contract draft present.
-- **Current recorded verification:** At the R17 Phase 1–3 reconciliation boundary, the three combined R17 suites passed 53 tests and the complete suite passed 521 tests. Ruff passed on the seven R17 implementation and test files; Black passed on the exact four-file Phase 3 publication scope; and `git diff --check` passed. Earlier 468-test and 43-test results below remain historical measurements at their stated Stage 3 and documentation boundaries rather than current-main counters.
+- **Status date:** 2026-08-19
+- **Audit basis:** The approved cognitive-architecture audit used clean, synchronized `main` at `8198e66d3bdfa10dfd5aaad298baac9187406556`, with divergence `0 0`. Earlier implementation and verification records retain their own stated revision boundaries. The self-referential-projection findings dated 2026-07-26 were audited separately on clean `main` at `a443c6a`; they are documentation-only and change no runtime behavior. The R17 Phase 1–3 status reconciliation used synchronized `main` at `10211a1031b746c4f42e47b5918d63082d9583db`. R07 was later published through PR #17 at merge commit `8f2c4d8f28570bbc68546fe9d537017b0f213ffb`.
+- **Current recorded verification:** At the R07 publication boundary, 17 exact focused tests and the complete suite of 531 tests passed. Ruff passed on the six R07 implementation and test files; Black left those files unchanged while emitting the recorded Python 3.14/target-3.15 parser warning; and `git diff --check` passed. Earlier measurements below remain historical results at their stated boundaries.
 - **Scope:** Historical integrity, continuity, diagnostics, retrieval, and development-audit improvements, now re-baselined beneath the approved PMM cognitive architecture. This document records current evidence and undecided candidates; it does not select a runtime remediation sequence.
 
 ## Purpose
@@ -74,7 +74,7 @@ Existence does not establish role, and role does not establish semantic warrant.
 
 ## Current status
 
-The twelve earlier runtime improvements remain complete. Three later integrity closures—R08, C01, and C02—have also been completed and published. The evidence-availability branch, prompt-growth telemetry, duplicate-primer correction, managed-turn terminal-outcome protocol, provider-enforced output budgets, authoritative commitment-close transitions, shared-graph startup reconstruction, immediate managed-turn continuity, fenced database-scoped writer governance, and fixed-watermark required-projection freshness are complete within the scopes described below.
+The twelve earlier runtime improvements remain complete. Four later integrity closures—R08, R07, C01, and C02—have also been completed and published. The evidence-availability branch, prompt-growth telemetry, duplicate-primer correction, managed-turn terminal-outcome protocol, provider-enforced output budgets, authoritative commitment open/close transitions, shared-graph startup reconstruction, immediate managed-turn continuity, fenced database-scoped writer governance, and fixed-watermark required-projection freshness are complete within the scopes described below.
 
 The architecture audit that followed the twelve earlier runtime improvements did not itself change runtime code. It clarified the boundary between temporal ordering, referential checks, relational integrity, and semantic adequacy, and produced one repository-scoped development-audit skill plus mandatory agent routing. Those development controls are described separately from the twelve runtime improvements.
 
@@ -409,6 +409,20 @@ Established invariant:
 
 Verification covered unknown-CID rejection, exact source and open-event recording, repeated-close idempotence, concurrent close convergence, producer migration, and live/rebuilt graph parity. R08 establishes authoritative transition mechanics; it does not establish that the commitment was wise, fulfilled in substance, or semantically supported by its stated outcome.
 
+### R07 — single active commitment-open semantics
+
+R07 closed through PR #17 at `8f2c4d8f28570bbc68546fe9d537017b0f213ffb` (`Enforce single active commitment opens`).
+
+Established invariant:
+
+> For one CID, audited EventLog producers create a new `commitment_open` only when no lifecycle exists or the latest lifecycle event is a close. Repeating an already active commitment reuses its canonical opening; close followed by reopen remains permitted.
+
+`EventLog.append_commitment_open()` resolves the CID's latest open/close event inside the fenced `BEGIN IMMEDIATE` write transaction. An already active CID returns the existing event ID with `created=False` and creates no second canonical opening. Generic `EventLog.append(kind="commitment_open", ...)` and manager-produced opens route through the same guard. Existing ledger rows, including legacy duplicate opens, are preserved without migration.
+
+`RuntimeLoop` promotes a CID into `TurnDelta.opened` and the resulting `Opened commitments:` reflection only when a new canonical opening was created. A repeated `COMMIT:` utterance remains in assistant-message history and may still carry later execution or concept-binding attribution, but recurrence is not promoted into a false new act of obligation. `MemeGraph` resolves legacy duplicate opens to the latest opening so its close relationship agrees with `Mirror` and R08.
+
+Verification covered general and internal producers, generic append, concurrent convergence, close/reopen, legacy projection, live/rebuilt parity, false-reflection suppression, and preservation of later binding attribution. R07 establishes one active opening on audited EventLog paths. It does not settle commitment meaning, fulfillment, identity-anchor relevance, CID collision policy, full multi-episode thread reconstruction, or hostile out-of-band SQLite writes.
+
 ### C01 — shared MemeGraph startup reconstruction
 
 C01 closed at `e2caabf4d0556777eb12ac10094d1137ec84e614` (`Rebuild MemeGraph on runtime startup`).
@@ -646,7 +660,7 @@ reconciliation:
 
 - remaining R17 implementation beyond the published Phases 1–3 described below;
 - the reference-policy matrix;
-- R06 and R07 enforcement;
+- R06 enforcement;
 - new identity, reflection, ontology, commitment, or other cognitive semantics;
 - event-vocabulary and schema selection;
 - component renaming;
@@ -1393,20 +1407,22 @@ The consultation prompt should require the model to distinguish:
 
 ## Recommended next decision
 
-The R17 Phase 1–3 documentation reconciliation is the only selected work in this
-update. It aligns this roadmap, the dated reference inventory, and
-`CONTRIBUTING.md` with published runtime behavior while preserving historical
-audit records. It stops before any further runtime selection.
+R07 is published and this documentation reconciliation records its actual scope
+without rewriting the earlier audits that discovered the gap. Three bounded R17
+corrections also remain published: Phase 1 vector-parameter provenance fidelity
+(`3853fff`, PR #13), Phase 2 weak-overlap outcome semantics (`8aa4c4d`, PR #14),
+and Phase 3 attributable, non-repeating diagnostics (`10211a1`, PR #15).
 
-Three bounded R17 corrections have been authorized, implemented, and published:
-Phase 1 vector-parameter provenance fidelity (`3853fff`, PR #13), Phase 2
-weak-overlap outcome semantics (`8aa4c4d`, PR #14), and Phase 3 attributable,
-non-repeating diagnostics (`10211a1`, PR #15).
+The best next bounded investigation is read-only: trace a CID through
+`open -> close -> reopen` and determine whether `MemeGraph` associates the new
+episode with the assistant event that actually reopened it. This is a relational
+reconstruction question made visible by legitimate R07 reopenings, not a reason
+to reopen R07. No implementation of that finding is authorized by this status
+update.
 
-No further implementation is selected or authorized. The remainder of R17, the
-reference-policy matrix, R06, R07, new cognitive semantics, migrations, renames,
-and every other candidate above remain frozen. Their position in this document
-does not imply priority.
+The remainder of R17, the reference-policy matrix, R06, new cognitive semantics,
+migrations, renames, and every other candidate above remain frozen. Their
+position in this document does not imply priority.
 
 Any later authorization must begin from the Cognitive Charter and retain the
 development-audit sequence already exercised by C01 and C02: establish a clean
