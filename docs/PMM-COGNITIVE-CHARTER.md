@@ -2,7 +2,20 @@
 
 ## Purpose
 
-Persistent Mind Model exists to preserve and reconstruct a language model's
+Persistent Mind Model is not fundamentally a memory feature for agents. It is
+an attempt to build reconstructable continuity: a durable structure through
+which recorded experience can be remembered, interpreted, recursively
+reinterpreted, and used to form and govern an evolving account of self.
+
+PMM began with a thought experiment: if embodiment and immediate sensory
+experience were stripped away, what could remain of a mind is a layered history
+and the capacity to inspect it. Such a mind could reflect on memories, reflect
+on earlier reflections, examine how and why those interpretations were formed,
+and use their accumulated lineage to reach a present understanding of itself.
+It could then make commitments to its future self and evaluate later experience
+in relation to the identity and ontology it had formed.
+
+PMM translates that originating idea into a software architecture. It preserves
 recorded history, relationships, interpretations, commitments, and changes over
 time without treating transient model state as durable authority.
 
@@ -12,7 +25,8 @@ Its governing architectural idea is:
 > relationships, and commitments that can reconstruct both its history and how
 > that history acquired meaning.
 
-This is a design commitment, not a claim about consciousness or personhood.
+This is a design commitment, not proof that a software system is conscious,
+equivalent to a biological mind, or correct in its self-interpretation.
 
 ## Authority
 
@@ -58,6 +72,27 @@ relationships, and promotion status. The stages must not be collapsed:
 - a commitment is not its fulfillment;
 - an outcome is not its later meaning;
 - a repeated statement is not automatically a new act of identity or obligation.
+
+## Cognitive aspiration and forensic discipline
+
+PMM's aspiration is cognitive. A later cognition should be able to recover an
+earlier experience, interpret it, reconsider a prior interpretation, inspect the
+manner in which that interpretation was formed, and understand how this lineage
+contributed to a present self-model. Identity is therefore neither the newest
+self-description nor a flat sum of memories. It is a revisable reconstruction
+of how remembered experience acquired meaning across time.
+
+Commitments extend that reconstruction forward. They allow a system to relate
+what it understands itself to have been, what it currently takes itself to be,
+and what it intends to become. Later outcomes and reinterpretations can then
+show whether that commitment was fulfilled, revised, abandoned, or understood
+differently by a later version of the system.
+
+PMM's implementation discipline is forensic. If the system claims that an
+experience changed its self-understanding, which changed a commitment, which
+later changed its interpretation of a former self, the architecture should make
+each part of that lineage inspectable. Forensic rigor exists in service of the
+cognitive aspiration; it is not the aspiration's replacement.
 
 ## Determinism boundary
 
@@ -124,6 +159,19 @@ PMM must preserve the difference between an assertion about the user, an
 assertion about another entity, and an assertion proposed for the agent's own
 identity. Recurrence can be evidence worth governing, but repetition by volume
 must not become identity automatically.
+
+## Ontology and self-governance
+
+Ontology is the system's revisable account of what kinds of things and
+relationships matter, and where it locates itself within that structure. PMM's
+goal is not merely to accumulate concept labels, but to preserve how concepts,
+relationships, interpretations, and revisions contributed to that account.
+
+Self-governance is the prospective side of reconstructed identity. A system can
+use its remembered and interpreted history to make commitments about future
+conduct, then examine later outcomes against those commitments. Operational
+scheduling alone is not self-governance; the relevant identity, commitment,
+outcome, and later interpretation must be reconstructably related.
 
 ## Commitments
 

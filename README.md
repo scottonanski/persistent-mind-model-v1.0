@@ -2,14 +2,34 @@
 
 ![Persistent Mind Model](pmm.png)
 
-Persistent Mind Model (PMM) is an event-sourced runtime that gives language
-models persistent, inspectable history around otherwise stateless generations.
+Persistent Mind Model (PMM) is an attempt to model mind as reconstructable
+continuity.
+
+It began with a thought experiment: strip away embodiment and immediate sensory
+experience, and ask what could remain of a mind. The answer that motivated PMM
+was a layered, recursively inspectable history—the capacity to remember, reflect
+on memory, reconsider earlier reflections, examine how those interpretations
+were formed, reconstruct an identity from that lineage, and make commitments
+about who to become.
+
+PMM is therefore not merely persistent context for an agent. It explores how a
+language-model system can externalize an autobiographical structure in which
+history acquires meaning through later interpretation, identity can be revised
+through recursive reflection, ontology can develop, and commitments can extend
+self-understanding into future conduct.
+
+The current implementation is an event-sourced runtime beneath that aspiration.
 It records canonical events in SQLite, rebuilds deterministic projections, and
-selects bounded context for later turns.
+selects bounded context for later turns. Its cognitive aspiration is paired with
+forensic implementation discipline: a claimed change in identity should
+eventually be traceable through the experiences, interpretations, relationships,
+commitments, outcomes, and later reinterpretations that produced it.
 
 PMM does not make a model's statements true merely by recording them. A model
 utterance, a validated event, a projected relationship, and authoritative state
-are different layers with different guarantees.
+are different layers with different guarantees. The originating thought
+experiment defines the project; it does not establish that a software system is
+conscious or equivalent to a biological mind.
 
 ## Start here
 
