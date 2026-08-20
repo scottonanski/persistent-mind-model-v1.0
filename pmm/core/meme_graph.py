@@ -599,6 +599,25 @@ class MemeGraph:
                 return None
             return self._episode_for_open_locked(open_event_id)
 
+    def episodes_for_event(self, event_id: int) -> list[CommitmentEpisode]:
+        """Return exact commitment episodes containing ``event_id``.
+
+        An assistant message can legitimately originate commitments for more
+        than one CID, so the result is plural and ordered by open event ID.
+        """
+        if not isinstance(event_id, int) or isinstance(event_id, bool) or event_id <= 0:
+            return []
+        with self._lock:
+            if not self.graph.has_node(event_id):
+                return []
+            episodes: list[CommitmentEpisode] = []
+            for cid in self.cids_for_event(event_id):
+                for episode in self.history_for_cid(cid):
+                    if event_id in episode.event_ids:
+                        episodes.append(episode)
+            episodes.sort(key=lambda episode: episode.open_event_id)
+            return episodes
+
     def thread_for_cid(self, cid: str) -> list[int]:
         """Compatibility view of the current episode's semantic event order.
 

@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from pmm.core.event_log import EventLog
 from pmm.core.concept_graph import ConceptGraph
-from pmm.core.meme_graph import MemeGraph
+from pmm.core.meme_graph import CommitmentEpisode, MemeGraph
 from pmm.retrieval.vector import select_by_vector, select_by_concepts
 
 # Embedding parameters this pipeline applies to every select_by_vector call.
@@ -35,6 +35,8 @@ class RetrievalConfig:
     limit_vector_events: int = 10
     limit_concept_events: int = 30
     thread_event_limit: int = 12
+    historical_episode_limit: int = 2
+    historical_episode_event_limit: int = 12
     concept_thread_limit: int = 8
     graph_expansion_depth: int = 1
     recent_event_tail: int = 500
@@ -77,6 +79,10 @@ class RetrievalResult:
     relevant_cids: List[str]
     active_concepts: List[str]
     provenance: Dict[int, Dict[str, Any]] = field(default_factory=dict)
+    # Selected commitment episodes keyed by their canonical open event ID.
+    # The current episode remains the operational default. Historical episodes
+    # appear only when an independently selected event belongs to them.
+    episode_selections: Dict[int, Dict[str, Any]] = field(default_factory=dict)
     # One entry per select_by_vector invocation that actually ran, recording the
     # embedding parameters passed to it. Empty when no vector stage executed.
     vector_embedding_uses: List[Dict[str, Any]] = field(default_factory=list)
@@ -116,6 +122,8 @@ def run_retrieval_pipeline(
         config.cap_total_max,
     )
     thread_event_limit = _grow_cap(config.thread_event_limit, config.cap_total_max)
+    historical_episode_limit = max(0, int(config.historical_episode_limit))
+    historical_episode_event_limit = max(1, int(config.historical_episode_event_limit))
     concept_thread_limit = max(1, int(config.concept_thread_limit))
 
     # 1. Concept Seeding
@@ -391,6 +399,7 @@ def run_retrieval_pipeline(
     # AND include full threads for any relevant CIDs.
 
     thread_expanded_ids: Set[int] = set()
+    historical_episode_expanded_ids: Set[int] = set()
 
     base_ids = (
         ctl_event_ids.union(vector_event_ids)
@@ -402,10 +411,121 @@ def run_retrieval_pipeline(
     expanded_ids: Set[int] = set(base_ids)
     graph_expanded_ids: Set[int] = set()
 
+    # Select commitment episodes without flattening a CID's complete history.
+    # A concept->CID relationship selects the current episode. An older episode
+    # is added only when a base-selected event belongs to that exact episode.
+    episode_triggers: Dict[int, Set[int]] = {}
+    episodes_by_open: Dict[int, CommitmentEpisode] = {}
+    event_episode_cache: Dict[int, List[CommitmentEpisode]] = {}
+
+    def _episodes_for_event(event_id: int) -> List[CommitmentEpisode]:
+        event_id = int(event_id)
+        if event_id not in event_episode_cache:
+            event_episode_cache[event_id] = meme_graph.episodes_for_event(event_id)
+        return event_episode_cache[event_id]
+
+    def _select_episode(
+        episode: CommitmentEpisode, trigger_event_id: int | None = None
+    ) -> None:
+        open_event_id = int(episode.open_event_id)
+        episodes_by_open[open_event_id] = episode
+        episode_triggers.setdefault(open_event_id, set())
+        if trigger_event_id is not None:
+            episode_triggers[open_event_id].add(int(trigger_event_id))
+
+    for cid in sorted(relevant_cids):
+        current = meme_graph.current_episode_for_cid(cid)
+        if current is not None:
+            _select_episode(current)
+
+    for event_id in sorted(base_ids):
+        for episode in _episodes_for_event(event_id):
+            relevant_cids.add(episode.cid)
+            current = meme_graph.current_episode_for_cid(episode.cid)
+            if current is not None:
+                _select_episode(current)
+            _select_episode(episode, event_id)
+
+    # Bound historical context independently for each CID. Prefer the newest
+    # specifically triggered episodes; the current episode is never displaced.
+    selected_open_ids: Set[int] = set()
+    current_open_ids: Set[int] = set()
+    for cid in sorted(relevant_cids):
+        current = meme_graph.current_episode_for_cid(cid)
+        if current is not None:
+            current_open_id = int(current.open_event_id)
+            selected_open_ids.add(current_open_id)
+            current_open_ids.add(current_open_id)
+        historical = sorted(
+            (
+                episode
+                for episode in episodes_by_open.values()
+                if episode.cid == cid
+                and (current is None or episode.open_event_id != current.open_event_id)
+                and episode_triggers.get(int(episode.open_event_id))
+            ),
+            key=lambda episode: int(episode.open_event_id),
+            reverse=True,
+        )
+        selected_open_ids.update(
+            int(episode.open_event_id)
+            for episode in historical[:historical_episode_limit]
+        )
+
+    episode_selections: Dict[int, Dict[str, Any]] = {}
+    event_episode_details: Dict[int, List[Dict[str, Any]]] = {}
+    for open_event_id in sorted(selected_open_ids):
+        episode = episodes_by_open.get(open_event_id)
+        if episode is None:
+            episode = meme_graph.episode_for_open(open_event_id)
+        if episode is None:
+            continue
+        role = "current" if open_event_id in current_open_ids else "historical"
+        trigger_event_ids = sorted(episode_triggers.get(open_event_id, set()))
+        selection = {
+            "cid": episode.cid,
+            "role": role,
+            "trigger_event_ids": trigger_event_ids,
+        }
+        episode_selections[open_event_id] = selection
+
+        episode_limit = (
+            thread_event_limit if role == "current" else historical_episode_event_limit
+        )
+        episode_slice = sorted(set(episode.event_ids), reverse=True)[:episode_limit]
+        if role == "current":
+            thread_expanded_ids.update(episode_slice)
+        else:
+            historical_episode_expanded_ids.update(episode_slice)
+        for episode_event_id in episode.event_ids:
+            event_episode_details.setdefault(int(episode_event_id), []).append(
+                {
+                    "cid": episode.cid,
+                    "open_event_id": open_event_id,
+                    "role": role,
+                    "trigger_event_ids": trigger_event_ids,
+                }
+            )
+
+    expanded_ids.update(thread_expanded_ids)
+    expanded_ids.update(historical_episode_expanded_ids)
+
+    def _episode_expansion_allowed(event_id: int) -> bool:
+        episodes = _episodes_for_event(event_id)
+        if not episodes:
+            return True
+        if event_id in historical_episode_expanded_ids:
+            return True
+        return any(episode.open_event_id in current_open_ids for episode in episodes)
+
     # Expand generic neighbors
     for eid in list(base_ids):
         # Immediate neighbors
-        neighbors = meme_graph.neighbors(eid, direction="both")
+        neighbors = [
+            neighbor
+            for neighbor in meme_graph.neighbors(eid, direction="both")
+            if _episode_expansion_allowed(neighbor)
+        ]
         expanded_ids.update(neighbors)
         graph_expanded_ids.update(set(neighbors) - base_ids)
 
@@ -416,15 +536,15 @@ def run_retrieval_pipeline(
         #  Maybe too noisy. Let's stick to explicitly concept-linked threads for now
         #  plus threads explicitly mentioned in meta if any.)
 
-    # Expand full threads for relevant CIDs
+    # Preserve the existing current-episode neighborhood expansion. Historical
+    # episodes do not inherit these neighbors; only their bounded exact members
+    # are added above.
     for cid in relevant_cids:
-        thread_events = meme_graph.thread_for_cid(cid)
-        expanded_ids.update(thread_events)
-        thread_expanded_ids.update(thread_events)
-        # Also expand around thread events?
-        # "Use MemeGraph to expand/shape those threads."
-        # MemeGraph.subgraph_for_cid does exactly this (thread + neighbors)
-        subgraph = meme_graph.subgraph_for_cid(cid)
+        subgraph = [
+            event_id
+            for event_id in meme_graph.subgraph_for_cid(cid)
+            if _episode_expansion_allowed(event_id)
+        ]
         expanded_ids.update(subgraph)
         thread_expanded_ids.update(subgraph)
         graph_expanded_ids.update(set(subgraph) - base_ids)
@@ -448,14 +568,33 @@ def run_retrieval_pipeline(
 
     concept_set = ctl_event_ids - pinned_set
     thread_set = thread_expanded_ids - pinned_set - concept_set
-    summary_set = summary_expanded_ids - pinned_set - concept_set - thread_set
-    vector_set = vector_event_ids - pinned_set - concept_set - thread_set - summary_set
+    historical_set = (
+        historical_episode_expanded_ids - pinned_set - concept_set - thread_set
+    )
+    summary_set = (
+        summary_expanded_ids - pinned_set - concept_set - thread_set - historical_set
+    )
+    vector_set = (
+        vector_event_ids
+        - pinned_set
+        - concept_set
+        - thread_set
+        - historical_set
+        - summary_set
+    )
     residual_set = (
-        expanded_ids - pinned_set - concept_set - thread_set - summary_set - vector_set
+        expanded_ids
+        - pinned_set
+        - concept_set
+        - thread_set
+        - historical_set
+        - summary_set
+        - vector_set
     )
 
     concept_bucket = sorted(concept_set, reverse=True)
     thread_bucket = sorted(thread_set, reverse=True)
+    historical_bucket = sorted(historical_set, reverse=True)
     summary_bucket = sorted(summary_set, reverse=True)
     vector_bucket = sorted(vector_set, reverse=True)
     residual_bucket = sorted(residual_set, reverse=True)
@@ -473,6 +612,7 @@ def run_retrieval_pipeline(
 
     _take(concept_bucket)
     _take(thread_bucket)
+    _take(historical_bucket)
     _take(summary_bucket)
     _take(vector_bucket)
     _take(residual_bucket)
@@ -483,6 +623,7 @@ def run_retrieval_pipeline(
         ("summary_pinned", summary_pinned_ids),
         ("concept_binding", ctl_event_ids),
         ("thread_expansion", thread_expanded_ids),
+        ("historical_episode_expansion", historical_episode_expanded_ids),
         ("summary_expansion", summary_expanded_ids),
         ("vector_refinement", vector_event_ids),
         ("summary_vector", summary_vector_ids),
@@ -497,11 +638,20 @@ def run_retrieval_pipeline(
         if event_id in summary_vector_scores:
             scores["summary_vector"] = summary_vector_scores[event_id]
         provenance[event_id] = {"reasons": reasons, "scores": scores}
+        if event_id in event_episode_details:
+            provenance[event_id]["episodes"] = sorted(
+                event_episode_details[event_id],
+                key=lambda item: (
+                    str(item["cid"]),
+                    int(item["open_event_id"]),
+                ),
+            )
 
     return RetrievalResult(
         event_ids=final_ids,
         relevant_cids=sorted(relevant_cids),
         active_concepts=seed_concepts_list,
         provenance=provenance,
+        episode_selections=episode_selections,
         vector_embedding_uses=vector_embedding_uses,
     )

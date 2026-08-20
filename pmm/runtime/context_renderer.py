@@ -317,6 +317,44 @@ def _render_threads(
     lines = ["## Threads"]
 
     for cid in sorted(result.relevant_cids):
+        selected_episodes = [
+            (int(open_event_id), selection)
+            for open_event_id, selection in result.episode_selections.items()
+            if selection.get("cid") == cid
+        ]
+        if selected_episodes:
+            selected_episodes.sort(
+                key=lambda item: (
+                    item[1].get("role") != "current",
+                    -item[0],
+                )
+            )
+            bound_concepts = cg.resolve_concepts_for_cid(cid) or []
+            event_concepts = cg.concepts_for_thread(mg, cid)
+            thread_concepts = sorted(set(bound_concepts).union(event_concepts))
+            concepts_str = ""
+            if thread_concepts:
+                concepts_str = f" [{', '.join(thread_concepts[:3])}]"
+            lines.append(f"- {cid}{concepts_str}")
+            for open_event_id, selection in selected_episodes:
+                episode = mg.episode_for_open(open_event_id)
+                if episode is None:
+                    continue
+                open_event = eventlog.get(open_event_id) or {}
+                open_meta = open_event.get("meta") or {}
+                goal = open_meta.get("text") or open_meta.get("goal") or "Unknown goal"
+                role_label = (
+                    "Current episode"
+                    if selection.get("role") == "current"
+                    else "Historical episode"
+                )
+                status = "Active" if episode.status == "open" else "Closed"
+                lines.append(
+                    f"  - {role_label} (open event {open_event_id}): "
+                    f"{status} - {str(goal)[:80]}"
+                )
+            continue
+
         thread_ids = mg.get_thread_slice(cid, limit=12)
         if not thread_ids:
             continue
@@ -439,6 +477,13 @@ def _render_retrieval_provenance(result: RetrievalResult) -> str:
         scores = item.get("scores") or {}
         reason_text = ", ".join(str(reason) for reason in reasons) or "unspecified"
         details = [f"reasons={reason_text}"]
+        episodes = item.get("episodes") or []
+        for episode in episodes:
+            cid = episode.get("cid")
+            open_event_id = episode.get("open_event_id")
+            role = episode.get("role")
+            if cid and isinstance(open_event_id, int) and role:
+                details.append(f"episode={cid}/open-{open_event_id}/{role}")
         for score_name in sorted(scores):
             try:
                 score = float(scores[score_name])
