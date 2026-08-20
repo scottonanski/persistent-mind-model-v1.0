@@ -1,8 +1,8 @@
 # PMM Commitment Outcome and Later-Review Policy Contract
 
 - **Policy baseline:** `b0f139d13f7ca360751556830168694ff4aafd8c`
-- **Status:** Authorized, implemented, and lifecycle-verified as
-  `commitment_outcome.v1` and `commitment_outcome_review.v1`
+- **Status:** Authorized, implemented, lifecycle-verified, and published on
+  `main` in PR #22 (`e3fe3a625587732ae748b14bde4db66e17b67be5`)
 - **Scope:** One exact commitment episode, at most one outcome observation, and zero or more later reviews
 - **Non-goals:** Reopening R07/R08 lifecycle semantics, defining fulfillment, designing a general outcome ontology, adjudicating truth, or promoting a review into identity state
 
