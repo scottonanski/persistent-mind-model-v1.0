@@ -113,6 +113,30 @@ OpenAI requires `OPENAI_API_KEY`. Output can be bounded with
 Do not run concurrent one-shot writers against the same database. Writer
 contention is governed and competing managed writers fail explicitly.
 
+## Export
+
+From the repository root, use one of the export scripts below. They read the
+default ledger at `.data/pmmdb/pmm.db` and write timestamped files to the
+repository root.
+
+```bash
+# Export the chat session with telemetry.
+python3 scripts/export_session.py
+
+# Export the readable chat, telemetry, and compressed ledger.
+python3 scripts/export_session_and_telemetry.py
+
+# Export a smaller telemetry snapshot.
+python3 scripts/small_telemetry.py
+```
+
+From the interactive `pmm` client, export the current chat as Markdown or JSON:
+
+```text
+/export md
+/export json
+```
+
 ## MCP
 
 PMM exposes a STDIO MCP server:
