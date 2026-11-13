@@ -150,6 +150,29 @@ PMM_MCP_MODEL=ollama:llama3 \
 An MCP client should configure the same command and environment. `PMM_MCP_DB`
 is required. `PMM_MCP_MODEL` is optional and can also use an `openai:` prefix.
 
+### Connect Codex CLI to PMM
+
+From the PMM checkout, with Codex CLI installed and the PMM virtual
+environment set up:
+
+```bash
+.venv/bin/python -m pip install -e . --no-deps
+.venv/bin/pmm-codex configure --db "<ABSOLUTE_DB_PATH>" --model "<MODEL_NAME>"
+.venv/bin/pmm-codex check
+.venv/bin/pmm-codex run
+```
+
+Use an existing ledger path and a PMM model reference such as
+`ollama:<MODEL_NAME>` or `openai:<MODEL_NAME>`. If PMM is already registered
+with Codex, start with `check`. `configure` replaces the registration with
+the same name.
+
+Ask Codex to call `pmm_status` to check the connection, `pmm_read_events` to
+page through history, or `pmm_get_event` to read a full source event. These
+tools read the ledger without invoking a model. Ask Codex to call `pmm_turn`
+to run and record a turn with PMM's configured model. The bridge acts on
+explicit tool calls. See [Codex CLI integration](docs/CODEX-CLI.md) for details.
+
 ## Verify
 
 ```bash
